@@ -14,5 +14,7 @@
     "build": "tsc -b",
     "typecheck": "tsc -b"
   },
-  "dependencies": {}
+  "dependencies": {
+    "zod": "^4.6.5"
+  }
 }

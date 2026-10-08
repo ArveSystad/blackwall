@@ -23,3 +23,10 @@ A single local process serving the API, WebSocket and built SPA.
 
 ## Refs
 grill-result.md §9
+
+## Notes
+- `@hono/node-server` pinned to 1.19.x because `@hono/node-ws` 1.3.x peers on `^1.19`; 2.x was released the day this landed.
+- Dev: `pnpm dev` runs the server with `--dev --no-open` on 4711 and Vite on 5173 (`BLACKWALL_PORT` / `BLACKWALL_WEB_PORT`), proxying `/api` and `/ws` with `changeOrigin` so the Host check passes. The dev launch URL is `http://127.0.0.1:5173/api/session?t=…`, which sets the cookie and redirects to `/`. tsx watch restarts mint a new token, so reopen the printed URL.
+- Cookie is `blackwall_token_<port>` (httpOnly, SameSite=Strict); static SPA files are public, `/api/*` and `/ws` need the cookie.
+- Shutdown hooks run in reverse registration order on SIGINT/SIGTERM via `createShutdown().onShutdown()`.
+- Existing `node_modules` linked to a virtual store in an old checkout path; reinstalled from scratch.
