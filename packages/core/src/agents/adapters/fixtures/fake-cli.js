@@ -1,5 +1,8 @@
 // A stand-in agent CLI for tests: `node fake-cli.js <mode> [fixture] ...ignored CLI args`.
 //   replay <fixture>  prints the fixture's lines, then exits with code 0
+//   replay-resume <new> <resumed>
+//                     replays <resumed> when the args contain --resume, else <new>
+//   copilot-echo      Copilot JSONL messages: stdin, the auth env vars, then argv (the final text)
 //   echo              reads stdin and returns it as the result text, with argv as structured output
 //   hang              spawns a sleeping grandchild, reports its pid as the session id, then hangs
 //   fail              writes to stderr and exits with code 3 without a result
@@ -17,6 +20,23 @@ async function readStdin() {
 
 if (mode === "replay") {
   process.stdout.write(readFileSync(fixture, "utf8"));
+} else if (mode === "replay-resume") {
+  const resumed = process.argv.includes("--resume");
+  process.stdout.write(readFileSync(process.argv[resumed ? 4 : 3], "utf8"));
+} else if (mode === "copilot-echo") {
+  const input = await readStdin();
+  const args = process.argv.slice(3);
+  const id = args[args.findIndex((a) => a === "--session-id" || a === "--resume") + 1];
+  print({ type: "session.tools_updated", data: { model: "fake" }, ephemeral: true });
+  const env = { token: process.env.COPILOT_GITHUB_TOKEN, host: process.env.COPILOT_GH_HOST };
+  print({ type: "assistant.message", data: { content: input } });
+  print({ type: "assistant.message", data: { content: JSON.stringify(env) } });
+  print({ type: "assistant.message", data: { content: JSON.stringify(args) } });
+  print({
+    type: "result",
+    sessionId: id,
+    exitCode: 0,
+  });
 } else if (mode === "echo") {
   const input = await readStdin();
   print({

@@ -39,14 +39,21 @@ export interface AgentRunOptions {
   /** Working directory: the task's worktree. */
   cwd: string;
   prompt: string;
-  /** Role prompt appended to the CLI's own system prompt. */
+  /**
+   * Role prompt: appended to Claude's system prompt; Copilot has no such flag,
+   * so it is prepended to the prompt body there.
+   */
   systemPrompt?: string;
   model?: string;
   /** Continue an earlier session instead of starting a new one. */
   resumeSessionId?: string;
   permissions: AgentPermissions;
-  /** JSON Schema the final answer must match; its parsed value lands in `structured`. */
+  /**
+   * JSON Schema the final answer must match; its parsed value lands in
+   * `structured`. Claude enforces it natively; Copilot via a prompt contract.
+   */
   jsonSchema?: Record<string, unknown>;
+  /** Turn limit. Claude only: Copilot has no such flag. */
   maxTurns?: number;
   /** Aborting kills the CLI's whole process tree. */
   signal?: AbortSignal;
@@ -62,7 +69,7 @@ export interface AgentRun extends AsyncIterable<AgentEvent> {
 }
 
 /** Why a run produced no result. */
-export type AgentRunFailure = "aborted" | "cli-error" | "exit" | "spawn";
+export type AgentRunFailure = "aborted" | "cli-error" | "exit" | "invalid-output" | "spawn";
 
 export class AgentRunError extends Error {
   constructor(
