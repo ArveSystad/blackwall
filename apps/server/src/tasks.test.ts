@@ -7,6 +7,7 @@ import {
   type Repositories,
 } from "@blackwall/core";
 import {
+  deliveryPlanSchema,
   findingSchema,
   grillAnswerResultSchema,
   grillQuestionSchema,
@@ -138,10 +139,18 @@ describe("pipeline task routes", () => {
         },
       ),
       respond: vi.fn(async (id: string, input: GateResponseInput) => {
+        if (input.gate === "finish" && input.delivery) {
+          return repositories.tasks.update(id, { status: "done", gate: null });
+        }
         if (input.gate !== "plan-approval")
           throw new TaskStateError(`Task ${id} is not waiting on ${input.gate}`);
         return repositories.tasks.update(id, { status: "queued", gate: null, stage: "implement" });
       }),
+      deliveryPlan: vi.fn(async () => ({
+        actions: [{ kind: "merge-main" as const, branch: "agent/t1", into: "main" }],
+        squash: null,
+        completed: [],
+      })),
     };
     app = createApp({
       token: launchToken,
@@ -181,6 +190,32 @@ describe("pipeline task routes", () => {
     });
     expect(wrong.status).toBe(409);
     expect(await wrong.json()).toEqual({ error: `Task ${task.id} is not waiting on finish` });
+  });
+
+  it("shows the delivery plan and passes the confirmed actions on", async () => {
+    const task = seedTask();
+    const plan = await request(`/api/tasks/${task.id}/delivery`);
+    expect(plan.status).toBe(200);
+    expect(deliveryPlanSchema.parse(await plan.json()).actions).toEqual([
+      { kind: "merge-main", branch: "agent/t1", into: "main" },
+    ]);
+
+    const done = await request(`/api/tasks/${task.id}/gate`, {
+      method: "POST",
+      body: { gate: "finish", decision: "approve", delivery: { actions: ["merge-main"] } },
+    });
+    expect(done.status).toBe(200);
+    expect(pipeline.respond).toHaveBeenCalledWith(task.id, {
+      gate: "finish",
+      decision: "approve",
+      delivery: { actions: ["merge-main"], squash: false, findingIds: [] },
+    });
+
+    const unknown = await request(`/api/tasks/${task.id}/gate`, {
+      method: "POST",
+      body: { gate: "finish", decision: "approve", delivery: { actions: ["push-main"] } },
+    });
+    expect(unknown.status).toBe(400);
   });
 
   it("answers a grill question, rejecting blank answers", async () => {

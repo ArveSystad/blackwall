@@ -5,6 +5,7 @@ import {
   createConnectionTokens,
   createCopilotAdapter,
   createDefaultStages,
+  createDeliverer,
   createGitService,
   createKeyringSecretStore,
   createPipelineEngine,
@@ -12,11 +13,10 @@ import {
   createRepositories,
   createSettingsService,
   createWorkspacePreparer,
-  deliverNothing,
   detectClis,
   openDatabase,
 } from "@blackwall/core";
-import { testConnection } from "@blackwall/integrations";
+import { parseRemoteSlug, testConnection } from "@blackwall/integrations";
 import type { ServerEvent } from "@blackwall/shared";
 import { banner } from "./banner.js";
 import { parseConfig } from "./config.js";
@@ -80,7 +80,18 @@ try {
       repos: repositories.repos,
       branchFor: firstBranchFor(jira.branchFor, github.branchFor),
     }),
-    deliver: deliverNothing,
+    delivery: createDeliverer({
+      git,
+      repositories,
+      ports: {
+        parseRemote: parseRemoteSlug,
+        jiraIssueUrl: jira.issueUrl,
+        openPullRequest: (_task, action) => github.openPullRequest(action),
+        commentOnPullRequest: github.commentOnPullRequest,
+        commentOnJiraIssue: jira.commentOnIssue,
+        reviewPullRequest: github.reviewPullRequest,
+      },
+    }),
     maxTasksPerRepo: settings.maxTasksPerRepo,
     publish: (event) => broadcast(event),
   });

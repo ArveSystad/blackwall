@@ -42,6 +42,3 @@ export function createWorkspacePreparer({ git, repos, branchFor }: WorkspacePrep
     return { branch, worktreePath };
   };
 }
-
-/** Delivery placeholder: nothing leaves the machine until the finish actions exist. */
-export async function deliverNothing(): Promise<void> {}

@@ -81,13 +81,19 @@ export const FINDING_STATUSES = ["open", "fixed", "force-fix", "force-ignore", "
 /** Finding statuses the user can set by hand. */
 export const FINDING_OVERRIDES = ["force-fix", "force-ignore"] as const;
 export const GRILL_ANSWERERS = ["agent", "user"] as const;
-/** Outward actions offered at finish; agents never perform these themselves. */
+/**
+ * Delivery actions offered at finish, in the order they run. Agents never
+ * perform these themselves; the harness does, and only the ones the user
+ * confirmed. `merge-main` is the free-text finish (rebase onto local main,
+ * then fast-forward it); it never leaves the machine and main is never pushed.
+ */
 export const DELIVERY_TARGETS = [
   "push-branch",
   "open-pr",
   "pr-comment",
-  "pr-review",
   "jira-comment",
+  "merge-main",
+  "pr-review",
 ] as const;
 /** Seed list for the editable finding tags. */
 export const DEFAULT_TAGS = [
@@ -498,6 +504,10 @@ export const taskSchema = z
     deliveryTargets: z.array(deliveryTargetSchema),
     freeText: z.string(),
     plan: z.string().nullable(),
+    /** The summarizer's final summary (changes, decisions, leftover findings); null until Summarize. */
+    summary: z.string().nullable(),
+    /** Commit message for the optional squash at finish, written with the summary. */
+    squashMessage: z.string().nullable(),
     createdAt: timestamp,
     updatedAt: timestamp,
   })
@@ -537,6 +547,89 @@ export const pullRequestLookupSchema = z.object({
 });
 export type PullRequestLookup = z.infer<typeof pullRequestLookupSchema>;
 
+// ---------------------------------------------------------------------------
+// Delivery
+// ---------------------------------------------------------------------------
+
+/**
+ * One delivery action as offered at finish, with exactly where it goes and
+ * what it sends, so the user confirms the real target rather than a label.
+ */
+export const deliveryActionSchema = z.discriminatedUnion("kind", [
+  /** Push the task branch to `remote` under the same name. Never main. */
+  z.object({ kind: z.literal("push-branch"), branch: z.string(), remote: z.string() }),
+  /** Open a pull request on GitHub/GHE from `head` into `base`. */
+  z.object({
+    kind: z.literal("open-pr"),
+    host: z.string(),
+    owner: z.string(),
+    repo: z.string(),
+    head: z.string(),
+    base: z.string(),
+    title: z.string(),
+    body: z.string(),
+  }),
+  /** Post `body` as a conversation comment on the pull request at `url`. */
+  z.object({ kind: z.literal("pr-comment"), url: z.string(), body: z.string() }),
+  /** Post `body` as a comment on Jira issue `key` (`url` when the site is known). No transitions. */
+  z.object({
+    kind: z.literal("jira-comment"),
+    key: z.string(),
+    url: z.string().nullable(),
+    body: z.string(),
+  }),
+  /** Rebase `branch` onto local `into`, then fast-forward `into` to it. Local only. */
+  z.object({ kind: z.literal("merge-main"), branch: z.string(), into: z.string() }),
+  /** Submit a review on the pull request at `url` with the selected findings as inline comments. */
+  z.object({
+    kind: z.literal("pr-review"),
+    url: z.string(),
+    /** The findings offered for posting; the user picks which ones go. */
+    findingIds: z.array(id),
+  }),
+]);
+export type DeliveryAction = z.infer<typeof deliveryActionSchema>;
+
+/** The optional squash of the task's commits at finish, before anything is pushed or merged. */
+export const deliverySquashSchema = z.object({
+  /** Commits that would be squashed into one. */
+  commits: z.int().positive(),
+  /** Base the commits are counted from (the fork point, or the PR head on the remote). */
+  base: z.string(),
+  message: z.string(),
+});
+export type DeliverySquash = z.infer<typeof deliverySquashSchema>;
+
+/**
+ * What finishing the task would do. Every action starts ticked in the UI and
+ * the squash unticked; only what the user confirms is performed.
+ */
+export const deliveryPlanSchema = z.object({
+  actions: z.array(deliveryActionSchema),
+  /** Null when there is nothing to squash (fewer than two commits, or a Review PR task). */
+  squash: deliverySquashSchema.nullable(),
+  /** Actions already performed for this run; a retry after a failure skips them. */
+  completed: z.array(deliveryTargetSchema),
+});
+export type DeliveryPlan = z.infer<typeof deliveryPlanSchema>;
+
+/**
+ * The delivery actions the user confirmed at finish (or, for a Review PR
+ * task, at triage). Anything not listed is not performed.
+ */
+export const deliveryConfirmationSchema = z.object({
+  actions: z
+    .array(deliveryTargetSchema)
+    .refine((a) => new Set(a).size === a.length, "Each action can be confirmed only once")
+    .default([]),
+  /** Squash the task's commits into one first. */
+  squash: z.boolean().default(false),
+  /** Review PR tasks: the findings to post as inline review comments. */
+  findingIds: z.array(id).default([]),
+});
+export type DeliveryConfirmation = z.infer<typeof deliveryConfirmationSchema>;
+export type DeliveryConfirmationInput = z.input<typeof deliveryConfirmationSchema>;
+
 /** Body for answering the gate a `needs-you` task waits on. */
 export const gateResponseInputSchema = z.object({
   /** The gate being answered; must match the task's current gate. */
@@ -544,8 +637,13 @@ export const gateResponseInputSchema = z.object({
   decision: gateDecisionSchema,
   /** Instructions passed to the next stage, e.g. the requested plan changes. */
   message: z.string().trim().min(1).optional(),
+  /**
+   * The confirmed delivery actions when approving the finish gate (or a
+   * Review PR task's triage). Omitted: nothing leaves the machine.
+   */
+  delivery: deliveryConfirmationSchema.optional(),
 });
-export type GateResponseInput = z.infer<typeof gateResponseInputSchema>;
+export type GateResponseInput = z.input<typeof gateResponseInputSchema>;
 
 /** Extra instructions typed into a task's input bar. */
 export const taskMessageInputSchema = z.object({ text: z.string().trim().min(1) });
@@ -738,6 +836,20 @@ export type PlanAnswersOutput = z.infer<typeof planAnswersOutputSchema>;
 /** JSON Schema of the planner's grill answers. */
 export function planAnswersOutputJsonSchema(): Record<string, unknown> {
   return z.toJSONSchema(planAnswersOutputSchema);
+}
+
+/**
+ * The summarizer's final answer: the task summary in markdown, and a commit
+ * message for squashing the task's commits into one.
+ */
+export const summaryOutputSchema = z
+  .object({ summary: z.string().trim().min(1), commitMessage: z.string().trim().min(1) })
+  .strict();
+export type SummaryOutput = z.infer<typeof summaryOutputSchema>;
+
+/** JSON Schema of the summarizer's final answer. */
+export function summaryOutputJsonSchema(): Record<string, unknown> {
+  return z.toJSONSchema(summaryOutputSchema);
 }
 
 /** Whether an agent CLI is installed, detected at startup via `<cli> --version`. */

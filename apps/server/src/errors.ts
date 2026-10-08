@@ -1,6 +1,7 @@
 import {
   AgentNotFoundError,
   ConnectionNotFoundError,
+  DeliveryError,
   FindingNotFoundError,
   GrillQuestionNotFoundError,
   InvalidAgentError,
@@ -72,6 +73,10 @@ export function errorResponse(error: unknown, c: Context) {
   }
   if (error instanceof RepoInUseError || error instanceof TaskStateError) {
     return c.json({ error: error.message }, 409);
+  }
+  if (error instanceof DeliveryError) {
+    // Git's or the host's own message; GitHub and Jira errors never carry the token.
+    return c.json({ error: error.message }, 502);
   }
   if (error instanceof SecretStoreError) {
     // The message names the connection id only; the cause is not logged.

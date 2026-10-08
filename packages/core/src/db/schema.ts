@@ -139,6 +139,10 @@ export const tasks = sqliteTable(
       .default(sql`'[]'`),
     freeText: text("free_text").notNull().default(""),
     plan: text("plan"),
+    /** The summarizer's final summary; null until Summarize. */
+    summary: text("summary"),
+    /** Commit message for the optional squash at finish. */
+    squashMessage: text("squash_message"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

@@ -22,6 +22,7 @@ import {
   type StageHandlers,
 } from "./engine.js";
 import { createFakeAdapter, type FakeScript } from "./fake-adapter.js";
+import { DeliveryError, type DeliveryContext } from "./delivery.js";
 import type { CheckOutcome, CheckRunner } from "./checks.js";
 import { InvalidGateResponseError } from "./transitions.js";
 import { commitKey, commitMessage, createDefaultStages } from "./stages.js";
@@ -70,16 +71,20 @@ function stageOf(options: AgentRunOptions): Call {
   if (options.prompt.includes("Grill this plan")) return "plan-review";
   if (options.prompt.includes("Reviewers' questions")) return "plan-answers";
   if (options.prompt.includes("The user has answered")) return "plan-fold";
+  if (options.prompt.includes("Summarize the changes")) return "summarize";
   if (options.jsonSchema) return "code-review";
   if (options.prompt.includes("write a concrete implementation plan")) return "inform";
-  if (options.prompt.includes("Summarize")) return "summarize";
   return "implement";
 }
 
-/** Plan reviewers are satisfied and the planner keeps the plan unless a script says otherwise. */
+/**
+ * Plan reviewers are satisfied, the planner keeps the plan and code reviewers
+ * find nothing unless a script says otherwise.
+ */
 function withPlanDefaults(stage: Call, script: FakeScript): FakeScript {
   if (script.structured !== undefined || script.fail !== undefined || script.hang) return script;
   if (stage === "plan-review") return { ...script, structured: { questions: [] } };
+  if (stage === "code-review") return { ...script, structured: { findings: [] } };
   if (stage === "plan-answers") {
     return { ...script, structured: { answers: [], plan: "revised plan" } };
   }
@@ -91,11 +96,21 @@ interface Harness {
   calls: { stage: Call; options: AgentRunOptions }[];
   events: ServerEvent[];
   delivered: string[];
+  /** Delivery calls, with what the user confirmed. */
+  deliveries: DeliveryContext[];
 }
 
 function harness(
   script: (stage: Call, options: AgentRunOptions) => FakeScript = () => ({}),
-  { stages = createDefaultStages(), maxPerRepo = 3 } = {},
+  {
+    stages = createDefaultStages(),
+    maxPerRepo = 3,
+    deliver = async () => undefined,
+  }: {
+    stages?: StageHandlers;
+    maxPerRepo?: number;
+    deliver?: (ctx: DeliveryContext) => Promise<void>;
+  } = {},
 ): Harness {
   const agents = createAgentService({ agents: r.agents, settings: r.settings, tags: r.tags });
   const calls: Harness["calls"] = [];
@@ -106,6 +121,7 @@ function harness(
   };
   const events: ServerEvent[] = [];
   const delivered: string[] = [];
+  const deliveries: DeliveryContext[] = [];
   const engine = createPipelineEngine({
     repositories: r,
     invocation: agents.invocation,
@@ -118,14 +134,23 @@ function harness(
       branch: task.branch ?? `agent/${task.id}`,
       worktreePath: dir,
     }),
-    deliver: async (task) => {
-      delivered.push(task.id);
+    delivery: {
+      plan: async (_task, completed) => ({
+        actions: [],
+        squash: null,
+        completed: completed.filter((c) => c !== "squash"),
+      }),
+      deliver: async (ctx) => {
+        deliveries.push(ctx);
+        await deliver(ctx);
+        delivered.push(ctx.task.id);
+      },
     },
     maxTasksPerRepo: () => maxPerRepo,
     publish: (event) => events.push(event),
     log: () => undefined,
   });
-  return { engine, calls, events, delivered };
+  return { engine, calls, events, delivered, deliveries };
 }
 
 function seedTask(patch: Partial<Parameters<Repositories["tasks"]["create"]>[0]> = {}): Task {
@@ -1015,5 +1040,188 @@ describe("code review panel and triage", () => {
     const seeded = await approved(h);
     expect(afterApproval(h)).toEqual(["implement", "summarize"]);
     expect(task(seeded.id)).toMatchObject({ gate: "finish" });
+  });
+});
+
+describe("summarize and finish", () => {
+  const mediumFinding: ReviewFinding = {
+    ...highFinding,
+    severity: "medium",
+    title: "Error message leaks the user name",
+    lineStart: 12,
+    lineEnd: 12,
+  };
+
+  async function atFinish(h: Harness, patch: Parameters<typeof seedTask>[0] = {}) {
+    const seeded = seedTask(patch);
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    await h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" });
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
+    return seeded;
+  }
+
+  it("stores the summary with the open findings appended and the squash message", async () => {
+    const h = harness((stage, options) => {
+      if (stage === "code-review") return { structured: { findings: [mediumFinding] } };
+      if (stage === "summarize") {
+        expect(options.prompt).toContain("Error message leaks the user name");
+        expect(options.prompt).toContain("Do not mention ABC-1");
+        return {
+          structured: { summary: "Compared passwords strictly.", commitMessage: "Fix login" },
+        };
+      }
+      return {};
+    });
+    const seeded = await atFinish(h, {
+      origin: { kind: "jira-issue", key: "ABC-1", connectionId: null },
+    });
+    const { summary, squashMessage } = task(seeded.id);
+    expect(summary).toBe(
+      "Compared passwords strictly.\n\n### Left open\n\n- **[medium] Error message leaks the user name** (`src/login.ts:12`): Type coercion lets an empty password through.",
+    );
+    expect(squashMessage).toBe("ABC-1 Fix login");
+  });
+
+  it("takes the summarizer's text when it misses the output contract", async () => {
+    const h = harness((stage) => (stage === "summarize" ? { text: "Plain summary" } : {}));
+    const seeded = await atFinish(h);
+    expect(task(seeded.id)).toMatchObject({ summary: "Plain summary", squashMessage: "Fix login" });
+  });
+
+  it("delivers only the confirmed actions and records them", async () => {
+    const h = harness(() => ({}), {
+      deliver: async (ctx) => {
+        for (const action of ctx.confirmation.actions) ctx.record({ action, detail: action });
+      },
+    });
+    const seeded = await atFinish(h);
+    // Approving without a confirmation sends nothing.
+    await h.engine.respond(seeded.id, {
+      gate: "finish",
+      decision: "approve",
+      delivery: { actions: ["merge-main"] },
+    });
+    expect(h.deliveries[0]!.confirmation).toEqual({
+      actions: ["merge-main"],
+      squash: false,
+      findingIds: [],
+    });
+    expect(task(seeded.id)).toMatchObject({
+      status: "done",
+      gate: null,
+      deliveryTargets: ["merge-main"],
+    });
+    const step = lastStep(seeded.id);
+    expect(step).toMatchObject({ stage: "summarize", agentId: null, status: "succeeded" });
+    expect(r.stepEvents.list(step.id).map((e) => e.payload)).toEqual([
+      { action: "merge-main", detail: "merge-main" },
+    ]);
+  });
+
+  it("confirms nothing when the finish approval lists no actions", async () => {
+    const h = harness();
+    const seeded = await atFinish(h);
+    await h.engine.respond(seeded.id, { gate: "finish", decision: "approve" });
+    expect(h.deliveries[0]!.confirmation.actions).toEqual([]);
+    expect(task(seeded.id)).toMatchObject({ status: "done", deliveryTargets: [] });
+  });
+
+  it("keeps the task at finish when an action fails, and skips done ones on retry", async () => {
+    let attempt = 0;
+    const h = harness(() => ({}), {
+      deliver: async (ctx) => {
+        attempt += 1;
+        if (!ctx.completed.includes("push-branch")) {
+          ctx.record({ action: "push-branch", detail: "origin agent/x" });
+        }
+        if (attempt === 1) throw new DeliveryError("GitHub said no");
+        ctx.record({ action: "open-pr", detail: "https://github.com/acme/app/pull/8" });
+      },
+    });
+    const seeded = await atFinish(h);
+    const delivery = { actions: ["push-branch", "open-pr"] as const };
+    await expect(
+      h.engine.respond(seeded.id, {
+        gate: "finish",
+        decision: "approve",
+        delivery: { actions: [...delivery.actions] },
+      }),
+    ).rejects.toThrow("GitHub said no");
+    expect(task(seeded.id)).toMatchObject({
+      status: "needs-you",
+      gate: "finish",
+      error: "GitHub said no",
+    });
+    expect(lastStep(seeded.id)).toMatchObject({ status: "failed", error: "GitHub said no" });
+    expect((await h.engine.deliveryPlan(seeded.id)).completed).toEqual(["push-branch"]);
+
+    await h.engine.respond(seeded.id, {
+      gate: "finish",
+      decision: "approve",
+      delivery: { actions: [...delivery.actions] },
+    });
+    expect(h.deliveries[1]!.completed).toEqual(["push-branch"]);
+    expect(task(seeded.id)).toMatchObject({
+      status: "done",
+      error: null,
+      deliveryTargets: ["push-branch", "open-pr"],
+    });
+  });
+
+  it("leaves the task untouched when the confirmation does not fit the plan", async () => {
+    const h = harness(() => ({}), {
+      deliver: async () => {
+        throw new InvalidGateResponseError("open-pr is not a delivery action for this task");
+      },
+    });
+    const seeded = await atFinish(h);
+    const before = stepsOf(seeded.id).length;
+    await expect(
+      h.engine.respond(seeded.id, {
+        gate: "finish",
+        decision: "approve",
+        delivery: { actions: ["open-pr"] },
+      }),
+    ).rejects.toThrow(InvalidGateResponseError);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish", error: null });
+    expect(stepsOf(seeded.id)).toHaveLength(before);
+  });
+
+  it("refuses a second confirmation while the first is delivering", async () => {
+    let release: () => void = () => undefined;
+    const h = harness(() => ({}), {
+      deliver: () => new Promise<void>((resolve) => (release = resolve)),
+    });
+    const seeded = await atFinish(h);
+    const first = h.engine.respond(seeded.id, { gate: "finish", decision: "approve" });
+    await expect(
+      h.engine.respond(seeded.id, { gate: "finish", decision: "approve" }),
+    ).rejects.toThrow(TaskStateError);
+    release();
+    await first;
+    expect(h.deliveries).toHaveLength(1);
+  });
+
+  it("posts a Review PR task's selected findings at triage", async () => {
+    const h = harness((stage) =>
+      stage === "code-review" ? { structured: { findings: [highFinding] } } : {},
+    );
+    const seeded = seedTask({ origin: prOrigin(), mode: "review", branch: "feature/x" });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "triage" });
+    const [finding] = r.findings.listByTask(seeded.id);
+    await h.engine.respond(seeded.id, {
+      gate: "triage",
+      decision: "approve",
+      delivery: { actions: ["pr-review"], findingIds: [finding!.id] },
+    });
+    expect(h.deliveries[0]!.confirmation).toMatchObject({
+      actions: ["pr-review"],
+      findingIds: [finding!.id],
+    });
+    expect(task(seeded.id)).toMatchObject({ status: "done", deliveryTargets: ["pr-review"] });
   });
 });

@@ -77,3 +77,32 @@ describe("createJiraOrigin", () => {
     await expect(jira.branchFor(jiraTask(null))).rejects.toBeInstanceOf(MissingCredentialError);
   });
 });
+
+describe("Jira delivery", () => {
+  it("comments on the issue in ADF and links the comment", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(() =>
+      Promise.resolve(new Response(JSON.stringify({ id: "10001" }), { status: 201 })),
+    );
+    const jira = createJiraOrigin({ connections: connections([jiraConnection]), fetch: fetchImpl });
+    const { url } = await jira.commentOnIssue(jiraTask(null), "**Done**");
+    expect(url).toBe("https://acme.atlassian.net/browse/ABC-123?focusedCommentId=10001");
+    const [target, init] = fetchImpl.mock.calls[0]!;
+    expect(String(target)).toBe("https://acme.atlassian.net/rest/api/3/issue/ABC-123/comment");
+    expect(init?.method).toBe("POST");
+    const body = JSON.parse(String(init?.body)) as { body: { type: string } };
+    expect(body.body.type).toBe("doc");
+    // Only the comment: no transition or other write.
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("links the issue when its site is known", () => {
+    const jira = createJiraOrigin({
+      connections: connections([jiraConnection]),
+      fetch: fakeJira(),
+    });
+    expect(jira.issueUrl(jiraTask(null))).toBe("https://acme.atlassian.net/browse/ABC-123");
+    expect(jira.issueUrl(jiraTask("other"))).toBeUndefined();
+    const none = createJiraOrigin({ connections: connections([]), fetch: fakeJira() });
+    expect(none.issueUrl(jiraTask(null))).toBeUndefined();
+  });
+});

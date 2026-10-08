@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  deliveryConfirmationSchema,
+  gateResponseInputSchema,
+  summaryOutputJsonSchema,
+  summaryOutputSchema,
   ROLE_STAGES,
   agentUpdateSchema,
   connectionInputSchema,
@@ -40,6 +44,8 @@ const task = {
   deliveryTargets: ["push-branch", "open-pr", "jira-comment"],
   freeText: "",
   plan: null,
+  summary: null,
+  squashMessage: null,
   createdAt: now,
   updatedAt: now,
 };
@@ -295,5 +301,32 @@ describe("plan review output", () => {
         .success,
     ).toBe(false);
     expect(planAnswersOutputJsonSchema().required).toEqual(["answers", "plan"]);
+  });
+});
+
+describe("delivery", () => {
+  it("confirms nothing unless actions are listed, each at most once", () => {
+    expect(deliveryConfirmationSchema.parse({})).toEqual({
+      actions: [],
+      squash: false,
+      findingIds: [],
+    });
+    expect(
+      deliveryConfirmationSchema.safeParse({ actions: ["push-branch", "push-branch"] }).success,
+    ).toBe(false);
+    expect(deliveryConfirmationSchema.safeParse({ actions: ["push-main"] }).success).toBe(false);
+    const gate = gateResponseInputSchema.parse({
+      gate: "finish",
+      decision: "approve",
+      delivery: { actions: ["merge-main"], squash: true },
+    });
+    expect(gate.delivery).toEqual({ actions: ["merge-main"], squash: true, findingIds: [] });
+  });
+
+  it("validates the summarizer's output", () => {
+    const output = { summary: "Did it", commitMessage: "Do it" };
+    expect(summaryOutputSchema.parse(output)).toEqual(output);
+    expect(summaryOutputSchema.safeParse({ summary: "Did it" }).success).toBe(false);
+    expect(summaryOutputJsonSchema().required).toEqual(["summary", "commitMessage"]);
   });
 });

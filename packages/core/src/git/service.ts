@@ -261,6 +261,11 @@ export function createGitService({
       return runGit(worktreePath, ["merge-base", "HEAD", ref]);
     },
 
+    /** Commits on HEAD since `base` (`git rev-list --count base..HEAD`). */
+    async commitsSince(worktreePath: string, base: string): Promise<number> {
+      return Number(await runGit(worktreePath, ["rev-list", "--count", `${base}..HEAD`]));
+    },
+
     /** Unified diff from `from` to `to` (default HEAD), e.g. one implement/fix round. */
     async diff(worktreePath: string, from: string, to = "HEAD"): Promise<string> {
       return runGit(worktreePath, ["diff", "--no-color", "--no-ext-diff", from, to]);

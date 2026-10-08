@@ -1,8 +1,11 @@
 import {
+  deliveryConfirmationSchema,
   findingOverrideInputSchema,
   gateResponseInputSchema,
   grillAnswerInputSchema,
   type AgentCli,
+  type DeliveryConfirmation,
+  type DeliveryPlan,
   type Finding,
   type FindingOverrideInput,
   type GateResponseInput,
@@ -18,6 +21,13 @@ import {
 import type { AgentInvocation } from "../agents/service.js";
 import type { AgentAdapter, AgentResult } from "../agents/adapters/types.js";
 import type { Repositories } from "../db/repositories.js";
+import {
+  DELIVERY_DONE_EVENT,
+  DELIVERY_FAILED_EVENT,
+  type Deliverer,
+  type DeliveryOutcome,
+  type DeliveryStep,
+} from "./delivery.js";
 import { blockingFindings } from "./findings.js";
 import { createScheduler } from "./scheduler.js";
 import {
@@ -133,8 +143,8 @@ export interface PipelineEngineOptions {
   stages: StageHandlers;
   /** Creates the task's worktree before its first stage. */
   prepareWorkspace: (task: Task) => Promise<PreparedWorkspace>;
-  /** Performs the confirmed delivery actions at finish (or posts the review). */
-  deliver: (task: Task, run: Run) => Promise<void>;
+  /** Plans and performs the delivery actions the user confirms at finish (or posts the review). */
+  delivery: Deliverer;
   maxTasksPerRepo: () => number;
   publish?: (event: ServerEvent) => void;
   log?: (message: string) => void;
@@ -164,7 +174,7 @@ export function createPipelineEngine({
   adapters,
   stages,
   prepareWorkspace,
-  deliver,
+  delivery,
   maxTasksPerRepo,
   publish = () => undefined,
   log = console.error,
@@ -173,6 +183,8 @@ export function createPipelineEngine({
   const drives = new Map<string, Promise<void>>();
   const controllers = new Map<string, AbortController>();
   const pending = new Map<string, Pending>();
+  /** Tasks whose delivery is in flight; a second confirmation must not run it twice. */
+  const delivering = new Set<string>();
   let stopped = false;
 
   function getTask(id: string): Task {
@@ -345,6 +357,72 @@ export function createPipelineEngine({
     }
   }
 
+  /**
+   * Delivery actions already performed since the run's agents last worked,
+   * from the delivery steps' logs. Work done after a delivery (one more fix
+   * round) makes every action due again.
+   */
+  function completedDeliveries(run: Run | undefined): DeliveryStep[] {
+    if (!run) return [];
+    const steps = r.steps.listByRun(run.id);
+    return steps
+      .slice(steps.findLastIndex((s) => s.agentId !== null) + 1)
+      .flatMap((s) => r.stepEvents.list(s.id))
+      .filter((e) => e.type === DELIVERY_DONE_EVENT)
+      .map((e) => (e.payload as DeliveryOutcome).action);
+  }
+
+  /**
+   * Performs the confirmed delivery actions as a harness step of the task's
+   * current stage, logging each one as it completes. A failure leaves the
+   * task at its gate with the error, and a retry skips what was done.
+   */
+  async function runDelivery(
+    task: Task,
+    run: Run,
+    confirmation: DeliveryConfirmation,
+  ): Promise<void> {
+    const stage = task.stage ?? "summarize";
+    let step: Step | undefined;
+    const ensureStep = (): Step => {
+      if (step) return step;
+      step = r.steps.create({
+        runId: run.id,
+        stage,
+        agentId: null,
+        round: currentRound(run),
+        visit: chooseVisit(run, stage, false),
+        status: "running",
+        startedAt: new Date(),
+      });
+      publish({ type: "step.upserted", payload: { step } });
+      return step;
+    };
+    const log = (type: string, payload: unknown) => {
+      const event = r.stepEvents.append(ensureStep().id, type, payload);
+      publish({ type: "step.event", payload: { event } });
+    };
+
+    try {
+      await delivery.deliver({
+        task,
+        run,
+        confirmation,
+        completed: completedDeliveries(run),
+        record: (outcome) => log(DELIVERY_DONE_EVENT, outcome),
+      });
+      if (step) saveStep(step.id, { status: "succeeded", finishedAt: new Date() });
+    } catch (error) {
+      // A confirmation that does not fit the plan is refused before anything happens.
+      if (error instanceof InvalidGateResponseError) throw error;
+      const message = errorMessage(error);
+      log(DELIVERY_FAILED_EVENT, { message });
+      saveStep(ensureStep().id, { status: "failed", error: message, finishedAt: new Date() });
+      saveTask(task.id, { error: message });
+      throw error;
+    }
+  }
+
   /** Runs a task from its current stage until it reaches a gate, fails or is interrupted. */
   async function drive(taskId: string): Promise<void> {
     const controller = new AbortController();
@@ -462,9 +540,23 @@ export function createPipelineEngine({
 
     if (next.kind === "deliver") {
       if (!run) throw new TaskStateError(`Task ${taskId} has no run to deliver`);
-      await deliver(task, run);
+      if (delivering.has(taskId)) throw new TaskStateError(`Task ${taskId} is already delivering`);
+      // Nothing leaves the machine unless the user confirmed that action.
+      const confirmation = parsed.data.delivery ?? deliveryConfirmationSchema.parse({});
+      delivering.add(taskId);
+      try {
+        await runDelivery(task, run, confirmation);
+      } finally {
+        delivering.delete(taskId);
+      }
       saveRun(run.id, "succeeded", new Date());
-      return saveTask(taskId, { status: "done", gate: null });
+      const delivered = [...new Set([...completedDeliveries(run), ...confirmation.actions])];
+      return saveTask(taskId, {
+        status: "done",
+        gate: null,
+        error: null,
+        deliveryTargets: delivered.filter((d) => d !== "squash"),
+      });
     }
     if (next.kind !== "stage") throw new Error(`Unexpected transition ${next.kind}`);
 
@@ -485,6 +577,15 @@ export function createPipelineEngine({
     },
 
     respond,
+
+    /**
+     * What finishing the task would do, each action with its exact target,
+     * and which actions a failed earlier attempt already performed.
+     */
+    async deliveryPlan(taskId: string): Promise<DeliveryPlan> {
+      const task = getTask(taskId);
+      return delivery.plan(task, completedDeliveries(latestRun(taskId)));
+    },
 
     /**
      * The user's force-fix or force-ignore on a finding, at any severity and

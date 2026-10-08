@@ -1,0 +1,320 @@
+import {
+  DELIVERY_TARGETS,
+  type DeliveryAction,
+  type DeliveryConfirmation,
+  type DeliveryPlan,
+  type DeliverySquash,
+  type DeliveryTarget,
+  type Finding,
+  type Run,
+  type Task,
+} from "@blackwall/shared";
+import { MissingCredentialError } from "../connections/service.js";
+import type { Repositories } from "../db/repositories.js";
+import type { GitService } from "../git/service.js";
+import { commitKey } from "./stages.js";
+import { InvalidGateResponseError, pipelineKind } from "./transitions.js";
+
+/** A confirmed delivery action failed. The message is safe to show the user. */
+export class DeliveryError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DeliveryError";
+  }
+}
+
+/** What delivery performs: an action the user confirmed, or the squash before them. */
+export type DeliveryStep = DeliveryTarget | "squash";
+
+/** Step event logged for each delivery action performed. */
+export const DELIVERY_DONE_EVENT = "delivery.done";
+
+/** Step event logged when a delivery action fails. */
+export const DELIVERY_FAILED_EVENT = "delivery.failed";
+
+/** Payload of a {@link DELIVERY_DONE_EVENT}: the action, and where it went (a link, a sha, a branch). */
+export interface DeliveryOutcome {
+  action: DeliveryStep;
+  detail: string;
+}
+
+/** Host and `owner/repo` of a GitHub/GHE remote. */
+export interface RemoteSlug {
+  host: string;
+  owner: string;
+  repo: string;
+}
+
+export type OpenPullRequestAction = Extract<DeliveryAction, { kind: "open-pr" }>;
+
+/**
+ * The outward calls delivery makes, implemented by the server with the
+ * GitHub/GHE and Jira clients and the task's connections.
+ */
+export interface DeliveryPorts {
+  /** Host and `owner/repo` of a git remote URL; undefined when it is not one. */
+  parseRemote(remoteUrl: string): RemoteSlug | undefined;
+  /** Web link of a Jira issue, when the task's Jira site is known. */
+  jiraIssueUrl?(task: Task): string | undefined;
+  openPullRequest(task: Task, action: OpenPullRequestAction): Promise<{ url: string }>;
+  /** Posts `body` as a conversation comment on the task's pull request. */
+  commentOnPullRequest(task: Task, body: string): Promise<{ url: string }>;
+  /** Posts `body` as a comment on the task's Jira issue. Never transitions it. */
+  commentOnJiraIssue(task: Task, body: string): Promise<{ url: string | null }>;
+  /** Submits a review on the task's pull request with `findings` as inline comments. */
+  reviewPullRequest(task: Task, findings: readonly Finding[]): Promise<{ url: string }>;
+}
+
+export type DeliveryGit = Pick<
+  GitService,
+  "mainBranch" | "mergeBase" | "commitsSince" | "squash" | "push" | "finishIntoMain"
+>;
+
+/** What the engine hands delivery when the user confirms. */
+export interface DeliveryContext {
+  task: Task;
+  run: Run;
+  confirmation: DeliveryConfirmation;
+  /** Actions already performed for this run; a retry after a failure skips them. */
+  completed: readonly DeliveryStep[];
+  /** Logs one performed action, as soon as it is done. */
+  record(outcome: DeliveryOutcome): void;
+}
+
+/** Plans and performs the finish actions; the engine calls it at the delivery gate. */
+export interface Deliverer {
+  plan(task: Task, completed: readonly DeliveryStep[]): Promise<DeliveryPlan>;
+  deliver(ctx: DeliveryContext): Promise<void>;
+}
+
+export interface DelivererOptions {
+  git: DeliveryGit;
+  repositories: Pick<Repositories, "repos" | "findings">;
+  ports: DeliveryPorts;
+}
+
+/** Findings a Review PR task offers for posting: everything still active, ignored ones excepted. */
+export function postableFindings(findings: readonly Finding[]): Finding[] {
+  return findings.filter((f) => f.status === "open" || f.status === "force-fix");
+}
+
+function prTitle(task: Task): string {
+  const key = commitKey(task);
+  return key && !task.title.toUpperCase().startsWith(key) ? `${key} ${task.title}` : task.title;
+}
+
+const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/**
+ * Delivery at finish (grill-result.md §4). The plan lists each action with
+ * its exact target: a PR task pushes its branch and comments on the PR, a
+ * Jira task pushes its branch, opens a PR and comments on the issue (no
+ * transitions), a free-text task rebases onto local main and fast-forwards
+ * it (main is never pushed), and a Review PR task posts the selected findings
+ * as a review. Only the actions the user confirmed are performed, in that
+ * order, after an optional squash.
+ */
+export function createDeliverer({ git, repositories: r, ports }: DelivererOptions): Deliverer {
+  /** Where the task's own commits start: the PR head on the remote, or the fork point from main. */
+  async function squashBase(task: Task, worktree: string): Promise<string | undefined> {
+    const refs =
+      task.origin.kind === "github-pr"
+        ? [`origin/${task.branch}`]
+        : [git.mainBranch, `origin/${git.mainBranch}`];
+    for (const ref of refs) {
+      try {
+        return await git.mergeBase(worktree, ref);
+      } catch {
+        // Try the next ref.
+      }
+    }
+    return undefined;
+  }
+
+  async function squashPlan(
+    task: Task,
+    completed: readonly DeliveryStep[],
+  ): Promise<DeliverySquash | null> {
+    const worktree = task.worktreePath;
+    // Squashing after the push would rewrite what was already sent.
+    if (!worktree || completed.includes("push-branch")) return null;
+    const base = await squashBase(task, worktree);
+    if (!base) return null;
+    const commits = await git.commitsSince(worktree, base);
+    if (commits < 2) return null;
+    return { commits, base, message: task.squashMessage ?? prTitle(task) };
+  }
+
+  function actions(task: Task): DeliveryAction[] {
+    const { origin, branch } = task;
+    if (pipelineKind(task.mode) === "review") {
+      if (origin.kind !== "github-pr") return [];
+      const findingIds = postableFindings(r.findings.listByTask(task.id)).map((f) => f.id);
+      return [{ kind: "pr-review", url: origin.url, findingIds }];
+    }
+    if (!branch) return [];
+    const body = task.summary?.trim() || task.title;
+    const remoteUrl = r.repos.get(task.repoId)?.remoteUrl ?? null;
+    const push: DeliveryAction[] = remoteUrl
+      ? [{ kind: "push-branch", branch, remote: remoteUrl }]
+      : [];
+
+    switch (origin.kind) {
+      case "free-text":
+        return [{ kind: "merge-main", branch, into: git.mainBranch }];
+      case "github-pr":
+        return [...push, { kind: "pr-comment", url: origin.url, body }];
+      case "jira-issue": {
+        const slug = remoteUrl ? ports.parseRemote(remoteUrl) : undefined;
+        const openPr: DeliveryAction[] = slug
+          ? [
+              {
+                kind: "open-pr",
+                ...slug,
+                head: branch,
+                base: git.mainBranch,
+                title: prTitle(task),
+                body,
+              },
+            ]
+          : [];
+        return [
+          ...push,
+          ...openPr,
+          { kind: "jira-comment", key: origin.key, url: ports.jiraIssueUrl?.(task) ?? null, body },
+        ];
+      }
+    }
+  }
+
+  async function plan(task: Task, completed: readonly DeliveryStep[]): Promise<DeliveryPlan> {
+    const review = pipelineKind(task.mode) === "review";
+    return {
+      actions: actions(task),
+      squash: review ? null : await squashPlan(task, completed),
+      completed: completed.filter((c): c is DeliveryTarget => c !== "squash"),
+    };
+  }
+
+  /** Refuses a confirmation that does not fit the plan, before anything is done. */
+  function check(
+    { actions: offered, squash }: DeliveryPlan,
+    confirmation: DeliveryConfirmation,
+    completed: readonly DeliveryStep[],
+  ): void {
+    const kinds = new Set(offered.map((a) => a.kind));
+    for (const action of confirmation.actions) {
+      if (!kinds.has(action)) {
+        throw new InvalidGateResponseError(`${action} is not a delivery action for this task`);
+      }
+    }
+    if (confirmation.squash && !squash && !completed.includes("squash")) {
+      throw new InvalidGateResponseError("There is nothing to squash");
+    }
+    const pushed =
+      confirmation.actions.includes("push-branch") || completed.includes("push-branch");
+    if (confirmation.actions.includes("open-pr") && !pushed) {
+      throw new InvalidGateResponseError("Opening a pull request needs the branch pushed");
+    }
+    const review = offered.find((a) => a.kind === "pr-review");
+    if (confirmation.findingIds.length > 0 && !confirmation.actions.includes("pr-review")) {
+      throw new InvalidGateResponseError("Findings are posted only with the pr-review action");
+    }
+    for (const id of confirmation.findingIds) {
+      if (!review?.findingIds.includes(id)) {
+        throw new InvalidGateResponseError(`Finding ${id} cannot be posted`);
+      }
+    }
+  }
+
+  async function deliver({ task, confirmation, completed, record }: DeliveryContext) {
+    const planned = await plan(task, completed);
+    check(planned, confirmation, completed);
+    const worktree = task.worktreePath;
+    const target = <K extends DeliveryAction["kind"]>(kind: K) =>
+      planned.actions.find((a): a is Extract<DeliveryAction, { kind: K }> => a.kind === kind)!;
+
+    if (confirmation.squash && planned.squash && worktree && !completed.includes("squash")) {
+      const sha = await git.squash(worktree, planned.squash.base, planned.squash.message);
+      record({ action: "squash", detail: sha ?? planned.squash.base });
+    }
+
+    for (const action of DELIVERY_TARGETS) {
+      if (!confirmation.actions.includes(action) || completed.includes(action)) continue;
+      record({ action, detail: await perform(task, action, target, confirmation) });
+    }
+  }
+
+  async function perform(
+    task: Task,
+    action: DeliveryTarget,
+    target: <K extends DeliveryAction["kind"]>(kind: K) => Extract<DeliveryAction, { kind: K }>,
+    confirmation: DeliveryConfirmation,
+  ): Promise<string> {
+    const worktree = task.worktreePath;
+    if (!worktree) throw new DeliveryError("The task has no worktree");
+    switch (action) {
+      case "push-branch": {
+        const { branch, remote } = target("push-branch");
+        await git.push(worktree, branch);
+        return `${remote} ${branch}`;
+      }
+      case "open-pr":
+        return (await ports.openPullRequest(task, target("open-pr"))).url;
+      case "pr-comment":
+        return (await ports.commentOnPullRequest(task, target("pr-comment").body)).url;
+      case "jira-comment": {
+        const { key, body } = target("jira-comment");
+        return (await ports.commentOnJiraIssue(task, body)).url ?? key;
+      }
+      case "merge-main": {
+        const { branch, into } = target("merge-main");
+        const repo = r.repos.get(task.repoId);
+        if (!repo) throw new DeliveryError(`Repo ${task.repoId} not found`);
+        const result = await git.finishIntoMain({
+          repoPath: repo.path,
+          worktreePath: worktree,
+          branch,
+        });
+        if (result.status === "conflict") {
+          throw new DeliveryError(
+            `Rebasing ${branch} onto ${into} hit conflicts in ${result.files.join(", ")}. Nothing was changed: rebase the branch onto ${into} in the worktree (${worktree}), resolve the conflicts, then finish again.`,
+          );
+        }
+        if (result.status === "not-fast-forward") {
+          throw new DeliveryError(
+            `${into} moved while ${branch} was rebased onto it; finish again`,
+          );
+        }
+        return result.sha;
+      }
+      case "pr-review": {
+        const findings = confirmation.findingIds.map((id) => {
+          const finding = r.findings.get(id);
+          if (!finding) throw new DeliveryError(`Finding ${id} not found`);
+          return finding;
+        });
+        return (await ports.reviewPullRequest(task, findings)).url;
+      }
+    }
+  }
+
+  return {
+    plan,
+    async deliver(ctx) {
+      try {
+        await deliver(ctx);
+      } catch (error) {
+        // Validation and missing tokens reach the user as they are (the latter opens the token modal).
+        if (
+          error instanceof InvalidGateResponseError ||
+          error instanceof DeliveryError ||
+          error instanceof MissingCredentialError
+        ) {
+          throw error;
+        }
+        throw new DeliveryError(errorMessage(error));
+      }
+    },
+  };
+}

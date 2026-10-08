@@ -7,6 +7,9 @@ import {
   planReviewOutputSchema,
   reviewOutputJsonSchema,
   reviewOutputSchema,
+  summaryOutputJsonSchema,
+  summaryOutputSchema,
+  SEVERITIES,
   type AgentRole,
   type Finding,
   type GrillQuestion,
@@ -662,6 +665,73 @@ async function aggregate(ctx: StageContext): Promise<StageResults["aggregate"]> 
 }
 
 /**
+ * Findings left open at the summary: the Medium/Low ones below the gate, plus
+ * any blocker the user accepted at an escalation. Most severe first.
+ */
+export function leftoverFindings(findings: readonly Finding[]): Finding[] {
+  return findings
+    .filter((f) => f.status === "open")
+    .sort((a, b) => SEVERITIES.indexOf(a.severity) - SEVERITIES.indexOf(b.severity));
+}
+
+function describeLeftover(f: Finding): string {
+  const where = f.file ? ` (\`${f.file}${f.lineStart ? `:${f.lineStart}` : ""}\`)` : "";
+  return `- **[${f.severity}] ${f.title}**${where}: ${f.explanation.trim().split("\n")[0]}`;
+}
+
+/**
+ * The summary as delivered: the summarizer's text, then the findings left
+ * open (Medium/Low, or blockers accepted as is), listed by the harness so none
+ * goes missing.
+ */
+export function finalSummary(text: string, findings: readonly Finding[]): string {
+  const leftovers = leftoverFindings(findings);
+  if (leftovers.length === 0) return text.trim();
+  return `${text.trim()}\n\n### Left open\n\n${leftovers.map(describeLeftover).join("\n")}`;
+}
+
+/**
+ * Summarize: the summarizer writes the final summary (changes, decisions,
+ * ignored findings) and a commit message for the optional squash at finish.
+ * The harness appends the findings left open. A reply that misses the output
+ * contract still counts: its text becomes the summary.
+ */
+async function summarize(ctx: StageContext): Promise<void> {
+  const { task } = ctx;
+  const findings = ctx.repositories.findings.listByTask(task.id);
+  const leftovers = leftoverFindings(findings);
+  const ignored = findings.filter((f) => f.status === "force-ignore");
+  const key = commitKey(task);
+  const result = await ctx.runAgent({
+    agentId: single(task, "summarizer"),
+    prompt: prompt(
+      `# Task\n\n${describeOrigin(task)}`,
+      section("Details", task.freeText),
+      section("Plan", task.plan),
+      section("Findings left open", leftovers.map(describeFinding).join("\n")),
+      section("Findings the user chose to ignore", ignored.map(describeFinding).join("\n")),
+      [
+        "Summarize the changes on this branch for the people reviewing it: what changed, the decisions made and why, and any findings the user chose to ignore.",
+        "Read the branch's commits (`git log`, `git diff`) as needed. Do not list the findings left open; the harness appends them.",
+        "Also write one commit message for squashing the branch into a single commit: a summary line of at most 72 characters in the imperative mood, a blank line, then a short body.",
+        key ? `Do not mention ${key} in the commit summary line; the harness prefixes it.` : "",
+        'Reply with a JSON object `{ "summary": "<markdown>", "commitMessage": "<message>" }`.',
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    ),
+    jsonSchema: summaryOutputJsonSchema(),
+  });
+  const parsed = summaryOutputSchema.safeParse(result.structured);
+  const text = parsed.success ? parsed.data.summary : result.text;
+  const squash = parsed.success ? parsed.data.commitMessage : task.title;
+  ctx.updateTask({
+    summary: finalSummary(text, findings),
+    squashMessage: commitMessage(squash, key),
+  });
+}
+
+/**
  * Gathers a task's origin context (the Jira issue, the PR) as markdown for
  * the Inform prompt. Runs once the worktree exists, so it can download files
  * into it; returns undefined when the origin has nothing to add.
@@ -752,21 +822,6 @@ export function createDefaultStages({
 
     aggregate,
 
-    async summarize(ctx) {
-      const { task } = ctx;
-      const findings = ctx.repositories.findings.listByTask(task.id);
-      const leftovers = findings.filter((f) => f.status === "open");
-      const ignored = findings.filter((f) => f.status === "force-ignore");
-      await ctx.runAgent({
-        agentId: single(task, "summarizer"),
-        prompt: prompt(
-          `# Task\n\n${describeOrigin(task)}`,
-          section("Plan", task.plan),
-          section("Findings left open", leftovers.map(describeFinding).join("\n")),
-          section("Findings the user chose to ignore", ignored.map(describeFinding).join("\n")),
-          "Summarize the changes on this branch, the decisions made and the findings left open or ignored.",
-        ),
-      });
-    },
+    summarize,
   };
 }

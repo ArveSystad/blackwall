@@ -3,6 +3,7 @@ import {
   findingOverrideInputSchema,
   gateResponseInputSchema,
   grillAnswerInputSchema,
+  type DeliveryPlan,
   type Finding,
   type GrillAnswerResult,
   type GrillQuestion,
@@ -13,7 +14,7 @@ import { Hono } from "hono";
 /** The engine actions the task routes expose. */
 export type TaskPipeline = Pick<
   PipelineEngine,
-  "resume" | "respond" | "answerQuestion" | "overrideFinding"
+  "resume" | "respond" | "answerQuestion" | "overrideFinding" | "deliveryPlan"
 >;
 
 export interface TaskRouteStores {
@@ -25,8 +26,9 @@ export interface TaskRouteStores {
 /**
  * Task routes. Tasks change through the pipeline and reach clients as WS
  * events; with a pipeline, interrupted or failed tasks can be resumed, a
- * `needs-you` task's gate answered, its grill questions answered and its
- * findings force-fixed or force-ignored.
+ * `needs-you` task's gate answered, its grill questions answered, its
+ * findings force-fixed or force-ignored, and its delivery plan shown before
+ * the user confirms the finish actions.
  */
 export function taskRoutes(
   { tasks, grillQuestions, findings }: TaskRouteStores,
@@ -60,7 +62,20 @@ export function taskRoutes(
     /** Re-queues an interrupted or failed task; interrupted steps resume their CLI sessions. */
     routes.post("/:id/resume", (c) => c.json<Task>(pipeline.resume(c.req.param("id"))));
 
-    /** Answers the gate the task waits on (plan approval, escalation, finish, …). */
+    /**
+     * What finishing would do: each delivery action with its exact target
+     * (branch and remote, PR, Jira issue, comment text), the optional squash,
+     * and actions a failed attempt already performed.
+     */
+    routes.get("/:id/delivery", async (c) =>
+      c.json<DeliveryPlan>(await pipeline.deliveryPlan(c.req.param("id"))),
+    );
+
+    /**
+     * Answers the gate the task waits on (plan approval, escalation, finish, …).
+     * Approving finish (or a Review PR task's triage) performs only the
+     * delivery actions listed in `delivery`.
+     */
     routes.post("/:id/gate", async (c) => {
       const input = gateResponseInputSchema.safeParse(await c.req.json().catch(() => undefined));
       if (!input.success) {

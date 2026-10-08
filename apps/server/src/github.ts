@@ -1,5 +1,11 @@
-import type { ConnectionService, OriginContextProvider, RepoService } from "@blackwall/core";
+import type {
+  ConnectionService,
+  OpenPullRequestAction,
+  OriginContextProvider,
+  RepoService,
+} from "@blackwall/core";
 import {
+  buildReviewPayload,
   createGitHubClient,
   findRepoForPullRequest,
   informFromPullRequest,
@@ -11,6 +17,7 @@ import {
 import {
   JIRA_EMAIL_META,
   pullRequestLookupInputSchema,
+  type Finding,
   type PullRequestLookup,
   type Task,
 } from "@blackwall/shared";
@@ -27,8 +34,8 @@ export interface GitHubOriginOptions {
  * PR tasks' origin hooks for the pipeline: the PR head branch for the
  * worktree, and the PR (description, diff, review comments, plus the linked
  * Jira issue when one is named and a single Jira site is set up) as Inform
- * context. Without a stored connection id the connection comes from the
- * PR link's host.
+ * context, and the delivery calls that post to GitHub/GHE. Without a stored
+ * connection id the connection comes from the PR link's host.
  */
 export function createGitHubOrigin({ connections, fetch: fetchImpl }: GitHubOriginOptions) {
   async function credentials(origin: PrOrigin): Promise<GitHubCredentials> {
@@ -49,6 +56,16 @@ export function createGitHubOrigin({ connections, fetch: fetchImpl }: GitHubOrig
 
   const prOrigin = (task: Task): PrOrigin | undefined =>
     task.origin.kind === "github-pr" ? task.origin : undefined;
+
+  function requirePr(task: Task): PrOrigin {
+    const origin = prOrigin(task);
+    if (!origin) throw new Error(`Task ${task.id} has no pull request`);
+    return origin;
+  }
+
+  async function prClient(origin: PrOrigin) {
+    return createGitHubClient(await credentials(origin), fetchImpl);
+  }
 
   return {
     /** The PR's head branch; PRs from forks have no branch on `origin` to check out. */
@@ -78,6 +95,47 @@ export function createGitHubOrigin({ connections, fetch: fetchImpl }: GitHubOrig
       });
       return result.markdown;
     }) satisfies OriginContextProvider,
+
+    /** Opens a pull request on the host of the repo's remote. */
+    async openPullRequest(action: OpenPullRequestAction): Promise<{ url: string }> {
+      const { connection, token } = await connections.requireCredential({
+        kind: "github",
+        remote: `https://${action.host}/${action.owner}/${action.repo}.git`,
+      });
+      const client = createGitHubClient({ baseUrl: connection.baseUrl, token }, fetchImpl);
+      const { url } = await client.createPullRequest({
+        owner: action.owner,
+        repo: action.repo,
+        head: action.head,
+        base: action.base,
+        title: action.title,
+        body: action.body,
+      });
+      return { url };
+    },
+
+    /** Posts a conversation comment on the task's pull request. */
+    async commentOnPullRequest(task: Task, body: string): Promise<{ url: string }> {
+      const origin = requirePr(task);
+      const { url } = await (await prClient(origin)).addComment(origin, body);
+      return { url };
+    },
+
+    /**
+     * Submits a `COMMENT` review on the task's pull request: findings on a
+     * line of the PR's diff become inline comments, the rest go in the body.
+     */
+    async reviewPullRequest(task: Task, findings: readonly Finding[]): Promise<{ url: string }> {
+      const origin = requirePr(task);
+      const client = await prClient(origin);
+      const [pr, diff] = await Promise.all([
+        client.getPullRequest(origin),
+        client.getPullRequestDiff(origin),
+      ]);
+      const payload = buildReviewPayload(findings, { diff, commitId: pr.head.sha });
+      const { url } = await client.createReview(origin, payload);
+      return { url };
+    },
   };
 }
 

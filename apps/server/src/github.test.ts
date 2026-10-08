@@ -1,4 +1,10 @@
-import type { Connection, ConnectionView, PullRequestLookup, Task } from "@blackwall/shared";
+import type {
+  Connection,
+  ConnectionView,
+  Finding,
+  PullRequestLookup,
+  Task,
+} from "@blackwall/shared";
 import { describe, expect, it, vi } from "vitest";
 import {
   createGitHubOrigin,
@@ -165,5 +171,112 @@ describe("pullRequestRoutes", () => {
   it("rejects links that are not pull requests", async () => {
     expect((await lookup("https://github.com/acme/shop/issues/1")).status).toBe(400);
     expect((await lookup(42)).status).toBe(400);
+  });
+});
+
+describe("GitHub delivery", () => {
+  /** Records each write and answers like GitHub; the PR diff touches lines 1-2 of src/a.ts. */
+  function recordingGitHub() {
+    const writes: { path: string; body: Record<string, unknown> }[] = [];
+    const fetchImpl = vi.fn<typeof fetch>((input, init) => {
+      const path = new URL(String(input)).pathname;
+      const accept = new Headers(init?.headers).get("accept") ?? "";
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "content-type": "application/json" },
+        });
+      if (init?.method === "POST") {
+        writes.push({ path, body: JSON.parse(String(init.body)) as Record<string, unknown> });
+        return Promise.resolve(
+          json({ id: 1, number: 8, html_url: `https://jbf.ghe.com/created${path}` }, 201),
+        );
+      }
+      if (accept.includes("diff")) {
+        return Promise.resolve(
+          new Response(
+            "diff --git a/src/a.ts b/src/a.ts\n+++ b/src/a.ts\n@@ -0,0 +1,2 @@\n+a\n+b\n",
+            {
+              headers: { "content-type": "text/plain" },
+            },
+          ),
+        );
+      }
+      return Promise.resolve(
+        json({
+          number: 42,
+          html_url: "",
+          title: "",
+          state: "open",
+          head: { ref: "x", sha: "head-sha" },
+          base: { ref: "main", sha: "b" },
+        }),
+      );
+    });
+    return { fetchImpl, writes };
+  }
+
+  const finding = (title: string, file: string | null, line: number | null) =>
+    ({
+      severity: "high",
+      tags: ["correctness"],
+      file,
+      lineStart: line,
+      lineEnd: line,
+      title,
+      explanation: "Why.",
+      suggestedFix: null,
+    }) as Finding;
+
+  it("posts the selected findings as a COMMENT review anchored to the PR head", async () => {
+    const { fetchImpl, writes } = recordingGitHub();
+    const github = createGitHubOrigin({ connections: connections([ghe]), fetch: fetchImpl });
+    const { url } = await github.reviewPullRequest(prTask("g1"), [
+      finding("On the diff", "src/a.ts", 2),
+      finding("Elsewhere", "src/b.ts", 9),
+    ]);
+    expect(url).toBe("https://jbf.ghe.com/created/api/v3/repos/acme/shop/pulls/42/reviews");
+    expect(writes).toHaveLength(1);
+    const body = writes[0]!.body;
+    expect(body).toMatchObject({ event: "COMMENT", commit_id: "head-sha" });
+    expect(body.comments).toEqual([
+      expect.objectContaining({ path: "src/a.ts", line: 2, side: "RIGHT" }),
+    ]);
+    expect(body.body).toContain("Elsewhere");
+  });
+
+  it("comments on the PR and opens a PR on the remote's host", async () => {
+    const { fetchImpl, writes } = recordingGitHub();
+    const list = connections([ghe]);
+    const github = createGitHubOrigin({ connections: list, fetch: fetchImpl });
+    await github.commentOnPullRequest(prTask("g1"), "Summary");
+    const { url } = await github.openPullRequest({
+      kind: "open-pr",
+      host: "jbf.ghe.com",
+      owner: "acme",
+      repo: "shop",
+      head: "feature/abc-1-x",
+      base: "main",
+      title: "ABC-1 X",
+      body: "Summary",
+    });
+    expect(url).toBe("https://jbf.ghe.com/created/api/v3/repos/acme/shop/pulls");
+    expect(list.requireCredential).toHaveBeenCalledWith({
+      kind: "github",
+      remote: "https://jbf.ghe.com/acme/shop.git",
+    });
+    expect(writes).toEqual([
+      { path: "/api/v3/repos/acme/shop/issues/42/comments", body: { body: "Summary" } },
+      {
+        path: "/api/v3/repos/acme/shop/pulls",
+        body: { head: "feature/abc-1-x", base: "main", title: "ABC-1 X", body: "Summary" },
+      },
+    ]);
+  });
+
+  it("refuses PR calls for tasks without a pull request", async () => {
+    const github = createGitHubOrigin({ connections: connections([ghe]), fetch: fakeGitHub() });
+    const freeText = { ...prTask(null), origin: { kind: "free-text" } } as Task;
+    await expect(github.commentOnPullRequest(freeText, "x")).rejects.toThrow(/no pull request/);
   });
 });

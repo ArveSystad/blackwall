@@ -21,9 +21,9 @@ export interface JiraOriginOptions {
 
 /**
  * Jira tasks' origin hooks for the pipeline: the branch derived from the
- * issue, and the issue (with its attachments downloaded into the worktree)
- * as Inform context. A task without a connection uses the only Jira
- * connection there is.
+ * issue, the issue (with its attachments downloaded into the worktree) as
+ * Inform context, and the summary comment at delivery. A task without a
+ * connection uses the only Jira connection there is.
  */
 export function createJiraOrigin({ connections, fetch: fetchImpl }: JiraOriginOptions) {
   async function credentials(origin: JiraOrigin): Promise<JiraCredentials> {
@@ -70,5 +70,28 @@ export function createJiraOrigin({ connections, fetch: fetchImpl }: JiraOriginOp
       });
       return result.markdown;
     }) satisfies OriginContextProvider,
+
+    /** The issue's web link, when its Jira site is known without asking the keychain. */
+    issueUrl(task: Task): string | undefined {
+      const origin = jiraOrigin(task);
+      if (!origin) return undefined;
+      const jira = connections.list().filter((c) => c.kind === "jira");
+      const site = origin.connectionId
+        ? jira.find((c) => c.id === origin.connectionId)
+        : jira.length === 1
+          ? jira[0]
+          : undefined;
+      return site ? `${site.baseUrl.replace(/\/+$/, "")}/browse/${origin.key}` : undefined;
+    },
+
+    /** Posts the summary as a comment on the issue (markdown becomes ADF). Never transitions it. */
+    async commentOnIssue(task: Task, body: string): Promise<{ url: string | null }> {
+      const origin = jiraOrigin(task);
+      if (!origin) throw new Error(`Task ${task.id} has no Jira issue`);
+      const creds = await credentials(origin);
+      const { id } = await createJiraClient(creds, fetchImpl).addComment(origin.key, body);
+      const issue = `${creds.baseUrl.replace(/\/+$/, "")}/browse/${origin.key}`;
+      return { url: id ? `${issue}?focusedCommentId=${id}` : issue };
+    },
   };
 }
