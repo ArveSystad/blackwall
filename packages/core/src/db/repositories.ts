@@ -116,6 +116,13 @@ export function createReposRepository(db: Db) {
         `Repo ${id}`,
       );
     },
+    /** Whether any task references the repo; such a repo cannot be deleted. */
+    hasTasks(id: string): boolean {
+      return (
+        db.select({ id: tasks.id }).from(tasks).where(eq(tasks.repoId, id)).limit(1).get() !==
+        undefined
+      );
+    },
     delete(id: string): void {
       db.delete(repos).where(eq(repos.id, id)).run();
     },

@@ -7,6 +7,7 @@ import {
   isGatingSeverity,
   newTaskInputSchema,
   repoInputSchema,
+  repoScanInputSchema,
   settingsSchema,
   taskSchema,
 } from "./domain.js";
@@ -152,11 +153,16 @@ describe("settings and inputs", () => {
     expect(settingsSchema.safeParse({ maxTasksPerRepo: 0 }).success).toBe(false);
   });
 
-  it("defaults repo check commands", () => {
-    expect(repoInputSchema.parse({ path: "/code/app" })).toEqual({
-      path: "/code/app",
-      checkCommands: [],
-    });
+  it("leaves repo check commands unset so they can be suggested", () => {
+    expect(repoInputSchema.parse({ path: " /code/app " })).toEqual({ path: "/code/app" });
+    expect(repoInputSchema.parse({ path: "/code/app", checkCommands: [] }).checkCommands).toEqual(
+      [],
+    );
+  });
+
+  it("defaults the repo scan depth", () => {
+    expect(repoScanInputSchema.parse({ root: "/code" })).toEqual({ root: "/code", maxDepth: 3 });
+    expect(repoScanInputSchema.safeParse({ root: "/code", maxDepth: 99 }).success).toBe(false);
   });
 });
 

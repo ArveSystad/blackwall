@@ -223,13 +223,44 @@ export const repoSchema = z.object({
 });
 export type Repo = z.infer<typeof repoSchema>;
 
+/** A registry repo as the API returns it, with whether its folder still exists. */
+export const repoViewSchema = repoSchema.extend({ exists: z.boolean() });
+export type RepoView = z.infer<typeof repoViewSchema>;
+
+/** Body for registering one repo. */
 export const repoInputSchema = z.object({
-  path: repoSchema.shape.path,
+  path: z.string().trim().min(1),
   /** Defaults to the folder name. */
   name: name.optional(),
-  checkCommands: repoSchema.shape.checkCommands.default([]),
+  /** Omitted: suggested from the repo's build files. Empty: Checks are skipped. */
+  checkCommands: repoSchema.shape.checkCommands.optional(),
 });
 export type RepoInput = z.input<typeof repoInputSchema>;
+
+/** Body for editing a repo. The path is fixed once registered. */
+export const repoUpdateSchema = z.object({
+  name: name.optional(),
+  checkCommands: repoSchema.shape.checkCommands.optional(),
+});
+export type RepoUpdate = z.infer<typeof repoUpdateSchema>;
+
+export const DEFAULT_REPO_SCAN_DEPTH = 3;
+
+/** Body for registering every git repo under a root folder. */
+export const repoScanInputSchema = z.object({
+  root: z.string().trim().min(1),
+  /** How many folder levels below `root` to look; 0 checks only `root` itself. */
+  maxDepth: z.int().min(0).max(8).default(DEFAULT_REPO_SCAN_DEPTH),
+});
+export type RepoScanInput = z.input<typeof repoScanInputSchema>;
+
+export const repoScanResultSchema = z.object({
+  /** Newly registered repos. */
+  added: z.array(repoSchema),
+  /** Paths of git repos found that were already registered. */
+  skipped: z.array(z.string()),
+});
+export type RepoScanResult = z.infer<typeof repoScanResultSchema>;
 
 export const permissionOverridesSchema = z.object({
   allow: z.array(z.string()).optional(),

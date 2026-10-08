@@ -6,4 +6,5 @@ export function describeCore(): string {
 
 export * from "./connections/index.js";
 export * from "./db/index.js";
+export * from "./repos/index.js";
 export * from "./secrets/index.js";

@@ -1,12 +1,14 @@
 import {
   JIRA_EMAIL_META,
   MISSING_CREDENTIAL_STATUS,
+  STALE_REPO_STATUS,
   WS_PATH,
   connectionTestResultSchema,
   connectionViewSchema,
   healthResponseSchema,
   missingCredentialSchema,
   parseServerEvent,
+  staleRepoSchema,
   type ClientEvent,
   type ConnectionTestResult,
   type ConnectionView,
@@ -14,6 +16,7 @@ import {
   type MissingCredential,
   type ResolveConnectionInput,
   type ServerEvent,
+  type StaleRepo,
 } from "@blackwall/shared";
 
 export async function fetchHealth(signal?: AbortSignal): Promise<HealthResponse> {
@@ -41,11 +44,23 @@ export class MissingCredentialError extends ApiError {
   }
 }
 
+/** The action used a repo whose folder is gone; `message` is the warning to show. */
+export class StaleRepoError extends ApiError {
+  constructor(readonly stale: StaleRepo) {
+    super(STALE_REPO_STATUS, stale.message);
+    this.name = "StaleRepoError";
+  }
+}
+
 async function errorFrom(res: Response): Promise<ApiError> {
   const body: unknown = await res.json().catch(() => undefined);
   if (res.status === MISSING_CREDENTIAL_STATUS) {
     const missing = missingCredentialSchema.safeParse(body);
     if (missing.success) return new MissingCredentialError(missing.data);
+  }
+  if (res.status === STALE_REPO_STATUS) {
+    const stale = staleRepoSchema.safeParse(body);
+    if (stale.success) return new StaleRepoError(stale.data);
   }
   const message =
     body && typeof body === "object" && "error" in body && typeof body.error === "string"

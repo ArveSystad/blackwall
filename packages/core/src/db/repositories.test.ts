@@ -77,7 +77,10 @@ describe("connections and repos", () => {
 
   it("refuses to delete a repo that still has tasks", () => {
     const task = seedTask();
+    expect(r.repos.hasTasks(task.repoId)).toBe(true);
     expect(() => r.repos.delete(task.repoId)).toThrow(/FOREIGN KEY/);
+    r.tasks.delete(task.id);
+    expect(r.repos.hasTasks(task.repoId)).toBe(false);
   });
 });
 

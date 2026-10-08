@@ -9,10 +9,12 @@ import {
   type HealthResponse,
   type ServerEvent,
 } from "@blackwall/shared";
+import type { RepoService } from "@blackwall/core";
 import { Hono } from "hono";
 import { hostGuard, requireToken, tokenExchange } from "./auth.js";
 import { connectionRoutes, type ConnectionRoutesOptions } from "./connections.js";
 import { errorResponse } from "./errors.js";
+import { repoRoutes } from "./repos.js";
 
 export interface AppOptions {
   token: string;
@@ -22,6 +24,8 @@ export interface AppOptions {
   webDist?: string;
   /** Connection service and tester; omit to leave the connection routes out (e.g. in tests). */
   connections?: ConnectionRoutesOptions;
+  /** Repo registry; omit to leave the repo routes out (e.g. in tests). */
+  repos?: RepoService;
 }
 
 function send(ws: { send(data: string): void }, event: ServerEvent): void {
@@ -34,7 +38,7 @@ export interface CreatedApp {
   wss: NodeWebSocket["wss"];
 }
 
-export function createApp({ token, getPort, webDist, connections }: AppOptions): CreatedApp {
+export function createApp({ token, getPort, webDist, connections, repos }: AppOptions): CreatedApp {
   const app = new Hono();
   const { upgradeWebSocket, injectWebSocket, wss } = createNodeWebSocket({ app });
 
@@ -52,6 +56,7 @@ export function createApp({ token, getPort, webDist, connections }: AppOptions):
   app.onError(errorResponse);
 
   if (connections) app.route("/api/connections", connectionRoutes(connections));
+  if (repos) app.route("/api/repos", repoRoutes(repos));
 
   app.all("/api/*", (c) => c.json({ error: "not found" }, 404));
 

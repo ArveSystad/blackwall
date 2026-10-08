@@ -39,6 +39,24 @@ export const missingCredentialSchema = z.object({
 });
 export type MissingCredential = z.infer<typeof missingCredentialSchema>;
 
+/** HTTP status of a `StaleRepo` error response. */
+export const STALE_REPO_STATUS = 410;
+
+/**
+ * Error body when an action uses a registered repo whose folder is gone. The
+ * repo has been removed from the registry; the web app shows `message` as a warning.
+ */
+export const staleRepoSchema = z.object({
+  error: z.literal("StaleRepo"),
+  repoId: z.string(),
+  name: z.string(),
+  path: z.string(),
+  /** False when tasks still reference the repo, so it stays registered. */
+  removed: z.boolean(),
+  message: z.string(),
+});
+export type StaleRepo = z.infer<typeof staleRepoSchema>;
+
 /** Every WebSocket message is a JSON envelope `{ type, payload }`, discriminated on `type`. */
 function envelope<T extends string, P extends z.ZodType>(type: T, payload: P) {
   return z.object({ type: z.literal(type), payload });
