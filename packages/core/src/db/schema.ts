@@ -11,6 +11,7 @@ import {
   AGENT_CLIS,
   CONNECTION_KINDS,
   FINDING_STATUSES,
+  GATES,
   GRILL_ANSWERERS,
   PR_MODES,
   STAGES,
@@ -122,6 +123,10 @@ export const tasks = sqliteTable(
     status: text("status", { enum: TASK_STATUSES }).notNull().default("queued"),
     /** Current pipeline stage; null before the first step starts. */
     stage: text("stage", { enum: STAGES }),
+    /** What the task waits on while `needs-you`. */
+    gate: text("gate", { enum: GATES }),
+    /** Why the task failed. */
+    error: text("error"),
     triageMode: text("triage_mode", { enum: TRIAGE_MODES }).notNull().default("intervene"),
     agents: text("agents", { mode: "json" })
       .$type<RoleAgents>()
@@ -166,6 +171,8 @@ export const steps = sqliteTable(
     agentId: text("agent_id").references(() => agents.id, { onDelete: "set null" }),
     /** Fix round within the stage loop (0 for the first pass). */
     round: integer("round").notNull().default(0),
+    /** Visit of the stage within the run (0 for the first). */
+    visit: integer("visit").notNull().default(0),
     status: text("status", { enum: STEP_STATUSES }).notNull().default("pending"),
     /** CLI session id, used for `--resume`. */
     sessionId: text("session_id"),

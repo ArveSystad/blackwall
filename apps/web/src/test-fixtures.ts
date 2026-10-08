@@ -15,6 +15,8 @@ export function makeTask(overrides: Partial<Task> = {}): Task {
     worktreePath: null,
     status: "queued",
     stage: null,
+    gate: null,
+    error: null,
     triageMode: "intervene",
     agents: {},
     deliveryTargets: [],

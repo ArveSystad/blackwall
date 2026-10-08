@@ -29,6 +29,8 @@ const task = {
   worktreePath: null,
   status: "needs-you",
   stage: "plan-review",
+  gate: "plan-approval",
+  error: null,
   triageMode: "intervene",
   agents: { planner: "a1", codeReviewers: ["a2", "a3"] },
   deliveryTargets: ["push-branch", "open-pr", "jira-comment"],

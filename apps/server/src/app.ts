@@ -19,7 +19,7 @@ import { connectionRoutes, type ConnectionRoutesOptions } from "./connections.js
 import { errorResponse } from "./errors.js";
 import { repoRoutes } from "./repos.js";
 import { settingsRoutes, tagRoutes } from "./settings.js";
-import { taskRoutes } from "./tasks.js";
+import { taskRoutes, type TaskPipeline } from "./tasks.js";
 
 export interface AppOptions {
   token: string;
@@ -37,6 +37,8 @@ export interface AppOptions {
   settings?: SettingsService;
   /** Task store; omit to leave the task routes out (e.g. in tests). */
   tasks?: Repositories["tasks"];
+  /** Pipeline engine for resuming tasks and answering gates; omit to leave those routes out. */
+  pipeline?: TaskPipeline;
   /** Agent CLI detection, started at launch; omit to leave the CLI route out (e.g. in tests). */
   clis?: () => Promise<CliStatus[]>;
 }
@@ -49,6 +51,8 @@ export interface CreatedApp {
   app: Hono;
   injectWebSocket: NodeWebSocket["injectWebSocket"];
   wss: NodeWebSocket["wss"];
+  /** Sends an event to every connected client. */
+  broadcast(event: ServerEvent): void;
 }
 
 export function createApp({
@@ -60,6 +64,7 @@ export function createApp({
   agents,
   settings,
   tasks,
+  pipeline,
   clis,
 }: AppOptions): CreatedApp {
   const app = new Hono();
@@ -85,7 +90,7 @@ export function createApp({
     app.route("/api/tags", tagRoutes(settings));
     app.route("/api/settings", settingsRoutes(settings));
   }
-  if (tasks) app.route("/api/tasks", taskRoutes(tasks));
+  if (tasks) app.route("/api/tasks", taskRoutes(tasks, pipeline));
   if (clis) app.route("/api/clis", cliRoutes(clis));
 
   app.all("/api/*", (c) => c.json({ error: "not found" }, 404));
@@ -118,5 +123,12 @@ export function createApp({
     app.get("/*", serveStatic({ path: indexHtml }));
   }
 
-  return { app, injectWebSocket, wss };
+  function broadcast(event: ServerEvent): void {
+    const data = JSON.stringify(event);
+    for (const client of wss.clients) {
+      if (client.readyState === client.OPEN) client.send(data);
+    }
+  }
+
+  return { app, injectWebSocket, wss, broadcast };
 }

@@ -43,6 +43,22 @@ export const STEP_STATUSES = [
   "interrupted",
   "cancelled",
 ] as const;
+/**
+ * What a `needs-you` task waits on. `questions`: grill questions only a human
+ * can answer. `plan-approval`: approve the plan before any code is touched.
+ * `triage`: triage findings (pause-each-round mode, or before posting a PR
+ * review). `escalation`: the review loop hit its round cap. `finish`: confirm
+ * the delivery actions.
+ */
+export const GATES = ["questions", "plan-approval", "triage", "escalation", "finish"] as const;
+/**
+ * The user's answer at a gate. `approve` moves on (approve the plan, accept the
+ * code as is after an escalation, deliver at finish). `revise` sends the work
+ * back (re-plan, or one more fix round), with the message as instructions.
+ */
+export const GATE_DECISIONS = ["approve", "revise"] as const;
+/** Fix rounds in the code review loop before the task escalates to the user. */
+export const MAX_FIX_ROUNDS = 3;
 export const SEVERITIES = ["critical", "high", "medium", "low"] as const;
 /** Severities that block the code review loop. */
 export const GATING_SEVERITIES = ["critical", "high"] as const satisfies readonly Severity[];
@@ -92,6 +108,8 @@ export const triageModeSchema = z.enum(TRIAGE_MODES);
 export const taskStatusSchema = z.enum(TASK_STATUSES);
 export const stageSchema = z.enum(STAGES);
 export const stepStatusSchema = z.enum(STEP_STATUSES);
+export const gateSchema = z.enum(GATES);
+export const gateDecisionSchema = z.enum(GATE_DECISIONS);
 export const severitySchema = z.enum(SEVERITIES);
 export const findingStatusSchema = z.enum(FINDING_STATUSES);
 export const findingOverrideSchema = z.enum(FINDING_OVERRIDES);
@@ -106,6 +124,8 @@ export type TriageMode = z.infer<typeof triageModeSchema>;
 export type TaskStatus = z.infer<typeof taskStatusSchema>;
 export type Stage = z.infer<typeof stageSchema>;
 export type StepStatus = z.infer<typeof stepStatusSchema>;
+export type Gate = z.infer<typeof gateSchema>;
+export type GateDecision = z.infer<typeof gateDecisionSchema>;
 export type Severity = z.infer<typeof severitySchema>;
 export type FindingStatus = z.infer<typeof findingStatusSchema>;
 export type FindingOverride = z.infer<typeof findingOverrideSchema>;
@@ -454,6 +474,10 @@ export const taskSchema = z
     status: taskStatusSchema,
     /** Current pipeline stage; null before the first step starts. */
     stage: stageSchema.nullable(),
+    /** What the task waits on while `needs-you`; null otherwise. */
+    gate: gateSchema.nullable(),
+    /** Why the task failed; null unless `failed`. */
+    error: z.string().nullable(),
     triageMode: triageModeSchema,
     agents: roleAgentsSchema,
     deliveryTargets: z.array(deliveryTargetSchema),
@@ -485,6 +509,16 @@ export const newTaskInputSchema = z
   });
 export type NewTaskInput = z.input<typeof newTaskInputSchema>;
 
+/** Body for answering the gate a `needs-you` task waits on. */
+export const gateResponseInputSchema = z.object({
+  /** The gate being answered; must match the task's current gate. */
+  gate: gateSchema,
+  decision: gateDecisionSchema,
+  /** Instructions passed to the next stage, e.g. the requested plan changes. */
+  message: z.string().trim().min(1).optional(),
+});
+export type GateResponseInput = z.infer<typeof gateResponseInputSchema>;
+
 /** Extra instructions typed into a task's input bar. */
 export const taskMessageInputSchema = z.object({ text: z.string().trim().min(1) });
 export type TaskMessageInput = z.infer<typeof taskMessageInputSchema>;
@@ -514,6 +548,12 @@ export const stepSchema = z.object({
   agentId: id.nullable(),
   /** Fix round within the stage loop (0 for the first pass). */
   round: z.int().nonnegative(),
+  /**
+   * Which visit of its stage within the run (0 for the first). A stage is
+   * visited again after a gate sends work back or a loop comes round; resuming
+   * continues the steps of the latest visit.
+   */
+  visit: z.int().nonnegative(),
   status: stepStatusSchema,
   /** CLI session id, used for `--resume`. */
   sessionId: z.string().nullable(),

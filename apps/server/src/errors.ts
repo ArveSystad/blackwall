@@ -3,6 +3,7 @@ import {
   ConnectionNotFoundError,
   InvalidAgentError,
   InvalidConnectionError,
+  InvalidGateResponseError,
   InvalidRepoError,
   InvalidSettingsError,
   MissingCredentialError,
@@ -10,6 +11,8 @@ import {
   RepoNotFoundError,
   SecretStoreError,
   StaleRepoError,
+  TaskNotFoundError,
+  TaskStateError,
 } from "@blackwall/core";
 import {
   MISSING_CREDENTIAL_STATUS,
@@ -49,7 +52,8 @@ export function errorResponse(error: unknown, c: Context) {
   if (
     error instanceof ConnectionNotFoundError ||
     error instanceof RepoNotFoundError ||
-    error instanceof AgentNotFoundError
+    error instanceof AgentNotFoundError ||
+    error instanceof TaskNotFoundError
   ) {
     return c.json({ error: error.message }, 404);
   }
@@ -57,11 +61,14 @@ export function errorResponse(error: unknown, c: Context) {
     error instanceof InvalidConnectionError ||
     error instanceof InvalidRepoError ||
     error instanceof InvalidAgentError ||
-    error instanceof InvalidSettingsError
+    error instanceof InvalidSettingsError ||
+    error instanceof InvalidGateResponseError
   ) {
     return c.json({ error: error.message }, 400);
   }
-  if (error instanceof RepoInUseError) return c.json({ error: error.message }, 409);
+  if (error instanceof RepoInUseError || error instanceof TaskStateError) {
+    return c.json({ error: error.message }, 409);
+  }
   if (error instanceof SecretStoreError) {
     // The message names the connection id only; the cause is not logged.
     console.error(error.message);

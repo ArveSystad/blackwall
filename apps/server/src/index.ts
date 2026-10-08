@@ -1,15 +1,23 @@
 import {
   createAgentService,
+  createClaudeAdapter,
   createConnectionService,
   createConnectionTokens,
+  createCopilotAdapter,
+  createDefaultStages,
+  createGitService,
   createKeyringSecretStore,
+  createPipelineEngine,
   createRepoService,
   createRepositories,
   createSettingsService,
+  createWorkspacePreparer,
+  deliverNothing,
   detectClis,
   openDatabase,
 } from "@blackwall/core";
 import { testConnection } from "@blackwall/integrations";
+import type { ServerEvent } from "@blackwall/shared";
 import { banner } from "./banner.js";
 import { parseConfig } from "./config.js";
 import { openBrowser } from "./open-browser.js";
@@ -31,8 +39,6 @@ try {
   const database = openDatabase(config.dataDir);
   shutdown.onShutdown(() => database.close());
   const repositories = createRepositories(database.db);
-  // Steps left running by a previous process can only be resumed, not continued.
-  repositories.steps.interruptRunning();
   const connectionTokens = createConnectionTokens({
     store: createKeyringSecretStore(),
     connections: repositories.connections,
@@ -54,7 +60,24 @@ try {
     tags: repositories.tags,
   });
 
-  const { launchUrl } = await startServer({
+  let broadcast: (event: ServerEvent) => void = () => undefined;
+  const pipeline = createPipelineEngine({
+    repositories,
+    invocation: agents.invocation,
+    adapters: { claude: createClaudeAdapter(), copilot: createCopilotAdapter() },
+    stages: createDefaultStages(),
+    prepareWorkspace: createWorkspacePreparer({
+      git: createGitService(),
+      repos: repositories.repos,
+    }),
+    deliver: deliverNothing,
+    maxTasksPerRepo: settings.maxTasksPerRepo,
+    publish: (event) => broadcast(event),
+  });
+  // Runs before the database closes: kills the agent CLIs and marks their steps interrupted.
+  shutdown.onShutdown(() => pipeline.shutdown());
+
+  const { launchUrl, broadcast: send } = await startServer({
     port: config.port,
     dev: config.dev,
     webDevOrigin: config.webDevOrigin,
@@ -63,9 +86,13 @@ try {
     agents,
     settings,
     tasks: repositories.tasks,
+    pipeline,
     clis: () => clis,
     shutdown,
   });
+  broadcast = send;
+  // Steps left running by a previous process become interrupted (resumable); queued tasks start.
+  pipeline.recover();
   console.log(`${banner()}\n\nblackwall is running at:\n  ${launchUrl}\n`);
   if (config.open) openBrowser(launchUrl);
 } catch (error) {
