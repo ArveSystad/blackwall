@@ -7,16 +7,17 @@ import {
   connectionViewSchema,
   healthResponseSchema,
   missingCredentialSchema,
-  parseServerEvent,
+  repoViewSchema,
   staleRepoSchema,
-  type ClientEvent,
+  taskSchema,
   type ConnectionTestResult,
   type ConnectionView,
   type HealthResponse,
   type MissingCredential,
   type ResolveConnectionInput,
-  type ServerEvent,
+  type RepoView,
   type StaleRepo,
+  type Task,
 } from "@blackwall/shared";
 
 export async function fetchHealth(signal?: AbortSignal): Promise<HealthResponse> {
@@ -82,6 +83,18 @@ async function request<T>(
   });
   if (!res.ok) throw await errorFrom(res);
   return schema.parse(await res.json());
+}
+
+export function listTasks(): Promise<Task[]> {
+  return request("/api/tasks", taskSchema.array());
+}
+
+export function getTask(id: string): Promise<Task> {
+  return request(`/api/tasks/${encodeURIComponent(id)}`, taskSchema);
+}
+
+export function listRepos(): Promise<RepoView[]> {
+  return request("/api/repos", repoViewSchema.array());
 }
 
 export function listConnections(): Promise<ConnectionView[]> {
@@ -157,28 +170,4 @@ export async function runWithCredential<T>(
 export function socketUrl(location: Pick<Location, "protocol" | "host">): string {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${location.host}${WS_PATH}`;
-}
-
-export interface Socket {
-  send(event: ClientEvent): void;
-  close(): void;
-}
-
-/** Opens the typed event socket; invalid server messages are dropped. */
-export function connectSocket(handlers: {
-  onOpen?: () => void;
-  onEvent: (event: ServerEvent) => void;
-  onClose?: () => void;
-}): Socket {
-  const ws = new WebSocket(socketUrl(window.location));
-  ws.addEventListener("open", () => handlers.onOpen?.());
-  ws.addEventListener("close", () => handlers.onClose?.());
-  ws.addEventListener("message", (message) => {
-    const event = typeof message.data === "string" ? parseServerEvent(message.data) : null;
-    if (event) handlers.onEvent(event);
-  });
-  return {
-    send: (event) => ws.send(JSON.stringify(event)),
-    close: () => ws.close(),
-  };
 }

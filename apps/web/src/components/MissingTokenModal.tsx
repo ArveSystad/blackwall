@@ -1,7 +1,12 @@
 import type { MissingCredential } from "@blackwall/shared";
-import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useState, type FormEvent, type KeyboardEvent } from "react";
 import { saveCredential } from "../api";
 import { missingTokenCopy, type CredentialAction } from "../missing-token";
+import { EyeIcon, EyeOffIcon, KeyIcon } from "./icons";
+import { Button } from "./ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
+import { Input } from "./ui/input";
+import { Kbd } from "./ui/kbd";
 
 export interface MissingTokenModalProps {
   missing: MissingCredential;
@@ -10,24 +15,7 @@ export interface MissingTokenModalProps {
   onCancel: () => void;
 }
 
-function KeyIcon() {
-  return (
-    <svg className="i i-md" viewBox="0 0 16 16" aria-hidden="true">
-      <circle cx="5.5" cy="10.5" r="3" />
-      <path d="m7.6 8.4 5.9-5.9M11.5 4.5l1.5 1.5M10 6l1.2 1.2" />
-    </svg>
-  );
-}
-
-function EyeIcon({ crossed }: { crossed: boolean }) {
-  return (
-    <svg className="i" viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z" />
-      <circle cx="8" cy="8" r="2" />
-      {crossed && <path d="m2.5 2.5 11 11" />}
-    </svg>
-  );
-}
+const fieldLabel = "text-meta font-medium text-foreground-strong";
 
 /**
  * Asks for the token an action is missing, stores it (creating the connection
@@ -36,19 +24,11 @@ function EyeIcon({ crossed }: { crossed: boolean }) {
  */
 export function MissingTokenModal({ missing, action, onSaved, onCancel }: MissingTokenModalProps) {
   const copy = missingTokenCopy(missing);
-  const dialog = useRef<HTMLDialogElement>(null);
-  const titleId = useId();
   const [token, setToken] = useState("");
   const [email, setEmail] = useState("");
   const [reveal, setReveal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const node = dialog.current;
-    if (node && !node.open) node.showModal();
-    return () => node?.close();
-  }, []);
 
   async function submit(event?: FormEvent) {
     event?.preventDefault();
@@ -75,126 +55,125 @@ export function MissingTokenModal({ missing, action, onSaved, onCancel }: Missin
   }
 
   return (
-    <dialog
-      ref={dialog}
-      className="modal"
-      aria-labelledby={titleId}
-      onCancel={(event) => {
-        // Esc: close through state so the pending action is told it was cancelled.
-        event.preventDefault();
-        onCancel();
-      }}
-    >
-      <form onSubmit={(event) => void submit(event)} onKeyDown={onKeyDown}>
-        <div className="modal-head">
-          <div className="modal-title-row">
-            <span className="needs-icon">
-              <KeyIcon />
-            </span>
-            <h2 id={titleId} className="modal-title">
-              {copy.title}
-            </h2>
+    // Esc and the overlay close through state so the pending action is told it was cancelled.
+    <Dialog open onOpenChange={(open) => !open && onCancel()}>
+      <DialogContent>
+        <form onSubmit={(event) => void submit(event)} onKeyDown={onKeyDown}>
+          <div className="flex flex-col gap-2.5 px-5 pt-[18px] pb-1">
+            <div className="flex items-center gap-2.5">
+              <span className="inline-flex size-8 flex-none items-center justify-center rounded-lg border border-magenta/40 bg-needs-wash text-magenta">
+                <KeyIcon size="lg" />
+              </span>
+              <DialogTitle className="m-0 text-heading font-semibold text-foreground-strong">
+                {copy.title}
+              </DialogTitle>
+            </div>
+            <DialogDescription className="m-0 text-pretty">
+              Starting <span className="text-foreground-strong">{action.label}</span>
+              {action.target && (
+                <>
+                  {" on "}
+                  <span className="mono text-foreground-strong">{action.target}</span>
+                </>
+              )}{" "}
+              {copy.needs}
+              {missing.connectionId === null &&
+                " There is no connection for it yet; saving adds one."}
+            </DialogDescription>
           </div>
-          <p>
-            Starting <span className="strong">{action.label}</span>
-            {action.target && (
-              <>
-                {" on "}
-                <span className="mono strong">{action.target}</span>
-              </>
-            )}{" "}
-            {copy.needs}
-            {missing.connectionId === null &&
-              " There is no connection for it yet; saving adds one."}
-          </p>
-        </div>
 
-        <div className="modal-body">
-          <dl className="card facts">
-            <dt className="muted">Host</dt>
-            <dd className="mono strong">{missing.host}</dd>
-            <dt className="muted">Type</dt>
-            <dd>{copy.hostType}</dd>
-            {copy.scope && (
-              <>
-                <dt className="muted">Scopes</dt>
-                <dd className="scopes">
-                  <span className="tag strong">{copy.scope}</span>
-                  <span className="faint">required</span>
-                </dd>
-              </>
+          <div className="flex flex-col gap-3.5 px-5 pt-3.5 pb-[18px]">
+            <dl className="m-0 grid grid-cols-[96px_minmax(0,1fr)] gap-y-2 rounded-lg border border-border bg-card px-3 py-2.5 text-[12.5px]">
+              <dt className="text-muted-foreground">Host</dt>
+              <dd className="mono m-0 min-w-0 [overflow-wrap:anywhere] text-foreground-strong">
+                {missing.host}
+              </dd>
+              <dt className="text-muted-foreground">Type</dt>
+              <dd className="m-0">{copy.hostType}</dd>
+              {copy.scope && (
+                <>
+                  <dt className="text-muted-foreground">Scopes</dt>
+                  <dd className="m-0 flex items-center gap-1">
+                    <span className="mono inline-flex h-[18px] items-center rounded-xs bg-muted px-[5px] text-label text-foreground-strong">
+                      {copy.scope}
+                    </span>
+                    <span className="text-faint">required</span>
+                  </dd>
+                </>
+              )}
+            </dl>
+
+            {copy.needsEmail && (
+              <label className="flex flex-col gap-1.5">
+                <span className={fieldLabel}>Account email</span>
+                <Input
+                  type="email"
+                  autoComplete="email"
+                  required
+                  autoFocus
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                />
+              </label>
             )}
-          </dl>
 
-          {copy.needsEmail && (
-            <label className="field">
-              <span className="field-label">Account email</span>
-              <input
-                className="input"
-                type="email"
-                autoComplete="email"
-                required
-                autoFocus
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-              />
+            <label className="flex flex-col gap-1.5">
+              <span className={fieldLabel}>{copy.tokenLabel}</span>
+              <span className="relative block">
+                <Input
+                  className="mono pr-9"
+                  type={reveal ? "text" : "password"}
+                  autoComplete="off"
+                  spellCheck={false}
+                  required
+                  autoFocus={!copy.needsEmail}
+                  value={token}
+                  onChange={(event) => setToken(event.target.value)}
+                />
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  type="button"
+                  className="absolute top-[3px] right-[3px]"
+                  aria-label={reveal ? "Hide token" : "Show token"}
+                  aria-pressed={reveal}
+                  onClick={() => setReveal((on) => !on)}
+                >
+                  {reveal ? <EyeOffIcon /> : <EyeIcon />}
+                </Button>
+              </span>
             </label>
-          )}
 
-          <label className="field">
-            <span className="field-label">{copy.tokenLabel}</span>
-            <span className="secret-field">
-              <input
-                className="input mono"
-                type={reveal ? "text" : "password"}
-                autoComplete="off"
-                spellCheck={false}
-                required
-                autoFocus={!copy.needsEmail}
-                value={token}
-                onChange={(event) => setToken(event.target.value)}
-              />
-              <button
-                className="btn btn-ghost btn-icon btn-sm"
-                type="button"
-                aria-label={reveal ? "Hide token" : "Show token"}
-                aria-pressed={reveal}
-                onClick={() => setReveal((on) => !on)}
-              >
-                <EyeIcon crossed={reveal} />
-              </button>
-            </span>
-          </label>
+            <div className="flex flex-col gap-1 text-meta text-muted-foreground">
+              <a href={copy.createLink.href} target="_blank" rel="noreferrer">
+                {copy.createLink.text}
+              </a>
+              <span>
+                Stored on this machine only. It is never shown again; replace it from Settings ›
+                Connections.
+              </span>
+            </div>
 
-          <div className="hint">
-            <a href={copy.createLink.href} target="_blank" rel="noreferrer">
-              {copy.createLink.text}
-            </a>
-            <span>
-              Stored on this machine only. It is never shown again; replace it from Settings ›
-              Connections.
-            </span>
+            {error && (
+              <p className="m-0 text-meta text-destructive" role="alert">
+                {error}
+              </p>
+            )}
           </div>
 
-          {error && (
-            <p className="error" role="alert">
-              {error}
-            </p>
-          )}
-        </div>
-
-        <div className="modal-foot">
-          <button className="btn btn-ghost" type="button" onClick={onCancel}>
-            Cancel
-          </button>
-          <button className="btn btn-primary" type="submit" disabled={saving || !token.trim()}>
-            {saving ? "Saving…" : "Save and continue"}
-            <span className="kbd" aria-hidden="true">
-              ↵
-            </span>
-          </button>
-        </div>
-      </form>
-    </dialog>
+          <div className="flex items-center justify-end gap-2 border-t border-border bg-card px-5 py-3">
+            <Button variant="ghost" type="button" onClick={onCancel}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit" disabled={saving || !token.trim()}>
+              {saving ? "Saving…" : "Save and continue"}
+              <Kbd onFill aria-hidden="true">
+                ↵
+              </Kbd>
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

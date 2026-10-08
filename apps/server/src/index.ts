@@ -44,6 +44,7 @@ try {
     webDevOrigin: config.webDevOrigin,
     connections: { connections, test: testConnection },
     repos,
+    tasks: repositories.tasks,
     shutdown,
   });
   console.log(`${banner()}\n\nblackwall is running at:\n  ${launchUrl}\n`);

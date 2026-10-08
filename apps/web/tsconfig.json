@@ -10,7 +10,10 @@
     "customConditions": ["source"],
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx",
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+    "paths": {
+      "@/*": ["./src/*"]
+    }
   },
   "include": ["src", "vite.config.ts"]
 }

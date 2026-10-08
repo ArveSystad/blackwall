@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
@@ -8,9 +10,14 @@ const webPort = Number(process.env.BLACKWALL_WEB_PORT ?? 5173);
 const serverOrigin = `http://127.0.0.1:${serverPort}`;
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   // Resolve workspace packages to their TypeScript sources (see package "source" exports).
-  resolve: { conditions: ["source"] },
+  resolve: {
+    conditions: ["source"],
+    alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
+  },
+  // Served from localhost, so one bundle is fine.
+  build: { chunkSizeWarningLimit: 1000 },
   server: {
     host: "127.0.0.1",
     port: webPort,
