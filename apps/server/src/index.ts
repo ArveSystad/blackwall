@@ -1,3 +1,4 @@
+import { createRepositories, openDatabase } from "@blackwall/core";
 import { banner } from "./banner.js";
 import { parseConfig } from "./config.js";
 import { openBrowser } from "./open-browser.js";
@@ -14,6 +15,11 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 }
 
 try {
+  const database = openDatabase(config.dataDir);
+  shutdown.onShutdown(() => database.close());
+  // Steps left running by a previous process can only be resumed, not continued.
+  createRepositories(database.db).steps.interruptRunning();
+
   const { launchUrl } = await startServer({
     port: config.port,
     dev: config.dev,

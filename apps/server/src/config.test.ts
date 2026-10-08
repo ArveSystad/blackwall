@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_PORT, parseConfig } from "./config.js";
 
@@ -8,6 +10,7 @@ describe("parseConfig", () => {
       open: true,
       dev: false,
       webDevOrigin: "http://127.0.0.1:5173",
+      dataDir: join(homedir(), ".blackwall"),
     });
   });
 
@@ -21,6 +24,10 @@ describe("parseConfig", () => {
   it("prefers --port over BLACKWALL_PORT", () => {
     expect(parseConfig([], { BLACKWALL_PORT: "6000" }).port).toBe(6000);
     expect(parseConfig(["--port", "5000"], { BLACKWALL_PORT: "6000" }).port).toBe(5000);
+  });
+
+  it("reads BLACKWALL_HOME", () => {
+    expect(parseConfig([], { BLACKWALL_HOME: "/tmp/bw" }).dataDir).toBe("/tmp/bw");
   });
 
   it("rejects invalid ports", () => {

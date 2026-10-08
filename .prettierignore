@@ -3,3 +3,4 @@ coverage
 pnpm-lock.yaml
 tasks
 *.md
+packages/core/drizzle/

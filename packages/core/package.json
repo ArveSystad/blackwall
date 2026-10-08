@@ -12,9 +12,16 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
-    "@blackwall/shared": "workspace:*"
+    "@blackwall/shared": "workspace:*",
+    "better-sqlite3": "^13.0.3",
+    "drizzle-orm": "^0.45.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "drizzle-kit": "^0.31.11"
   }
 }
