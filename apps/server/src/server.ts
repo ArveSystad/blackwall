@@ -1,10 +1,10 @@
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
-import type { ConnectionTokens } from "@blackwall/core";
 import { serve } from "@hono/node-server";
 import { TOKEN_QUERY_PARAM } from "@blackwall/shared";
 import { createApp } from "./app.js";
 import { generateToken } from "./auth.js";
+import type { ConnectionRoutesOptions } from "./connections.js";
 import type { Shutdown } from "./shutdown.js";
 
 export const HOSTNAME = "127.0.0.1";
@@ -18,7 +18,7 @@ export interface StartOptions {
   /** Origin of the Vite dev server (dev mode only). */
   webDevOrigin?: string;
   token?: string;
-  connectionTokens?: ConnectionTokens;
+  connections?: ConnectionRoutesOptions;
   shutdown: Shutdown;
 }
 
@@ -35,7 +35,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
   const { app, injectWebSocket, wss } = createApp({
     token,
     getPort: () => port,
-    ...(options.connectionTokens ? { connectionTokens: options.connectionTokens } : {}),
+    ...(options.connections ? { connections: options.connections } : {}),
     ...(options.dev ? {} : { webDist: WEB_DIST }),
   });
 

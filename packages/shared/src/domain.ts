@@ -155,14 +155,59 @@ export const connectionViewSchema = connectionSchema
   .strict();
 export type ConnectionView = z.infer<typeof connectionViewSchema>;
 
+/** `authMeta` key holding the Jira Cloud account email (Basic auth is email + API token). */
+export const JIRA_EMAIL_META = "email";
+
+const secret = z.string().trim().min(1);
+
+type ConnectionAuth = { kind: ConnectionKind; authMeta: Record<string, string> };
+
+/** Why a connection's auth metadata is incomplete (Jira needs the account email), if it is. */
+export function connectionAuthProblem({ kind, authMeta }: ConnectionAuth): string | undefined {
+  if (kind === "jira" && !z.email().safeParse(authMeta[JIRA_EMAIL_META]).success) {
+    return "Jira connections need the account email";
+  }
+  return undefined;
+}
+
+function checkConnectionAuth(value: ConnectionAuth, ctx: z.RefinementCtx): void {
+  const message = connectionAuthProblem(value);
+  if (message) ctx.addIssue({ code: "custom", path: ["authMeta", JIRA_EMAIL_META], message });
+}
+
+/** Body for creating a connection; `token`, when given, goes straight to the keychain. */
 export const connectionInputSchema = connectionSchema
   .pick({ name: true, kind: true, baseUrl: true })
-  .extend({ authMeta: connectionSchema.shape.authMeta.default({}) });
+  .extend({ authMeta: connectionSchema.shape.authMeta.default({}), token: secret.optional() })
+  .superRefine(checkConnectionAuth);
 export type ConnectionInput = z.input<typeof connectionInputSchema>;
 
+/** Body for editing a connection. The kind is fixed once created. */
+export const connectionUpdateSchema = z.object({
+  name: connectionSchema.shape.name.optional(),
+  baseUrl: connectionSchema.shape.baseUrl.optional(),
+  authMeta: connectionSchema.shape.authMeta.optional(),
+});
+export type ConnectionUpdate = z.infer<typeof connectionUpdateSchema>;
+
 /** Body for storing a connection's token in the keychain. */
-export const tokenInputSchema = z.object({ token: z.string().trim().min(1) });
+export const tokenInputSchema = z.object({ token: secret });
 export type TokenInput = z.infer<typeof tokenInputSchema>;
+
+/** Outcome of "Test connection" (GitHub `GET /user`, Jira `GET /rest/api/3/myself`). */
+export const connectionTestResultSchema = z.discriminatedUnion("ok", [
+  /** `account` is the GitHub login or the Jira display name. */
+  z.object({ ok: z.literal(true), account: z.string() }),
+  z.object({ ok: z.literal(false), message: z.string() }),
+]);
+export type ConnectionTestResult = z.infer<typeof connectionTestResultSchema>;
+
+/** Finds the connection for a git remote (GitHub/GHE) or a Jira URL. */
+export const resolveConnectionInputSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("github"), remote: z.string().trim().min(1) }),
+  z.object({ kind: z.literal("jira"), url: z.url() }),
+]);
+export type ResolveConnectionInput = z.infer<typeof resolveConnectionInputSchema>;
 
 export const repoSchema = z.object({
   id,

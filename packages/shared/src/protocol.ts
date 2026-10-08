@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  connectionKindSchema,
   findingSchema,
   grillQuestionSchema,
   runSchema,
@@ -19,6 +20,24 @@ export const healthResponseSchema = z.object({
   name: z.string(),
 });
 export type HealthResponse = z.infer<typeof healthResponseSchema>;
+
+/** HTTP status of a `MissingCredential` error response. */
+export const MISSING_CREDENTIAL_STATUS = 409;
+
+/**
+ * Error body when an action needs a connection or token that is not configured.
+ * The web app turns it into the missing-token modal, then retries the action.
+ */
+export const missingCredentialSchema = z.object({
+  error: z.literal("MissingCredential"),
+  kind: connectionKindSchema,
+  /** Host the action targets, e.g. `jbf.ghe.com` or `acme.atlassian.net`. */
+  host: z.string().min(1),
+  /** The host's connection when it exists but has no token; `null` when there is no connection. */
+  connectionId: z.string().nullable(),
+  message: z.string(),
+});
+export type MissingCredential = z.infer<typeof missingCredentialSchema>;
 
 /** Every WebSocket message is a JSON envelope `{ type, payload }`, discriminated on `type`. */
 function envelope<T extends string, P extends z.ZodType>(type: T, payload: P) {

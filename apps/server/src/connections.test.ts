@@ -1,5 +1,6 @@
 import {
   SecretStoreError,
+  createConnectionService,
   createConnectionTokens,
   createMemorySecretStore,
   createRepositories,
@@ -7,7 +8,13 @@ import {
   type OpenedDatabase,
   type SecretStore,
 } from "@blackwall/core";
-import { connectionViewSchema } from "@blackwall/shared";
+import {
+  MISSING_CREDENTIAL_STATUS,
+  connectionTestResultSchema,
+  connectionViewSchema,
+  missingCredentialSchema,
+  type Connection,
+} from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.js";
 import { tokenCookieName } from "./auth.js";
@@ -22,6 +29,7 @@ let opened: OpenedDatabase;
 let store: SecretStore;
 let connectionId: string;
 let app: ReturnType<typeof createApp>["app"];
+let tested: { connection: Connection; token: string }[];
 
 beforeEach(() => {
   opened = openDatabase(":memory:");
@@ -37,7 +45,20 @@ beforeEach(() => {
     connections: repositories.connections,
     env: {},
   });
-  app = createApp({ token: launchToken, getPort: () => port, connectionTokens }).app;
+  const connections = createConnectionService({
+    connections: repositories.connections,
+    tokens: connectionTokens,
+  });
+  tested = [];
+  const test = (connection: Connection, token: string) => {
+    tested.push({ connection, token });
+    return Promise.resolve({ ok: true as const, account: "octocat" });
+  };
+  app = createApp({
+    token: launchToken,
+    getPort: () => port,
+    connections: { connections, test },
+  }).app;
 });
 
 afterEach(() => opened.close());
@@ -100,5 +121,136 @@ describe("connection routes", () => {
     expect(await res.text()).not.toContain(PAT);
     expect(JSON.stringify(error.mock.calls)).not.toContain(PAT);
     error.mockRestore();
+  });
+});
+
+describe("connection CRUD", () => {
+  it("creates, reads, updates and deletes a connection", async () => {
+    const created = await request("/api/connections", {
+      method: "POST",
+      body: {
+        name: "acme jira",
+        kind: "jira",
+        baseUrl: "https://acme.atlassian.net/",
+        authMeta: { email: "me@acme.test" },
+        token: PAT,
+      },
+    });
+    expect(created.status).toBe(201);
+    const createdText = await created.text();
+    expect(createdText).not.toContain(PAT);
+    const view = connectionViewSchema.parse(JSON.parse(createdText));
+    expect(view).toMatchObject({ baseUrl: "https://acme.atlassian.net", hasToken: true });
+    expect(await store.get(view.id)).toBe(PAT);
+
+    const patched = await request(`/api/connections/${view.id}`, {
+      method: "PATCH",
+      body: { name: "Acme Jira" },
+    });
+    expect(connectionViewSchema.parse(await patched.json()).name).toBe("Acme Jira");
+
+    const got = await request(`/api/connections/${view.id}`);
+    expect(connectionViewSchema.parse(await got.json()).name).toBe("Acme Jira");
+
+    const del = await request(`/api/connections/${view.id}`, { method: "DELETE" });
+    expect(del.status).toBe(204);
+    expect(await store.get(view.id)).toBeUndefined();
+    expect((await request(`/api/connections/${view.id}`)).status).toBe(404);
+  });
+
+  it("rejects Jira connections without an email and duplicate hosts", async () => {
+    const noEmail = await request("/api/connections", {
+      method: "POST",
+      body: { name: "jira", kind: "jira", baseUrl: "https://acme.atlassian.net" },
+    });
+    expect(noEmail.status).toBe(400);
+    expect(await noEmail.json()).toEqual({ error: "Jira connections need the account email" });
+
+    const duplicate = await request("/api/connections", {
+      method: "POST",
+      body: { name: "ghe again", kind: "github", baseUrl: "https://JBF.ghe.com/" },
+    });
+    expect(duplicate.status).toBe(400);
+  });
+});
+
+describe("test connection", () => {
+  it("runs the probe with the stored token", async () => {
+    await request(`/api/connections/${connectionId}/token`, {
+      method: "PUT",
+      body: { token: PAT },
+    });
+    const res = await request(`/api/connections/${connectionId}/test`, { method: "POST" });
+    expect(connectionTestResultSchema.parse(await res.json())).toEqual({
+      ok: true,
+      account: "octocat",
+    });
+    expect(tested.map((t) => t.token)).toEqual([PAT]);
+  });
+
+  it("answers MissingCredential when the connection has no token", async () => {
+    const res = await request(`/api/connections/${connectionId}/test`, { method: "POST" });
+    expect(res.status).toBe(MISSING_CREDENTIAL_STATUS);
+    expect(missingCredentialSchema.parse(await res.json())).toMatchObject({
+      kind: "github",
+      host: "jbf.ghe.com",
+      connectionId,
+    });
+    expect(tested).toEqual([]);
+  });
+});
+
+describe("resolve", () => {
+  const resolve = (body: unknown) => request("/api/connections/resolve", { method: "POST", body });
+
+  it("resolves a git remote to its GitHub connection once a token is saved", async () => {
+    const remote = "git@jbf.ghe.com:platform/gateway.git";
+    const missing = await resolve({ kind: "github", remote });
+    expect(missing.status).toBe(MISSING_CREDENTIAL_STATUS);
+    expect(missingCredentialSchema.parse(await missing.json())).toMatchObject({
+      host: "jbf.ghe.com",
+      connectionId,
+    });
+
+    // The missing-token modal saves the token, then the action is retried.
+    await request(`/api/connections/${connectionId}/token`, {
+      method: "PUT",
+      body: { token: PAT },
+    });
+    const retried = await resolve({ kind: "github", remote });
+    expect(retried.status).toBe(200);
+    expect(connectionViewSchema.parse(await retried.json()).id).toBe(connectionId);
+  });
+
+  it("reports an unconfigured host with no connection id, then resolves once created", async () => {
+    const url = "https://acme.atlassian.net/browse/BW-1";
+    const missing = await resolve({ kind: "jira", url });
+    expect(missingCredentialSchema.parse(await missing.json())).toEqual({
+      error: "MissingCredential",
+      kind: "jira",
+      host: "acme.atlassian.net",
+      connectionId: null,
+      message: "No Jira connection for acme.atlassian.net",
+    });
+
+    await request("/api/connections", {
+      method: "POST",
+      body: {
+        name: "acme.atlassian.net",
+        kind: "jira",
+        baseUrl: "https://acme.atlassian.net",
+        authMeta: { email: "me@acme.test" },
+        token: PAT,
+      },
+    });
+    const retried = await resolve({ kind: "jira", url });
+    expect(retried.status).toBe(200);
+    expect(await retried.text()).not.toContain(PAT);
+  });
+
+  it("rejects an address without a host", async () => {
+    for (const remote of ["C:/code/repo", "/home/me/repo"]) {
+      expect((await resolve({ kind: "github", remote })).status).toBe(400);
+    }
   });
 });

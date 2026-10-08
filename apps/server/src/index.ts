@@ -1,9 +1,11 @@
 import {
+  createConnectionService,
   createConnectionTokens,
   createKeyringSecretStore,
   createRepositories,
   openDatabase,
 } from "@blackwall/core";
+import { testConnection } from "@blackwall/integrations";
 import { banner } from "./banner.js";
 import { parseConfig } from "./config.js";
 import { openBrowser } from "./open-browser.js";
@@ -29,12 +31,16 @@ try {
     store: createKeyringSecretStore(),
     connections: repositories.connections,
   });
+  const connections = createConnectionService({
+    connections: repositories.connections,
+    tokens: connectionTokens,
+  });
 
   const { launchUrl } = await startServer({
     port: config.port,
     dev: config.dev,
     webDevOrigin: config.webDevOrigin,
-    connectionTokens,
+    connections: { connections, test: testConnection },
     shutdown,
   });
   console.log(`${banner()}\n\nblackwall is running at:\n  ${launchUrl}\n`);

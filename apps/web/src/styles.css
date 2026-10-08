@@ -1,0 +1,379 @@
+/*
+ * Interim tokens and primitives from docs/design/bw.css, enough for the
+ * missing-token modal. task-008 replaces this with the Tailwind + shadcn/ui
+ * token stylesheet; keep values in step with bw.css until then.
+ */
+
+:root {
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --r-xs: 3px;
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 8px;
+  --r-xl: 12px;
+
+  /* Dark (primary) */
+  --bg-0: #0a0918;
+  --bg-1: #100e22;
+  --bg-2: #161330;
+  --bg-3: #1e1a3f;
+  --bg-modal: #141130;
+  --border: #262046;
+  --border-strong: #3a3169;
+  --fg: #c4c1d9;
+  --fg-strong: #ebe8f7;
+  --fg-muted: #9590b4;
+  --fg-faint: #6f6a90;
+  --primary: #a77bff;
+  --primary-fg: #0a0918;
+  --cyan: #2ee6ff;
+  --magenta: #ff3dcf;
+  --st-failed: #ff5c78;
+  --glow-cyan: 0 0 0 1px rgba(46, 230, 255, 0.55), 0 0 14px rgba(46, 230, 255, 0.28);
+  --glow-primary: 0 0 0 1px rgba(167, 123, 255, 0.5), 0 0 18px rgba(167, 123, 255, 0.35);
+  --ring: var(--glow-cyan);
+  --needs-wash: rgba(255, 61, 207, 0.07);
+  --overlay: rgba(5, 4, 16, 0.74);
+  --shadow-pop: 0 16px 48px rgba(0, 0, 0, 0.6), 0 0 0 1px #3a3169;
+  --kbd-on-primary-bg: rgba(0, 0, 0, 0.14);
+  --kbd-on-primary-border: rgba(0, 0, 0, 0.2);
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg-0: #f3f3f6;
+    --bg-1: #ffffff;
+    --bg-2: #fafafc;
+    --bg-3: #eff0f4;
+    --bg-modal: #ffffff;
+    --border: #e3e3ea;
+    --border-strong: #cdcdd8;
+    --fg: #2b2b35;
+    --fg-strong: #111118;
+    --fg-muted: #5d5d6c;
+    --fg-faint: #9a9aa8;
+    --primary: #5a45e0;
+    --primary-fg: #ffffff;
+    --cyan: #1d6fe0;
+    --magenta: #c4167c;
+    --st-failed: #cf2236;
+    /* Glow is dark only; light uses a 1px border plus a 3px tinted ring. */
+    --glow-cyan: 0 0 0 1px #1d6fe0, 0 0 0 3px rgba(29, 111, 224, 0.18);
+    --glow-primary: none;
+    --ring: 0 0 0 1px #5a45e0, 0 0 0 3px rgba(90, 69, 224, 0.18);
+    --needs-wash: #fdf0f7;
+    --overlay: rgba(20, 20, 30, 0.38);
+    --shadow-pop: 0 16px 48px rgba(20, 20, 40, 0.18), 0 0 0 1px #d6d6df;
+    color-scheme: light;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--fg);
+  background: var(--bg-0);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--primary);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+a:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-radius: var(--r-xs);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: -0.01em;
+}
+.muted {
+  color: var(--fg-muted);
+}
+.faint {
+  color: var(--fg-faint);
+}
+.strong {
+  color: var(--fg-strong);
+}
+
+svg.i {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+svg.i-md {
+  width: 16px;
+  height: 16px;
+}
+
+.btn {
+  appearance: none;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-2);
+  color: var(--fg-strong);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn:hover {
+  background: var(--bg-3);
+}
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+.btn-primary {
+  background: var(--primary);
+  border-color: transparent;
+  color: var(--primary-fg);
+  font-weight: 600;
+  box-shadow: var(--glow-primary);
+}
+.btn-primary:hover {
+  background: var(--primary);
+  filter: brightness(1.08);
+}
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--fg-muted);
+}
+.btn-ghost:hover {
+  background: var(--bg-3);
+  color: var(--fg-strong);
+}
+.btn-sm {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+.btn-icon {
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+}
+.btn-icon.btn-sm {
+  width: 24px;
+}
+.btn[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.kbd {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 16px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  color: var(--fg-muted);
+  background: var(--bg-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn-primary .kbd {
+  background: var(--kbd-on-primary-bg);
+  border-color: var(--kbd-on-primary-border);
+  color: inherit;
+}
+
+.input {
+  font: inherit;
+  font-size: 13px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-2);
+  color: var(--fg-strong);
+  width: 100%;
+}
+.input.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.input::placeholder {
+  color: var(--fg-faint);
+}
+.input:focus {
+  outline: none;
+  border-color: var(--cyan);
+  box-shadow: var(--ring);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.field-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-strong);
+}
+
+.tag {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--r-xs);
+  background: var(--bg-3);
+  display: inline-flex;
+  align-items: center;
+}
+
+.card {
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+
+.error {
+  margin: 0;
+  color: var(--st-failed);
+  font-size: 12px;
+}
+
+/* ---------- modal (missing token) ---------- */
+
+.modal {
+  width: calc(100% - 32px);
+  max-width: 480px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-xl);
+  background: var(--bg-modal);
+  color: var(--fg);
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+}
+.modal::backdrop {
+  background: var(--overlay);
+  backdrop-filter: blur(2px);
+}
+.modal p {
+  margin: 0;
+  text-wrap: pretty;
+}
+.modal-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 20px 4px;
+}
+.modal-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.modal-title {
+  margin: 0;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+.needs-icon {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: var(--r-lg);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--magenta);
+  background: var(--needs-wash);
+  border: 1px solid color-mix(in oklab, var(--magenta) 40%, transparent);
+}
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 20px 18px;
+}
+.modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-2);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  row-gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--bg-2);
+  font-size: 12.5px;
+}
+.facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.scopes {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.secret-field {
+  position: relative;
+  display: block;
+}
+.secret-field .input {
+  padding-right: 36px;
+}
+.secret-field .btn {
+  position: absolute;
+  right: 3px;
+  top: 3px;
+}
+.hint {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}

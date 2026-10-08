@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  connectionInputSchema,
   connectionViewSchema,
   findingSchema,
   grillQuestionSchema,
@@ -175,5 +176,26 @@ describe("connectionViewSchema", () => {
     expect(connectionViewSchema.parse(view).hasToken).toBe(true);
     expect(connectionViewSchema.safeParse({ ...view, token: "secret" }).success).toBe(false);
     expect(connectionViewSchema.safeParse({ ...view, tokenSet: true }).success).toBe(false);
+  });
+});
+
+describe("connectionInputSchema", () => {
+  const github = { name: "github.com", kind: "github", baseUrl: "https://github.com" };
+
+  it("defaults authMeta and accepts an optional token", () => {
+    expect(connectionInputSchema.parse(github)).toEqual({ ...github, authMeta: {} });
+    expect(connectionInputSchema.parse({ ...github, token: " t " }).token).toBe("t");
+    expect(connectionInputSchema.safeParse({ ...github, token: " " }).success).toBe(false);
+  });
+
+  it("requires the account email for Jira", () => {
+    const jira = { name: "acme", kind: "jira", baseUrl: "https://acme.atlassian.net" };
+    expect(connectionInputSchema.safeParse(jira).success).toBe(false);
+    expect(
+      connectionInputSchema.safeParse({ ...jira, authMeta: { email: "not-an-email" } }).success,
+    ).toBe(false);
+    expect(
+      connectionInputSchema.safeParse({ ...jira, authMeta: { email: "me@acme.test" } }).success,
+    ).toBe(true);
   });
 });
