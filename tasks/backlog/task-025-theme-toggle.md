@@ -1,15 +1,15 @@
 ---
 id: task-025
-title: Global dark/light theme toggle with a hotkey
+title: Dark by default, with a global dark/light toggle and hotkey
 status: backlog
 depends_on: []
 ---
 
 ## Goal
-Let the user switch between dark and light theme from anywhere in the app, with a button in the
-top-left header next to the Settings button and a single-key shortcut. Today the theme only follows
-the OS (`prefers-color-scheme`), so a user who wants light while the OS is dark (or the reverse) has
-no way to get it.
+Dark is blackwall's theme, full stop: the app must start in dark mode regardless of the OS setting.
+Light is opt-in only, via a button in the top-left header next to the Settings button and a
+single-key shortcut, usable from anywhere in the app. Today the theme follows the OS
+(`prefers-color-scheme`), so anyone with a light OS gets light by default; that has to go.
 
 ## Current state
 - `apps/web/src/styles.css` defines dark tokens on `:root` and overrides them for light inside
@@ -24,45 +24,36 @@ no way to get it.
   `useEffect` (see `Inbox.tsx` for `/`).
 
 ## Behaviour
-- Theme preference has three values internally: `system` (default, follows the OS), `dark`, `light`.
-  The button and hotkey toggle between dark and light based on the theme currently showing: if the
-  page shows dark, switch to light, and the reverse. The first toggle therefore moves off `system`.
+- **Dark is always the default.** The OS `prefers-color-scheme` is ignored entirely; there is no
+  "system" mode. Theme is either `dark` (default) or `light`.
+- The button and hotkey flip dark ↔ light.
 - The choice is a per-browser convenience: store it in `localStorage` (key `blackwall.theme`), wrapped
-  in try/catch so a blocked storage falls back to `system`. No server setting.
-- Apply it before first paint to avoid a flash of the wrong theme: a tiny inline script in
-  `apps/web/index.html` reads the key and sets `data-theme` on `<html>`.
-- While on `system`, react to OS changes live (existing media query keeps doing this).
+  in try/catch. Missing, unknown or unreadable values mean dark. No server setting.
+- Apply a stored `light` before first paint to avoid a dark→light flash: a tiny inline script in
+  `apps/web/index.html` reads the key and sets `data-theme="light"` on `<html>`. Without it the page
+  renders dark.
 - **Hotkey: `T`** (plain key, no modifiers). It must not fire while focus is in a text field
   (`isTypingTarget`) or when a modifier is held (`isPlainKey`), matching the keyboard model in the
   `blackwall-design` skill. `T` is not used by any existing or planned shortcut (J/K, Enter, G N, N,
   /, ⌘↵, F, I, O, A, R, P, Esc, ?).
 
 ## Changes
-1. **`apps/web/src/styles.css`**: make the light override apply in two cases, and let an explicit
-   dark choice beat an OS light preference:
-   ```css
-   /* OS prefers light and the user has not forced dark */
-   @media (prefers-color-scheme: light) {
-     :root:not([data-theme="dark"]) { /* light tokens, color-scheme: light */ }
-   }
-   /* user forced light */
-   :root[data-theme="light"] { /* same light tokens */ }
-   ```
-   Avoid duplicating the token block by hand if possible (e.g. one shared selector list
-   `:root[data-theme="light"]` plus the media-guarded `:root:not([data-theme="dark"])`). Update the file
-   header comment. Glow stays dark-only, as today.
-2. **`apps/web/index.html`**: inline pre-paint script that sets `document.documentElement.dataset.theme`
-   to `dark`/`light` from `localStorage`, inside try/catch.
-3. **New `apps/web/src/theme.ts`**: `readThemePreference()`, `setThemePreference(pref)`,
-   `effectiveTheme()` (resolves `system` with `matchMedia`) and `toggleTheme()`. Pure-ish and unit-tested
-   (`theme.test.ts`) for: default `system`, toggling from system-dark → light, from light → dark,
-   storage throwing.
+1. **`apps/web/src/styles.css`**: remove the `@media (prefers-color-scheme: light)` wrapper and put the
+   light tokens under `:root[data-theme="light"]` only (with `color-scheme: light`). `:root` stays dark
+   with `color-scheme: dark`. Update the file header comment ("Dark is the default; light applies only
+   when the user picks it"). Grep the rest of `apps/web/src` for other `prefers-color-scheme` uses and
+   remove them too. Glow stays dark-only, as today.
+2. **`apps/web/index.html`**: inline pre-paint script that sets `data-theme="light"` on
+   `document.documentElement` only when `localStorage` holds `light`, inside try/catch.
+3. **New `apps/web/src/theme.ts`**: `readTheme()` (dark unless stored `light`), `setTheme(theme)` and
+   `toggleTheme()`. Unit-tested (`theme.test.ts`) for: default dark with empty storage, default dark
+   even when `matchMedia('(prefers-color-scheme: light)')` matches, toggle dark → light → dark,
+   garbage value → dark, storage throwing → dark.
 4. **New `apps/web/src/components/ThemeToggle.tsx`**: ghost icon `Button` (`size="icon"`, same as the
    gear) showing a sun icon in dark theme and a moon icon in light theme (add both to
    `components/icons.tsx` in the existing icon style). `aria-label` says what it will do
    ("Switch to light theme" / "Switch to dark theme"); tooltip/title includes the `T` shortcut
-   (`Kbd` hint style). Re-renders when the theme changes (small hook, e.g. `useTheme()`, that also
-   listens to the OS media query while on `system`).
+   (`Kbd` hint style). Re-renders when the theme changes (small hook, e.g. `useTheme()`).
 5. **Global hotkey**: register `T` once at app level (e.g. in the root route component in
    `router.tsx` or a `useThemeHotkey()` called from it), not inside `Inbox`, so it works on every
    route including Settings.
@@ -70,14 +61,16 @@ no way to get it.
    - `Inbox.tsx` header: put `ThemeToggle` immediately left of the Settings gear.
    - `Settings.tsx` left nav header: add the same `ThemeToggle` in the same top-left position so it is
      reachable on that screen too.
-7. **`blackwall-design` skill** (`.claude/skills/blackwall-design/SKILL.md`): add `T toggle theme` to
-   the Keyboard line and note under themes that the user can override the OS via `data-theme`.
+7. **Docs**: in `.claude/skills/blackwall-design/SKILL.md` add `T toggle theme` to the Keyboard line
+   and state that dark is always the default and light is opt-in via `data-theme="light"` (never the
+   OS). Update `README.md` / `docs/design/README.md` wherever they say light follows the OS.
 
 ## Acceptance criteria
 - Clicking the button or pressing `T` flips dark ↔ light instantly on Inbox, Task view and Settings.
 - Pressing `T` inside the filter input or any other text field types a "t" and does not toggle.
-- The choice survives a reload with no flash of the other theme.
-- With no stored choice, the app still follows the OS, including live OS changes.
+- A fresh browser (no stored choice) opens in dark, even when the OS is set to light.
+- A chosen light theme survives a reload with no dark flash; choosing dark again also persists.
+- No `prefers-color-scheme` remains in `apps/web/src`.
 - Both themes still look right (check against `docs/design/*Light.dc.html`), focus ring visible on the
   button, `pnpm typecheck`, `pnpm lint` and `pnpm test` pass.
 

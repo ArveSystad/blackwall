@@ -2,7 +2,7 @@
 id: task-026
 title: Animated sci-fi grid backdrop on the first-run screen
 status: backlog
-depends_on: [task-021]
+depends_on: [task-021, task-025]
 ---
 
 ## Goal
@@ -16,8 +16,7 @@ the cyan "current step" glow.
 - `apps/web/src/routes/Home.tsx` renders `FirstRun` (three `SetupStep` cards: connection, repo, first
   task) centered in the right pane when there is nothing set up yet. Mockup:
   `docs/design/FirstRun.dc.html` (plain `var(--bg-0)` background today).
-- Tokens live in `apps/web/src/styles.css` (dark on `:root`, light in the `prefers-color-scheme: light`
-  block; task-025 adds a `data-theme` override). Tailwind utilities are mapped in `@theme inline`.
+- Tokens live in `apps/web/src/styles.css` (dark on `:root`; after task-025, light only under `:root[data-theme="light"]`). Tailwind utilities are mapped in `@theme inline`.
 - task-021 rebuilds the main view and may move or change the empty state; build on whatever it leaves.
 
 ## Design direction
