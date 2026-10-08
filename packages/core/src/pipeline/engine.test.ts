@@ -1,13 +1,20 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ReviewFinding, ServerEvent, Stage, Task } from "@blackwall/shared";
+import {
+  MAX_GRILL_ROUNDS,
+  type ReviewFinding,
+  type ServerEvent,
+  type Stage,
+  type Task,
+} from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentRunOptions } from "../agents/adapters/types.js";
 import { createAgentService } from "../agents/service.js";
 import { openDatabase, type OpenedDatabase } from "../db/database.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
 import {
+  GrillQuestionNotFoundError,
   RESUME_PROMPT,
   TaskStateError,
   createPipelineEngine,
@@ -46,25 +53,43 @@ const highFinding: ReviewFinding = {
   suggestedFix: "Use ===",
 };
 
-/** Which stage an agent call belongs to, from its prompt. */
-function stageOf(options: AgentRunOptions): Stage {
-  if (options.jsonSchema) return "code-review";
+/**
+ * Which stage an agent call belongs to, from its prompt. Plan review runs the
+ * reviewers (`plan-review`), the planner's answers (`plan-answers`) and the
+ * planner folding the user's answers into the plan (`plan-fold`).
+ */
+type Call = Stage | "plan-answers" | "plan-fold";
+
+function stageOf(options: AgentRunOptions): Call {
   if (options.prompt === RESUME_PROMPT) return "implement";
+  if (options.prompt.includes("Grill this plan")) return "plan-review";
+  if (options.prompt.includes("Reviewers' questions")) return "plan-answers";
+  if (options.prompt.includes("The user has answered")) return "plan-fold";
+  if (options.jsonSchema) return "code-review";
   if (options.prompt.includes("write a concrete implementation plan")) return "inform";
-  if (options.prompt.includes("Review this plan")) return "plan-review";
   if (options.prompt.includes("Summarize")) return "summarize";
   return "implement";
 }
 
+/** Plan reviewers are satisfied and the planner keeps the plan unless a script says otherwise. */
+function withPlanDefaults(stage: Call, script: FakeScript): FakeScript {
+  if (script.structured !== undefined || script.fail !== undefined || script.hang) return script;
+  if (stage === "plan-review") return { ...script, structured: { questions: [] } };
+  if (stage === "plan-answers") {
+    return { ...script, structured: { answers: [], plan: "revised plan" } };
+  }
+  return script;
+}
+
 interface Harness {
   engine: ReturnType<typeof createPipelineEngine>;
-  calls: { stage: Stage; options: AgentRunOptions }[];
+  calls: { stage: Call; options: AgentRunOptions }[];
   events: ServerEvent[];
   delivered: string[];
 }
 
 function harness(
-  script: (stage: Stage, options: AgentRunOptions) => FakeScript = () => ({}),
+  script: (stage: Call, options: AgentRunOptions) => FakeScript = () => ({}),
   { stages = createDefaultStages(), maxPerRepo = 3 } = {},
 ): Harness {
   const agents = createAgentService({ agents: r.agents, settings: r.settings, tags: r.tags });
@@ -72,7 +97,7 @@ function harness(
   const run = (options: AgentRunOptions) => {
     const stage = stageOf(options);
     calls.push({ stage, options });
-    return script(stage, options);
+    return withPlanDefaults(stage, script(stage, options));
   };
   const events: ServerEvent[] = [];
   const delivered: string[] = [];
@@ -121,36 +146,88 @@ async function settle(engine: Harness["engine"]) {
 describe("pipeline engine", () => {
   it("drives a task through every stage, with an interrupt and resume", async () => {
     const seeded = seedTask();
-    // A question only a human can answer sends plan review to the questions gate.
-    const question = r.grillQuestions.create({
-      taskId: seeded.id,
-      question: "Should empty passwords be logged?",
-      needsHuman: true,
-    });
 
     let reviews = 0;
+    let grills = 0;
     const first = harness((stage) => {
       if (stage === "inform") return { text: "1. Compare with ===" };
+      if (stage === "plan-review" && grills++ === 0) {
+        // One question the repo answers, one only a human can.
+        return {
+          structured: {
+            questions: [
+              { question: "Should empty passwords be logged?", needsHuman: true },
+              { question: "Where is the comparison?", needsHuman: false },
+            ],
+          },
+        };
+      }
+      if (stage === "plan-answers") {
+        return {
+          structured: {
+            answers: [{ question: 2, answer: "src/login.ts" }],
+            plan: "1. Compare with === in src/login.ts",
+          },
+        };
+      }
+      if (stage === "plan-fold") return { text: "1. Compare with ===\n2. Do not log" };
       if (stage === "implement") return { hang: true, sessionId: "impl-session" };
       return {};
     });
 
     first.engine.enqueue(seeded.id);
     await settle(first.engine);
+    // The planner answered what the repo could; the human question waits on the user.
     expect(task(seeded.id)).toMatchObject({
       status: "needs-you",
       stage: "plan-review",
       gate: "questions",
-      plan: "1. Compare with ===",
+      plan: "1. Compare with === in src/login.ts",
       branch: `agent/${seeded.id}`,
       worktreePath: dir,
     });
+    const [human, answered] = r.grillQuestions.listByTask(seeded.id);
+    expect(human).toMatchObject({ needsHuman: true, answer: null });
+    expect(answered).toMatchObject({
+      needsHuman: false,
+      answer: "src/login.ts",
+      answeredBy: "agent",
+    });
+    expect(first.events.filter((e) => e.type === "grill.upserted")).toHaveLength(3);
 
-    // Answer the question; the panel reviews again and the plan goes to approval.
-    r.grillQuestions.answer(question.id, "No", "user");
-    await first.engine.respond(seeded.id, { gate: "questions", decision: "approve" });
+    // The gate stays shut until every question is answered, and only by the user.
+    await expect(
+      first.engine.respond(seeded.id, { gate: "questions", decision: "approve" }),
+    ).rejects.toThrow(TaskStateError);
+    await expect(
+      first.engine.answerQuestion(seeded.id, answered!.id, { answer: "elsewhere" }),
+    ).rejects.toThrow(TaskStateError);
+    await expect(first.engine.answerQuestion(seeded.id, "nope", { answer: "No" })).rejects.toThrow(
+      GrillQuestionNotFoundError,
+    );
+
+    // The last answer continues the task: the planner folds it in and the panel is satisfied.
+    const reply = await first.engine.answerQuestion(seeded.id, human!.id, { answer: "No" });
+    expect(reply.question).toMatchObject({ answer: "No", answeredBy: "user" });
+    expect(reply.task).toMatchObject({ status: "queued", stage: "plan-review" });
     await settle(first.engine);
-    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "plan-approval" });
+    expect(task(seeded.id)).toMatchObject({
+      status: "needs-you",
+      gate: "plan-approval",
+      plan: "1. Compare with ===\n2. Do not log",
+    });
+    expect(first.calls.map((c) => c.stage)).toEqual([
+      "inform",
+      "plan-review",
+      "plan-answers",
+      "plan-fold",
+      "plan-review",
+    ]);
+    const fold = first.calls[3]!.options.prompt;
+    expect(fold).toContain("Should empty passwords be logged?");
+    expect(fold).toContain("Answer (user): No");
+    // The next grill round sees what was already answered.
+    expect(first.calls[4]!.options.prompt).toContain("Answer (planner): src/login.ts");
 
     // Requested changes go back to the planner.
     await first.engine.respond(seeded.id, {
@@ -294,6 +371,84 @@ describe("pipeline engine", () => {
     expect(second.delivered).toEqual([seeded.id]);
   });
 
+  it("stops grilling at the round cap and still waits for plan approval", async () => {
+    const seeded = seedTask();
+    let asked = 0;
+    const h = harness((stage) => {
+      if (stage === "plan-review") {
+        return { structured: { questions: [{ question: `Q${++asked}?`, needsHuman: false }] } };
+      }
+      if (stage === "plan-answers") {
+        return { structured: { answers: [{ question: 1, answer: "A" }], plan: `plan v${asked}` } };
+      }
+      return {};
+    });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+
+    expect(h.calls.filter((c) => c.stage === "plan-review")).toHaveLength(MAX_GRILL_ROUNDS);
+    expect(h.calls.filter((c) => c.stage === "plan-answers")).toHaveLength(MAX_GRILL_ROUNDS);
+    expect(h.calls.some((c) => c.stage === "implement")).toBe(false);
+    expect(task(seeded.id)).toMatchObject({
+      status: "needs-you",
+      gate: "plan-approval",
+      plan: `plan v${MAX_GRILL_ROUNDS}`,
+    });
+    expect(r.grillQuestions.listByTask(seeded.id).map((q) => q.answeredBy)).toEqual(
+      Array(MAX_GRILL_ROUNDS).fill("agent"),
+    );
+
+    // Only the user's approval starts the implementer.
+    await h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" });
+    await vi.waitFor(() => expect(h.calls.some((c) => c.stage === "implement")).toBe(true));
+    await h.engine.shutdown();
+  });
+
+  it("hands questions the planner cannot answer to the user", async () => {
+    const seeded = seedTask();
+    let grills = 0;
+    const h = harness((stage) => {
+      if (stage === "plan-review" && grills++ === 0) {
+        return {
+          structured: {
+            questions: [{ question: "Lock after how many tries?", needsHuman: false }],
+          },
+        };
+      }
+      if (stage === "plan-answers") {
+        return { structured: { answers: [{ question: 1, answer: null }], plan: "same plan" } };
+      }
+      return {};
+    });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "questions" });
+    const [q] = r.grillQuestions.listByTask(seeded.id);
+    expect(q).toMatchObject({ needsHuman: true, answer: null });
+
+    await h.engine.answerQuestion(seeded.id, q!.id, { answer: "5" });
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "plan-approval" });
+    expect(h.calls.map((c) => c.stage)).toEqual([
+      "inform",
+      "plan-review",
+      "plan-answers",
+      "plan-fold",
+      "plan-review",
+    ]);
+  });
+
+  it("fails the task when a plan reviewer returns the wrong shape", async () => {
+    const seeded = seedTask();
+    const h = harness((stage) => (stage === "plan-review" ? { structured: { findings: [] } } : {}));
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({
+      status: "failed",
+      error: "A plan reviewer returned questions in the wrong shape",
+    });
+  });
+
   it("escalates after three fix rounds and finishes when the user accepts", async () => {
     const seeded = seedTask();
     const h = harness((stage) =>
@@ -347,7 +502,7 @@ describe("pipeline engine", () => {
         new Promise<void>((resolve) => {
           gates.set(ctx.task.id, resolve);
         }),
-      "plan-review": async () => ({ openQuestions: 0 }),
+      "plan-review": async () => ({ openQuestions: 0, satisfied: true }),
     };
     const h = harness(() => ({}), { stages, maxPerRepo: 2 });
     const a = seedTask({ branch: "feature/a" });

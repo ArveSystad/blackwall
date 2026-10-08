@@ -193,6 +193,15 @@ describe("findings and grill questions", () => {
     expect(answered.answeredAt).toBeInstanceOf(Date);
     expect(r.grillQuestions.listByTask(task.id)).toHaveLength(1);
   });
+
+  it("hands a question the planner could not answer to the user", () => {
+    const task = seedTask();
+    const q = r.grillQuestions.create({ taskId: task.id, question: "Which locale?" });
+    expect(q.needsHuman).toBe(false);
+    expect(r.grillQuestions.markNeedsHuman(q.id).needsHuman).toBe(true);
+    expect(r.grillQuestions.get(q.id)?.needsHuman).toBe(true);
+    expect(r.grillQuestions.get("nope")).toBeUndefined();
+  });
 });
 
 describe("shared schemas", () => {

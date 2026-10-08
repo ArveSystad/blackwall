@@ -17,8 +17,12 @@ export function pipelineKind(mode: PrMode | null): PipelineKind {
 /** What each stage reports back to the engine, which decides where to go next. */
 export interface StageResults {
   inform: void;
-  /** Grill questions still waiting on a human. */
-  "plan-review": { openQuestions: number };
+  /**
+   * `openQuestions`: grill questions still waiting on a human. `satisfied`: the
+   * reviewers have no more questions (or the grill round cap is reached), so the
+   * plan goes to the user for approval; otherwise another grill round runs.
+   */
+  "plan-review": { openQuestions: number; satisfied: boolean };
   implement: void;
   /** `retryImplement`: a check failed and the implementer gets another go before review. */
   checks: { retryImplement: boolean };
@@ -59,7 +63,8 @@ export class InvalidGateResponseError extends Error {
 export const FIRST_STAGE: Stage = "inform";
 
 /**
- * The hardcoded pipeline (grill-result.md §3). Work: Inform → Plan review →
+ * The hardcoded pipeline (grill-result.md §3). Work: Inform → Plan review
+ * (grill rounds, pausing at [questions] for answers only a human can give) →
  * [plan approval] → Implement → Checks → Code review → Aggregate, looping back
  * to Implement while blocking findings remain (at most {@link MAX_FIX_ROUNDS}
  * fix rounds, then escalate) → Summarize → [finish]. Review PR: Inform → Code
@@ -93,8 +98,10 @@ export function afterStage<S extends Stage>(
     case "inform":
       return go("plan-review");
     case "plan-review": {
-      const { openQuestions } = result as StageResults["plan-review"];
-      return { kind: "gate", gate: openQuestions > 0 ? "questions" : "plan-approval" };
+      const { openQuestions, satisfied } = result as StageResults["plan-review"];
+      if (openQuestions > 0) return { kind: "gate", gate: "questions" };
+      // Implement is reachable only through the user's plan approval.
+      return satisfied ? { kind: "gate", gate: "plan-approval" } : go("plan-review");
     }
     case "implement":
       return go("checks");
@@ -138,7 +145,10 @@ export function afterGate(
 
   switch (gate) {
     case "questions":
-      // The answers are in; the panel looks at the plan again.
+      // The answers are in; Plan review folds them into the plan and grills it again.
+      if (decision !== "approve") {
+        throw new InvalidGateResponseError("Answer the questions, then continue");
+      }
       return go("plan-review");
     case "plan-approval":
       return decision === "approve" ? go("implement", 0) : go("inform");

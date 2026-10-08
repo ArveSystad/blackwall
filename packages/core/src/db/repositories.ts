@@ -332,8 +332,23 @@ export function createGrillQuestionsRepository(db: Db) {
         .orderBy(asc(grillQuestions.createdAt), asc(rowid))
         .all();
     },
+    get(id: string): GrillQuestion | undefined {
+      return db.select().from(grillQuestions).where(eq(grillQuestions.id, id)).get();
+    },
     create(values: NewGrillQuestion): GrillQuestion {
       return db.insert(grillQuestions).values(values).returning().get();
+    },
+    /** The planner could not answer it from the repo: hand it to the user. */
+    markNeedsHuman(id: string): GrillQuestion {
+      return required(
+        db
+          .update(grillQuestions)
+          .set({ needsHuman: true })
+          .where(eq(grillQuestions.id, id))
+          .returning()
+          .get(),
+        `Grill question ${id}`,
+      );
     },
     answer(id: string, answer: string, answeredBy: GrillAnswerer): GrillQuestion {
       return required(

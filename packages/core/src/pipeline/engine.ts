@@ -1,7 +1,10 @@
 import {
   gateResponseInputSchema,
+  grillAnswerInputSchema,
   type AgentCli,
   type GateResponseInput,
+  type GrillAnswerInput,
+  type GrillAnswerResult,
   type Run,
   type ServerEvent,
   type Stage,
@@ -43,6 +46,13 @@ export class TaskNotFoundError extends Error {
   constructor(readonly id: string) {
     super(`Task ${id} not found`);
     this.name = "TaskNotFoundError";
+  }
+}
+
+export class GrillQuestionNotFoundError extends Error {
+  constructor(readonly id: string) {
+    super(`Question ${id} not found`);
+    this.name = "GrillQuestionNotFoundError";
   }
 }
 
@@ -189,6 +199,12 @@ export function createPipelineEngine({
   function currentRound(run: Run | undefined): number {
     if (!run) return 0;
     return Math.max(0, ...r.steps.listByRun(run.id).map((s) => s.round));
+  }
+
+  /** Grill questions waiting on the user's answer. */
+  function openQuestions(taskId: string): number {
+    return r.grillQuestions.listByTask(taskId).filter((q) => q.needsHuman && q.answer === null)
+      .length;
   }
 
   function position(task: Task, round: number): PipelinePosition {
@@ -390,6 +406,41 @@ export function createPipelineEngine({
     pump();
   }
 
+  /**
+   * Answers the gate a `needs-you` task waits on. The task re-enters the
+   * queue at the stage the answer leads to, or delivers and finishes. The
+   * questions gate opens only once every open question is answered.
+   */
+  async function respond(taskId: string, input: GateResponseInput): Promise<Task> {
+    const parsed = gateResponseInputSchema.safeParse(input);
+    if (!parsed.success) {
+      throw new InvalidGateResponseError(parsed.error.issues.map((i) => i.message).join("; "));
+    }
+    const { gate, decision, message } = parsed.data;
+    const task = getTask(taskId);
+    if (task.status !== "needs-you" || task.gate !== gate) {
+      throw new TaskStateError(`Task ${taskId} is not waiting on ${gate}`);
+    }
+    if (gate === "questions" && openQuestions(taskId) > 0) {
+      throw new TaskStateError(`Task ${taskId} still has open questions`);
+    }
+    const run = latestRun(taskId);
+    const next = afterGate(gate, decision, position(task, currentRound(run)));
+
+    if (next.kind === "deliver") {
+      if (!run) throw new TaskStateError(`Task ${taskId} has no run to deliver`);
+      await deliver(task, run);
+      saveRun(run.id, "succeeded", new Date());
+      return saveTask(taskId, { status: "done", gate: null });
+    }
+    if (next.kind !== "stage") throw new Error(`Unexpected transition ${next.kind}`);
+
+    pending.set(taskId, { round: next.round, ...(message ? { instructions: message } : {}) });
+    const queued = saveTask(taskId, { status: "queued", gate: null, stage: next.stage });
+    enqueueTask(queued);
+    return queued;
+  }
+
   return {
     /** Queues a `queued` task to start (or continue) its pipeline when a slot is free. */
     enqueue(taskId: string): void {
@@ -400,35 +451,37 @@ export function createPipelineEngine({
       enqueueTask(task);
     },
 
+    respond,
+
     /**
-     * Answers the gate a `needs-you` task waits on. The task re-enters the
-     * queue at the stage the answer leads to, or delivers and finishes.
+     * Records the user's answer to a grill question only a human can decide.
+     * Answering the last open question continues the task: Plan review folds
+     * the answers into the plan and grills it again.
      */
-    async respond(taskId: string, input: GateResponseInput): Promise<Task> {
-      const parsed = gateResponseInputSchema.safeParse(input);
+    async answerQuestion(
+      taskId: string,
+      questionId: string,
+      input: GrillAnswerInput,
+    ): Promise<GrillAnswerResult> {
+      const parsed = grillAnswerInputSchema.safeParse(input);
       if (!parsed.success) {
         throw new InvalidGateResponseError(parsed.error.issues.map((i) => i.message).join("; "));
       }
-      const { gate, decision, message } = parsed.data;
-      const task = getTask(taskId);
-      if (task.status !== "needs-you" || task.gate !== gate) {
-        throw new TaskStateError(`Task ${taskId} is not waiting on ${gate}`);
+      let task = getTask(taskId);
+      const existing = r.grillQuestions.get(questionId);
+      if (!existing || existing.taskId !== taskId) throw new GrillQuestionNotFoundError(questionId);
+      if (!existing.needsHuman) {
+        throw new TaskStateError("The planner answers this question from the repository");
       }
-      const run = latestRun(taskId);
-      const next = afterGate(gate, decision, position(task, currentRound(run)));
-
-      if (next.kind === "deliver") {
-        if (!run) throw new TaskStateError(`Task ${taskId} has no run to deliver`);
-        await deliver(task, run);
-        saveRun(run.id, "succeeded", new Date());
-        return saveTask(taskId, { status: "done", gate: null });
+      if (task.status !== "needs-you" || task.gate !== "questions") {
+        throw new TaskStateError(`Task ${taskId} is not waiting on answers`);
       }
-      if (next.kind !== "stage") throw new Error(`Unexpected transition ${next.kind}`);
-
-      pending.set(taskId, { round: next.round, ...(message ? { instructions: message } : {}) });
-      const queued = saveTask(taskId, { status: "queued", gate: null, stage: next.stage });
-      enqueueTask(queued);
-      return queued;
+      const question = r.grillQuestions.answer(questionId, parsed.data.answer, "user");
+      publish({ type: "grill.upserted", payload: { question } });
+      if (openQuestions(taskId) === 0) {
+        task = await respond(taskId, { gate: "questions", decision: "approve" });
+      }
+      return { question, task };
     },
 
     /**

@@ -92,7 +92,7 @@ try {
     repos,
     agents,
     settings,
-    tasks: repositories.tasks,
+    tasks: { tasks: repositories.tasks, grillQuestions: repositories.grillQuestions },
     pipeline,
     clis: () => clis,
     shutdown,

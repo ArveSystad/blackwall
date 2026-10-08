@@ -10,7 +10,7 @@ import {
   type HealthResponse,
   type ServerEvent,
 } from "@blackwall/shared";
-import type { AgentService, RepoService, Repositories, SettingsService } from "@blackwall/core";
+import type { AgentService, RepoService, SettingsService } from "@blackwall/core";
 import { Hono } from "hono";
 import { agentRoutes } from "./agents.js";
 import { cliRoutes } from "./clis.js";
@@ -20,7 +20,7 @@ import { errorResponse } from "./errors.js";
 import { pullRequestRoutes } from "./github.js";
 import { repoRoutes } from "./repos.js";
 import { settingsRoutes, tagRoutes } from "./settings.js";
-import { taskRoutes, type TaskPipeline } from "./tasks.js";
+import { taskRoutes, type TaskPipeline, type TaskRouteStores } from "./tasks.js";
 
 export interface AppOptions {
   token: string;
@@ -36,9 +36,9 @@ export interface AppOptions {
   agents?: AgentService;
   /** Tags and general settings; omit to leave the tag and settings routes out (e.g. in tests). */
   settings?: SettingsService;
-  /** Task store; omit to leave the task routes out (e.g. in tests). */
-  tasks?: Repositories["tasks"];
-  /** Pipeline engine for resuming tasks and answering gates; omit to leave those routes out. */
+  /** Task and grill question stores; omit to leave the task routes out (e.g. in tests). */
+  tasks?: TaskRouteStores;
+  /** Pipeline engine for resuming tasks, answering gates and questions; omit to leave those routes out. */
   pipeline?: TaskPipeline;
   /** Agent CLI detection, started at launch; omit to leave the CLI route out (e.g. in tests). */
   clis?: () => Promise<CliStatus[]>;

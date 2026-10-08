@@ -59,6 +59,11 @@ export const GATES = ["questions", "plan-approval", "triage", "escalation", "fin
 export const GATE_DECISIONS = ["approve", "revise"] as const;
 /** Fix rounds in the code review loop before the task escalates to the user. */
 export const MAX_FIX_ROUNDS = 3;
+/**
+ * Grill rounds in Plan review before the plan goes to the user for approval,
+ * even if the reviewers still have questions.
+ */
+export const MAX_GRILL_ROUNDS = 3;
 export const SEVERITIES = ["critical", "high", "medium", "low"] as const;
 /** Severities that block the code review loop. */
 export const GATING_SEVERITIES = ["critical", "high"] as const satisfies readonly Severity[];
@@ -669,6 +674,59 @@ export type GrillQuestion = z.infer<typeof grillQuestionSchema>;
 
 export const grillAnswerInputSchema = z.object({ answer: z.string().trim().min(1) });
 export type GrillAnswerInput = z.infer<typeof grillAnswerInputSchema>;
+
+/** Reply to a user's grill answer: the answered question and the task, which moves on once none are open. */
+export const grillAnswerResultSchema = z.object({
+  question: grillQuestionSchema,
+  task: taskSchema,
+});
+export type GrillAnswerResult = z.infer<typeof grillAnswerResultSchema>;
+
+/**
+ * One question as a plan reviewer asks it. `needsHuman`: only the user can
+ * decide (a product or scope call), so the planner must not guess.
+ */
+export const planReviewQuestionSchema = z
+  .object({ question: z.string().trim().min(1), needsHuman: z.boolean() })
+  .strict();
+export type PlanReviewQuestion = z.infer<typeof planReviewQuestionSchema>;
+
+/** A plan reviewer's whole output: its questions, empty when it is satisfied with the plan. */
+export const planReviewOutputSchema = z
+  .object({ questions: z.array(planReviewQuestionSchema) })
+  .strict();
+export type PlanReviewOutput = z.infer<typeof planReviewOutputSchema>;
+
+/** JSON Schema of a plan reviewer's output. */
+export function planReviewOutputJsonSchema(): Record<string, unknown> {
+  return z.toJSONSchema(planReviewOutputSchema);
+}
+
+/**
+ * The planner's reply to a grill round: an answer per numbered question (null
+ * when the repository cannot answer it and the user must decide), and the
+ * plan revised with those answers.
+ */
+export const planAnswersOutputSchema = z
+  .object({
+    answers: z.array(
+      z
+        .object({
+          /** 1-based number of the question in the prompt. */
+          question: z.int().positive(),
+          answer: z.string().trim().min(1).nullable(),
+        })
+        .strict(),
+    ),
+    plan: z.string().trim().min(1),
+  })
+  .strict();
+export type PlanAnswersOutput = z.infer<typeof planAnswersOutputSchema>;
+
+/** JSON Schema of the planner's grill answers. */
+export function planAnswersOutputJsonSchema(): Record<string, unknown> {
+  return z.toJSONSchema(planAnswersOutputSchema);
+}
 
 /** Whether an agent CLI is installed, detected at startup via `<cli> --version`. */
 export const cliStatusSchema = z.object({

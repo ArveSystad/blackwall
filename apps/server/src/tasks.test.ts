@@ -5,7 +5,12 @@ import {
   type OpenedDatabase,
   type Repositories,
 } from "@blackwall/core";
-import { taskSchema, type GateResponseInput } from "@blackwall/shared";
+import {
+  grillAnswerResultSchema,
+  grillQuestionSchema,
+  taskSchema,
+  type GateResponseInput,
+} from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.js";
 import { tokenCookieName } from "./auth.js";
@@ -23,10 +28,15 @@ let app: ReturnType<typeof createApp>["app"];
 beforeEach(() => {
   opened = openDatabase(":memory:");
   repositories = createRepositories(opened.db);
-  app = createApp({ token: launchToken, getPort: () => port, tasks: repositories.tasks }).app;
+  app = createApp({ token: launchToken, getPort: () => port, tasks: stores() }).app;
 });
 
 afterEach(() => opened.close());
+
+const stores = () => ({
+  tasks: repositories.tasks,
+  grillQuestions: repositories.grillQuestions,
+});
 
 function request(path: string, init: { method?: string; body?: unknown } = {}) {
   return app.request(`http://${host}${path}`, {
@@ -61,6 +71,20 @@ describe("task routes", () => {
     expect(one).toMatchObject({ id: task.id, title: "Fix login", status: "queued" });
   });
 
+  it("lists a task's grill questions", async () => {
+    const task = seedTask();
+    const q = repositories.grillQuestions.create({
+      taskId: task.id,
+      question: "Which locale?",
+      needsHuman: true,
+    });
+    const res = await request(`/api/tasks/${task.id}/questions`);
+    expect(res.status).toBe(200);
+    const list = grillQuestionSchema.array().parse(await res.json());
+    expect(list.map((x) => [x.id, x.needsHuman, x.answer])).toEqual([[q.id, true, null]]);
+    expect((await request("/api/tasks/nope/questions")).status).toBe(404);
+  });
+
   it("returns 404 for an unknown task", async () => {
     const res = await request("/api/tasks/nope");
     expect(res.status).toBe(404);
@@ -74,6 +98,10 @@ describe("pipeline task routes", () => {
   beforeEach(() => {
     pipeline = {
       resume: vi.fn((id: string) => repositories.tasks.update(id, { status: "queued" })),
+      answerQuestion: vi.fn(async (id: string, questionId: string, input: { answer: string }) => ({
+        question: repositories.grillQuestions.answer(questionId, input.answer, "user"),
+        task: repositories.tasks.update(id, { status: "queued", gate: null }),
+      })),
       respond: vi.fn(async (id: string, input: GateResponseInput) => {
         if (input.gate !== "plan-approval")
           throw new TaskStateError(`Task ${id} is not waiting on ${input.gate}`);
@@ -83,7 +111,7 @@ describe("pipeline task routes", () => {
     app = createApp({
       token: launchToken,
       getPort: () => port,
-      tasks: repositories.tasks,
+      tasks: stores(),
       pipeline,
     }).app;
   });
@@ -118,5 +146,29 @@ describe("pipeline task routes", () => {
     });
     expect(wrong.status).toBe(409);
     expect(await wrong.json()).toEqual({ error: `Task ${task.id} is not waiting on finish` });
+  });
+
+  it("answers a grill question, rejecting blank answers", async () => {
+    const task = seedTask();
+    const q = repositories.grillQuestions.create({
+      taskId: task.id,
+      question: "Which locale?",
+      needsHuman: true,
+    });
+    const ok = await request(`/api/tasks/${task.id}/questions/${q.id}/answer`, {
+      method: "POST",
+      body: { answer: " nb-NO " },
+    });
+    expect(ok.status).toBe(200);
+    const result = grillAnswerResultSchema.parse(await ok.json());
+    expect(result.question).toMatchObject({ answer: "nb-NO", answeredBy: "user" });
+    expect(result.task.status).toBe("queued");
+    expect(pipeline.answerQuestion).toHaveBeenCalledWith(task.id, q.id, { answer: "nb-NO" });
+
+    const blank = await request(`/api/tasks/${task.id}/questions/${q.id}/answer`, {
+      method: "POST",
+      body: { answer: "  " },
+    });
+    expect(blank.status).toBe(400);
   });
 });

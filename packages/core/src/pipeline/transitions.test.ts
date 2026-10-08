@@ -17,14 +17,45 @@ describe("afterStage (work)", () => {
       stage: "plan-review",
       round: 0,
     });
-    expect(afterStage("plan-review", { openQuestions: 0 }, work)).toEqual({
+    expect(afterStage("plan-review", { openQuestions: 0, satisfied: true }, work)).toEqual({
       kind: "gate",
       gate: "plan-approval",
     });
-    expect(afterStage("plan-review", { openQuestions: 2 }, work)).toEqual({
+    expect(afterStage("plan-review", { openQuestions: 2, satisfied: false }, work)).toEqual({
       kind: "gate",
       gate: "questions",
     });
+    // Questions for the user come first, even in the last grill round.
+    expect(afterStage("plan-review", { openQuestions: 1, satisfied: true }, work)).toEqual({
+      kind: "gate",
+      gate: "questions",
+    });
+  });
+
+  it("grills the plan again until the reviewers are satisfied", () => {
+    expect(afterStage("plan-review", { openQuestions: 0, satisfied: false }, work)).toEqual({
+      kind: "stage",
+      stage: "plan-review",
+      round: 0,
+    });
+  });
+
+  it("never reaches Implement from planning without the plan-approval gate", () => {
+    const planning = [
+      afterStage("inform", undefined, work),
+      ...[0, 1].flatMap((openQuestions) =>
+        [true, false].map((satisfied) =>
+          afterStage("plan-review", { openQuestions, satisfied }, work),
+        ),
+      ),
+      afterGate("questions", "approve", work),
+      afterGate("plan-approval", "revise", work),
+    ];
+    for (const next of planning) {
+      expect(next).not.toMatchObject({ kind: "stage", stage: "implement" });
+      expect(next.kind).not.toBe("deliver");
+    }
+    expect(afterGate("plan-approval", "approve", work)).toMatchObject({ stage: "implement" });
   });
 
   it("retries the implementer on a failed check before review", () => {
@@ -85,6 +116,7 @@ describe("afterGate", () => {
     });
     expect(afterGate("plan-approval", "revise", work)).toMatchObject({ stage: "inform" });
     expect(afterGate("questions", "approve", work)).toMatchObject({ stage: "plan-review" });
+    expect(() => afterGate("questions", "revise", work)).toThrow(InvalidGateResponseError);
   });
 
   it("accepts or extends the loop after an escalation", () => {

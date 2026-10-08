@@ -1,13 +1,21 @@
 import {
+  MAX_GRILL_ROUNDS,
   isGatingSeverity,
+  planAnswersOutputJsonSchema,
+  planAnswersOutputSchema,
+  planReviewOutputJsonSchema,
+  planReviewOutputSchema,
   reviewOutputJsonSchema,
   reviewOutputSchema,
   type AgentRole,
   type Finding,
+  type GrillQuestion,
+  type Step,
   type Task,
 } from "@blackwall/shared";
 import type { AgentResult } from "../agents/adapters/types.js";
 import type { RunAgentInput, StageContext, StageHandlers } from "./engine.js";
+import type { StageResults } from "./transitions.js";
 
 /** A stage needs an agent for a role the task has none for. */
 export class MissingAgentError extends Error {
@@ -75,6 +83,172 @@ function describeFinding(f: Finding): string {
   return `- [${f.severity}] ${f.title}${where}\n  ${f.explanation}${fix}`;
 }
 
+function describeQuestion(q: GrillQuestion): string {
+  const answer = q.answer
+    ? `\n  Answer (${q.answeredBy === "user" ? "user" : "planner"}): ${q.answer}`
+    : "";
+  return `- ${q.question}${answer}`;
+}
+
+/** The plan reviewers, minus the planner: it answers the questions rather than asking them. */
+function planReviewers(task: Task): string[] {
+  return panel(task, "planReviewers").filter((id) => id !== task.agents.planner);
+}
+
+/** Grill questions paired with the plan-review visit their reviewer step ran in. */
+function questionsByVisit(
+  questions: readonly GrillQuestion[],
+  steps: readonly Step[],
+): { question: GrillQuestion; visit: number }[] {
+  const visits = new Map(
+    steps.filter((s) => s.stage === "plan-review").map((s) => [s.id, s.visit]),
+  );
+  return questions.flatMap((question) => {
+    const visit = question.stepId ? visits.get(question.stepId) : undefined;
+    return visit === undefined ? [] : [{ question, visit }];
+  });
+}
+
+const openHumanQuestions = (questions: readonly GrillQuestion[]) =>
+  questions.filter((q) => q.needsHuman && q.answer === null).length;
+
+/**
+ * Plan review: the reviewer panel grills the plan in rounds, one stage visit
+ * each. A grill round asks the reviewers for questions; the planner answers
+ * those the repository can answer, hands the rest to the user (`needsHuman`)
+ * and revises the plan. After the user answers at the questions gate, the next
+ * visit folds those answers into the plan before grilling it again. The stage
+ * is satisfied when the reviewers ask nothing new, or after
+ * {@link MAX_GRILL_ROUNDS} rounds since Inform last wrote the plan; the plan
+ * then waits for the user's approval.
+ */
+async function planReview(ctx: StageContext): Promise<StageResults["plan-review"]> {
+  const { task, run, visit, repositories } = ctx;
+  const planner = single(task, "planner");
+  const reviewers = planReviewers(task);
+  const steps = repositories.steps.listByRun(run.id);
+  const questions = repositories.grillQuestions.listByTask(task.id);
+  const earlier = questionsByVisit(questions, steps).filter((q) => q.visit < visit);
+  const open = () => openHumanQuestions(repositories.grillQuestions.listByTask(task.id));
+
+  // Earlier plan-review visits since Inform last wrote the plan; grill rounds are those the reviewers ran in.
+  const sinceInform = steps
+    .slice(steps.findLastIndex((s) => s.stage === "inform") + 1)
+    .filter((s) => s.stage === "plan-review" && s.visit < visit);
+  const rounds = new Set(
+    sinceInform
+      .filter((s) => s.agentId !== null && reviewers.includes(s.agentId))
+      .map((s) => s.visit),
+  ).size;
+  const history = earlier.map((q) => q.question).filter((q) => q.answer !== null);
+
+  // Right after the questions gate: the previous visit was a grill round the user answered.
+  const previousVisit = Math.max(-1, ...sinceInform.map((s) => s.visit));
+  const lastRound = earlier.filter((q) => q.visit === previousVisit).map((q) => q.question);
+  if (lastRound.some((q) => q.answeredBy === "user")) {
+    const result = await ctx.runAgent({
+      agentId: planner,
+      prompt: prompt(
+        `# Task\n\n${describeOrigin(task)}`,
+        section("Plan", task.plan),
+        section("Questions and answers", lastRound.map(describeQuestion).join("\n")),
+        "The user has answered the reviewers' open questions. Revise the plan so it follows every answer above, and reply with the full revised plan in markdown.",
+      ),
+    });
+    ctx.updateTask({ plan: result.text });
+    return { openQuestions: open(), satisfied: rounds >= MAX_GRILL_ROUNDS };
+  }
+
+  if (reviewers.length === 0 || rounds >= MAX_GRILL_ROUNDS) {
+    return { openQuestions: open(), satisfied: true };
+  }
+
+  const results = await runPanel(
+    ctx,
+    reviewers.map((agentId) => ({
+      agentId,
+      prompt: prompt(
+        `# Task\n\n${describeOrigin(task)}`,
+        section("Details", task.freeText),
+        section("Plan", task.plan),
+        section("Already answered", history.map(describeQuestion).join("\n")),
+        [
+          "Grill this plan against the repository: gaps, ambiguities, risky assumptions and missing verification.",
+          "Ask only questions whose answers would change the plan, and do not repeat questions already answered.",
+          "Set `needsHuman` to true only for decisions the repository cannot settle (product behaviour, scope, priorities); the planner answers the rest from the code.",
+          'Reply with a JSON object `{ "questions": [{ "question": "…", "needsHuman": false }] }`, or `{ "questions": [] }` when the plan is ready to implement.',
+        ].join("\n"),
+      ),
+      jsonSchema: planReviewOutputJsonSchema(),
+    })),
+  );
+
+  const visitSteps = repositories.steps
+    .listByRun(run.id)
+    .filter((s) => s.stage === "plan-review" && s.visit === visit);
+  results.forEach((result, i) => {
+    const askedByAgentId = reviewers[i]!;
+    const parsed = planReviewOutputSchema.safeParse(result.structured);
+    if (!parsed.success) throw new Error("A plan reviewer returned questions in the wrong shape");
+    const stepId = visitSteps.filter((s) => s.agentId === askedByAgentId).at(-1)?.id ?? null;
+    // A resumed visit reuses stored results; their questions are already saved.
+    if (stepId === null || questions.some((q) => q.stepId === stepId)) return;
+    for (const asked of parsed.data.questions) {
+      const question = repositories.grillQuestions.create({
+        taskId: task.id,
+        runId: run.id,
+        stepId,
+        askedByAgentId,
+        question: asked.question,
+        needsHuman: asked.needsHuman,
+      });
+      ctx.publish({ type: "grill.upserted", payload: { question } });
+    }
+  });
+
+  const stepIds = new Set(visitSteps.map((s) => s.id));
+  const round = repositories.grillQuestions
+    .listByTask(task.id)
+    .filter((q) => q.stepId !== null && stepIds.has(q.stepId));
+  if (round.length === 0) return { openQuestions: open(), satisfied: true };
+
+  const numbered = round
+    .map((q, i) => `${i + 1}. ${q.question}${q.needsHuman ? " (for the user)" : ""}`)
+    .join("\n");
+  const reply = await ctx.runAgent({
+    agentId: planner,
+    prompt: prompt(
+      `# Task\n\n${describeOrigin(task)}`,
+      section("Plan", task.plan),
+      section("Already answered", history.map(describeQuestion).join("\n")),
+      section("Reviewers' questions", numbered),
+      [
+        "Answer each question not marked (for the user) from the repository, by its number.",
+        "Answer null when only the user can decide; do not guess product or scope decisions.",
+        "Then revise the plan with your answers.",
+        'Reply with a JSON object `{ "answers": [{ "question": 1, "answer": "…" }], "plan": "<the full revised plan in markdown>" }`.',
+      ].join("\n"),
+    ),
+    jsonSchema: planAnswersOutputJsonSchema(),
+  });
+  const parsed = planAnswersOutputSchema.safeParse(reply.structured);
+  if (!parsed.success) throw new Error("The planner returned answers in the wrong shape");
+
+  const answers = new Map(parsed.data.answers.map((a) => [a.question, a.answer]));
+  round.forEach((q, i) => {
+    // Questions flagged for a human are the user's to decide, never the planner's.
+    if (q.needsHuman) return;
+    const answer = answers.get(i + 1) ?? null;
+    const saved =
+      answer === null
+        ? repositories.grillQuestions.markNeedsHuman(q.id)
+        : repositories.grillQuestions.answer(q.id, answer, "agent");
+    ctx.publish({ type: "grill.upserted", payload: { question: saved } });
+  });
+  ctx.updateTask({ plan: parsed.data.plan });
+  return { openQuestions: open(), satisfied: false };
+}
+
 /**
  * Gathers a task's origin context (the Jira issue, the PR) as markdown for
  * the Inform prompt. Runs once the worktree exists, so it can download files
@@ -92,7 +266,7 @@ export interface DefaultStagesOptions {
 /**
  * Baseline stage handlers: each stage runs its role's agents with a plain
  * prompt, and Inform adds the origin context when a provider is given. Later
- * work deepens them (grilling for Plan review, check commands, diff-scoped
+ * work deepens them (check commands, diff-scoped
  * reviews and aggregation, delivery); the engine's transitions stay the same.
  */
 export function createDefaultStages({ originContext }: DefaultStagesOptions = {}): StageHandlers {
@@ -116,24 +290,7 @@ export function createDefaultStages({ originContext }: DefaultStagesOptions = {}
       ctx.updateTask({ plan: result.text });
     },
 
-    async "plan-review"(ctx) {
-      const { task } = ctx;
-      await runPanel(
-        ctx,
-        panel(task, "planReviewers").map((agentId) => ({
-          agentId,
-          prompt: prompt(
-            `# Task\n\n${describeOrigin(task)}`,
-            section("Plan", task.plan),
-            "Review this plan against the repository. List gaps, risks and open questions.",
-          ),
-        })),
-      );
-      const openQuestions = ctx.repositories.grillQuestions
-        .listByTask(task.id)
-        .filter((q) => q.needsHuman && q.answer === null).length;
-      return { openQuestions };
-    },
+    "plan-review": planReview,
 
     async implement(ctx) {
       const { task, repositories } = ctx;

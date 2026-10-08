@@ -8,6 +8,10 @@ import {
   grillQuestionSchema,
   isGatingSeverity,
   newTaskInputSchema,
+  planAnswersOutputJsonSchema,
+  planAnswersOutputSchema,
+  planReviewOutputJsonSchema,
+  planReviewOutputSchema,
   repoInputSchema,
   repoScanInputSchema,
   reviewOutputJsonSchema,
@@ -257,5 +261,38 @@ describe("reviewOutputSchema", () => {
     const schema = reviewOutputJsonSchema();
     expect(schema.type).toBe("object");
     expect(schema.required).toEqual(["findings"]);
+  });
+});
+
+describe("plan review output", () => {
+  it("parses a reviewer's questions and rejects unknown fields", () => {
+    const output = { questions: [{ question: "Which locale?", needsHuman: true }] };
+    expect(planReviewOutputSchema.parse(output)).toEqual(output);
+    expect(planReviewOutputSchema.parse({ questions: [] }).questions).toEqual([]);
+    expect(
+      planReviewOutputSchema.safeParse({ questions: [{ question: "Why?", needsHuman: "no" }] })
+        .success,
+    ).toBe(false);
+    expect(planReviewOutputSchema.safeParse({ questions: [{ question: " " }] }).success).toBe(
+      false,
+    );
+    expect(planReviewOutputJsonSchema().required).toEqual(["questions"]);
+  });
+
+  it("parses the planner's answers, null when the user must decide", () => {
+    const output = {
+      answers: [
+        { question: 1, answer: "Use the existing helper" },
+        { question: 2, answer: null },
+      ],
+      plan: "1. Reuse the helper",
+    };
+    expect(planAnswersOutputSchema.parse(output)).toEqual(output);
+    expect(planAnswersOutputSchema.safeParse({ ...output, plan: "" }).success).toBe(false);
+    expect(
+      planAnswersOutputSchema.safeParse({ answers: [{ question: 0, answer: "x" }], plan: "p" })
+        .success,
+    ).toBe(false);
+    expect(planAnswersOutputJsonSchema().required).toEqual(["answers", "plan"]);
   });
 });

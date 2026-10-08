@@ -1,12 +1,12 @@
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
-import type { AgentService, RepoService, Repositories, SettingsService } from "@blackwall/core";
+import type { AgentService, RepoService, SettingsService } from "@blackwall/core";
 import { TOKEN_QUERY_PARAM, type CliStatus, type ServerEvent } from "@blackwall/shared";
 import { createApp } from "./app.js";
 import { generateToken } from "./auth.js";
 import type { ConnectionRoutesOptions } from "./connections.js";
-import type { TaskPipeline } from "./tasks.js";
+import type { TaskPipeline, TaskRouteStores } from "./tasks.js";
 import type { Shutdown } from "./shutdown.js";
 
 export const HOSTNAME = "127.0.0.1";
@@ -24,7 +24,7 @@ export interface StartOptions {
   repos?: RepoService;
   agents?: AgentService;
   settings?: SettingsService;
-  tasks?: Repositories["tasks"];
+  tasks?: TaskRouteStores;
   pipeline?: TaskPipeline;
   clis?: () => Promise<CliStatus[]>;
   shutdown: Shutdown;
