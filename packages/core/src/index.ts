@@ -5,3 +5,4 @@ export function describeCore(): string {
 }
 
 export * from "./db/index.js";
+export * from "./secrets/index.js";

@@ -9,8 +9,10 @@ import {
   type HealthResponse,
   type ServerEvent,
 } from "@blackwall/shared";
+import type { ConnectionTokens } from "@blackwall/core";
 import { Hono } from "hono";
 import { hostGuard, requireToken, tokenExchange } from "./auth.js";
+import { connectionRoutes } from "./connections.js";
 
 export interface AppOptions {
   token: string;
@@ -18,6 +20,8 @@ export interface AppOptions {
   getPort: () => number;
   /** Directory of the built SPA; omit in dev mode, where Vite serves it. */
   webDist?: string;
+  /** Connection token access; omit to leave the connection routes out (e.g. in tests). */
+  connectionTokens?: ConnectionTokens;
 }
 
 function send(ws: { send(data: string): void }, event: ServerEvent): void {
@@ -30,7 +34,7 @@ export interface CreatedApp {
   wss: NodeWebSocket["wss"];
 }
 
-export function createApp({ token, getPort, webDist }: AppOptions): CreatedApp {
+export function createApp({ token, getPort, webDist, connectionTokens }: AppOptions): CreatedApp {
   const app = new Hono();
   const { upgradeWebSocket, injectWebSocket, wss } = createNodeWebSocket({ app });
 
@@ -43,6 +47,8 @@ export function createApp({ token, getPort, webDist }: AppOptions): CreatedApp {
 
   // Dev launch URL target: the token exchange has already set the cookie, so go to the app.
   app.get("/api/session", (c) => c.redirect("/", 302));
+
+  if (connectionTokens) app.route("/api/connections", connectionRoutes(connectionTokens));
 
   app.all("/api/*", (c) => c.json({ error: "not found" }, 404));
 

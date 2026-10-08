@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  connectionViewSchema,
   findingSchema,
   grillQuestionSchema,
   isGatingSeverity,
@@ -155,5 +156,24 @@ describe("settings and inputs", () => {
       path: "/code/app",
       checkCommands: [],
     });
+  });
+});
+
+describe("connectionViewSchema", () => {
+  const view = {
+    id: "c1",
+    name: "jbf.ghe.com",
+    kind: "github",
+    baseUrl: "https://jbf.ghe.com",
+    authMeta: {},
+    hasToken: true,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  it("exposes hasToken and rejects any extra field", () => {
+    expect(connectionViewSchema.parse(view).hasToken).toBe(true);
+    expect(connectionViewSchema.safeParse({ ...view, token: "secret" }).success).toBe(false);
+    expect(connectionViewSchema.safeParse({ ...view, tokenSet: true }).success).toBe(false);
   });
 });

@@ -1,4 +1,9 @@
-import { createRepositories, openDatabase } from "@blackwall/core";
+import {
+  createConnectionTokens,
+  createKeyringSecretStore,
+  createRepositories,
+  openDatabase,
+} from "@blackwall/core";
 import { banner } from "./banner.js";
 import { parseConfig } from "./config.js";
 import { openBrowser } from "./open-browser.js";
@@ -17,13 +22,19 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 try {
   const database = openDatabase(config.dataDir);
   shutdown.onShutdown(() => database.close());
+  const repositories = createRepositories(database.db);
   // Steps left running by a previous process can only be resumed, not continued.
-  createRepositories(database.db).steps.interruptRunning();
+  repositories.steps.interruptRunning();
+  const connectionTokens = createConnectionTokens({
+    store: createKeyringSecretStore(),
+    connections: repositories.connections,
+  });
 
   const { launchUrl } = await startServer({
     port: config.port,
     dev: config.dev,
     webDevOrigin: config.webDevOrigin,
+    connectionTokens,
     shutdown,
   });
   console.log(`${banner()}\n\nblackwall is running at:\n  ${launchUrl}\n`);

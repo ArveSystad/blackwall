@@ -145,6 +145,16 @@ export const connectionSchema = z.object({
 });
 export type Connection = z.infer<typeof connectionSchema>;
 
+/**
+ * A connection as the API returns it. Carries only whether a token is available
+ * (keychain or env override), never the token itself.
+ */
+export const connectionViewSchema = connectionSchema
+  .omit({ tokenSet: true })
+  .extend({ hasToken: z.boolean() })
+  .strict();
+export type ConnectionView = z.infer<typeof connectionViewSchema>;
+
 export const connectionInputSchema = connectionSchema
   .pick({ name: true, kind: true, baseUrl: true })
   .extend({ authMeta: connectionSchema.shape.authMeta.default({}) });

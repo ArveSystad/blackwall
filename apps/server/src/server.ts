@@ -1,5 +1,6 @@
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
+import type { ConnectionTokens } from "@blackwall/core";
 import { serve } from "@hono/node-server";
 import { TOKEN_QUERY_PARAM } from "@blackwall/shared";
 import { createApp } from "./app.js";
@@ -17,6 +18,7 @@ export interface StartOptions {
   /** Origin of the Vite dev server (dev mode only). */
   webDevOrigin?: string;
   token?: string;
+  connectionTokens?: ConnectionTokens;
   shutdown: Shutdown;
 }
 
@@ -33,6 +35,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
   const { app, injectWebSocket, wss } = createApp({
     token,
     getPort: () => port,
+    ...(options.connectionTokens ? { connectionTokens: options.connectionTokens } : {}),
     ...(options.dev ? {} : { webDist: WEB_DIST }),
   });
 
