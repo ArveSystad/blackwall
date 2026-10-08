@@ -180,6 +180,14 @@ describe("findings and grill questions", () => {
     ]);
     expect(finding).toMatchObject({ status: "open", tags: ["security"] });
     expect(r.findings.setStatus(finding!.id, "force-fix").status).toBe("force-fix");
+    expect(
+      r.findings.update(finding!.id, { severity: "high", tags: ["security", "data"] }),
+    ).toMatchObject({
+      severity: "high",
+      tags: ["security", "data"],
+      status: "force-fix",
+      mergedIntoId: null,
+    });
     expect(r.findings.createMany([])).toEqual([]);
   });
 

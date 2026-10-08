@@ -117,6 +117,7 @@ describe("findingSchema", () => {
     explanation: "The token is written to stdout.",
     suggestedFix: null,
     status: "open",
+    mergedIntoId: null,
     round: 0,
     createdAt: now,
     updatedAt: now,

@@ -1,6 +1,7 @@
 import {
   AgentNotFoundError,
   ConnectionNotFoundError,
+  FindingNotFoundError,
   GrillQuestionNotFoundError,
   InvalidAgentError,
   InvalidConnectionError,
@@ -55,7 +56,8 @@ export function errorResponse(error: unknown, c: Context) {
     error instanceof RepoNotFoundError ||
     error instanceof AgentNotFoundError ||
     error instanceof TaskNotFoundError ||
-    error instanceof GrillQuestionNotFoundError
+    error instanceof GrillQuestionNotFoundError ||
+    error instanceof FindingNotFoundError
   ) {
     return c.json({ error: error.message }, 404);
   }

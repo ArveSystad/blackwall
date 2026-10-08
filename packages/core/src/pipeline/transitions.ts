@@ -49,6 +49,8 @@ export interface PipelinePosition {
   triageMode: TriageMode;
   /** Current fix round: 0 for the first implementation, then 1, 2, … */
   round: number;
+  /** Findings that gate the loop right now (see `blockingFindings`); read by the triage gate. */
+  blocking?: number;
 }
 
 /** Thrown when a gate response does not fit the gate or pipeline. */
@@ -127,7 +129,7 @@ export function afterStage<S extends Stage>(
 export function afterGate(
   gate: Gate,
   decision: GateDecision,
-  { kind, round }: PipelinePosition,
+  { kind, round, blocking }: PipelinePosition,
 ): Transition {
   const go = (next: Stage, nextRound = round): Transition => ({
     kind: "stage",
@@ -156,7 +158,8 @@ export function afterGate(
       if (decision !== "approve") {
         throw new InvalidGateResponseError("Triage the findings, then approve the fix round");
       }
-      return go("implement", round + 1);
+      // The user force-ignored every blocker: nothing is left to fix.
+      return blocking === 0 ? go("summarize") : go("implement", round + 1);
     case "escalation":
       // Approve: accept the code as is. Revise: one more fix round.
       return decision === "approve" ? go("summarize") : go("implement", round + 1);

@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnySQLiteColumn,
   index,
   integer,
   primaryKey,
@@ -224,6 +225,9 @@ export const findings = sqliteTable(
     explanation: text("explanation").notNull(),
     suggestedFix: text("suggested_fix"),
     status: text("status", { enum: FINDING_STATUSES }).notNull().default("open"),
+    mergedIntoId: text("merged_into_id").references((): AnySQLiteColumn => findings.id, {
+      onDelete: "set null",
+    }),
     round: integer("round").notNull().default(0),
     createdAt: createdAt(),
     updatedAt: updatedAt(),

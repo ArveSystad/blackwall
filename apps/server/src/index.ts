@@ -73,6 +73,7 @@ try {
     stages: createDefaultStages({
       originContext: firstOriginContext(jira.originContext, github.originContext),
       git,
+      reviewGit: git,
     }),
     prepareWorkspace: createWorkspacePreparer({
       git,
@@ -94,7 +95,11 @@ try {
     repos,
     agents,
     settings,
-    tasks: { tasks: repositories.tasks, grillQuestions: repositories.grillQuestions },
+    tasks: {
+      tasks: repositories.tasks,
+      grillQuestions: repositories.grillQuestions,
+      findings: repositories.findings,
+    },
     pipeline,
     clis: () => clis,
     shutdown,

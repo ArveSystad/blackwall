@@ -1,7 +1,6 @@
 import {
   MAX_CHECK_RETRIES,
   MAX_GRILL_ROUNDS,
-  isGatingSeverity,
   planAnswersOutputJsonSchema,
   planAnswersOutputSchema,
   planReviewOutputJsonSchema,
@@ -17,6 +16,7 @@ import {
 import type { AgentResult } from "../agents/adapters/types.js";
 import type { GitService } from "../git/service.js";
 import { runCheckCommand, type CheckOutcome, type CheckRunner } from "./checks.js";
+import { blockingFindings, planMerges } from "./findings.js";
 import type { RunAgentInput, StageContext, StageHandlers } from "./engine.js";
 import type { StageResults } from "./transitions.js";
 
@@ -50,13 +50,6 @@ export async function runPanel(
   const failed = settled.find((s) => s.status === "rejected");
   if (failed) throw failed.reason;
   return settled.map((s) => (s as PromiseFulfilledResult<AgentResult>).value);
-}
-
-/** Findings the next fix round must address: open Critical/High ones and any the user force-fixed. */
-export function blockingFindings(findings: readonly Finding[]): Finding[] {
-  return findings.filter(
-    (f) => f.status === "force-fix" || (f.status === "open" && isGatingSeverity(f.severity)),
-  );
 }
 
 function section(title: string, body: string | null | undefined): string {
@@ -344,17 +337,17 @@ async function commitRound(
   await git.commitAll(worktree, commitMessage(text, key));
 }
 
-/** The Checks harness step of this visit, (re)started: one per visit, without an agent. */
-function startCheckStep(ctx: StageContext): Step {
-  const { run, round, visit, repositories: r } = ctx;
+/** The harness step of this stage visit, (re)started: one per visit, without an agent. */
+function startHarnessStep(ctx: StageContext): Step {
+  const { run, stage, round, visit, repositories: r } = ctx;
   const earlier = r.steps
     .listByRun(run.id)
-    .filter((s) => s.stage === "checks" && s.visit === visit && s.agentId === null)
+    .filter((s) => s.stage === stage && s.visit === visit && s.agentId === null)
     .at(-1);
   const started = { status: "running" as const, startedAt: new Date(), finishedAt: null };
   const step = earlier
     ? r.steps.update(earlier.id, { ...started, error: null })
-    : r.steps.create({ runId: run.id, stage: "checks", agentId: null, round, visit, ...started });
+    : r.steps.create({ runId: run.id, stage, agentId: null, round, visit, ...started });
   ctx.publish({ type: "step.upserted", payload: { step } });
   return step;
 }
@@ -416,7 +409,7 @@ async function runChecks(
   const worktree = task.worktreePath;
   if (!worktree) throw new Error("The task has no worktree");
 
-  const step = startCheckStep(ctx);
+  const step = startHarnessStep(ctx);
   let failure: CheckFinished | undefined;
   try {
     for (const command of commands) {
@@ -480,6 +473,194 @@ async function runChecks(
   return { retryImplement: false };
 }
 
+/** Step event the Code review harness step logs with the range of the round's diff. */
+export const REVIEW_DIFF_EVENT = "review.diff";
+
+/** Payload of a {@link REVIEW_DIFF_EVENT} event: the round's diff is `git diff from to`. */
+export interface ReviewDiffRange {
+  from: string;
+  to: string;
+}
+
+/** What Code review needs from git to find the round's diff. */
+export type ReviewGit = Pick<GitService, "mainBranch" | "headSha" | "mergeBase" | "diff">;
+
+/** Diffs beyond this many characters are cut in the reviewer prompt. */
+const MAX_REVIEW_DIFF_CHARS = 150_000;
+
+function storedRange(ctx: StageContext, step: Step): ReviewDiffRange | undefined {
+  const event = ctx.repositories.stepEvents
+    .list(step.id)
+    .filter((e) => e.type === REVIEW_DIFF_EVENT)
+    .at(-1);
+  return event?.payload as ReviewDiffRange | undefined;
+}
+
+/**
+ * Where the task branch forked from the main branch: the local one first for
+ * branches the harness created from it, the remote one first for PR branches.
+ */
+async function forkPoint(
+  task: Task,
+  git: ReviewGit,
+  worktree: string,
+): Promise<string | undefined> {
+  const remote = `origin/${git.mainBranch}`;
+  const refs =
+    task.origin.kind === "github-pr" ? [remote, git.mainBranch] : [git.mainBranch, remote];
+  for (const ref of refs) {
+    try {
+      return await git.mergeBase(worktree, ref);
+    } catch {
+      // Try the next ref.
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The commit range this Code review visit reviews, recorded on the visit's
+ * harness step so a resumed visit reviews the same diff: the whole branch in
+ * the first round, then what changed since the previous review. Undefined
+ * when the fork point cannot be found.
+ */
+async function reviewRange(
+  ctx: StageContext,
+  git: ReviewGit,
+  worktree: string,
+): Promise<ReviewDiffRange | undefined> {
+  const { task, run, visit, repositories: r } = ctx;
+  const harness = r.steps
+    .listByRun(run.id)
+    .filter((s) => s.stage === "code-review" && s.agentId === null);
+  const current = harness.filter((s) => s.visit === visit).at(-1);
+  const resumed = current && storedRange(ctx, current);
+  if (resumed) return resumed;
+
+  const previous = harness
+    .filter((s) => s.visit < visit)
+    .map((s) => storedRange(ctx, s))
+    .filter((range) => range !== undefined)
+    .at(-1);
+  const from = previous?.to ?? (await forkPoint(task, git, worktree));
+  if (!from) return undefined;
+  const range = { from, to: await git.headSha(worktree) };
+  const step = startHarnessStep(ctx);
+  logEvent(ctx, step.id, REVIEW_DIFF_EVENT, range);
+  finishStep(ctx, step.id, { status: "succeeded", error: null });
+  return range;
+}
+
+/**
+ * Code review: the selected reviewers run in parallel, read-only, over the
+ * round's diff (the whole branch in round 0, the fix since the last review
+ * after that) and report findings in the findings output contract. Without
+ * git (tests) they review the branch as it stands. A round with an empty diff
+ * has nothing to review.
+ */
+async function codeReview(ctx: StageContext, git: ReviewGit | undefined): Promise<void> {
+  const { task, run, round, repositories } = ctx;
+  const reviewers = panel(task, "codeReviewers");
+  if (reviewers.length === 0) return;
+
+  let changes = "";
+  let scope = "Review the changes on this branch.";
+  const worktree = task.worktreePath;
+  if (git) {
+    if (!worktree) throw new Error("The task has no worktree");
+    const range = await reviewRange(ctx, git, worktree);
+    if (range) {
+      const diff = await git.diff(worktree, range.from, range.to);
+      if (diff.trim() === "") return;
+      const command = `git diff ${range.from} ${range.to}`;
+      changes =
+        diff.length > MAX_REVIEW_DIFF_CHARS
+          ? `${fence(diff.slice(0, MAX_REVIEW_DIFF_CHARS))}\n\n[… diff cut; run \`${command}\` for the rest]`
+          : fence(diff);
+      scope = [
+        round === 0
+          ? `Review the changes above (\`${command}\`): everything this branch changes.`
+          : `Review the changes above (\`${command}\`): fix round ${round}, made since the last review.`,
+        "Read the surrounding code as needed, but report only problems this diff introduces or leaves unfixed.",
+      ].join("\n");
+    }
+  }
+
+  const ignored = repositories.findings
+    .listByTask(task.id)
+    .filter((f) => f.status === "force-ignore");
+  const results = await runPanel(
+    ctx,
+    reviewers.map((agentId) => ({
+      agentId,
+      prompt: prompt(
+        `# Task\n\n${describeOrigin(task)}`,
+        section("Plan", task.plan),
+        section("Changes to review", changes),
+        section(
+          "Findings the user chose to ignore",
+          ignored.length > 0
+            ? `${ignored.map(describeFinding).join("\n")}\n\nDo not report these again.`
+            : "",
+        ),
+        scope,
+      ),
+      jsonSchema: reviewOutputJsonSchema(),
+    })),
+  );
+  const steps = repositories.steps.listByRun(run.id);
+  results.forEach((result, i) => {
+    const reviewerAgentId = reviewers[i]!;
+    const parsed = reviewOutputSchema.safeParse(result.structured);
+    if (!parsed.success) throw new Error("A reviewer returned findings in the wrong shape");
+    const stepId =
+      steps
+        .filter(
+          (s) =>
+            s.stage === "code-review" && s.visit === ctx.visit && s.agentId === reviewerAgentId,
+        )
+        .at(-1)?.id ?? null;
+    // A resumed visit reuses stored results; their findings are already saved.
+    const saved = repositories.findings
+      .listByTask(task.id)
+      .some((f) => stepId !== null && f.stepId === stepId);
+    if (saved) return;
+    const created = repositories.findings.createMany(
+      parsed.data.findings.map((f) => ({
+        ...f,
+        taskId: task.id,
+        runId: run.id,
+        stepId,
+        reviewerAgentId,
+        round,
+      })),
+    );
+    for (const finding of created) ctx.publish({ type: "finding.upserted", payload: { finding } });
+  });
+}
+
+/**
+ * Aggregate: merges this round's duplicate findings (see {@link planMerges})
+ * and counts what gates the loop: open Critical/High findings plus every
+ * force-fixed one. Force-ignored findings never gate.
+ */
+async function aggregate(ctx: StageContext): Promise<StageResults["aggregate"]> {
+  const { task, run, round, repositories: r } = ctx;
+  const thisRound = (f: Finding) => f.runId === run.id && f.round === round;
+  const all = r.findings.listByTask(task.id);
+  const incoming = all.filter((f) => thisRound(f) && f.status !== "merged" && f.status !== "fixed");
+  const earlier = all.filter((f) => !thisRound(f));
+  for (const merge of planMerges(earlier, incoming)) {
+    const target = r.findings.update(merge.targetId, merge.patch);
+    ctx.publish({ type: "finding.upserted", payload: { finding: target } });
+    for (const id of merge.duplicateIds) {
+      const duplicate = r.findings.update(id, { status: "merged", mergedIntoId: target.id });
+      ctx.publish({ type: "finding.upserted", payload: { finding: duplicate } });
+    }
+  }
+  return { blocking: blockingFindings(r.findings.listByTask(task.id)).length };
+}
+
 /**
  * Gathers a task's origin context (the Jira issue, the PR) as markdown for
  * the Inform prompt. Runs once the worktree exists, so it can download files
@@ -496,19 +677,22 @@ export interface DefaultStagesOptions {
   git?: Pick<GitService, "stagedDiff" | "commitAll">;
   /** Runs one check command; defaults to the platform shell in the worktree. */
   runCheck?: CheckRunner;
+  /** Scopes Code review to the round's diff; without it reviewers see the branch as it stands (tests). */
+  reviewGit?: ReviewGit;
 }
 
 /**
  * Baseline stage handlers: each stage runs its role's agents with a plain
  * prompt, Inform adds the origin context when a provider is given, and Checks
- * commits the round and runs the repo's check commands. Later work deepens
- * them (diff-scoped reviews and aggregation, delivery); the engine's
- * transitions stay the same.
+ * commits the round and runs the repo's check commands, Code review runs the
+ * panel over the round's diff and Aggregate merges duplicate findings. The
+ * engine's transitions stay the same.
  */
 export function createDefaultStages({
   originContext,
   git,
   runCheck = runCheckCommand,
+  reviewGit,
 }: DefaultStagesOptions = {}): StageHandlers {
   return {
     async inform(ctx) {
@@ -555,6 +739,8 @@ export function createDefaultStages({
         ),
       });
       for (const finding of toFix) {
+        // The user may have overridden it while the round ran; that override stands.
+        if (repositories.findings.get(finding.id)?.status !== finding.status) continue;
         const fixed = repositories.findings.setStatus(finding.id, "fixed");
         ctx.publish({ type: "finding.upserted", payload: { finding: fixed } });
       }
@@ -562,70 +748,23 @@ export function createDefaultStages({
 
     checks: (ctx) => runChecks(ctx, git, runCheck),
 
-    async "code-review"(ctx) {
-      const { task, run, round, repositories } = ctx;
-      const reviewers = panel(task, "codeReviewers");
-      const results = await runPanel(
-        ctx,
-        reviewers.map((agentId) => ({
-          agentId,
-          prompt: prompt(
-            `# Task\n\n${describeOrigin(task)}`,
-            section("Plan", task.plan),
-            "Review the changes on this branch.",
-          ),
-          jsonSchema: reviewOutputJsonSchema(),
-        })),
-      );
-      const steps = repositories.steps.listByRun(run.id);
-      results.forEach((result, i) => {
-        const reviewerAgentId = reviewers[i]!;
-        const parsed = reviewOutputSchema.safeParse(result.structured);
-        if (!parsed.success) throw new Error("A reviewer returned findings in the wrong shape");
-        const stepId =
-          steps
-            .filter(
-              (s) =>
-                s.stage === "code-review" && s.visit === ctx.visit && s.agentId === reviewerAgentId,
-            )
-            .at(-1)?.id ?? null;
-        // A resumed visit reuses stored results; their findings are already saved.
-        const saved = repositories.findings
-          .listByTask(task.id)
-          .some((f) => stepId !== null && f.stepId === stepId);
-        if (saved) return;
-        const created = repositories.findings.createMany(
-          parsed.data.findings.map((f) => ({
-            ...f,
-            taskId: task.id,
-            runId: run.id,
-            stepId,
-            reviewerAgentId,
-            round,
-          })),
-        );
-        for (const finding of created)
-          ctx.publish({ type: "finding.upserted", payload: { finding } });
-      });
-    },
+    "code-review": (ctx) => codeReview(ctx, reviewGit),
 
-    async aggregate(ctx) {
-      const findings = ctx.repositories.findings.listByTask(ctx.task.id);
-      return { blocking: blockingFindings(findings).length };
-    },
+    aggregate,
 
     async summarize(ctx) {
       const { task } = ctx;
-      const leftovers = ctx.repositories.findings
-        .listByTask(task.id)
-        .filter((f) => f.status === "open");
+      const findings = ctx.repositories.findings.listByTask(task.id);
+      const leftovers = findings.filter((f) => f.status === "open");
+      const ignored = findings.filter((f) => f.status === "force-ignore");
       await ctx.runAgent({
         agentId: single(task, "summarizer"),
         prompt: prompt(
           `# Task\n\n${describeOrigin(task)}`,
           section("Plan", task.plan),
           section("Findings left open", leftovers.map(describeFinding).join("\n")),
-          "Summarize the changes on this branch, the decisions made and the findings left open.",
+          section("Findings the user chose to ignore", ignored.map(describeFinding).join("\n")),
+          "Summarize the changes on this branch, the decisions made and the findings left open or ignored.",
         ),
       });
     },

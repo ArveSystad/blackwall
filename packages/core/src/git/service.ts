@@ -256,6 +256,11 @@ export function createGitService({
       return headSha(worktreePath);
     },
 
+    /** The commit where HEAD forked from `ref` (`git merge-base HEAD <ref>`). */
+    async mergeBase(worktreePath: string, ref: string): Promise<string> {
+      return runGit(worktreePath, ["merge-base", "HEAD", ref]);
+    },
+
     /** Unified diff from `from` to `to` (default HEAD), e.g. one implement/fix round. */
     async diff(worktreePath: string, from: string, to = "HEAD"): Promise<string> {
       return runGit(worktreePath, ["diff", "--no-color", "--no-ext-diff", from, to]);

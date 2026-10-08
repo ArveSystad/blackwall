@@ -72,7 +72,12 @@ export const MAX_CHECK_RETRIES = 1;
 export const SEVERITIES = ["critical", "high", "medium", "low"] as const;
 /** Severities that block the code review loop. */
 export const GATING_SEVERITIES = ["critical", "high"] as const satisfies readonly Severity[];
-export const FINDING_STATUSES = ["open", "fixed", "force-fix", "force-ignore"] as const;
+/**
+ * `open`: reported, not yet fixed. `fixed`: a fix round addressed it.
+ * `force-fix` / `force-ignore`: the user's override. `merged`: a duplicate the
+ * aggregation step folded into another finding (`mergedIntoId`).
+ */
+export const FINDING_STATUSES = ["open", "fixed", "force-fix", "force-ignore", "merged"] as const;
 /** Finding statuses the user can set by hand. */
 export const FINDING_OVERRIDES = ["force-fix", "force-ignore"] as const;
 export const GRILL_ANSWERERS = ["agent", "user"] as const;
@@ -619,6 +624,8 @@ export const findingSchema = z
     explanation: z.string(),
     suggestedFix: z.string().nullable(),
     status: findingStatusSchema,
+    /** The finding this duplicate was merged into; null unless `merged`. */
+    mergedIntoId: id.nullable(),
     round: z.int().nonnegative(),
     createdAt: timestamp,
     updatedAt: timestamp,

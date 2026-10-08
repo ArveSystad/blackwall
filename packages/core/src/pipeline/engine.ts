@@ -1,7 +1,10 @@
 import {
+  findingOverrideInputSchema,
   gateResponseInputSchema,
   grillAnswerInputSchema,
   type AgentCli,
+  type Finding,
+  type FindingOverrideInput,
   type GateResponseInput,
   type GrillAnswerInput,
   type GrillAnswerResult,
@@ -15,6 +18,7 @@ import {
 import type { AgentInvocation } from "../agents/service.js";
 import type { AgentAdapter, AgentResult } from "../agents/adapters/types.js";
 import type { Repositories } from "../db/repositories.js";
+import { blockingFindings } from "./findings.js";
 import { createScheduler } from "./scheduler.js";
 import {
   FIRST_STAGE,
@@ -53,6 +57,13 @@ export class GrillQuestionNotFoundError extends Error {
   constructor(readonly id: string) {
     super(`Question ${id} not found`);
     this.name = "GrillQuestionNotFoundError";
+  }
+}
+
+export class FindingNotFoundError extends Error {
+  constructor(readonly id: string) {
+    super(`Finding ${id} not found`);
+    this.name = "FindingNotFoundError";
   }
 }
 
@@ -215,6 +226,11 @@ export function createPipelineEngine({
 
   function position(task: Task, round: number): PipelinePosition {
     return { kind: pipelineKind(task.mode), triageMode: task.triageMode, round };
+  }
+
+  /** Findings that gate the loop now, the user's overrides included. */
+  function blocking(taskId: string): Finding[] {
+    return blockingFindings(r.findings.listByTask(taskId));
   }
 
   /**
@@ -430,8 +446,19 @@ export function createPipelineEngine({
     if (gate === "questions" && openQuestions(taskId) > 0) {
       throw new TaskStateError(`Task ${taskId} still has open questions`);
     }
+    if (gate === "finish" && decision === "approve") {
+      const pendingFixes = blocking(taskId).filter((f) => f.status === "force-fix").length;
+      if (pendingFixes > 0 && pipelineKind(task.mode) === "work") {
+        throw new TaskStateError(
+          `${pendingFixes} force-fixed ${pendingFixes === 1 ? "finding is" : "findings are"} not fixed yet: revise to run one more fix round, or force-ignore ${pendingFixes === 1 ? "it" : "them"}`,
+        );
+      }
+    }
     const run = latestRun(taskId);
-    const next = afterGate(gate, decision, position(task, currentRound(run)));
+    const next = afterGate(gate, decision, {
+      ...position(task, currentRound(run)),
+      blocking: blocking(taskId).length,
+    });
 
     if (next.kind === "deliver") {
       if (!run) throw new TaskStateError(`Task ${taskId} has no run to deliver`);
@@ -458,6 +485,28 @@ export function createPipelineEngine({
     },
 
     respond,
+
+    /**
+     * The user's force-fix or force-ignore on a finding, at any severity and
+     * at any time. It applies from the next aggregation: a force-ignored
+     * blocker stops gating, and a force-fixed finding is fixed in the next
+     * fix round (at the finish gate, revise to run that round).
+     */
+    overrideFinding(taskId: string, findingId: string, input: FindingOverrideInput): Finding {
+      const parsed = findingOverrideInputSchema.safeParse(input);
+      if (!parsed.success) {
+        throw new InvalidGateResponseError(parsed.error.issues.map((i) => i.message).join("; "));
+      }
+      getTask(taskId);
+      const existing = r.findings.get(findingId);
+      if (!existing || existing.taskId !== taskId) throw new FindingNotFoundError(findingId);
+      if (existing.status === "merged") {
+        throw new TaskStateError("This finding was merged into another; override that one instead");
+      }
+      const finding = r.findings.setStatus(findingId, parsed.data.status);
+      publish({ type: "finding.upserted", payload: { finding } });
+      return finding;
+    },
 
     /**
      * Records the user's answer to a grill question only a human can decide.

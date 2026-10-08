@@ -1,7 +1,9 @@
 import type { PipelineEngine, Repositories } from "@blackwall/core";
 import {
+  findingOverrideInputSchema,
   gateResponseInputSchema,
   grillAnswerInputSchema,
+  type Finding,
   type GrillAnswerResult,
   type GrillQuestion,
   type Task,
@@ -9,20 +11,25 @@ import {
 import { Hono } from "hono";
 
 /** The engine actions the task routes expose. */
-export type TaskPipeline = Pick<PipelineEngine, "resume" | "respond" | "answerQuestion">;
+export type TaskPipeline = Pick<
+  PipelineEngine,
+  "resume" | "respond" | "answerQuestion" | "overrideFinding"
+>;
 
 export interface TaskRouteStores {
   tasks: Repositories["tasks"];
   grillQuestions: Repositories["grillQuestions"];
+  findings: Repositories["findings"];
 }
 
 /**
  * Task routes. Tasks change through the pipeline and reach clients as WS
  * events; with a pipeline, interrupted or failed tasks can be resumed, a
- * `needs-you` task's gate answered and its grill questions answered.
+ * `needs-you` task's gate answered, its grill questions answered and its
+ * findings force-fixed or force-ignored.
  */
 export function taskRoutes(
-  { tasks, grillQuestions }: TaskRouteStores,
+  { tasks, grillQuestions, findings }: TaskRouteStores,
   pipeline?: TaskPipeline,
 ): Hono {
   const routes = new Hono();
@@ -40,6 +47,13 @@ export function taskRoutes(
     const id = c.req.param("id");
     if (!tasks.get(id)) return c.json({ error: `Task ${id} not found` }, 404);
     return c.json<GrillQuestion[]>(grillQuestions.listByTask(id));
+  });
+
+  /** The review findings, merged duplicates included (`status: "merged"`, `mergedIntoId`). */
+  routes.get("/:id/findings", (c) => {
+    const id = c.req.param("id");
+    if (!tasks.get(id)) return c.json({ error: `Task ${id} not found` }, 404);
+    return c.json<Finding[]>(findings.listByTask(id));
   });
 
   if (pipeline) {
@@ -63,6 +77,16 @@ export function taskRoutes(
       }
       const { id, questionId } = c.req.param();
       return c.json<GrillAnswerResult>(await pipeline.answerQuestion(id, questionId, input.data));
+    });
+
+    /** Force-fixes or force-ignores a finding, at any time; it applies from the next round. */
+    routes.post("/:id/findings/:findingId", async (c) => {
+      const input = findingOverrideInputSchema.safeParse(await c.req.json().catch(() => undefined));
+      if (!input.success) {
+        return c.json({ error: input.error.issues.map((i) => i.message).join("; ") }, 400);
+      }
+      const { id, findingId } = c.req.param();
+      return c.json<Finding>(pipeline.overrideFinding(id, findingId, input.data));
     });
   }
 

@@ -1,0 +1,1 @@
+ALTER TABLE `findings` ADD `merged_into_id` text REFERENCES findings(id) ON DELETE set null;

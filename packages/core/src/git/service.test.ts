@@ -200,6 +200,7 @@ describe("commits, squash and diff", () => {
     expect(roundDiff).toContain("+two");
     expect(roundDiff).toContain("b/b.txt");
     expect(await service.diff(path, wt.baseSha)).toContain("+two");
+    expect(await service.mergeBase(path, "main")).toBe(wt.baseSha);
 
     const squashed = await service.squash(path, wt.baseSha, "ABC-1 everything");
     expect(squashed).toBe(git(path, "rev-parse", "HEAD"));

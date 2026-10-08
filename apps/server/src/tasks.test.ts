@@ -1,4 +1,5 @@
 import {
+  FindingNotFoundError,
   TaskStateError,
   createRepositories,
   openDatabase,
@@ -6,6 +7,7 @@ import {
   type Repositories,
 } from "@blackwall/core";
 import {
+  findingSchema,
   grillAnswerResultSchema,
   grillQuestionSchema,
   taskSchema,
@@ -36,7 +38,24 @@ afterEach(() => opened.close());
 const stores = () => ({
   tasks: repositories.tasks,
   grillQuestions: repositories.grillQuestions,
+  findings: repositories.findings,
 });
+
+function seedFinding(taskId: string) {
+  const [finding] = repositories.findings.createMany([
+    {
+      taskId,
+      severity: "high",
+      tags: ["security"],
+      file: "src/auth.ts",
+      lineStart: 3,
+      lineEnd: 3,
+      title: "Token logged",
+      explanation: "The token is written to stdout.",
+    },
+  ]);
+  return finding!;
+}
 
 function request(path: string, init: { method?: string; body?: unknown } = {}) {
   return app.request(`http://${host}${path}`, {
@@ -85,6 +104,16 @@ describe("task routes", () => {
     expect((await request("/api/tasks/nope/questions")).status).toBe(404);
   });
 
+  it("lists a task's findings", async () => {
+    const task = seedTask();
+    const finding = seedFinding(task.id);
+    const res = await request(`/api/tasks/${task.id}/findings`);
+    expect(res.status).toBe(200);
+    const list = findingSchema.array().parse(await res.json());
+    expect(list.map((f) => [f.id, f.status, f.mergedIntoId])).toEqual([[finding.id, "open", null]]);
+    expect((await request("/api/tasks/nope/findings")).status).toBe(404);
+  });
+
   it("returns 404 for an unknown task", async () => {
     const res = await request("/api/tasks/nope");
     expect(res.status).toBe(404);
@@ -102,6 +131,12 @@ describe("pipeline task routes", () => {
         question: repositories.grillQuestions.answer(questionId, input.answer, "user"),
         task: repositories.tasks.update(id, { status: "queued", gate: null }),
       })),
+      overrideFinding: vi.fn(
+        (id: string, findingId: string, input: { status: "force-fix" | "force-ignore" }) => {
+          if (!repositories.findings.get(findingId)) throw new FindingNotFoundError(findingId);
+          return repositories.findings.setStatus(findingId, input.status);
+        },
+      ),
       respond: vi.fn(async (id: string, input: GateResponseInput) => {
         if (input.gate !== "plan-approval")
           throw new TaskStateError(`Task ${id} is not waiting on ${input.gate}`);
@@ -170,5 +205,31 @@ describe("pipeline task routes", () => {
       body: { answer: "  " },
     });
     expect(blank.status).toBe(400);
+  });
+
+  it("force-fixes or force-ignores a finding, rejecting other statuses", async () => {
+    const task = seedTask();
+    const finding = seedFinding(task.id);
+    const ok = await request(`/api/tasks/${task.id}/findings/${finding.id}`, {
+      method: "POST",
+      body: { status: "force-ignore" },
+    });
+    expect(ok.status).toBe(200);
+    expect(findingSchema.parse(await ok.json()).status).toBe("force-ignore");
+    expect(pipeline.overrideFinding).toHaveBeenCalledWith(task.id, finding.id, {
+      status: "force-ignore",
+    });
+
+    const bad = await request(`/api/tasks/${task.id}/findings/${finding.id}`, {
+      method: "POST",
+      body: { status: "fixed" },
+    });
+    expect(bad.status).toBe(400);
+
+    const missing = await request(`/api/tasks/${task.id}/findings/nope`, {
+      method: "POST",
+      body: { status: "force-fix" },
+    });
+    expect(missing.status).toBe(404);
   });
 });

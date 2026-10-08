@@ -14,6 +14,7 @@ import { createAgentService } from "../agents/service.js";
 import { openDatabase, type OpenedDatabase } from "../db/database.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
 import {
+  FindingNotFoundError,
   GrillQuestionNotFoundError,
   RESUME_PROMPT,
   TaskStateError,
@@ -22,6 +23,7 @@ import {
 } from "./engine.js";
 import { createFakeAdapter, type FakeScript } from "./fake-adapter.js";
 import type { CheckOutcome, CheckRunner } from "./checks.js";
+import { InvalidGateResponseError } from "./transitions.js";
 import { commitKey, commitMessage, createDefaultStages } from "./stages.js";
 
 let dir: string;
@@ -761,5 +763,257 @@ describe("commit messages", () => {
     expect(commitMessage("```text\nAdd login\n```", "ABC-1")).toBe("ABC-1 Add login");
     expect(commitMessage("ABC-1 Add login", "ABC-1")).toBe("ABC-1 Add login");
     expect(commitMessage("  Add login \n", undefined)).toBe("Add login");
+  });
+});
+
+describe("code review panel and triage", () => {
+  const lowFinding: ReviewFinding = {
+    severity: "low",
+    tags: ["spelling"],
+    file: "src/login.ts",
+    lineStart: 10,
+    lineEnd: 10,
+    title: "Typo in error message",
+    explanation: "Password is misspelled.",
+    suggestedFix: "Fix the spelling",
+  };
+
+  async function approved(h: Harness, patch: Parameters<typeof seedTask>[0] = {}) {
+    const seeded = seedTask(patch);
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    await h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" });
+    await settle(h.engine);
+    return seeded;
+  }
+
+  const afterApproval = (h: Harness) =>
+    h.calls.slice(h.calls.findIndex((c) => c.stage === "implement")).map((c) => c.stage);
+
+  it("merges the panel's duplicate findings into one", async () => {
+    let review = 0;
+    const h = harness((stage) => {
+      if (stage !== "code-review") return {};
+      review++;
+      if (review === 1) return { structured: { findings: [highFinding] } };
+      if (review === 2) {
+        return {
+          structured: {
+            findings: [
+              {
+                ...highFinding,
+                severity: "critical",
+                tags: ["security"],
+                title: "Loose password comparison with ==",
+                explanation: "An empty string equals a missing password.",
+                lineStart: 4,
+                lineEnd: 6,
+              },
+              lowFinding,
+            ],
+          },
+        };
+      }
+      return { structured: { findings: [] } };
+    });
+    const seeded = await approved(h);
+
+    const findings = r.findings.listByTask(seeded.id);
+    const [duplicate, primary, low] = findings;
+    expect(findings.map((f) => f.status)).toEqual(["merged", "fixed", "open"]);
+    expect(duplicate!.mergedIntoId).toBe(primary!.id);
+    // The most severe report leads; the merge keeps every tag and the whole range.
+    expect(primary).toMatchObject({
+      title: "Loose password comparison with ==",
+      severity: "critical",
+      tags: ["security", "correctness"],
+      lineStart: 3,
+      lineEnd: 6,
+    });
+    expect(primary!.explanation).toContain("Also reported:\n- Password compared with ==");
+    expect(low).toMatchObject({ severity: "low", status: "open" });
+    // One fix round for the one merged blocker; the low finding goes to the summary.
+    expect(afterApproval(h)).toEqual([
+      "implement",
+      "code-review",
+      "code-review",
+      "implement",
+      "code-review",
+      "code-review",
+      "summarize",
+    ]);
+    const fix = h.calls.filter((c) => c.stage === "implement")[1]!.options.prompt;
+    expect(fix).toContain("Loose password comparison");
+    expect(fix).not.toContain("Typo in error message");
+    expect(h.calls.at(-1)!.options.prompt).toContain("Typo in error message");
+  });
+
+  it("stops gating on a force-ignored blocker, even when a reviewer reports it again", async () => {
+    let taskId = "";
+    let implementCalls = 0;
+    const h: Harness = harness((stage) => {
+      if (stage === "code-review") return { structured: { findings: [highFinding] } };
+      // The user ignores the blocker while the first fix round runs.
+      if (stage === "implement" && ++implementCalls === 2) {
+        const blocker = r.findings
+          .listByTask(taskId)
+          .find((f) => f.status === "force-fix" || f.status === "open");
+        h.engine.overrideFinding(taskId, blocker!.id, { status: "force-ignore" });
+      }
+      return {};
+    });
+    const seeded = seedTask();
+    taskId = seeded.id;
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    await h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" });
+    await settle(h.engine);
+
+    // The override survives the round, and the re-reports fold into it instead of gating.
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
+    expect(afterApproval(h)).toEqual([
+      "implement",
+      "code-review",
+      "code-review",
+      "implement",
+      "code-review",
+      "code-review",
+      "summarize",
+    ]);
+    const findings = r.findings.listByTask(seeded.id);
+    const ignored = findings.filter((f) => f.status === "force-ignore");
+    expect(ignored).toHaveLength(1);
+    expect(findings.filter((f) => f.status !== "force-ignore")).toEqual(
+      Array.from({ length: 3 }, () =>
+        expect.objectContaining({ status: "merged", mergedIntoId: ignored[0]!.id }),
+      ),
+    );
+    // The second round's reviewers were told not to report it again.
+    const lastReview = h.calls.filter((c) => c.stage === "code-review").at(-1)!.options.prompt;
+    expect(lastReview).toContain("Findings the user chose to ignore");
+    expect(lastReview).toContain("Do not report these again");
+    expect(h.calls.at(-1)!.options.prompt).toContain("Findings the user chose to ignore");
+  });
+
+  it("skips the fix round when the user ignores every blocker at a paused triage", async () => {
+    let reviews = 0;
+    const h = harness((stage) =>
+      stage === "code-review"
+        ? { structured: { findings: reviews++ === 0 ? [highFinding] : [] } }
+        : {},
+    );
+    const seeded = await approved(h, { triageMode: "pause" });
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "triage" });
+
+    const [blocker] = r.findings.listByTask(seeded.id);
+    const ignored = h.engine.overrideFinding(seeded.id, blocker!.id, { status: "force-ignore" });
+    expect(ignored.status).toBe("force-ignore");
+    expect(h.events).toContainEqual({ type: "finding.upserted", payload: { finding: ignored } });
+
+    await h.engine.respond(seeded.id, { gate: "triage", decision: "approve" });
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
+    expect(h.calls.filter((c) => c.stage === "implement")).toHaveLength(1);
+  });
+
+  it("fixes a force-fixed low finding in one more round from the final triage", async () => {
+    let reviews = 0;
+    const h = harness((stage) =>
+      stage === "code-review"
+        ? { structured: { findings: reviews++ === 0 ? [lowFinding] : [] } }
+        : {},
+    );
+    const seeded = await approved(h);
+    // Low findings never gate: straight to the summary.
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
+    expect(h.calls.filter((c) => c.stage === "implement")).toHaveLength(1);
+
+    const [low] = r.findings.listByTask(seeded.id);
+    h.engine.overrideFinding(seeded.id, low!.id, { status: "force-fix" });
+    await expect(
+      h.engine.respond(seeded.id, { gate: "finish", decision: "approve" }),
+    ).rejects.toThrow(/force-fixed finding is not fixed yet/);
+
+    await h.engine.respond(seeded.id, { gate: "finish", decision: "revise" });
+    await settle(h.engine);
+    const fixes = h.calls.filter((c) => c.stage === "implement");
+    expect(fixes).toHaveLength(2);
+    expect(fixes[1]!.options.prompt).toContain("Typo in error message");
+    expect(r.findings.get(low!.id)!.status).toBe("fixed");
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
+
+    await h.engine.respond(seeded.id, { gate: "finish", decision: "approve" });
+    expect(h.delivered).toEqual([seeded.id]);
+  });
+
+  it("rejects overrides on unknown or merged findings", () => {
+    const seeded = seedTask();
+    const [target, duplicate] = r.findings.createMany(
+      [highFinding, highFinding].map((f) => ({ ...f, taskId: seeded.id })),
+    );
+    r.findings.update(duplicate!.id, { status: "merged", mergedIntoId: target!.id });
+    const h = harness();
+    expect(() => h.engine.overrideFinding(seeded.id, "nope", { status: "force-fix" })).toThrow(
+      FindingNotFoundError,
+    );
+    expect(() =>
+      h.engine.overrideFinding(seeded.id, duplicate!.id, { status: "force-ignore" }),
+    ).toThrow(TaskStateError);
+    expect(() =>
+      h.engine.overrideFinding(seeded.id, target!.id, { status: "open" as never }),
+    ).toThrow(InvalidGateResponseError);
+  });
+
+  it("reviews the whole branch first, then only each fix round's diff", async () => {
+    const heads = ["h0", "h1"];
+    const reviewGit = {
+      mainBranch: "main",
+      mergeBase: vi.fn(async (_worktree: string, ref: string) => {
+        if (ref !== "main") throw new Error("unknown ref");
+        return "base";
+      }),
+      headSha: vi.fn(async () => heads.shift() ?? "h1"),
+      diff: vi.fn(async (_worktree: string, from: string, to = "HEAD") =>
+        from === "base" ? `+round 0 ${to}` : `+round 1 ${to}`,
+      ),
+    };
+    let reviews = 0;
+    const h = harness(
+      (stage) =>
+        stage === "code-review"
+          ? { structured: { findings: reviews++ === 0 ? [highFinding] : [] } }
+          : {},
+      { stages: createDefaultStages({ reviewGit }) },
+    );
+    const seeded = await approved(h);
+
+    const prompts = h.calls.filter((c) => c.stage === "code-review").map((c) => c.options.prompt);
+    expect(prompts).toHaveLength(4);
+    expect(prompts[0]).toContain("+round 0 h0");
+    expect(prompts[0]).toContain("`git diff base h0`): everything this branch changes");
+    expect(prompts[2]).toContain("+round 1 h1");
+    expect(prompts[2]).toContain("`git diff h0 h1`): fix round 1");
+    expect(reviewGit.mergeBase).toHaveBeenCalledTimes(1);
+    // Each visit records its range on a harness step.
+    const ranges = stepsOf(seeded.id)
+      .filter((s) => s.stage === "code-review" && s.agentId === null)
+      .map((s) => r.stepEvents.list(s.id).at(-1)!.payload);
+    expect(ranges).toEqual([
+      { from: "base", to: "h0" },
+      { from: "h0", to: "h1" },
+    ]);
+  });
+
+  it("skips the panel when the round changed nothing", async () => {
+    const reviewGit = {
+      mainBranch: "main",
+      mergeBase: vi.fn(async () => "base"),
+      headSha: vi.fn(async () => "base"),
+      diff: vi.fn(async () => ""),
+    };
+    const h = harness(() => ({}), { stages: createDefaultStages({ reviewGit }) });
+    const seeded = await approved(h);
+    expect(afterApproval(h)).toEqual(["implement", "summarize"]);
+    expect(task(seeded.id)).toMatchObject({ gate: "finish" });
   });
 });

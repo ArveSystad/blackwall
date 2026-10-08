@@ -137,6 +137,12 @@ describe("afterGate", () => {
       round: 2,
     });
     expect(afterGate("triage", "approve", { ...work, round: 1 })).toMatchObject({ round: 2 });
+    // Every blocker force-ignored at triage: nothing left to fix.
+    expect(afterGate("triage", "approve", { ...work, round: 1, blocking: 0 })).toEqual({
+      kind: "stage",
+      stage: "summarize",
+      round: 1,
+    });
     expect(() => afterGate("triage", "revise", work)).toThrow(InvalidGateResponseError);
   });
 

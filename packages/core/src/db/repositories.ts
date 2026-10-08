@@ -292,6 +292,22 @@ export function createStepEventsRepository(db: Db) {
   };
 }
 
+/** Finding fields the harness may rewrite after creation. */
+export type FindingPatch = Partial<
+  Pick<
+    Finding,
+    | "severity"
+    | "tags"
+    | "file"
+    | "lineStart"
+    | "lineEnd"
+    | "explanation"
+    | "suggestedFix"
+    | "status"
+    | "mergedIntoId"
+  >
+>;
+
 export function createFindingsRepository(db: Db) {
   return {
     listByTask(taskId: string): Finding[] {
@@ -316,6 +332,13 @@ export function createFindingsRepository(db: Db) {
     setStatus(id: string, status: FindingStatus): Finding {
       return required(
         db.update(findings).set({ status }).where(eq(findings.id, id)).returning().get(),
+        `Finding ${id}`,
+      );
+    },
+    /** Rewrites a finding, e.g. when the aggregation step merges duplicates into it. */
+    update(id: string, patch: FindingPatch): Finding {
+      return required(
+        db.update(findings).set(patch).where(eq(findings.id, id)).returning().get(),
         `Finding ${id}`,
       );
     },
