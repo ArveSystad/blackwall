@@ -10,3 +10,18 @@ export function isTypingTarget(target: EventTarget | null): boolean {
 export function isPlainKey(event: KeyboardEvent): boolean {
   return !event.ctrlKey && !event.metaKey && !event.altKey;
 }
+
+/** True on macOS, where shortcuts use ⌘ instead of Ctrl. */
+export function isMac(): boolean {
+  return typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+}
+
+/** ⌘ or Ctrl held (without Alt), as shortcuts like ⌘S expect. */
+export function isModKey(event: KeyboardEvent): boolean {
+  return (isMac() ? event.metaKey : event.ctrlKey) && !event.altKey;
+}
+
+/** Label for a ⌘/Ctrl shortcut, e.g. `modKeyLabel("S")` is "⌘S" on macOS and "Ctrl S" elsewhere. */
+export function modKeyLabel(key: string): string {
+  return isMac() ? `⌘${key}` : `Ctrl ${key}`;
+}

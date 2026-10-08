@@ -5,6 +5,7 @@ import {
   createKeyringSecretStore,
   createRepoService,
   createRepositories,
+  createSettingsService,
   openDatabase,
 } from "@blackwall/core";
 import { testConnection } from "@blackwall/integrations";
@@ -45,6 +46,10 @@ try {
   });
   // First start: the built-in agents, their role defaults and the finding tags.
   agents.seed();
+  const settings = createSettingsService({
+    settings: repositories.settings,
+    tags: repositories.tags,
+  });
 
   const { launchUrl } = await startServer({
     port: config.port,
@@ -53,6 +58,7 @@ try {
     connections: { connections, test: testConnection },
     repos,
     agents,
+    settings,
     tasks: repositories.tasks,
     shutdown,
   });

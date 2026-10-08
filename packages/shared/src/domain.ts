@@ -347,6 +347,24 @@ export function stagePermissionProfile(stage: Stage): PermissionProfile {
 export const tagSchema = z.object({ name, position: z.int().nonnegative() });
 export type Tag = z.infer<typeof tagSchema>;
 
+/** A finding tag as reviewers write it: lower-case words joined by hyphens, e.g. `code-quality`. */
+export const tagNameSchema = z
+  .string()
+  .trim()
+  .regex(
+    /^[a-z0-9]+(-[a-z0-9]+)*$/,
+    "Tags are lower-case words joined by hyphens, e.g. code-quality",
+  )
+  .max(40, "Tags are at most 40 characters");
+
+/** Body for replacing the tag list; the order is the display order. */
+export const tagListInputSchema = z.object({
+  tags: z
+    .array(tagNameSchema)
+    .refine((tags) => new Set(tags).size === tags.length, "Each tag can be listed only once"),
+});
+export type TagListInput = z.infer<typeof tagListInputSchema>;
+
 /** Agent ids chosen per pipeline role. */
 export const roleAgentsSchema = z.object({
   planner: id.optional(),
@@ -365,6 +383,16 @@ export const settingsSchema = z.object({
 });
 export type Settings = z.infer<typeof settingsSchema>;
 export type SettingsInput = z.input<typeof settingsSchema>;
+
+/** Settings other than the role defaults (which live under `/api/agents/role-defaults`). */
+export const generalSettingsSchema = settingsSchema.pick({ maxTasksPerRepo: true });
+export type GeneralSettings = z.infer<typeof generalSettingsSchema>;
+
+/** Body for editing the general settings; omitted fields keep their value. */
+export const generalSettingsUpdateSchema = z.object({
+  maxTasksPerRepo: settingsSchema.shape.maxTasksPerRepo.unwrap().optional(),
+});
+export type GeneralSettingsUpdate = z.infer<typeof generalSettingsUpdateSchema>;
 
 // ---------------------------------------------------------------------------
 // Tasks

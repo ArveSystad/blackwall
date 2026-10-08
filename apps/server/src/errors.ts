@@ -4,6 +4,7 @@ import {
   InvalidAgentError,
   InvalidConnectionError,
   InvalidRepoError,
+  InvalidSettingsError,
   MissingCredentialError,
   RepoInUseError,
   RepoNotFoundError,
@@ -55,7 +56,8 @@ export function errorResponse(error: unknown, c: Context) {
   if (
     error instanceof InvalidConnectionError ||
     error instanceof InvalidRepoError ||
-    error instanceof InvalidAgentError
+    error instanceof InvalidAgentError ||
+    error instanceof InvalidSettingsError
   ) {
     return c.json({ error: error.message }, 400);
   }

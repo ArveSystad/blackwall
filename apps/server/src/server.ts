@@ -1,7 +1,7 @@
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
-import type { AgentService, RepoService, Repositories } from "@blackwall/core";
+import type { AgentService, RepoService, Repositories, SettingsService } from "@blackwall/core";
 import { TOKEN_QUERY_PARAM } from "@blackwall/shared";
 import { createApp } from "./app.js";
 import { generateToken } from "./auth.js";
@@ -22,6 +22,7 @@ export interface StartOptions {
   connections?: ConnectionRoutesOptions;
   repos?: RepoService;
   agents?: AgentService;
+  settings?: SettingsService;
   tasks?: Repositories["tasks"];
   shutdown: Shutdown;
 }
@@ -42,6 +43,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     ...(options.connections ? { connections: options.connections } : {}),
     ...(options.repos ? { repos: options.repos } : {}),
     ...(options.agents ? { agents: options.agents } : {}),
+    ...(options.settings ? { settings: options.settings } : {}),
     ...(options.tasks ? { tasks: options.tasks } : {}),
     ...(options.dev ? {} : { webDist: WEB_DIST }),
   });

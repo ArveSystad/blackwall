@@ -54,6 +54,8 @@
   --shadow-pop: 0 16px 48px rgba(0, 0, 0, 0.6), 0 0 0 1px #3a3169;
   --kbd-on-fill-bg: rgba(0, 0, 0, 0.15);
   --kbd-on-fill-border: rgba(0, 0, 0, 0.25);
+  --seg-on-bg: var(--bg-4); /* selected segment */
+  --seg-on-ring: rgba(167, 123, 255, 0.45);
 
   /* Glow marks state only. Light swaps it for a 1px border plus a 3px tinted ring. */
   --glow-cyan: 0 0 0 1px rgba(46, 230, 255, 0.55), 0 0 14px rgba(46, 230, 255, 0.28);
@@ -116,6 +118,8 @@
     --shadow-pop: 0 16px 48px rgba(20, 20, 40, 0.18), 0 0 0 1px #d6d6df;
     --kbd-on-fill-bg: rgba(255, 255, 255, 0.18);
     --kbd-on-fill-border: rgba(255, 255, 255, 0.3);
+    --seg-on-bg: var(--bg-1);
+    --seg-on-ring: var(--border-strong);
 
     --glow-cyan: 0 0 0 1px #1d6fe0, 0 0 0 3px rgba(29, 111, 224, 0.18);
     --glow-magenta: 0 0 0 1px #c4167c, 0 0 0 3px rgba(196, 22, 124, 0.14);
@@ -187,6 +191,8 @@
   --color-overlay: var(--overlay);
   --color-kbd-on-fill: var(--kbd-on-fill-bg);
   --color-kbd-on-fill-border: var(--kbd-on-fill-border);
+  --color-seg-on: var(--seg-on-bg);
+  --color-seg-on-ring: var(--seg-on-ring);
 
   --shadow-ring: var(--ring);
   --shadow-glow-cyan: var(--glow-cyan);

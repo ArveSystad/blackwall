@@ -1,5 +1,15 @@
 import { QueryClient, queryOptions } from "@tanstack/react-query";
-import { ApiError, getTask, listConnections, listRepos, listTasks } from "./api";
+import {
+  ApiError,
+  getRoleDefaults,
+  getSettings,
+  getTask,
+  listAgents,
+  listConnections,
+  listRepos,
+  listTags,
+  listTasks,
+} from "./api";
 
 /**
  * Query keys. Task-scoped data nests under `["tasks", id]`, so live events can
@@ -15,6 +25,10 @@ export const queryKeys = {
   stepEvents: (stepId: string) => ["steps", stepId, "events"] as const,
   repos: ["repos"] as const,
   connections: ["connections"] as const,
+  agents: ["agents"] as const,
+  roleDefaults: ["agents", "role-defaults"] as const,
+  tags: ["tags"] as const,
+  settings: ["settings"] as const,
 };
 
 export const tasksQuery = queryOptions({ queryKey: queryKeys.tasks, queryFn: listTasks });
@@ -28,6 +42,17 @@ export const connectionsQuery = queryOptions({
   queryKey: queryKeys.connections,
   queryFn: listConnections,
 });
+
+export const agentsQuery = queryOptions({ queryKey: queryKeys.agents, queryFn: listAgents });
+
+export const roleDefaultsQuery = queryOptions({
+  queryKey: queryKeys.roleDefaults,
+  queryFn: getRoleDefaults,
+});
+
+export const tagsQuery = queryOptions({ queryKey: queryKeys.tags, queryFn: listTags });
+
+export const settingsQuery = queryOptions({ queryKey: queryKeys.settings, queryFn: getSettings });
 
 export function createQueryClient(): QueryClient {
   return new QueryClient({

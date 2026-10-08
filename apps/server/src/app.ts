@@ -9,13 +9,14 @@ import {
   type HealthResponse,
   type ServerEvent,
 } from "@blackwall/shared";
-import type { AgentService, RepoService, Repositories } from "@blackwall/core";
+import type { AgentService, RepoService, Repositories, SettingsService } from "@blackwall/core";
 import { Hono } from "hono";
 import { agentRoutes } from "./agents.js";
 import { hostGuard, requireToken, tokenExchange } from "./auth.js";
 import { connectionRoutes, type ConnectionRoutesOptions } from "./connections.js";
 import { errorResponse } from "./errors.js";
 import { repoRoutes } from "./repos.js";
+import { settingsRoutes, tagRoutes } from "./settings.js";
 import { taskRoutes } from "./tasks.js";
 
 export interface AppOptions {
@@ -30,6 +31,8 @@ export interface AppOptions {
   repos?: RepoService;
   /** Agent library; omit to leave the agent routes out (e.g. in tests). */
   agents?: AgentService;
+  /** Tags and general settings; omit to leave the tag and settings routes out (e.g. in tests). */
+  settings?: SettingsService;
   /** Task store; omit to leave the task routes out (e.g. in tests). */
   tasks?: Repositories["tasks"];
 }
@@ -51,6 +54,7 @@ export function createApp({
   connections,
   repos,
   agents,
+  settings,
   tasks,
 }: AppOptions): CreatedApp {
   const app = new Hono();
@@ -72,6 +76,10 @@ export function createApp({
   if (connections) app.route("/api/connections", connectionRoutes(connections));
   if (repos) app.route("/api/repos", repoRoutes(repos));
   if (agents) app.route("/api/agents", agentRoutes(agents));
+  if (settings) {
+    app.route("/api/tags", tagRoutes(settings));
+    app.route("/api/settings", settingsRoutes(settings));
+  }
   if (tasks) app.route("/api/tasks", taskRoutes(tasks));
 
   app.all("/api/*", (c) => c.json({ error: "not found" }, 404));
