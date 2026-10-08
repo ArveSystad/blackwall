@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>blackwall · design tokens</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./bw.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500;600&amp;family=Chakra+Petch:wght@500;600&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="bw" data-theme="dark" style="width: 1440px; height: 2200px; box-sizing: border-box; padding: 48px 56px; background: var(--bg-0); display: flex; flex-direction: column; gap: 32px">
+  <header style="display: flex; align-items: flex-end; gap: 24px">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <span class="wordmark" style="font-size: 18px">black<span class="w-accent">wall</span> <span class="muted" style="letter-spacing: .06em">tokens</span></span>
+      <span class="muted" style="max-width: 760px">CSS variables on <span class="mono">.bw[data-theme]</span> (or <span class="mono">:root</span> / <span class="mono">.dark</span> in the app), exposed to Tailwind via <span class="mono">@theme inline</span>. Names on the left of each row are the shadcn/ui slot where one exists.</span>
+    </div>
+    <span style="flex: 1"></span>
+    <div style="display: flex; gap: 16px; font-size: 12px" class="muted">
+      <span><span class="strong">Cyan</span> machine is working</span>
+      <span><span style="color: var(--magenta); font-weight: 600">Magenta</span> human is needed</span>
+      <span><span style="color: var(--violet); font-weight: 600">Violet</span> primary action, selection</span>
+    </div>
+  </header>
+
+  <div style="display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 40px; flex: 1; min-height: 0">
+    <!-- COLOR -->
+    <section style="display: flex; flex-direction: column; gap: 22px">
+      <sc-for list="{{groups}}" as="g" hint-placeholder-count="6">
+        <div style="display: flex; flex-direction: column">
+          <div style="display: grid; grid-template-columns: 170px 150px 1fr 1fr; gap: 12px; padding: 0 0 6px; border-bottom: 1px solid var(--border-strong)">
+            <span class="label" style="color: var(--fg-strong)">{{g.name}}</span>
+            <span class="label">Tailwind / shadcn</span>
+            <span class="label">Dark</span>
+            <span class="label">Light</span>
+          </div>
+          <sc-for list="{{g.rows}}" as="r" hint-placeholder-count="5">
+            <div style="display: grid; grid-template-columns: 170px 150px 1fr 1fr; gap: 12px; align-items: center; height: 34px; border-bottom: 1px solid var(--border)">
+              <span class="mono" style="color: var(--fg-strong)">--{{r.v}}</span>
+              <span class="mono muted" style="font-size: 11.5px">{{r.tw}}</span>
+              <span style="display: flex; align-items: center; gap: 8px">
+                <span style="width: 44px; height: 22px; border-radius: 4px; background: #0a0918; border: 1px solid #3a3169; display: inline-flex; overflow: hidden"><span style="flex: 1; background: {{r.d}}"></span></span>
+                <span class="mono muted" style="font-size: 11px">{{r.d}}</span>
+              </span>
+              <span style="display: flex; align-items: center; gap: 8px">
+                <span style="width: 44px; height: 22px; border-radius: 4px; background: #ffffff; border: 1px solid #cdcdd8; display: inline-flex; overflow: hidden"><span style="flex: 1; background: {{r.l}}"></span></span>
+                <span class="mono muted" style="font-size: 11px">{{r.l}}</span>
+              </span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-for>
+    </section>
+
+    <!-- TYPE / SPACE / RADII / GLOW / MAPPING -->
+    <section style="display: flex; flex-direction: column; gap: 28px; min-width: 0">
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <span class="label" style="color: var(--fg-strong)">Type · Geist / Geist Mono / Chakra Petch</span>
+        <div class="card" style="display: flex; flex-direction: column">
+          <div style="display: grid; grid-template-columns: 130px minmax(0, 1fr); align-items: baseline; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--border)"><span class="mono faint" style="font-size: 11px">display 28/34 600</span><span style="font-family: var(--font-display); font-size: 28px; line-height: 34px; font-weight: 600; color: var(--fg-strong)">The wall</span></div>
+          <div style="display: grid; grid-template-columns: 130px minmax(0, 1fr); align-items: baseline; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--border)"><span class="mono faint" style="font-size: 11px">title 18/24 600</span><span style="font-size: 18px; line-height: 24px; font-weight: 600; color: var(--fg-strong)">Fix session refresh race</span></div>
+          <div style="display: grid; grid-template-columns: 130px minmax(0, 1fr); align-items: baseline; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--border)"><span class="mono faint" style="font-size: 11px">heading 15/20 600</span><span style="font-size: 15px; line-height: 20px; font-weight: 600; color: var(--fg-strong)">Agent library</span></div>
+          <div style="display: grid; grid-template-columns: 130px minmax(0, 1fr); align-items: baseline; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--border)"><span class="mono faint" style="font-size: 11px">body 13/20 400·500</span><span style="font-size: 13px; line-height: 20px">Both send the old refresh token; the second gets a 401.</span></div>
+          <div style="display: grid; grid-template-columns: 130px minmax(0, 1fr); align-items: baseline; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--border)"><span class="mono faint" style="font-size: 11px">meta 12/18 400</span><span class="muted" style="font-size: 12px; line-height: 18px">Started 41m ago · 3 reviewers</span></div>
+          <div style="display: grid; grid-template-columns: 130px minmax(0, 1fr); align-items: baseline; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--border)"><span class="mono faint" style="font-size: 11px">label 11/16 600 caps</span><span class="label">Needs you</span></div>
+          <div style="display: grid; grid-template-columns: 130px minmax(0, 1fr); align-items: baseline; gap: 12px; padding: 10px 14px"><span class="mono faint" style="font-size: 11px">mono 12/19 400</span><span class="mono" style="color: var(--fg-strong)">feature/abc-482-session-refresh · 3f9a2c1</span></div>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px">
+        <div style="display: flex; flex-direction: column; gap: 10px">
+          <span class="label" style="color: var(--fg-strong)">Spacing · 4 px base</span>
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <sc-for list="{{space}}" as="s" hint-placeholder-count="9">
+              <div style="display: flex; align-items: center; gap: 10px"><span class="mono muted" style="width: 70px; font-size: 11px">{{s.name}}</span><span style="height: 10px; width: {{s.px}}; background: var(--violet); border-radius: 1px; opacity: .8"></span><span class="mono faint" style="font-size: 11px">{{s.px}}</span></div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 10px">
+          <span class="label" style="color: var(--fg-strong)">Radii</span>
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; align-items: center; gap: 10px"><span style="width: 36px; height: 22px; border: 1px solid var(--border-strong); background: var(--bg-3); border-radius: 3px"></span><span class="mono muted" style="font-size: 11.5px">xs 3 · tag</span></div>
+            <div style="display: flex; align-items: center; gap: 10px"><span style="width: 36px; height: 22px; border: 1px solid var(--border-strong); background: var(--bg-3); border-radius: 4px"></span><span class="mono muted" style="font-size: 11.5px">sm 4 · chip, kbd</span></div>
+            <div style="display: flex; align-items: center; gap: 10px"><span style="width: 36px; height: 22px; border: 1px solid var(--border-strong); background: var(--bg-3); border-radius: 6px"></span><span class="mono muted" style="font-size: 11.5px">md 6 · button, input (--radius)</span></div>
+            <div style="display: flex; align-items: center; gap: 10px"><span style="width: 36px; height: 22px; border: 1px solid var(--border-strong); background: var(--bg-3); border-radius: 8px"></span><span class="mono muted" style="font-size: 11.5px">lg 8 · card, task row</span></div>
+            <div style="display: flex; align-items: center; gap: 10px"><span style="width: 36px; height: 22px; border: 1px solid var(--border-strong); background: var(--bg-3); border-radius: 12px"></span><span class="mono muted" style="font-size: 11.5px">xl 12 · dialog</span></div>
+          </div>
+          <span class="label" style="color: var(--fg-strong); margin-top: 10px">Density</span>
+          <span class="mono muted" style="font-size: 11.5px">row 40 · tab 36 · button 28 / sm 24 · input 30 · chip 20</span>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <span class="label" style="color: var(--fg-strong)">Glow recipes · dark only (light uses a 3 px tinted ring)</span>
+        <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+          <div style="display: flex; flex-direction: column; gap: 10px; align-items: flex-start">
+            <span class="input is-focus" style="display: flex; align-items: center; color: var(--fg-muted)">focus ring</span>
+            <span class="mono faint" style="font-size: 10.5px; line-height: 15px">--glow-cyan: 0 0 0 1px rgb(46 230 255/.55), 0 0 14px rgb(46 230 255/.28)</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 10px; align-items: flex-start">
+            <span class="btn btn-needs">Needs you</span>
+            <span class="mono faint" style="font-size: 10.5px; line-height: 15px">--glow-magenta: 0 0 0 1px rgb(255 61 207/.65), 0 0 18px rgb(255 61 207/.30)</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 10px; align-items: flex-start">
+            <span class="btn btn-primary">Primary</span>
+            <span class="mono faint" style="font-size: 10.5px; line-height: 15px">--glow-violet: 0 0 0 1px rgb(167 123 255/.65), 0 0 16px rgb(167 123 255/.32)</span>
+          </div>
+        </div>
+        <span class="muted" style="font-size: 12px">Glow goes on: focus rings, the needs-you rail and CTA, running dots, the active tab underline, the current stepper node. Never on text blocks, diffs or table rows.</span>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+          <span class="status st-running"><span class="sdot"></span>Running</span>
+          <span class="status st-needs"><span class="sdot"></span>Needs you</span>
+          <span class="status st-interrupted"><span class="sdot"></span>Interrupted</span>
+          <span class="status st-failed"><span class="sdot"></span>Failed</span>
+          <span class="status st-done"><span class="sdot"></span>Done</span>
+          <span style="width: 12px"></span>
+          <span class="sev sev-critical">Critical</span>
+          <span class="sev sev-high">High</span>
+          <span class="sev sev-medium">Medium</span>
+          <span class="sev sev-low">Low</span>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <span class="label" style="color: var(--fg-strong)">Tailwind v4 mapping</span>
+        <div class="code" style="padding: 12px 14px; white-space: pre; color: var(--fg); font-size: 11.5px; line-height: 18px"><span class="faint">/* app.css */</span>
+@theme inline {
+  --color-background: var(--bg-0);     --color-card: var(--bg-2);
+  --color-popover: var(--bg-4);        --color-muted: var(--bg-3);
+  --color-accent: var(--bg-3);         --color-sidebar: var(--bg-1);
+  --color-border: var(--border);       --color-input: var(--border-strong);
+  --color-foreground: var(--fg);       --color-muted-foreground: var(--fg-muted);
+  --color-primary: var(--primary);     --color-primary-foreground: var(--primary-fg);
+  --color-ring: var(--cyan);           --color-destructive: var(--st-failed);
+
+  --color-running: var(--st-running);  --color-needs: var(--st-needs);
+  --color-interrupted: var(--st-interrupted);
+  --color-failed: var(--st-failed);    --color-done: var(--st-done);
+  --color-sev-critical: var(--sev-critical); <span class="faint">/* …high, medium, low */</span>
+  --color-diff-add: var(--diff-add-bg); --color-diff-add-fg: var(--diff-add-fg);
+  --color-diff-del: var(--diff-del-bg); --color-diff-del-fg: var(--diff-del-fg);
+
+  --shadow-glow-cyan: var(--glow-cyan);
+  --shadow-glow-needs: var(--glow-magenta);
+  --shadow-glow-primary: var(--glow-violet);
+  --radius: 6px;
+  --font-sans: "Geist", ui-sans-serif, system-ui;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+}
+<span class="faint">/* use: */</span> <span style="color: var(--cyan)">bg-needs/10 border-needs/40 shadow-glow-needs text-sev-high</span></div>
+      </div>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2200}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const groups = [
+      { name: 'Surfaces', rows: [
+        { v: 'bg-0', tw: 'background', d: '#0a0918', l: '#f3f3f6' },
+        { v: 'bg-1', tw: 'sidebar', d: '#100e22', l: '#ffffff' },
+        { v: 'bg-2', tw: 'card', d: '#161330', l: '#fafafc' },
+        { v: 'bg-3', tw: 'muted · accent', d: '#1e1a3f', l: '#eff0f4' },
+        { v: 'bg-4', tw: 'popover', d: '#2a2352', l: '#ffffff' },
+        { v: 'border', tw: 'border', d: '#262046', l: '#e3e3ea' },
+        { v: 'border-strong', tw: 'input', d: '#3a3169', l: '#cdcdd8' }
+      ] },
+      { name: 'Text', rows: [
+        { v: 'fg-strong', tw: 'foreground-strong', d: '#ebe8f7', l: '#111118' },
+        { v: 'fg', tw: 'foreground', d: '#c4c1d9', l: '#2b2b35' },
+        { v: 'fg-muted', tw: 'muted-foreground', d: '#9590b4', l: '#5d5d6c' },
+        { v: 'fg-faint', tw: 'faint (non-text)', d: '#6f6a90', l: '#9a9aa8' }
+      ] },
+      { name: 'Accent', rows: [
+        { v: 'primary', tw: 'primary', d: '#a77bff', l: '#5a45e0' },
+        { v: 'cyan', tw: 'ring · running', d: '#2ee6ff', l: '#1d6fe0' },
+        { v: 'magenta', tw: 'needs', d: '#ff3dcf', l: '#c4167c' },
+        { v: 'needs-wash', tw: 'needs/7', d: 'rgba(255,61,207,.07)', l: '#fdf0f7' }
+      ] },
+      { name: 'Task status', rows: [
+        { v: 'st-running', tw: 'running', d: '#2ee6ff', l: '#1d6fe0' },
+        { v: 'st-needs', tw: 'needs', d: '#ff3dcf', l: '#c4167c' },
+        { v: 'st-interrupted', tw: 'interrupted', d: '#a8a2cc', l: '#6b6b7b' },
+        { v: 'st-failed', tw: 'failed · destructive', d: '#ff5c78', l: '#cf2236' },
+        { v: 'st-done', tw: 'done', d: '#5cd69a', l: '#1a7f37' }
+      ] },
+      { name: 'Severity', rows: [
+        { v: 'sev-critical', tw: 'sev-critical', d: '#ff4d5e', l: '#cf2236' },
+        { v: 'sev-high', tw: 'sev-high', d: '#ff8b3d', l: '#c2530a' },
+        { v: 'sev-medium', tw: 'sev-medium', d: '#f2c14e', l: '#9a6d00' },
+        { v: 'sev-low', tw: 'sev-low', d: '#8e9dbc', l: '#5a6880' }
+      ] },
+      { name: 'Diff', rows: [
+        { v: 'diff-add-bg', tw: 'diff-add', d: 'rgba(46,160,67,.15)', l: '#e9fbee' },
+        { v: 'diff-add-fg', tw: 'diff-add-fg', d: '#8fe0a8', l: '#1a7f37' },
+        { v: 'diff-del-bg', tw: 'diff-del', d: 'rgba(248,81,73,.14)', l: '#fff0ef' },
+        { v: 'diff-del-fg', tw: 'diff-del-fg', d: '#ffa39b', l: '#b3202c' }
+      ] }
+    ];
+    const space = [['0.5', 2], ['1', 4], ['1.5', 6], ['2', 8], ['3', 12], ['4', 16], ['5', 20], ['6', 24], ['8', 32]].map(([n, p]) => ({ name: 'space-' + n, px: p + 'px' }));
+    return { groups, space };
+  }
+}
+</script>
+</body>
+</html>

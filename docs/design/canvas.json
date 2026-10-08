@@ -1,0 +1,246 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "Exceptions.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "is_interactive": true,
+      "title": "State · interrupted + failed",
+      "w": 1440,
+      "x": 1520,
+      "y": 7800
+    },
+    "Finish.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "is_interactive": true,
+      "title": "Finish confirmation (dark)",
+      "w": 1440,
+      "x": 0,
+      "y": 2600
+    },
+    "FinishLight.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "is_interactive": true,
+      "title": "Finish confirmation (light)",
+      "w": 1440,
+      "x": 1520,
+      "y": 2600
+    },
+    "FirstRun.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "title": "State · first run, empty inbox",
+      "w": 1440,
+      "x": 3040,
+      "y": 7800
+    },
+    "Grill.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "is_interactive": true,
+      "title": "Plan review + grill (dark)",
+      "w": 1440,
+      "x": 0,
+      "y": 1300
+    },
+    "GrillLight.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "is_interactive": true,
+      "title": "Plan review + grill (light)",
+      "w": 1440,
+      "x": 1520,
+      "y": 1300
+    },
+    "Inbox.dc.html": {
+      "h": 900,
+      "is_interactive": true,
+      "title": "Component · task inbox",
+      "w": 352,
+      "x": 3040,
+      "y": 0
+    },
+    "Main.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "is_interactive": true,
+      "title": "Main · code review triage (dark)",
+      "w": 1440,
+      "x": 0,
+      "y": 0
+    },
+    "MainLight.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "is_interactive": true,
+      "title": "Main · code review triage (light)",
+      "w": 1440,
+      "x": 1520,
+      "y": 0
+    },
+    "NewTask.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "is_interactive": true,
+      "title": "New task (dark)",
+      "w": 1440,
+      "x": 0,
+      "y": 3900
+    },
+    "NewTaskLight.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "is_interactive": true,
+      "title": "New task (light)",
+      "w": 1440,
+      "x": 1520,
+      "y": 3900
+    },
+    "Running.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "is_interactive": true,
+      "title": "State · running, streaming output",
+      "w": 1440,
+      "x": 0,
+      "y": 7800
+    },
+    "Settings.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "title": "Settings · agent library (dark)",
+      "w": 1440,
+      "x": 0,
+      "y": 5200
+    },
+    "SettingsLight.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "title": "Settings · agent library (light)",
+      "w": 1440,
+      "x": 1520,
+      "y": 5200
+    },
+    "TokenModal.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "title": "Missing token (dark)",
+      "w": 1440,
+      "x": 0,
+      "y": 6500
+    },
+    "TokenModalLight.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "title": "Missing token (light)",
+      "w": 1440,
+      "x": 1520,
+      "y": 6500
+    },
+    "Tokens.dc.html": {
+      "h": 2200,
+      "title": "Design tokens",
+      "w": 1440,
+      "x": 0,
+      "y": 9100
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-10-08T10:00:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "view": "canvas"
+  },
+  "notes": {
+    "t-finish": {
+      "kind": "title1",
+      "maxW": 2960,
+      "text": "Finish · outbound confirmation",
+      "w": 240,
+      "x": 0,
+      "y": 2340
+    },
+    "t-grill": {
+      "kind": "title1",
+      "maxW": 2960,
+      "text": "Plan approval + grill",
+      "w": 240,
+      "x": 0,
+      "y": 1040
+    },
+    "t-main": {
+      "kind": "title1",
+      "maxW": 3392,
+      "text": "Main · code review triage",
+      "w": 240,
+      "x": 0,
+      "y": -260
+    },
+    "t-new": {
+      "kind": "title1",
+      "maxW": 2960,
+      "text": "New task",
+      "w": 240,
+      "x": 0,
+      "y": 3640
+    },
+    "t-settings": {
+      "kind": "title1",
+      "maxW": 2960,
+      "text": "Settings · agent library",
+      "w": 240,
+      "x": 0,
+      "y": 4940
+    },
+    "t-states": {
+      "kind": "title1",
+      "maxW": 4480,
+      "text": "States · running, interrupted, failed, first run",
+      "w": 240,
+      "x": 0,
+      "y": 7540
+    },
+    "t-token": {
+      "kind": "title1",
+      "maxW": 2960,
+      "text": "Missing token modal",
+      "w": 240,
+      "x": 0,
+      "y": 6240
+    },
+    "t-tokens": {
+      "kind": "title1",
+      "maxW": 1440,
+      "text": "Design tokens → Tailwind + shadcn/ui",
+      "w": 240,
+      "x": 0,
+      "y": 8840
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "MainLight.dc.html",
+    "Inbox.dc.html",
+    "Grill.dc.html",
+    "GrillLight.dc.html",
+    "Finish.dc.html",
+    "FinishLight.dc.html",
+    "NewTask.dc.html",
+    "NewTaskLight.dc.html",
+    "Settings.dc.html",
+    "SettingsLight.dc.html",
+    "TokenModal.dc.html",
+    "TokenModalLight.dc.html",
+    "Running.dc.html",
+    "Exceptions.dc.html",
+    "FirstRun.dc.html",
+    "Tokens.dc.html"
+  ],
+  "pages": [],
+  "title": "blackwall"
+}

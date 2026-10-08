@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>blackwall · token needed</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./bw.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500;600&amp;family=Chakra+Petch:wght@500;600&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="bw" data-theme="{{theme}}" style="position: relative; height: 100vh; min-height: 760px; overflow: hidden; background: var(--bg-0)">
+  <div aria-hidden="true" style="position: absolute; inset: 0">
+    <dc-import name="Main" theme="{{theme}}" hint-size="100%,100%"></dc-import>
+  </div>
+  <div class="scrim"></div>
+
+  <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px 16px">
+    <form class="modal" role="dialog" aria-modal="true" aria-labelledby="tk-title" style="width: 100%; max-width: 480px; display: flex; flex-direction: column; overflow: hidden">
+      <div style="display: flex; flex-direction: column; gap: 10px; padding: 18px 20px 4px">
+        <div style="display: flex; align-items: center; gap: 10px">
+          <span style="width: 32px; height: 32px; border-radius: var(--r-lg); display: inline-flex; align-items: center; justify-content: center; color: var(--magenta); background: var(--needs-wash); border: 1px solid color-mix(in oklab, var(--magenta) 40%, transparent)">
+            <svg class="i" viewBox="0 0 16 16" style="width: 16px; height: 16px"><circle cx="5.5" cy="10.5" r="3"></circle><path d="m7.6 8.4 5.9-5.9M11.5 4.5l1.5 1.5M10 6l1.2 1.2"></path></svg>
+          </span>
+          <h2 id="tk-title" style="margin: 0; font-size: 15px; font-weight: 600; color: var(--fg-strong)">Token needed for jbf.ghe.com</h2>
+        </div>
+        <p style="margin: 0; color: var(--fg); text-wrap: pretty">Starting <span class="strong">Review PR</span> on <span class="mono" style="color: var(--fg-strong)">platform/gateway#212</span> needs a personal access token for this GitHub Enterprise host.</p>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 14px; padding: 14px 20px 18px">
+        <div class="card" style="display: grid; grid-template-columns: 96px minmax(0, 1fr); row-gap: 8px; padding: 10px 12px; background: var(--bg-2); font-size: 12.5px">
+          <span class="muted">Host</span><span class="mono" style="color: var(--fg-strong)">jbf.ghe.com</span>
+          <span class="muted">Type</span><span>GitHub Enterprise Server</span>
+          <span class="muted">Scopes</span><span style="display: flex; gap: 4px; align-items: center"><span class="tag" style="color: var(--fg-strong)">repo</span><span class="faint" style="font-size: 12px">required</span></span>
+        </div>
+
+        <label style="display: flex; flex-direction: column; gap: 6px">
+          <span class="field-label">Personal access token</span>
+          <span style="position: relative; display: block">
+            <input class="input mono is-focus" type="password" value="ghp_000000000000000000000000000000" autocomplete="off" style="padding-right: 36px; letter-spacing: .1em">
+            <button class="btn btn-ghost btn-icon btn-sm" type="button" aria-label="Show token" style="position: absolute; right: 3px; top: 3px"><svg class="i" viewBox="0 0 16 16"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z"></path><circle cx="8" cy="8" r="2"></circle></svg></button>
+          </span>
+        </label>
+
+        <div style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--fg-muted)">
+          <a href="https://jbf.ghe.com/settings/tokens/new?scopes=repo&amp;description=blackwall">Create one on jbf.ghe.com with repo scope ↗</a>
+          <span>Stored on this machine only. It is never shown again; replace it from Settings › Connections.</span>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--border); background: var(--bg-2)">
+        <span style="flex: 1"></span>
+        <button class="btn btn-ghost" type="button">Cancel</button>
+        <button class="btn btn-primary" type="submit">Save and continue<span class="kbd">↵</span></button>
+      </div>
+    </form>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.theme ?? 'dark' };
+  }
+}
+</script>
+</body>
+</html>

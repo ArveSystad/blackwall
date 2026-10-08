@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>blackwall · task inbox</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./bw.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500;600&amp;family=Chakra+Petch:wght@500;600&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<aside class="bw" data-theme="{{theme}}" aria-label="Task inbox" style="width: 100%; height: 100vh; display: flex; flex-direction: column; background: var(--bg-1); border-right: 1px solid var(--border); min-width: 0">
+  <div style="display: flex; flex-direction: column; gap: 10px; padding: 12px 12px 10px 14px; border-bottom: 1px solid var(--border)">
+    <div style="display: flex; align-items: center; gap: 8px; height: 28px">
+      <svg class="i" viewBox="0 0 16 16" style="color: var(--cyan); width: 16px; height: 16px"><path d="M2 3h12M2 6.5h12M2 10h12M2 13.5h12"></path><path d="M5 3v3.5M10 6.5V10M5 10v3.5"></path></svg>
+      <span class="wordmark">black<span class="w-accent">wall</span></span>
+      <sc-if value="{{hasNeeds}}" hint-placeholder-val="{{ true }}">
+        <span class="status st-needs" style="margin-left: 4px"><span class="sdot"></span>{{needsCount}} need you</span>
+      </sc-if>
+      <span style="flex: 1"></span>
+      <button class="btn btn-ghost btn-icon" aria-label="Settings" type="button"><svg class="i" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"></circle><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"></path></svg></button>
+    </div>
+    <div style="display: flex; gap: 8px; align-items: center">
+      <label style="flex: 1; position: relative; display: block; min-width: 0">
+        <span style="position: absolute; left: 9px; top: 8px; color: var(--fg-faint); display: flex"><svg class="i" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"></circle><path d="M10.5 10.5 14 14"></path></svg></span>
+        <input class="input" type="search" placeholder="Filter tasks" aria-label="Filter tasks" style="padding-left: 30px; padding-right: 30px; height: 28px">
+        <span class="kbd" style="position: absolute; right: 6px; top: 5px">/</span>
+      </label>
+      <button class="btn btn-primary" type="button"><svg class="i" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"></path></svg>New task<span class="kbd">N</span></button>
+    </div>
+    <div class="seg" role="tablist" aria-label="Status filter" style="align-self: flex-start">
+      <button class="on" type="button">All <span class="mono faint">{{total}}</span></button>
+      <button type="button">Needs you <span class="mono" style="color: var(--magenta)">{{needsCount}}</span></button>
+      <button type="button">Running <span class="mono faint">{{runCount}}</span></button>
+      <button type="button">Done</button>
+    </div>
+  </div>
+
+  <sc-if value="{{empty}}" hint-placeholder-val="{{ false }}">
+    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 24px; text-align: center">
+      <svg class="i" viewBox="0 0 16 16" style="width: 28px; height: 28px; color: var(--fg-faint)"><path d="M2 3h12M2 6.5h12M2 10h12M2 13.5h12"></path><path d="M5 3v3.5M10 6.5V10M5 10v3.5"></path></svg>
+      <div class="strong" style="font-weight: 500">The wall is quiet</div>
+      <div class="muted" style="font-size: 12px; max-width: 240px">Tasks you start show up here. Finish setup on the right first.</div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{notEmpty}}" hint-placeholder-val="{{ true }}">
+    <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column; gap: 2px; padding: 8px 8px 8px 8px">
+      <sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+        <div style="display: flex; flex-direction: column; gap: 2px">
+          <div style="display: flex; align-items: center; gap: 8px; padding: 8px 6px 4px 8px">
+            <span class="label" style="color: {{g.color}}">{{g.label}}</span>
+            <span class="mono faint" style="font-size: 11px">{{g.count}}</span>
+            <span style="flex: 1; height: 1px; background: var(--border)"></span>
+          </div>
+          <sc-for list="{{g.tasks}}" as="t" hint-placeholder-count="3">
+            <a class="{{t.cls}}" href="{{t.href}}">
+              <div style="display: flex; align-items: center; gap: 6px; height: 16px">
+                <span style="display: inline-flex; color: var(--fg-muted)">
+                  <sc-if value="{{t.isJira}}" hint-placeholder-val="{{ true }}"><svg class="i i-sm" viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="2"></rect><path d="M5.5 6h5M5.5 8.5h5M5.5 11h3"></path></svg></sc-if>
+                  <sc-if value="{{t.isPr}}" hint-placeholder-val="{{ false }}"><svg class="i i-sm" viewBox="0 0 16 16"><circle cx="4.5" cy="3.5" r="1.5"></circle><circle cx="4.5" cy="12.5" r="1.5"></circle><circle cx="11.5" cy="12.5" r="1.5"></circle><path d="M4.5 5v6M11.5 11V7a2.5 2.5 0 0 0-2.5-2.5H7M8.5 3 7 4.5 8.5 6"></path></svg></sc-if>
+                  <sc-if value="{{t.isText}}" hint-placeholder-val="{{ false }}"><svg class="i i-sm" viewBox="0 0 16 16"><path d="M3 4h10M3 8h10M3 12h6"></path></svg></sc-if>
+                </span>
+                <span class="mono muted" style="font-size: 11.5px">{{t.key}}</span>
+                <span style="flex: 1"></span>
+                <span class="faint" style="font-size: 11px">{{t.time}}</span>
+              </div>
+              <div class="ttl">{{t.title}}</div>
+              <sc-if value="{{t.hasReason}}" hint-placeholder-val="{{ false }}">
+                <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--magenta)">
+                  <svg class="i i-sm" viewBox="0 0 16 16"><path d="M8 2 14 13H2Z"></path><path d="M8 6.5v3M8 11.5v.01"></path></svg>{{t.reason}}
+                </div>
+              </sc-if>
+              <div style="display: flex; align-items: center; gap: 8px; margin-top: 1px">
+                <span class="mono faint" style="font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 96px">{{t.repo}}</span>
+                <span class="pips" style="--c: {{t.pipColor}}" title="{{t.stageName}}">
+                  <sc-for list="{{t.pips}}" as="p" hint-placeholder-count="6"><span class="{{p.cls}}"></span></sc-for>
+                </span>
+                <span style="flex: 1"></span>
+                <span style="display: inline-flex; gap: 3px">
+                  <sc-for list="{{t.agents}}" as="a" hint-placeholder-count="2"><span class="{{a.cls}}" title="{{a.name}}">{{a.mono}}</span></sc-for>
+                </span>
+                <span class="{{t.stCls}}"><span class="sdot"></span>{{t.stLabel}}</span>
+              </div>
+            </a>
+          </sc-for>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--border); font-size: 11px; color: var(--fg-muted)">
+    <span style="display: inline-flex; gap: 4px; align-items: center"><span class="kbd">J</span><span class="kbd">K</span> move</span>
+    <span style="display: inline-flex; gap: 4px; align-items: center"><span class="kbd">G</span><span class="kbd">N</span> next needing you</span>
+    <span style="display: inline-flex; gap: 4px; align-items: center"><span class="kbd">?</span> all keys</span>
+  </div>
+</aside>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"selected":{"editor":"enum","options":["ABC-482","ABC-490","ABC-471","ABC-475","acme/web#911","ABC-468","free text","none"],"default":"ABC-482"},"empty":{"editor":"boolean","default":false},"$preview":{"width":352,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const theme = this.props.theme ?? 'dark';
+    const selected = this.props.selected ?? 'ABC-482';
+    const empty = this.props.empty ?? false;
+    const light = theme === 'light';
+    const boards = { 'ABC-482': 'Main', 'ABC-490': 'Grill', 'ABC-471': 'Finish', 'ABC-475': 'Running', 'ABC-468': 'Exceptions', 'free text': 'Exceptions' };
+    const hasLight = { Main: 1, Grill: 1, Finish: 1 };
+    const stages = ['Inform', 'Plan review', 'Implement', 'Checks', 'Code review', 'Finish'];
+    const stColor = { needs: 'var(--st-needs)', running: 'var(--st-running)', interrupted: 'var(--st-interrupted)', failed: 'var(--st-failed)', done: 'var(--st-done)' };
+    const stLabel = { needs: 'Needs you', running: 'Running', interrupted: 'Interrupted', failed: 'Failed', done: 'Done' };
+    const AG = { cc: { cls: 'agent agent-cc', mono: 'CC', name: 'Claude Code' }, cp: { cls: 'agent agent-cp', mono: 'CP', name: 'Copilot CLI' } };
+    const raw = [
+      { key: 'ABC-482', kind: 'jira', title: 'Fix session refresh race in login flow', repo: 'acme/web', stage: 4, st: 'needs', reason: 'Triage review round 2/3', agents: ['cc', 'cp'], time: '2m' },
+      { key: 'ABC-490', kind: 'jira', title: 'Add rate limiting to public API endpoints', repo: 'acme/api', stage: 1, st: 'needs', reason: '2 grill questions need a decision', agents: ['cc', 'cp'], time: '6m' },
+      { key: 'ABC-471', kind: 'jira', title: 'Migrate date handling to the Temporal polyfill', repo: 'acme/web', stage: 5, st: 'needs', reason: 'Confirm push + PR', agents: ['cc'], time: '14m' },
+      { key: 'ABC-475', kind: 'jira', title: 'Paginate audit log CSV export', repo: 'acme/api', stage: 2, st: 'running', agents: ['cc'], time: 'now' },
+      { key: 'acme/web#911', kind: 'pr', title: 'Review: onboarding wizard step validation', repo: 'acme/web', stage: 4, st: 'running', agents: ['cp', 'cc'], time: '1m' },
+      { key: 'ABC-468', kind: 'jira', title: 'Upgrade billing service to NServiceBus 9', repo: 'acme/billing', stage: 2, st: 'interrupted', agents: ['cc'], time: '1h' },
+      { key: 'free text', kind: 'text', title: 'Spike: replace moment with date-fns in reports', repo: 'acme/reports', stage: 3, st: 'failed', agents: ['cp'], time: '3h' },
+      { key: 'ABC-460', kind: 'jira', title: 'Hide internal fields from /v2/orders response', repo: 'acme/api', stage: 6, st: 'done', agents: ['cc', 'cp'], time: '5h' },
+      { key: 'acme/infra#88', kind: 'pr', title: 'Review: bump AKS node pool to v1.31', repo: 'acme/infra', stage: 6, st: 'done', agents: ['cp'], time: 'yday' }
+    ];
+    const tasks = raw.map((t) => {
+      const b = boards[t.key];
+      const href = b ? (light && hasLight[b] ? b + 'Light.dc.html' : b + '.dc.html') : '#';
+      const sel = t.key === selected;
+      const cls = ['tcard', t.st === 'needs' ? 'is-needs' : '', sel ? 'is-sel' : '', t.st === 'done' ? 'is-dim' : ''].join(' ');
+      return {
+        ...t, href, cls,
+        isJira: t.kind === 'jira', isPr: t.kind === 'pr', isText: t.kind === 'text',
+        hasReason: !!t.reason,
+        stCls: 'status st-' + t.st, stLabel: stLabel[t.st], pipColor: stColor[t.st],
+        stageName: t.stage >= 6 ? 'Finished' : stages[t.stage],
+        pips: stages.map((s, i) => ({ cls: 'pip ' + (i < t.stage ? 'done' : i === t.stage ? 'cur' : '') })),
+        agents: t.agents.map((a) => AG[a])
+      };
+    });
+    const needs = tasks.filter((t) => t.st === 'needs');
+    const running = tasks.filter((t) => t.st === 'running');
+    const rest = tasks.filter((t) => t.st !== 'needs' && t.st !== 'running');
+    const groups = [
+      { label: 'Needs you', color: 'var(--magenta)', count: needs.length, tasks: needs },
+      { label: 'Running', color: 'var(--cyan)', count: running.length, tasks: running },
+      { label: 'Recent', color: 'var(--fg-muted)', count: rest.length, tasks: rest }
+    ];
+    return {
+      theme, empty, notEmpty: !empty, groups,
+      hasNeeds: !empty && needs.length > 0,
+      needsCount: empty ? 0 : needs.length,
+      runCount: empty ? 0 : running.length,
+      total: empty ? 0 : tasks.length
+    };
+  }
+}
+</script>
+</body>
+</html>
