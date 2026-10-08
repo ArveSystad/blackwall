@@ -1,3 +1,4 @@
+export * from "./checks.js";
 export * from "./engine.js";
 export * from "./fake-adapter.js";
 export * from "./scheduler.js";

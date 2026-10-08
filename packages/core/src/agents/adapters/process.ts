@@ -5,6 +5,8 @@ const isWindows = process.platform === "win32";
 export interface SpawnTreeOptions {
   cwd: string;
   env?: NodeJS.ProcessEnv;
+  /** Run `command` through the platform shell (`cmd.exe` / `/bin/sh`); `args` must be empty. */
+  shell?: boolean;
 }
 
 /**
@@ -15,7 +17,7 @@ export interface SpawnTreeOptions {
 export function spawnTree(
   command: string,
   args: readonly string[],
-  { cwd, env }: SpawnTreeOptions,
+  { cwd, env, shell = false }: SpawnTreeOptions,
 ): ChildProcess {
   return spawn(command, args, {
     cwd,
@@ -23,6 +25,7 @@ export function spawnTree(
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
     detached: !isWindows,
+    shell,
   });
 }
 

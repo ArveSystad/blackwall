@@ -21,7 +21,8 @@ import {
   type StageHandlers,
 } from "./engine.js";
 import { createFakeAdapter, type FakeScript } from "./fake-adapter.js";
-import { createDefaultStages } from "./stages.js";
+import type { CheckOutcome, CheckRunner } from "./checks.js";
+import { commitKey, commitMessage, createDefaultStages } from "./stages.js";
 
 let dir: string;
 let opened: OpenedDatabase;
@@ -56,12 +57,14 @@ const highFinding: ReviewFinding = {
 /**
  * Which stage an agent call belongs to, from its prompt. Plan review runs the
  * reviewers (`plan-review`), the planner's answers (`plan-answers`) and the
- * planner folding the user's answers into the plan (`plan-fold`).
+ * planner folding the user's answers into the plan (`plan-fold`); Checks runs
+ * the summarizer's commit message (`commit`).
  */
-type Call = Stage | "plan-answers" | "plan-fold";
+type Call = Stage | "plan-answers" | "plan-fold" | "commit";
 
 function stageOf(options: AgentRunOptions): Call {
   if (options.prompt === RESUME_PROMPT) return "implement";
+  if (options.prompt.includes("Write the git commit message")) return "commit";
   if (options.prompt.includes("Grill this plan")) return "plan-review";
   if (options.prompt.includes("Reviewers' questions")) return "plan-answers";
   if (options.prompt.includes("The user has answered")) return "plan-fold";
@@ -585,3 +588,178 @@ function stepsOf(taskId: string) {
 function lastStep(taskId: string) {
   return stepsOf(taskId).at(-1)!;
 }
+
+describe("implement and checks", () => {
+  const failing = (output: string): CheckOutcome => ({ exitCode: 1, output, timedOut: false });
+  const passing: CheckOutcome = { exitCode: 0, output: "ok", timedOut: false };
+
+  /** A task approved for implementation, in a repo with these check commands. */
+  async function approved(
+    h: Harness,
+    checkCommands: string[],
+    patch: Parameters<typeof seedTask>[0] = {},
+  ) {
+    const seeded = seedTask(patch);
+    r.repos.update(seeded.repoId, { checkCommands });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    await h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" });
+    await settle(h.engine);
+    return seeded;
+  }
+
+  const afterApproval = (h: Harness) =>
+    h.calls.slice(h.calls.findIndex((c) => c.stage === "implement")).map((c) => c.stage);
+
+  const checkSteps = (taskId: string) =>
+    stepsOf(taskId).filter((s) => s.stage === "checks" && s.agentId === null);
+
+  const noFindings = (stage: Call): FakeScript =>
+    stage === "code-review" ? { structured: { findings: [] } } : {};
+
+  it("retries the implementer with the failing output before any reviewer runs", async () => {
+    const results = [failing("FAIL src/login.test.ts\n  expected 401"), passing, passing];
+    const runCheck = vi.fn<CheckRunner>(async () => results.shift()!);
+    const h = harness(noFindings, { stages: createDefaultStages({ runCheck }) });
+    const seeded = await approved(h, ["pnpm run test", "pnpm run lint"]);
+
+    expect(afterApproval(h)).toEqual([
+      "implement",
+      "implement",
+      "code-review",
+      "code-review",
+      "summarize",
+    ]);
+    const retry = h.calls.filter((c) => c.stage === "implement")[1]!.options.prompt;
+    expect(retry).toContain("`pnpm run test` exited with code 1");
+    expect(retry).toContain("expected 401");
+    expect(retry).toContain("Your changes fail the check above");
+    // The first run stops at the failing command; the retry runs both.
+    expect(runCheck.mock.calls.map(([command]) => command)).toEqual([
+      "pnpm run test",
+      "pnpm run test",
+      "pnpm run lint",
+    ]);
+    expect(runCheck.mock.calls[0]![1].cwd).toBe(dir);
+    expect(checkSteps(seeded.id).map((s) => [s.status, s.round])).toEqual([
+      ["failed", 0],
+      ["succeeded", 0],
+    ]);
+    expect(checkSteps(seeded.id)[0]!.error).toBe("`pnpm run test` exited with code 1");
+    expect(r.findings.listByTask(seeded.id)).toEqual([]);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
+  });
+
+  it("turns a failure that survives the retry into a Critical correctness finding", async () => {
+    let checks = 0;
+    // Fails in round 0 (first pass and retry); passes once the fix round runs.
+    const runCheck = vi.fn(async () => (++checks <= 2 ? failing("tsc: TS2322") : passing));
+    const h = harness(noFindings, { stages: createDefaultStages({ runCheck }) });
+    const seeded = await approved(h, ["pnpm run typecheck"]);
+
+    // The panel saw the change only after the implementer's retry.
+    expect(afterApproval(h)).toEqual([
+      "implement",
+      "implement",
+      "code-review",
+      "code-review",
+      "implement",
+      "code-review",
+      "code-review",
+      "summarize",
+    ]);
+    const [finding] = r.findings.listByTask(seeded.id);
+    expect(finding).toMatchObject({
+      severity: "critical",
+      tags: ["correctness"],
+      title: "Check failed: pnpm run typecheck",
+      reviewerAgentId: null,
+      stepId: checkSteps(seeded.id)[1]!.id,
+      round: 0,
+      status: "fixed",
+    });
+    expect(finding!.explanation).toContain("still after 1 implementer retry");
+    expect(finding!.explanation).toContain("tsc: TS2322");
+    // The fix round got the finding, not the stale check output.
+    const fix = h.calls.filter((c) => c.stage === "implement")[2]!.options.prompt;
+    expect(fix).toContain("Check failed: pnpm run typecheck");
+    expect(fix).not.toContain("Your changes fail the check above");
+    expect(checkSteps(seeded.id).map((s) => [s.status, s.round])).toEqual([
+      ["failed", 0],
+      ["failed", 0],
+      ["succeeded", 1],
+    ]);
+    expect(h.events.some((e) => e.type === "finding.upserted")).toBe(true);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
+  });
+
+  it("skips the checks when the repo has no check commands", async () => {
+    const runCheck = vi.fn(async () => passing);
+    const h = harness(noFindings, { stages: createDefaultStages({ runCheck }) });
+    const seeded = await approved(h, []);
+    expect(runCheck).not.toHaveBeenCalled();
+    expect(checkSteps(seeded.id)).toEqual([]);
+    expect(task(seeded.id)).toMatchObject({ gate: "finish" });
+  });
+
+  it("commits each round with the summarizer's message, prefixed with the Jira key", async () => {
+    const diffs = ["diff --git a/src/login.ts b/src/login.ts\n+if (a === b)"];
+    const git = {
+      stagedDiff: vi.fn<(worktree: string) => Promise<string>>(async () => diffs.shift() ?? ""),
+      commitAll: vi.fn<(worktree: string, message: string) => Promise<string>>(
+        async () => "abc123",
+      ),
+    };
+    const h = harness(
+      (stage) =>
+        stage === "commit"
+          ? { text: "```\nCompare passwords strictly\n\nUse ===.\n```" }
+          : noFindings(stage),
+      { stages: createDefaultStages({ git }) },
+    );
+    const seeded = await approved(h, [], {
+      origin: { kind: "jira-issue", key: "ABC-123", connectionId: null },
+      branch: "feature/abc-123-login",
+    });
+
+    expect(afterApproval(h)).toEqual([
+      "implement",
+      "commit",
+      "code-review",
+      "code-review",
+      "summarize",
+    ]);
+    const commitCall = h.calls.find((c) => c.stage === "commit")!;
+    expect(commitCall.options.prompt).toContain("+if (a === b)");
+    expect(commitCall.options.prompt).toContain("Do not mention ABC-123");
+    expect(git.stagedDiff).toHaveBeenCalledWith(dir);
+    expect(git.commitAll).toHaveBeenCalledTimes(1);
+    expect(git.commitAll).toHaveBeenCalledWith(
+      dir,
+      "ABC-123 Compare passwords strictly\n\nUse ===.",
+    );
+    // The summarizer's step belongs to Checks.
+    const commitStep = stepsOf(seeded.id).find(
+      (s) => s.stage === "checks" && s.agentId === seeded.agents.summarizer,
+    );
+    expect(commitStep).toMatchObject({ status: "succeeded", round: 0 });
+  });
+});
+
+describe("commit messages", () => {
+  const withOrigin = (origin: unknown, branch: string | null = null) =>
+    ({ origin, branch }) as unknown as Task;
+
+  it("takes the Jira key from a Jira origin or a PR's head branch", () => {
+    expect(commitKey(withOrigin({ kind: "jira-issue", key: "ABC-1" }))).toBe("ABC-1");
+    expect(commitKey(withOrigin(prOrigin(), "feature/abc-12-login"))).toBe("ABC-12");
+    expect(commitKey(withOrigin(prOrigin(), "bugfix"))).toBeUndefined();
+    expect(commitKey(withOrigin({ kind: "free-text" }, "agent/abcdef12-3456"))).toBeUndefined();
+  });
+
+  it("unfences the message and prefixes the key once", () => {
+    expect(commitMessage("```text\nAdd login\n```", "ABC-1")).toBe("ABC-1 Add login");
+    expect(commitMessage("ABC-1 Add login", "ABC-1")).toBe("ABC-1 Add login");
+    expect(commitMessage("  Add login \n", undefined)).toBe("Add login");
+  });
+});

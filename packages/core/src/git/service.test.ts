@@ -181,8 +181,11 @@ describe("commits, squash and diff", () => {
     });
 
     expect(await service.commitAll(path, "nothing")).toBeNull();
+    expect(await service.stagedDiff(path)).toBe("");
 
     write(path, "a.txt", "one\n");
+    // New files count: the diff is what the commit will hold.
+    expect(await service.stagedDiff(path)).toContain("+one");
     const round1 = await service.commitAll(path, "ABC-1 round 1");
     write(path, "a.txt", "two\n");
     write(path, "b.txt", "new\n");

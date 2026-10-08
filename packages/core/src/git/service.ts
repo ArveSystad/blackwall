@@ -233,6 +233,16 @@ export function createGitService({
     },
 
     /**
+     * Stages everything (`git add -A`) and returns the staged diff against
+     * HEAD: what the next {@link commitAll} would commit. Empty when nothing
+     * changed.
+     */
+    async stagedDiff(worktreePath: string): Promise<string> {
+      await runGit(worktreePath, ["add", "-A"]);
+      return runGit(worktreePath, ["diff", "--cached", "--no-color", "--no-ext-diff"]);
+    },
+
+    /**
      * Squashes every commit since `sinceSha` (usually the worktree's `baseSha`)
      * into one with `message`. Returns the new sha, or `null` when there was
      * nothing after `sinceSha`.

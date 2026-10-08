@@ -70,6 +70,12 @@ export interface RunAgentInput {
   /** JSON Schema the final answer must match; parsed into `structured`. */
   jsonSchema?: Record<string, unknown>;
   maxTurns?: number;
+  /**
+   * Resolve the agent's persona and permissions as for this stage instead of
+   * the current one, e.g. the summarizer writing a commit message in Checks.
+   * The step still belongs to the current stage.
+   */
+  asStage?: Stage;
 }
 
 /** What a stage handler gets: the task, where it is in the pipeline, and how to run agents. */
@@ -274,7 +280,7 @@ export function createPipelineEngine({
       if (stored) return stored;
     }
 
-    const inv = invocation(input.agentId, stage);
+    const inv = invocation(input.agentId, input.asStage ?? stage);
     const adapter = adapters[inv.agent.cli];
     if (!adapter) throw new Error(`No adapter for the ${inv.agent.cli} CLI`);
 

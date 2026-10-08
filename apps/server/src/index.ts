@@ -65,15 +65,17 @@ try {
   let broadcast: (event: ServerEvent) => void = () => undefined;
   const jira = createJiraOrigin({ connections });
   const github = createGitHubOrigin({ connections });
+  const git = createGitService();
   const pipeline = createPipelineEngine({
     repositories,
     invocation: agents.invocation,
     adapters: { claude: createClaudeAdapter(), copilot: createCopilotAdapter() },
     stages: createDefaultStages({
       originContext: firstOriginContext(jira.originContext, github.originContext),
+      git,
     }),
     prepareWorkspace: createWorkspacePreparer({
-      git: createGitService(),
+      git,
       repos: repositories.repos,
       branchFor: firstBranchFor(jira.branchFor, github.branchFor),
     }),

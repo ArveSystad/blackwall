@@ -64,6 +64,11 @@ export const MAX_FIX_ROUNDS = 3;
  * even if the reviewers still have questions.
  */
 export const MAX_GRILL_ROUNDS = 3;
+/**
+ * Implementer retries per fix round when a check command fails, before the
+ * failure becomes a Critical `correctness` finding for the review panel.
+ */
+export const MAX_CHECK_RETRIES = 1;
 export const SEVERITIES = ["critical", "high", "medium", "low"] as const;
 /** Severities that block the code review loop. */
 export const GATING_SEVERITIES = ["critical", "high"] as const satisfies readonly Severity[];
