@@ -6,8 +6,10 @@ import { groupTasks, matchesFilter, needsYouCount } from "../inbox";
 import { isPlainKey, isTypingTarget } from "../keyboard";
 import { cn } from "../lib/utils";
 import { useLiveStatus } from "../live-status";
-import { reposQuery, tasksQuery } from "../query";
-import { GearIcon, SearchIcon, WallIcon } from "./icons";
+import { agentsQuery, reposQuery, tasksQuery } from "../query";
+import { agentClis } from "../task-view";
+import { GearIcon, PlusIcon, SearchIcon, WallIcon } from "./icons";
+import { NewTaskModal } from "./NewTaskModal";
 import { StatusBadge } from "./StatusBadge";
 import { TaskCard } from "./TaskCard";
 import { Button } from "./ui/button";
@@ -43,10 +45,15 @@ function Message({ title, children }: { title: string; children?: ReactNode }) {
 
 function TaskList({ tasks, filter }: { tasks: Task[]; filter: string }) {
   const repos = useQuery(reposQuery);
+  const agents = useQuery(agentsQuery);
   const now = useNow();
   const repoNames = useMemo(
     () => new Map((repos.data ?? []).map((repo) => [repo.id, repo.name])),
     [repos.data],
+  );
+  const library = useMemo(
+    () => new Map((agents.data ?? []).map((agent) => [agent.id, agent])),
+    [agents.data],
   );
   const groups = groupTasks(tasks.filter((task) => matchesFilter(task, filter)));
 
@@ -71,7 +78,13 @@ function TaskList({ tasks, filter }: { tasks: Task[]; filter: string }) {
             {list.map((task) => {
               const repoName = repoNames.get(task.repoId);
               return (
-                <TaskCard key={task.id} task={task} now={now} {...(repoName ? { repoName } : {})} />
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  now={now}
+                  clis={agentClis(task.agents, library)}
+                  {...(repoName ? { repoName } : {})}
+                />
               );
             })}
           </section>
@@ -103,14 +116,19 @@ function LiveIndicator() {
 export function Inbox() {
   const tasks = useQuery(tasksQuery);
   const [filter, setFilter] = useState("");
+  const [creating, setCreating] = useState(false);
   const filterInput = useRef<HTMLInputElement>(null);
   const needs = needsYouCount(tasks.data ?? []);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "/" && isPlainKey(event) && !isTypingTarget(event.target)) {
+      if (!isPlainKey(event) || isTypingTarget(event.target)) return;
+      if (event.key === "/") {
         event.preventDefault();
         filterInput.current?.focus();
+      } else if (event.key.toLowerCase() === "n" && !document.querySelector("[role=dialog]")) {
+        event.preventDefault();
+        setCreating(true);
       }
     }
     window.addEventListener("keydown", onKeyDown);
@@ -135,27 +153,36 @@ export function Inbox() {
             </Link>
           </Button>
         </div>
-        <label className="relative block min-w-0">
-          <span className="pointer-events-none absolute top-[7px] left-[9px] flex text-faint">
-            <SearchIcon />
-          </span>
-          <Input
-            ref={filterInput}
-            type="search"
-            placeholder="Filter tasks"
-            aria-label="Filter tasks"
-            className="h-7 pr-[30px] pl-[30px]"
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                setFilter("");
-                event.currentTarget.blur();
-              }
-            }}
-          />
-          <Kbd className="absolute top-[5px] right-1.5">/</Kbd>
-        </label>
+        <div className="flex items-center gap-2">
+          <label className="relative block min-w-0 flex-1">
+            <span className="pointer-events-none absolute top-[7px] left-[9px] flex text-faint">
+              <SearchIcon />
+            </span>
+            <Input
+              ref={filterInput}
+              type="search"
+              placeholder="Filter tasks"
+              aria-label="Filter tasks"
+              className="h-7 pr-[30px] pl-[30px]"
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setFilter("");
+                  event.currentTarget.blur();
+                }
+              }}
+            />
+            <Kbd className="absolute top-[5px] right-1.5">/</Kbd>
+          </label>
+          <Button variant="primary" onClick={() => setCreating(true)}>
+            <PlusIcon />
+            New task
+            <Kbd onFill aria-hidden="true">
+              N
+            </Kbd>
+          </Button>
+        </div>
       </div>
 
       {tasks.isPending ? (
@@ -174,6 +201,7 @@ export function Inbox() {
       <div className="flex items-center gap-2.5 border-t border-border px-3.5 py-2 text-label text-muted-foreground">
         <LiveIndicator />
       </div>
+      <NewTaskModal open={creating} onClose={() => setCreating(false)} />
     </aside>
   );
 }

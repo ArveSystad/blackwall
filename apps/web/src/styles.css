@@ -234,6 +234,16 @@
 
   --animate-pulse-running: bw-pulse 1.6s ease-in-out infinite;
   --animate-blink-needs: bw-blink 1.2s steps(2, jump-none) infinite;
+  --animate-stream: bw-sweep 1.4s linear infinite;
+}
+
+@keyframes bw-sweep {
+  0% {
+    background-position: -120px 0;
+  }
+  100% {
+    background-position: calc(100% + 120px) 0;
+  }
 }
 
 @keyframes bw-pulse {
@@ -289,6 +299,14 @@
 
   ::placeholder {
     color: var(--fg-faint);
+  }
+
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--primary);
+    width: 15px;
+    height: 15px;
+    margin: 0;
   }
 
   @media (prefers-reduced-motion: reduce) {

@@ -3,8 +3,15 @@ import {
   ApiError,
   getRoleDefaults,
   getSettings,
+  getDeliveryPlan,
   getTask,
   listClis,
+  listDiffs,
+  listFindings,
+  listQuestions,
+  listRuns,
+  listStepEvents,
+  listSteps,
   listAgents,
   listConnections,
   listRepos,
@@ -22,6 +29,8 @@ export const queryKeys = {
   taskRuns: (taskId: string) => ["tasks", taskId, "runs"] as const,
   taskFindings: (taskId: string) => ["tasks", taskId, "findings"] as const,
   taskGrill: (taskId: string) => ["tasks", taskId, "grill"] as const,
+  taskDiffs: (taskId: string) => ["tasks", taskId, "diffs"] as const,
+  taskDelivery: (taskId: string) => ["tasks", taskId, "delivery"] as const,
   runSteps: (runId: string) => ["runs", runId, "steps"] as const,
   stepEvents: (stepId: string) => ["steps", stepId, "events"] as const,
   repos: ["repos"] as const,
@@ -37,6 +46,35 @@ export const tasksQuery = queryOptions({ queryKey: queryKeys.tasks, queryFn: lis
 
 export const taskQuery = (id: string) =>
   queryOptions({ queryKey: queryKeys.task(id), queryFn: () => getTask(id) });
+
+export const taskRunsQuery = (taskId: string) =>
+  queryOptions({ queryKey: queryKeys.taskRuns(taskId), queryFn: () => listRuns(taskId) });
+
+export const runStepsQuery = (taskId: string, runId: string) =>
+  queryOptions({ queryKey: queryKeys.runSteps(runId), queryFn: () => listSteps(taskId, runId) });
+
+/** Appended to live by `step.event`, so it never goes stale once loaded. */
+export const stepEventsQuery = (taskId: string, stepId: string) =>
+  queryOptions({
+    queryKey: queryKeys.stepEvents(stepId),
+    queryFn: () => listStepEvents(taskId, stepId),
+    staleTime: Infinity,
+  });
+
+export const taskFindingsQuery = (taskId: string) =>
+  queryOptions({ queryKey: queryKeys.taskFindings(taskId), queryFn: () => listFindings(taskId) });
+
+export const taskGrillQuery = (taskId: string) =>
+  queryOptions({ queryKey: queryKeys.taskGrill(taskId), queryFn: () => listQuestions(taskId) });
+
+export const taskDiffsQuery = (taskId: string) =>
+  queryOptions({ queryKey: queryKeys.taskDiffs(taskId), queryFn: () => listDiffs(taskId) });
+
+export const taskDeliveryQuery = (taskId: string) =>
+  queryOptions({
+    queryKey: queryKeys.taskDelivery(taskId),
+    queryFn: () => getDeliveryPlan(taskId),
+  });
 
 export const reposQuery = queryOptions({ queryKey: queryKeys.repos, queryFn: listRepos });
 

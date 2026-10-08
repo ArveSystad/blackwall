@@ -1,5 +1,5 @@
 import type { Task } from "@blackwall/shared";
-import { Fragment } from "react";
+import { Fragment, type ReactNode } from "react";
 import { UI_STAGES, uiStageIndex } from "../inbox";
 import { cn } from "../lib/utils";
 
@@ -12,8 +12,17 @@ const CURRENT: Record<Task["status"], string> = {
   done: "border-done text-done bg-done/14",
 };
 
-/** Pipeline stepper for the task header: done stages, the current node in the status color. */
-export function StageStepper({ task }: { task: Pick<Task, "stage" | "status"> }) {
+/**
+ * Pipeline stepper for the task header: done stages, the current node in the
+ * status color, and `detail` (e.g. the review round) beside the current stage.
+ */
+export function StageStepper({
+  task,
+  detail,
+}: {
+  task: Pick<Task, "stage" | "status">;
+  detail?: ReactNode;
+}) {
   const current = uiStageIndex(task);
   return (
     <ol className="flex flex-wrap items-center gap-y-1" aria-label="Pipeline">
@@ -46,6 +55,7 @@ export function StageStepper({ task }: { task: Pick<Task, "stage" | "status"> })
                 {done ? "✓" : i + 1}
               </span>
               {stage.label}
+              {isCurrent && detail}
             </li>
           </Fragment>
         );

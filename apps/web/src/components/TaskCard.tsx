@@ -1,8 +1,10 @@
-import type { Task } from "@blackwall/shared";
+import type { AgentCli, Task } from "@blackwall/shared";
 import { Link } from "@tanstack/react-router";
 import { originKey, relativeTime } from "../inbox";
 import { cn } from "../lib/utils";
-import { JiraIcon, PullRequestIcon, TextIcon } from "./icons";
+import { GATE_REASONS } from "../task-view";
+import { AgentTile } from "./AgentTile";
+import { JiraIcon, PullRequestIcon, TextIcon, WarnIcon } from "./icons";
 import { StagePips } from "./StagePips";
 import { StatusBadge } from "./StatusBadge";
 
@@ -12,8 +14,22 @@ const ORIGIN_ICONS = {
   "free-text": TextIcon,
 } as const;
 
-/** Inbox card linking to the task. Needs-you tasks get the magenta rail and wash. */
-export function TaskCard({ task, repoName, now }: { task: Task; repoName?: string; now: Date }) {
+/**
+ * Inbox card linking to the task. Needs-you tasks get the magenta rail and
+ * wash, and say why they wait.
+ */
+export function TaskCard({
+  task,
+  repoName,
+  clis = [],
+  now,
+}: {
+  task: Task;
+  repoName?: string;
+  /** The CLIs of the task's agents, one tile each. */
+  clis?: readonly AgentCli[];
+  now: Date;
+}) {
   const OriginIcon = ORIGIN_ICONS[task.origin.kind];
   const needsYou = task.status === "needs-you";
   return (
@@ -45,12 +61,25 @@ export function TaskCard({ task, repoName, now }: { task: Task; repoName?: strin
       >
         {task.title}
       </span>
+      {needsYou && task.gate && (
+        <span className="flex items-center gap-1.5 text-meta font-medium text-magenta">
+          <WarnIcon size="sm" />
+          {GATE_REASONS[task.gate]}
+        </span>
+      )}
       <span className="mt-px flex items-center gap-2">
         {repoName && (
           <span className="mono max-w-24 truncate text-label text-faint">{repoName}</span>
         )}
         <StagePips task={task} />
         <span className="flex-1" />
+        {clis.length > 0 && (
+          <span className="inline-flex gap-[3px]">
+            {clis.map((cli) => (
+              <AgentTile key={cli} cli={cli} />
+            ))}
+          </span>
+        )}
         <StatusBadge status={task.status} />
       </span>
     </Link>

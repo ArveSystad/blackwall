@@ -112,3 +112,33 @@ export const EyeOffIcon = icon(
     <path d="m2.5 2.5 11 11" />
   </>,
 );
+
+/** Gate: Critical and High findings block the review loop. */
+export const LockIcon = icon(
+  <>
+    <rect x="3.5" y="7" width="9" height="6.5" rx="1.2" />
+    <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
+  </>,
+);
+
+export const ChevronRightIcon = icon(<path d="m6 4 4 4-4 4" />);
+
+export const ChevronDownIcon = icon(<path d="m4 6 4 4 4-4" />);
+
+export const CloseIcon = icon(<path d="m4 4 8 8M12 4l-8 8" />);
+
+export const PlusIcon = icon(<path d="M8 3v10M3 8h10" />);
+
+export const PausedIcon = icon(
+  <>
+    <circle cx="8" cy="8" r="6" />
+    <path d="M6.5 5.5v5M9.5 5.5v5" />
+  </>,
+);
+
+export const FailedIcon = icon(
+  <>
+    <circle cx="8" cy="8" r="6" />
+    <path d="m6 6 4 4M10 6l-4 4" />
+  </>,
+);

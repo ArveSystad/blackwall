@@ -119,6 +119,9 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       const { task } = event.payload;
       client.setQueryData<Task[]>(queryKeys.tasks, (tasks) => upsertTask(tasks, task));
       client.setQueryData<Task>(queryKeys.task(task.id), task);
+      // A stage or gate change can mean new commits or a new delivery plan.
+      void client.invalidateQueries({ queryKey: queryKeys.taskDiffs(task.id) });
+      void client.invalidateQueries({ queryKey: queryKeys.taskDelivery(task.id) });
       break;
     }
     case "task.removed": {

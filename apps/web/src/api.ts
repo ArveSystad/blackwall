@@ -7,15 +7,24 @@ import {
   cliStatusSchema,
   connectionTestResultSchema,
   connectionViewSchema,
+  deliveryPlanSchema,
+  findingSchema,
   generalSettingsSchema,
+  grillAnswerResultSchema,
+  grillQuestionSchema,
   healthResponseSchema,
   missingCredentialSchema,
+  pullRequestLookupSchema,
   repoScanResultSchema,
   repoSchema,
   repoViewSchema,
   roleAgentsSchema,
+  runSchema,
   staleRepoSchema,
+  stepEventSchema,
+  stepSchema,
   tagListInputSchema,
+  taskDiffSchema,
   taskSchema,
   type Agent,
   type AgentInput,
@@ -23,10 +32,18 @@ import {
   type CliStatus,
   type ConnectionTestResult,
   type ConnectionView,
+  type DeliveryPlan,
+  type Finding,
+  type FindingOverride,
+  type GateResponseInput,
   type GeneralSettings,
   type GeneralSettingsUpdate,
+  type GrillAnswerResult,
+  type GrillQuestion,
   type HealthResponse,
   type MissingCredential,
+  type NewTaskInput,
+  type PullRequestLookup,
   type ResolveConnectionInput,
   type Repo,
   type RepoInput,
@@ -35,8 +52,12 @@ import {
   type RepoUpdate,
   type RepoView,
   type RoleAgents,
+  type Run,
   type StaleRepo,
+  type Step,
+  type StepEvent,
   type Task,
+  type TaskDiff,
 } from "@blackwall/shared";
 
 export async function fetchHealth(signal?: AbortSignal): Promise<HealthResponse> {
@@ -126,6 +147,87 @@ export function listTasks(): Promise<Task[]> {
 
 export function getTask(id: string): Promise<Task> {
   return request(`/api/tasks/${encodeURIComponent(id)}`, taskSchema);
+}
+
+/** Creates a task from the new task form; the server queues it. */
+export function createTask(input: NewTaskInput): Promise<Task> {
+  return request("/api/tasks", taskSchema, { method: "POST", body: input });
+}
+
+/** Resolves a pasted PR link to a task origin and the registered repo it belongs to. */
+export function lookupPullRequest(url: string): Promise<PullRequestLookup> {
+  return request("/api/pull-requests/lookup", pullRequestLookupSchema, {
+    method: "POST",
+    body: { url },
+  });
+}
+
+const taskPath = (id: string) => at("/api/tasks", id);
+
+export function listQuestions(taskId: string): Promise<GrillQuestion[]> {
+  return request(`${taskPath(taskId)}/questions`, grillQuestionSchema.array());
+}
+
+export function answerQuestion(
+  taskId: string,
+  questionId: string,
+  answer: string,
+): Promise<GrillAnswerResult> {
+  return request(
+    `${taskPath(taskId)}/questions/${encodeURIComponent(questionId)}/answer`,
+    grillAnswerResultSchema,
+    { method: "POST", body: { answer } },
+  );
+}
+
+export function listFindings(taskId: string): Promise<Finding[]> {
+  return request(`${taskPath(taskId)}/findings`, findingSchema.array());
+}
+
+export function overrideFinding(
+  taskId: string,
+  findingId: string,
+  status: FindingOverride,
+): Promise<Finding> {
+  return request(`${taskPath(taskId)}/findings/${encodeURIComponent(findingId)}`, findingSchema, {
+    method: "POST",
+    body: { status },
+  });
+}
+
+/** Answers the gate a needs-you task waits on (approve plan, triage, finish, …). */
+export function respondToGate(taskId: string, input: GateResponseInput): Promise<Task> {
+  return request(`${taskPath(taskId)}/gate`, taskSchema, { method: "POST", body: input });
+}
+
+/** Re-queues an interrupted or failed task. */
+export function resumeTask(taskId: string): Promise<Task> {
+  return request(`${taskPath(taskId)}/resume`, taskSchema, { method: "POST" });
+}
+
+/** What finishing the task would send, action by action. */
+export function getDeliveryPlan(taskId: string): Promise<DeliveryPlan> {
+  return request(`${taskPath(taskId)}/delivery`, deliveryPlanSchema);
+}
+
+export function listRuns(taskId: string): Promise<Run[]> {
+  return request(`${taskPath(taskId)}/runs`, runSchema.array());
+}
+
+export function listSteps(taskId: string, runId: string): Promise<Step[]> {
+  return request(`${taskPath(taskId)}/runs/${encodeURIComponent(runId)}/steps`, stepSchema.array());
+}
+
+export function listStepEvents(taskId: string, stepId: string): Promise<StepEvent[]> {
+  return request(
+    `${taskPath(taskId)}/steps/${encodeURIComponent(stepId)}/events`,
+    stepEventSchema.array(),
+  );
+}
+
+/** The task branch's changes per fix round. */
+export function listDiffs(taskId: string): Promise<TaskDiff[]> {
+  return request(`${taskPath(taskId)}/diffs`, taskDiffSchema.array());
 }
 
 export function listRepos(): Promise<RepoView[]> {
