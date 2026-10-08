@@ -1,0 +1,36 @@
+{
+  "name": "blackwall",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local browser-based harness for coding agents that plan, implement and review each other's work.",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@11.10.0",
+  "scripts": {
+    "dev": "pnpm --parallel --filter \"./apps/*\" dev",
+    "build": "tsc -b && pnpm --filter @blackwall/web build",
+    "typecheck": "tsc -b && pnpm --filter @blackwall/web typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "start": "pnpm build && node apps/server/dist/index.js",
+    "clean": "tsc -b --clean && pnpm -r exec node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22.20.5",
+    "eslint": "^10.12.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.9",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.71.1",
+    "vitest": "^5.0.3"
+  }
+}

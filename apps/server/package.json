@@ -1,0 +1,21 @@
+{
+  "name": "@blackwall/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b",
+    "dev": "tsx watch --conditions=source src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@blackwall/core": "workspace:*",
+    "@blackwall/integrations": "workspace:*",
+    "@blackwall/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15"
+  }
+}

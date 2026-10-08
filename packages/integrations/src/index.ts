@@ -1,0 +1,5 @@
+import { APP_NAME } from "@blackwall/shared";
+
+export function describeIntegrations(): string {
+  return `${APP_NAME} integrations`;
+}
