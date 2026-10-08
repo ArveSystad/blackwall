@@ -1,0 +1,14 @@
+[
+  {
+    "id": 9001,
+    "body": "Linked to ABC-123. CI is green.",
+    "user": { "login": "ada" },
+    "created_at": "2026-10-01T16:00:00Z"
+  },
+  {
+    "id": 9002,
+    "body": "  ",
+    "user": { "login": "bot" },
+    "created_at": "2026-10-01T16:05:00Z"
+  }
+]

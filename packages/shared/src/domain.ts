@@ -509,6 +509,19 @@ export const newTaskInputSchema = z
   });
 export type NewTaskInput = z.input<typeof newTaskInputSchema>;
 
+/** Body for looking up a pasted pull request link on the new task form. */
+export const pullRequestLookupInputSchema = z.object({ url: z.string().trim().min(1) });
+export type PullRequestLookupInput = z.infer<typeof pullRequestLookupInputSchema>;
+
+/** A pull request link resolved against the GitHub connections and the repo registry. */
+export const pullRequestLookupSchema = z.object({
+  /** The task origin for the PR; `connectionId` is null when no connection exists for its host. */
+  origin: githubPrOriginSchema,
+  /** The registered repo whose `origin` remote is the PR's repo; null: ask the user to register it. */
+  repoId: id.nullable(),
+});
+export type PullRequestLookup = z.infer<typeof pullRequestLookupSchema>;
+
 /** Body for answering the gate a `needs-you` task waits on. */
 export const gateResponseInputSchema = z.object({
   /** The gate being answered; must match the task's current gate. */

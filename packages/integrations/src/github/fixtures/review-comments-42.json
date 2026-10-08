@@ -1,0 +1,35 @@
+[
+  {
+    "id": 501,
+    "path": "src/invoices/totals.ts",
+    "line": 6,
+    "original_line": 6,
+    "side": "RIGHT",
+    "body": "Could this overflow precision for very long invoices?",
+    "user": { "login": "grace" },
+    "created_at": "2026-10-02T09:15:00Z",
+    "diff_hunk": "@@ -1,8 +1,10 @@\n import { round } from \"../math.js\";\n \n export function invoiceTotal(lines: InvoiceLine[]): number {\n-  const sum = lines.reduce((acc, l) => acc + round(l.amount, 2), 0);\n-  return round(sum, 2);\n+  const sum = lines.reduce((acc, l) => acc + l.amount, 0);\n+  // Round once, at the end.\n+  const total = round(sum, 2);"
+  },
+  {
+    "id": 503,
+    "path": "src/export/csv.ts",
+    "line": null,
+    "original_line": 13,
+    "side": "RIGHT",
+    "body": "`toFixed` uses banker's rounding? Please double-check.",
+    "user": { "login": "grace" },
+    "created_at": "2026-10-02T09:20:00Z",
+    "diff_hunk": "@@ -10,8 +10,7 @@ export function writeInvoiceRow(invoice: Invoice): string {\n   const cells = [\n     invoice.id,\n     invoice.customer,\n-    round(invoice.total, 2),\n+    invoice.total.toFixed(2),"
+  },
+  {
+    "id": 502,
+    "path": "src/invoices/totals.ts",
+    "line": 6,
+    "original_line": 6,
+    "side": "RIGHT",
+    "body": "Amounts are integers of øre upstream, so no.",
+    "user": { "login": "ada" },
+    "created_at": "2026-10-02T09:18:00Z",
+    "in_reply_to_id": 501
+  }
+]

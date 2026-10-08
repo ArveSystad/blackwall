@@ -17,6 +17,7 @@ import { cliRoutes } from "./clis.js";
 import { hostGuard, requireToken, tokenExchange } from "./auth.js";
 import { connectionRoutes, type ConnectionRoutesOptions } from "./connections.js";
 import { errorResponse } from "./errors.js";
+import { pullRequestRoutes } from "./github.js";
 import { repoRoutes } from "./repos.js";
 import { settingsRoutes, tagRoutes } from "./settings.js";
 import { taskRoutes, type TaskPipeline } from "./tasks.js";
@@ -85,6 +86,12 @@ export function createApp({
 
   if (connections) app.route("/api/connections", connectionRoutes(connections));
   if (repos) app.route("/api/repos", repoRoutes(repos));
+  if (repos && connections) {
+    app.route(
+      "/api/pull-requests",
+      pullRequestRoutes({ connections: connections.connections, repos }),
+    );
+  }
   if (agents) app.route("/api/agents", agentRoutes(agents));
   if (settings) {
     app.route("/api/tags", tagRoutes(settings));

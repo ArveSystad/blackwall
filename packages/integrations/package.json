@@ -15,6 +15,7 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
-    "@blackwall/shared": "workspace:*"
+    "@blackwall/shared": "workspace:*",
+    "@octokit/rest": "^22.0.1"
   }
 }

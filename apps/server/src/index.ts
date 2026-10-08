@@ -20,6 +20,7 @@ import { testConnection } from "@blackwall/integrations";
 import type { ServerEvent } from "@blackwall/shared";
 import { banner } from "./banner.js";
 import { parseConfig } from "./config.js";
+import { createGitHubOrigin, firstBranchFor, firstOriginContext } from "./github.js";
 import { createJiraOrigin } from "./jira.js";
 import { openBrowser } from "./open-browser.js";
 import { startServer } from "./server.js";
@@ -63,15 +64,18 @@ try {
 
   let broadcast: (event: ServerEvent) => void = () => undefined;
   const jira = createJiraOrigin({ connections });
+  const github = createGitHubOrigin({ connections });
   const pipeline = createPipelineEngine({
     repositories,
     invocation: agents.invocation,
     adapters: { claude: createClaudeAdapter(), copilot: createCopilotAdapter() },
-    stages: createDefaultStages({ originContext: jira.originContext }),
+    stages: createDefaultStages({
+      originContext: firstOriginContext(jira.originContext, github.originContext),
+    }),
     prepareWorkspace: createWorkspacePreparer({
       git: createGitService(),
       repos: repositories.repos,
-      branchFor: jira.branchFor,
+      branchFor: firstBranchFor(jira.branchFor, github.branchFor),
     }),
     deliver: deliverNothing,
     maxTasksPerRepo: settings.maxTasksPerRepo,

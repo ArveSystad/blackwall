@@ -1,0 +1,396 @@
+import { readFileSync } from "node:fs";
+import type { ReviewFinding } from "@blackwall/shared";
+import { describe, expect, it, vi } from "vitest";
+import { createGitHubClient, GitHubError } from "./client.js";
+import { informFromPullRequest } from "./inform.js";
+import {
+  findRepoForPullRequest,
+  parsePullRequestUrl,
+  parseRemoteSlug,
+  type PullRequestRef,
+} from "./pr-ref.js";
+import { assemblePullRequest, findJiraKey } from "./pull-request.js";
+import { buildReviewPayload, commentableLines } from "./review.js";
+
+const fixturePath = (name: string) => new URL(`./fixtures/${name}`, import.meta.url);
+const fixtureText = (name: string) => readFileSync(fixturePath(name), "utf8");
+const jiraFixtureText = (name: string) =>
+  readFileSync(new URL(`../jira/fixtures/${name}`, import.meta.url), "utf8");
+
+const TOKEN = "ghp_secret_token";
+const GHE = { baseUrl: "https://jbf.ghe.com", token: TOKEN };
+const PR = { owner: "acme", repo: "shop", number: 42 };
+const DIFF = fixtureText("pr-42.diff");
+
+const json = (body: string, status = 200) =>
+  new Response(body, { status, headers: { "content-type": "application/json; charset=utf-8" } });
+
+/** Serves the recorded PR fixtures under a GHE `/api/v3` root, like GitHub would. */
+function recordedGitHub() {
+  return vi.fn<typeof fetch>((input, init) => {
+    const url = new URL(String(input));
+    const accept = new Headers(init?.headers).get("accept") ?? "";
+    const path = url.pathname;
+    if (path === "/api/v3/repos/acme/shop/pulls/42") {
+      return Promise.resolve(
+        accept.includes("diff")
+          ? new Response(DIFF, { headers: { "content-type": "text/plain; charset=utf-8" } })
+          : json(fixtureText("pr-42.json")),
+      );
+    }
+    if (path === "/api/v3/repos/acme/shop/pulls/42/comments")
+      return Promise.resolve(json(fixtureText("review-comments-42.json")));
+    if (path === "/api/v3/repos/acme/shop/issues/42/comments")
+      return Promise.resolve(json(fixtureText("issue-comments-42.json")));
+    if (path === "/api/v3/repos/acme/shop/pulls/42/reviews")
+      return Promise.resolve(json(fixtureText("reviews-42.json")));
+    if (path === "/rest/api/3/issue/ABC-123")
+      return Promise.resolve(json(jiraFixtureText("issue-abc-123.json")));
+    if (path === "/rest/api/3/issue/ABC-123/comment")
+      return Promise.resolve(json(jiraFixtureText("comments-abc-123.json")));
+    if (path === "/rest/api/3/issue/ABC-100")
+      return Promise.resolve(json(jiraFixtureText("parent-abc-100.json")));
+    return Promise.resolve(json('{"message":"Not Found"}', 404));
+  });
+}
+
+describe("parsePullRequestUrl", () => {
+  it("parses github.com and GHE PR links, with sub-pages", () => {
+    expect(parsePullRequestUrl(" https://github.com/acme/shop/pull/42 ")).toEqual({
+      baseUrl: "https://github.com",
+      host: "github.com",
+      owner: "acme",
+      repo: "shop",
+      number: 42,
+      url: "https://github.com/acme/shop/pull/42",
+    });
+    expect(parsePullRequestUrl("https://JBF.ghe.com/team/api/pull/7/files#diff-1")).toEqual({
+      baseUrl: "https://jbf.ghe.com",
+      host: "jbf.ghe.com",
+      owner: "team",
+      repo: "api",
+      number: 7,
+      url: "https://jbf.ghe.com/team/api/pull/7",
+    });
+    expect(parsePullRequestUrl("https://www.github.com/acme/shop/pulls/3")?.host).toBe(
+      "github.com",
+    );
+  });
+
+  it("rejects other links", () => {
+    expect(parsePullRequestUrl("acme/shop#42")).toBeUndefined();
+    expect(parsePullRequestUrl("https://github.com/acme/shop/issues/42")).toBeUndefined();
+    expect(parsePullRequestUrl("https://github.com/acme/shop/pull/0")).toBeUndefined();
+    expect(parsePullRequestUrl("ftp://github.com/acme/shop/pull/1")).toBeUndefined();
+  });
+});
+
+describe("repo matching", () => {
+  const ref = parsePullRequestUrl("https://github.com/Acme/Shop/pull/42") as PullRequestRef;
+
+  it("reads owner/repo from https, ssh and scp-like remotes", () => {
+    expect(parseRemoteSlug("https://github.com/acme/shop.git")).toEqual({
+      host: "github.com",
+      owner: "acme",
+      repo: "shop",
+    });
+    expect(parseRemoteSlug("git@jbf.ghe.com:team/api.git")).toEqual({
+      host: "jbf.ghe.com",
+      owner: "team",
+      repo: "api",
+    });
+    expect(parseRemoteSlug("ssh://git@ssh.github.com:443/acme/shop")?.host).toBe("github.com");
+    expect(parseRemoteSlug("C:\\code\\shop")).toBeUndefined();
+    expect(parseRemoteSlug("https://github.com/acme")).toBeUndefined();
+  });
+
+  it("finds the registered repo by host and owner/repo, case-insensitively", () => {
+    const repos = [
+      { id: "r1", remoteUrl: null },
+      { id: "r2", remoteUrl: "git@github.com:acme/shop-legacy.git" },
+      { id: "r3", remoteUrl: "https://jbf.ghe.com/acme/shop.git" },
+      { id: "r4", remoteUrl: "git@github.com:acme/shop.git" },
+    ];
+    expect(findRepoForPullRequest(repos, ref)?.id).toBe("r4");
+    expect(findRepoForPullRequest(repos.slice(0, 3), ref)).toBeUndefined();
+  });
+});
+
+describe("findJiraKey", () => {
+  it("prefers the branch, in any case, then an upper-case key in the title", () => {
+    expect(findJiraKey("fix/abc-123-invoice-totals", "Round totals")).toBe("ABC-123");
+    expect(findJiraKey("ABC-9", "")).toBe("ABC-9");
+    expect(findJiraKey("main", "ABC-77: Round totals")).toBe("ABC-77");
+    expect(findJiraKey("main", "[ABC-77] Round totals")).toBe("ABC-77");
+  });
+
+  it("ignores keys that are not at a branch segment start or are lower case in the title", () => {
+    expect(findJiraKey("feature/round-abc-123", "Support utf-8 export")).toBeUndefined();
+  });
+});
+
+describe("assemblePullRequest", () => {
+  const context = assemblePullRequest(PR, {
+    pullRequest: JSON.parse(fixtureText("pr-42.json")),
+    diff: DIFF,
+    reviewComments: JSON.parse(fixtureText("review-comments-42.json")),
+    issueComments: JSON.parse(fixtureText("issue-comments-42.json")),
+    reviews: JSON.parse(fixtureText("reviews-42.json")),
+  });
+
+  it("flattens the PR metadata", () => {
+    expect(context).toMatchObject({
+      number: 42,
+      title: "Round invoice totals once",
+      state: "open",
+      author: "ada",
+      labels: ["bug", "billing"],
+      headRef: "fix/abc-123-invoice-totals-are-rounded-twice",
+      headSha: "9f1c2d3e4b5a69788796a5b4c3d2e1f009182736",
+      baseRef: "main",
+      stats: { additions: 4, deletions: 3, changedFiles: 2 },
+    });
+  });
+
+  it("groups replies into their review thread, oldest first", () => {
+    expect(context.threads).toEqual([
+      expect.objectContaining({
+        path: "src/invoices/totals.ts",
+        line: 6,
+        comments: [
+          expect.objectContaining({ author: "grace", body: expect.stringContaining("overflow") }),
+          expect.objectContaining({ author: "ada", body: expect.stringContaining("øre") }),
+        ],
+      }),
+      expect.objectContaining({ path: "src/export/csv.ts", line: 13 }),
+    ]);
+  });
+
+  it("merges conversation comments and review summaries, skipping empty ones", () => {
+    expect(context.conversation.map((c) => [c.author, c.reviewState ?? null])).toEqual([
+      ["ada", null],
+      ["grace", "CHANGES_REQUESTED"],
+    ]);
+  });
+});
+
+describe("informFromPullRequest", () => {
+  it("renders the recorded PR with its linked Jira issue as agent context", async () => {
+    const fetchImpl = recordedGitHub();
+    const result = await informFromPullRequest(GHE, PR, {
+      fetch: fetchImpl,
+      jira: { baseUrl: "https://acme.atlassian.net", email: "ada@acme.test", token: "jira-tok" },
+    });
+    expect(result.jiraKey).toBe("ABC-123");
+    expect(result.jira?.issue.key).toBe("ABC-123");
+    expect(result.markdown).toBe(fixtureText("pr-42.context.md").trimEnd());
+
+    const github = fetchImpl.mock.calls.filter(([url]) => String(url).includes("jbf.ghe.com"));
+    expect(github.length).toBe(5);
+    for (const [url, init] of github) {
+      expect(String(url)).toMatch(/^https:\/\/jbf\.ghe\.com\/api\/v3\/repos\/acme\/shop\//);
+      expect(new Headers(init?.headers).get("authorization")).toBe(`token ${TOKEN}`);
+    }
+  });
+
+  it("only names the Jira key without a Jira connection", async () => {
+    const result = await informFromPullRequest(GHE, PR, { fetch: recordedGitHub() });
+    expect(result.jira).toBeUndefined();
+    expect(result.markdown).toContain("refers to Jira issue ABC-123; no Jira connection");
+  });
+
+  it("ignores a key that matches no issue", async () => {
+    const fetchImpl = recordedGitHub();
+    const result = await informFromPullRequest(GHE, PR, {
+      fetch: (input, init) =>
+        String(input).includes("atlassian")
+          ? Promise.resolve(json("{}", 404))
+          : fetchImpl(input, init),
+      jira: { baseUrl: "https://acme.atlassian.net", email: "ada@acme.test", token: "jira-tok" },
+    });
+    expect(result.jiraKey).toBe("ABC-123");
+    expect(result.jira).toBeUndefined();
+    expect(result.markdown).not.toContain("ABC-123;");
+  });
+
+  it("cuts long diffs and says how to see the rest", async () => {
+    const result = await informFromPullRequest(GHE, PR, {
+      fetch: recordedGitHub(),
+      maxDiffChars: 100,
+    });
+    expect(result.markdown).toContain(`The diff is cut at 100 of ${DIFF.length} characters.`);
+    expect(result.markdown).toContain("git diff main...HEAD");
+  });
+});
+
+describe("GitHub client", () => {
+  it("uses api.github.com for github.com", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(() =>
+      Promise.resolve(json('{"number":5,"html_url":"https://github.com/acme/shop/pull/5"}', 201)),
+    );
+    const client = createGitHubClient({ baseUrl: "https://github.com", token: TOKEN }, fetchImpl);
+    expect(client.apiUrl).toBe("https://api.github.com");
+    await client.createPullRequest({
+      owner: "acme",
+      repo: "shop",
+      head: "feature/abc-1-x",
+      base: "main",
+      title: "ABC-1: X",
+      body: "Summary",
+    });
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(String(url)).toBe("https://api.github.com/repos/acme/shop/pulls");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      head: "feature/abc-1-x",
+      base: "main",
+      title: "ABC-1: X",
+      body: "Summary",
+    });
+  });
+
+  it("posts a PR comment on the issue endpoint", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(() =>
+      Promise.resolve(json('{"id":1,"html_url":"https://jbf.ghe.com/x"}', 201)),
+    );
+    await createGitHubClient(GHE, fetchImpl).addComment(PR, "Done.");
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(String(url)).toBe("https://jbf.ghe.com/api/v3/repos/acme/shop/issues/42/comments");
+    expect(JSON.parse(String(init?.body))).toEqual({ body: "Done." });
+  });
+
+  it("reports failures without the token", async () => {
+    const client = createGitHubClient(GHE, () =>
+      Promise.resolve(json('{"message":"Bad credentials"}', 401)),
+    );
+    const error = await client.getPullRequest(PR).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitHubError);
+    expect((error as GitHubError).status).toBe(401);
+    expect((error as GitHubError).message).toBe("jbf.ghe.com: token rejected");
+
+    const offline = createGitHubClient(GHE, () => Promise.reject(new TypeError("fetch failed")));
+    const down = await offline.getPullRequest(PR).catch((e: unknown) => e);
+    expect((down as GitHubError).message).toBe("jbf.ghe.com: could not connect");
+    expect(String((down as GitHubError).message)).not.toContain(TOKEN);
+  });
+});
+
+const finding = (patch: Partial<ReviewFinding>): ReviewFinding => ({
+  severity: "Medium",
+  tags: [],
+  file: null,
+  lineStart: null,
+  lineEnd: null,
+  title: "Finding",
+  explanation: "Explanation.",
+  suggestedFix: null,
+  ...patch,
+});
+
+describe("review payloads", () => {
+  it("maps the diff's new-side lines per file and hunk", () => {
+    const lines = commentableLines(DIFF);
+    expect([...lines.get("src/export/csv.ts")!.keys()]).toEqual([10, 11, 12, 13, 14, 15, 16]);
+    expect([...lines.get("src/invoices/totals.ts")!.keys()]).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    ]);
+  });
+
+  it("builds inline comments for findings on the diff and lists the rest in the body", () => {
+    const payload = buildReviewPayload(
+      [
+        finding({
+          severity: "High",
+          tags: ["correctness", "data"],
+          file: "src/export/csv.ts",
+          lineStart: 13,
+          lineEnd: 13,
+          title: "toFixed rounds differently from round()",
+          explanation: "`toFixed` uses binary floating point and can round 1.005 down.",
+          suggestedFix: "Format the already rounded total with `round(total, 2).toFixed(2)`.",
+        }),
+        finding({
+          file: "./src/invoices/totals.ts",
+          lineStart: 4,
+          lineEnd: 7,
+          title: "Inline the temporary",
+          explanation: "`total` is returned straight away.",
+          tags: ["code-quality"],
+        }),
+        finding({
+          severity: "Low",
+          file: "src/invoices/totals.ts",
+          lineStart: 40,
+          lineEnd: 42,
+          title: "vatOf ignores reduced rates",
+          explanation: "Outside this change, but related.",
+        }),
+        finding({
+          severity: "Low",
+          title: "No changelog entry",
+          explanation: "Billing changes are listed in CHANGELOG.md.",
+        }),
+      ],
+      {
+        diff: DIFF,
+        commitId: "9f1c2d3e4b5a69788796a5b4c3d2e1f009182736",
+        summary: "Reviewed by blackwall.",
+      },
+    );
+    expect(payload).toEqual({
+      commit_id: "9f1c2d3e4b5a69788796a5b4c3d2e1f009182736",
+      event: "COMMENT",
+      body: [
+        "Reviewed by blackwall.",
+        "",
+        "Findings outside the diff:",
+        "",
+        "- **[Low] vatOf ignores reduced rates** (`src/invoices/totals.ts:40-42`): Outside this change, but related.",
+        "- **[Low] No changelog entry**: Billing changes are listed in CHANGELOG.md.",
+      ].join("\n"),
+      comments: [
+        {
+          path: "src/export/csv.ts",
+          line: 13,
+          side: "RIGHT",
+          body: [
+            "**[High] toFixed rounds differently from round()**",
+            "",
+            "`toFixed` uses binary floating point and can round 1.005 down.",
+            "",
+            "**Suggested fix:** Format the already rounded total with `round(total, 2).toFixed(2)`.",
+            "",
+            "`correctness` `data`",
+          ].join("\n"),
+        },
+        {
+          path: "src/invoices/totals.ts",
+          line: 7,
+          side: "RIGHT",
+          start_line: 4,
+          start_side: "RIGHT",
+          body: [
+            "**[Medium] Inline the temporary**",
+            "",
+            "`total` is returned straight away.",
+            "",
+            "`code-quality`",
+          ].join("\n"),
+        },
+      ],
+    });
+  });
+
+  it("posts the payload as a review", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(() =>
+      Promise.resolve(json('{"id":77,"html_url":"https://jbf.ghe.com/acme/shop/pull/42"}')),
+    );
+    const payload = buildReviewPayload([], { diff: DIFF });
+    expect(payload).toEqual({ event: "COMMENT", body: "No findings.", comments: [] });
+    const posted = await createGitHubClient(GHE, fetchImpl).createReview(PR, payload);
+    expect(posted.id).toBe(77);
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(String(url)).toBe("https://jbf.ghe.com/api/v3/repos/acme/shop/pulls/42/reviews");
+    expect(JSON.parse(String(init?.body))).toEqual(payload);
+  });
+});

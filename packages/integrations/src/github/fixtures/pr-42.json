@@ -1,0 +1,28 @@
+{
+  "url": "https://jbf.ghe.com/api/v3/repos/acme/shop/pulls/42",
+  "id": 1900000042,
+  "number": 42,
+  "html_url": "https://jbf.ghe.com/acme/shop/pull/42",
+  "state": "open",
+  "draft": false,
+  "merged": false,
+  "title": "Round invoice totals once",
+  "body": "Fixes double rounding in the invoice export.\n\n## Changes\n\n- Round in `totals.ts` only\n- Drop the rounding in the CSV writer",
+  "user": { "login": "ada" },
+  "labels": [{ "name": "bug" }, { "name": "billing" }],
+  "head": {
+    "label": "acme:fix/abc-123-invoice-totals-are-rounded-twice",
+    "ref": "fix/abc-123-invoice-totals-are-rounded-twice",
+    "sha": "9f1c2d3e4b5a69788796a5b4c3d2e1f009182736",
+    "repo": { "full_name": "acme/shop" }
+  },
+  "base": {
+    "label": "acme:main",
+    "ref": "main",
+    "sha": "1a2b3c4d5e6f708192a3b4c5d6e7f80910111213",
+    "repo": { "full_name": "acme/shop" }
+  },
+  "additions": 4,
+  "deletions": 3,
+  "changed_files": 2
+}

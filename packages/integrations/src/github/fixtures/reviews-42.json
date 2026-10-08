@@ -1,0 +1,16 @@
+[
+  {
+    "id": 7001,
+    "state": "COMMENTED",
+    "body": "",
+    "user": { "login": "grace" },
+    "submitted_at": "2026-10-02T09:20:30Z"
+  },
+  {
+    "id": 7002,
+    "state": "CHANGES_REQUESTED",
+    "body": "One question on `toFixed`; otherwise fine.\n\n# Verdict\n\nAlmost there.",
+    "user": { "login": "grace" },
+    "submitted_at": "2026-10-02T09:21:00Z"
+  }
+]

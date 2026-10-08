@@ -1,0 +1,31 @@
+diff --git a/src/export/csv.ts b/src/export/csv.ts
+index 3b18e51..a1f0c2d 100644
+--- a/src/export/csv.ts
++++ b/src/export/csv.ts
+@@ -10,8 +10,7 @@ export function writeInvoiceRow(invoice: Invoice): string {
+   const cells = [
+     invoice.id,
+     invoice.customer,
+-    round(invoice.total, 2),
++    invoice.total.toFixed(2),
+   ];
+-  // Rounded again for safety.
+   return cells.join(",");
+ }
+diff --git a/src/invoices/totals.ts b/src/invoices/totals.ts
+index 7c4e0aa..d93b1f4 100644
+--- a/src/invoices/totals.ts
++++ b/src/invoices/totals.ts
+@@ -1,8 +1,10 @@
+ import { round } from "../math.js";
+ 
+ export function invoiceTotal(lines: InvoiceLine[]): number {
+-  const sum = lines.reduce((acc, l) => acc + round(l.amount, 2), 0);
+-  return round(sum, 2);
++  const sum = lines.reduce((acc, l) => acc + l.amount, 0);
++  // Round once, at the end.
++  const total = round(sum, 2);
++  return total;
+ }
+ 
+ export function vatOf(total: number): number {
