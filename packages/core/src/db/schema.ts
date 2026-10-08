@@ -7,43 +7,23 @@ import {
   text,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
-
-export const CONNECTION_KINDS = ["github", "jira"] as const;
-export const AGENT_CLIS = ["claude", "copilot"] as const;
-export const ORIGIN_KINDS = ["jira-issue", "github-pr", "free-text"] as const;
-export const PR_MODES = ["work", "review"] as const;
-export const TRIAGE_MODES = ["intervene", "pause"] as const;
-export const STAGES = [
-  "inform",
-  "plan-review",
-  "implement",
-  "checks",
-  "code-review",
-  "aggregate",
-  "summarize",
-] as const;
-export const STEP_STATUSES = [
-  "pending",
-  "running",
-  "succeeded",
-  "failed",
-  "interrupted",
-  "cancelled",
-] as const;
-export const SEVERITIES = ["critical", "high", "medium", "low"] as const;
-export const FINDING_STATUSES = ["open", "fixed", "force-fix", "force-ignore"] as const;
-export const GRILL_ANSWERERS = ["agent", "user"] as const;
-
-export type ConnectionKind = (typeof CONNECTION_KINDS)[number];
-export type AgentCli = (typeof AGENT_CLIS)[number];
-export type OriginKind = (typeof ORIGIN_KINDS)[number];
-export type PrMode = (typeof PR_MODES)[number];
-export type TriageMode = (typeof TRIAGE_MODES)[number];
-export type Stage = (typeof STAGES)[number];
-export type StepStatus = (typeof STEP_STATUSES)[number];
-export type Severity = (typeof SEVERITIES)[number];
-export type FindingStatus = (typeof FINDING_STATUSES)[number];
-export type GrillAnswerer = (typeof GRILL_ANSWERERS)[number];
+import {
+  AGENT_CLIS,
+  CONNECTION_KINDS,
+  FINDING_STATUSES,
+  GRILL_ANSWERERS,
+  PR_MODES,
+  STAGES,
+  STEP_STATUSES,
+  SEVERITIES,
+  TASK_STATUSES,
+  TRIAGE_MODES,
+  type DeliveryTarget,
+  type PermissionOverrides,
+  type RoleAgents,
+  type Stage,
+  type TaskOrigin,
+} from "@blackwall/shared";
 
 /** Milliseconds since epoch, surfaced as `Date`. */
 const timestamp = (name: string) => integer(name, { mode: "timestamp_ms" });
@@ -99,11 +79,6 @@ export const repos = sqliteTable("repos", {
   updatedAt: updatedAt(),
 });
 
-export interface PermissionOverrides {
-  allow?: string[];
-  deny?: string[];
-}
-
 /** Agent library entries. */
 export const agents = sqliteTable("agents", {
   id: id(),
@@ -130,26 +105,13 @@ export const tags = sqliteTable("tags", {
   createdAt: createdAt(),
 });
 
-/** Agents chosen per role for a task (role defaults, possibly overridden). */
-export interface TaskAgents {
-  planner?: string;
-  planReviewers?: string[];
-  implementer?: string;
-  codeReviewers?: string[];
-  summarizer?: string;
-}
-
 export const tasks = sqliteTable(
   "tasks",
   {
     id: id(),
     title: text("title").notNull(),
-    originKind: text("origin_kind", { enum: ORIGIN_KINDS }).notNull(),
-    /** Origin details: Jira key + connection, PR URL/number, … */
-    origin: text("origin", { mode: "json" })
-      .$type<Record<string, unknown>>()
-      .notNull()
-      .default(sql`'{}'`),
+    /** Jira issue, GitHub PR or free text; discriminated on `kind`. */
+    origin: text("origin", { mode: "json" }).$type<TaskOrigin>().notNull(),
     /** PR tasks only. */
     mode: text("mode", { enum: PR_MODES }),
     repoId: text("repo_id")
@@ -157,14 +119,16 @@ export const tasks = sqliteTable(
       .references(() => repos.id, { onDelete: "restrict" }),
     branch: text("branch"),
     worktreePath: text("worktree_path"),
-    status: text("status").notNull().default("pending"),
+    status: text("status", { enum: TASK_STATUSES }).notNull().default("queued"),
+    /** Current pipeline stage; null before the first step starts. */
+    stage: text("stage", { enum: STAGES }),
     triageMode: text("triage_mode", { enum: TRIAGE_MODES }).notNull().default("intervene"),
     agents: text("agents", { mode: "json" })
-      .$type<TaskAgents>()
+      .$type<RoleAgents>()
       .notNull()
       .default(sql`'{}'`),
     deliveryTargets: text("delivery_targets", { mode: "json" })
-      .$type<string[]>()
+      .$type<DeliveryTarget[]>()
       .notNull()
       .default(sql`'[]'`),
     freeText: text("free_text").notNull().default(""),
@@ -273,7 +237,8 @@ export const grillQuestions = sqliteTable(
       onDelete: "set null",
     }),
     question: text("question").notNull(),
-    /** Set when the planner can answer from the repo; otherwise the question goes to the user. */
+    /** The planner could not answer from the repo; the user must decide. */
+    needsHuman: integer("needs_human", { mode: "boolean" }).notNull().default(false),
     answer: text("answer"),
     answeredBy: text("answered_by", { enum: GRILL_ANSWERERS }),
     createdAt: createdAt(),
@@ -282,21 +247,13 @@ export const grillQuestions = sqliteTable(
   (t) => [index("grill_questions_task_idx").on(t.taskId)],
 );
 
-export type Setting = typeof settings.$inferSelect;
-export type Connection = typeof connections.$inferSelect;
+// Row types for inserts. Reads are typed with the domain types from @blackwall/shared,
+// so the compiler checks that every table matches its shared schema.
 export type NewConnection = typeof connections.$inferInsert;
-export type Repo = typeof repos.$inferSelect;
 export type NewRepo = typeof repos.$inferInsert;
-export type Agent = typeof agents.$inferSelect;
 export type NewAgent = typeof agents.$inferInsert;
-export type Tag = typeof tags.$inferSelect;
-export type Task = typeof tasks.$inferSelect;
 export type NewTask = typeof tasks.$inferInsert;
-export type Run = typeof runs.$inferSelect;
-export type Step = typeof steps.$inferSelect;
+export type NewRun = typeof runs.$inferInsert;
 export type NewStep = typeof steps.$inferInsert;
-export type StepEvent = typeof stepEvents.$inferSelect;
-export type Finding = typeof findings.$inferSelect;
 export type NewFinding = typeof findings.$inferInsert;
-export type GrillQuestion = typeof grillQuestions.$inferSelect;
 export type NewGrillQuestion = typeof grillQuestions.$inferInsert;

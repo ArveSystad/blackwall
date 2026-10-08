@@ -1,4 +1,12 @@
 import { z } from "zod";
+import {
+  findingSchema,
+  grillQuestionSchema,
+  runSchema,
+  stepEventSchema,
+  stepSchema,
+  taskSchema,
+} from "./domain.js";
 
 /** Query parameter carrying the per-launch token in the launch URL. */
 export const TOKEN_QUERY_PARAM = "t";
@@ -25,6 +33,15 @@ export type ClientEvent = z.infer<typeof clientEventSchema>;
 export const serverEventSchema = z.discriminatedUnion("type", [
   envelope("pong", z.object({ id: z.string(), serverTime: z.number() })),
   envelope("error", z.object({ message: z.string() })),
+  /** A task was created or changed (status, stage, plan, …). */
+  envelope("task.upserted", z.object({ task: taskSchema })),
+  envelope("task.removed", z.object({ taskId: z.string() })),
+  envelope("run.upserted", z.object({ run: runSchema })),
+  envelope("step.upserted", z.object({ step: stepSchema })),
+  /** A new entry in a step's streamed event log. */
+  envelope("step.event", z.object({ event: stepEventSchema })),
+  envelope("finding.upserted", z.object({ finding: findingSchema })),
+  envelope("grill.upserted", z.object({ question: grillQuestionSchema })),
 ]);
 export type ServerEvent = z.infer<typeof serverEventSchema>;
 

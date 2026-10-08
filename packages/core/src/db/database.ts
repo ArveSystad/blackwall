@@ -42,11 +42,18 @@ export function openDatabase(dataDir: string): OpenedDatabase {
   try {
     sqlite.pragma("journal_mode = WAL");
     sqlite.pragma("synchronous = NORMAL");
-    sqlite.pragma("foreign_keys = ON");
     sqlite.pragma("busy_timeout = 5000");
 
     const db = drizzle(sqlite, { schema });
+    // Foreign keys stay off while migrating: SQLite ignores the pragma inside the
+    // migration transaction, and table rebuilds would otherwise cascade-delete children.
+    sqlite.pragma("foreign_keys = OFF");
     migrate(db, { migrationsFolder: MIGRATIONS_DIR });
+    const violations = sqlite.pragma("foreign_key_check") as unknown[];
+    if (violations.length > 0) {
+      throw new Error(`Migration left ${violations.length} foreign key violation(s)`);
+    }
+    sqlite.pragma("foreign_keys = ON");
     return { db, path, close: () => sqlite.close() };
   } catch (error) {
     sqlite.close();

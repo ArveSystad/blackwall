@@ -1,6 +1,17 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  agentSchema,
+  connectionSchema,
+  findingSchema,
+  grillQuestionSchema,
+  repoSchema,
+  runSchema,
+  stepEventSchema,
+  stepSchema,
+  taskSchema,
+} from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDatabase, type OpenedDatabase } from "./database.js";
 import { createRepositories, type Repositories } from "./repositories.js";
@@ -22,7 +33,7 @@ afterEach(() => {
 
 function seedTask() {
   const repo = r.repos.create({ path: "/code/app", name: "app" });
-  return r.tasks.create({ title: "Fix login", originKind: "free-text", repoId: repo.id });
+  return r.tasks.create({ title: "Fix login", origin: { kind: "free-text" }, repoId: repo.id });
 }
 
 describe("settings", () => {
@@ -97,7 +108,12 @@ describe("agents and tags", () => {
 describe("tasks, runs and steps", () => {
   it("numbers runs per task and interrupts running steps", () => {
     const task = seedTask();
-    expect(task).toMatchObject({ status: "pending", triageMode: "intervene", agents: {} });
+    expect(task).toMatchObject({
+      status: "queued",
+      stage: null,
+      triageMode: "intervene",
+      agents: {},
+    });
 
     const run1 = r.runs.create(task.id);
     const run2 = r.runs.create(task.id);
@@ -166,12 +182,40 @@ describe("findings and grill questions", () => {
 
   it("records answers to grill questions", () => {
     const task = seedTask();
-    const q = r.grillQuestions.create({ taskId: task.id, question: "Which DB?" });
-    expect(q.answer).toBeNull();
+    const q = r.grillQuestions.create({ taskId: task.id, question: "Which DB?", needsHuman: true });
+    expect(q).toMatchObject({ answer: null, needsHuman: true });
 
     const answered = r.grillQuestions.answer(q.id, "SQLite", "user");
     expect(answered).toMatchObject({ answer: "SQLite", answeredBy: "user" });
     expect(answered.answeredAt).toBeInstanceOf(Date);
     expect(r.grillQuestions.listByTask(task.id)).toHaveLength(1);
+  });
+});
+
+describe("shared schemas", () => {
+  it("accept rows read back from the database", () => {
+    const task = seedTask();
+    const run = r.runs.create(task.id);
+    const step = r.steps.create({ runId: run.id, stage: "inform" });
+    const [finding] = r.findings.createMany([
+      { taskId: task.id, severity: "low", title: "Typo", explanation: "teh" },
+    ]);
+    const conn = r.connections.create({
+      name: "gh",
+      kind: "github",
+      baseUrl: "https://github.com",
+    });
+
+    expect(taskSchema.parse(task)).toEqual(task);
+    expect(runSchema.parse(run)).toEqual(run);
+    expect(stepSchema.parse(step)).toEqual(step);
+    expect(stepEventSchema.parse(r.stepEvents.append(step.id, "text", { t: 1 }))).toBeTruthy();
+    expect(findingSchema.parse(finding)).toEqual(finding);
+    expect(connectionSchema.parse(conn)).toEqual(conn);
+    expect(repoSchema.parse(r.repos.get(task.repoId))).toBeTruthy();
+    expect(agentSchema.parse(r.agents.create({ name: "Planner", cli: "claude" }))).toBeTruthy();
+    expect(
+      grillQuestionSchema.parse(r.grillQuestions.create({ taskId: task.id, question: "?" })),
+    ).toBeTruthy();
   });
 });

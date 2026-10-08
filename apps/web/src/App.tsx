@@ -37,7 +37,7 @@ function useSocketPing(): Status {
             state: "ok",
             detail: `pong in ${Math.round(performance.now() - started)} ms`,
           });
-        } else {
+        } else if (event.type === "error") {
           setStatus({ state: "error", detail: event.payload.message });
         }
       },

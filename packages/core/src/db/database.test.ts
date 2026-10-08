@@ -1,8 +1,25 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import Database from "better-sqlite3";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DB_FILENAME, openDatabase, resolveDataDir, type OpenedDatabase } from "./database.js";
+import {
+  DB_FILENAME,
+  MIGRATIONS_DIR,
+  openDatabase,
+  resolveDataDir,
+  type OpenedDatabase,
+} from "./database.js";
 import { createRepositories } from "./repositories.js";
 
 describe("resolveDataDir", () => {
@@ -68,5 +85,36 @@ describe("openDatabase", () => {
     opened = openDatabase(dir);
     expect(migrations()).toBe(applied);
     expect(createRepositories(opened.db).settings.get("concurrency")).toBe(3);
+  });
+
+  it("upgrades a 0000_init database without losing child rows", () => {
+    // Build a database at the first migration only, with a task that has a run.
+    const oldMigrations = join(dir, "..", "migrations-0000");
+    cpSync(MIGRATIONS_DIR, oldMigrations, { recursive: true });
+    const journalPath = join(oldMigrations, "meta", "_journal.json");
+    const journal = JSON.parse(readFileSync(journalPath, "utf8")) as { entries: unknown[] };
+    journal.entries = journal.entries.slice(0, 1);
+    writeFileSync(journalPath, JSON.stringify(journal));
+
+    mkdirSync(dir, { recursive: true });
+    const sqlite = new Database(join(dir, DB_FILENAME));
+    sqlite.pragma("foreign_keys = ON");
+    migrate(drizzle(sqlite), { migrationsFolder: oldMigrations });
+    sqlite.exec(`
+      insert into repos (id, path, name, created_at, updated_at) values ('r1', '/code/app', 'app', 0, 0);
+      insert into tasks (id, title, origin_kind, origin, repo_id, created_at, updated_at)
+        values ('t1', 'Fix login', 'jira-issue', '{"key":"ABC-1","connectionId":null}', 'r1', 0, 0);
+      insert into runs (id, task_id, number, created_at) values ('u1', 't1', 1, 0);
+    `);
+    sqlite.close();
+
+    opened = openDatabase(dir);
+    const r = createRepositories(opened.db);
+    expect(r.tasks.get("t1")).toMatchObject({
+      origin: { kind: "jira-issue", key: "ABC-1", connectionId: null },
+      status: "queued",
+      stage: null,
+    });
+    expect(r.runs.listByTask("t1")).toHaveLength(1);
   });
 });

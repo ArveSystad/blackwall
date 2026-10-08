@@ -1,4 +1,19 @@
 import { and, asc, eq, gt, max, sql } from "drizzle-orm";
+import type {
+  Agent,
+  Connection,
+  Finding,
+  FindingStatus,
+  GrillAnswerer,
+  GrillQuestion,
+  Repo,
+  Run,
+  Step,
+  StepEvent,
+  StepStatus,
+  Tag,
+  Task,
+} from "@blackwall/shared";
 import type { Db } from "./database.js";
 import {
   agents,
@@ -12,12 +27,6 @@ import {
   steps,
   tags,
   tasks,
-  type Agent,
-  type Connection,
-  type Finding,
-  type FindingStatus,
-  type GrillAnswerer,
-  type GrillQuestion,
   type NewAgent,
   type NewConnection,
   type NewFinding,
@@ -25,15 +34,9 @@ import {
   type NewRepo,
   type NewStep,
   type NewTask,
-  type Repo,
-  type Run,
-  type Step,
-  type StepEvent,
-  type StepStatus,
-  type Tag,
-  type Task,
 } from "./schema.js";
 
+/** Updatable columns of an insert type. */
 type Patch<T> = Partial<Omit<T, "id" | "createdAt" | "updatedAt">>;
 
 /** Insertion order; breaks ties between rows created in the same millisecond. */
@@ -81,7 +84,7 @@ export function createConnectionsRepository(db: Db) {
     create(values: NewConnection): Connection {
       return db.insert(connections).values(values).returning().get();
     },
-    update(id: string, patch: Patch<Connection>): Connection {
+    update(id: string, patch: Patch<NewConnection>): Connection {
       return required(
         db.update(connections).set(patch).where(eq(connections.id, id)).returning().get(),
         `Connection ${id}`,
@@ -107,7 +110,7 @@ export function createReposRepository(db: Db) {
     create(values: NewRepo): Repo {
       return db.insert(repos).values(values).returning().get();
     },
-    update(id: string, patch: Patch<Repo>): Repo {
+    update(id: string, patch: Patch<NewRepo>): Repo {
       return required(
         db.update(repos).set(patch).where(eq(repos.id, id)).returning().get(),
         `Repo ${id}`,
@@ -130,7 +133,7 @@ export function createAgentsRepository(db: Db) {
     create(values: NewAgent): Agent {
       return db.insert(agents).values(values).returning().get();
     },
-    update(id: string, patch: Patch<Agent>): Agent {
+    update(id: string, patch: Patch<NewAgent>): Agent {
       return required(
         db.update(agents).set(patch).where(eq(agents.id, id)).returning().get(),
         `Agent ${id}`,
@@ -175,7 +178,7 @@ export function createTasksRepository(db: Db) {
     create(values: NewTask): Task {
       return db.insert(tasks).values(values).returning().get();
     },
-    update(id: string, patch: Patch<Task>): Task {
+    update(id: string, patch: Patch<NewTask>): Task {
       return required(
         db.update(tasks).set(patch).where(eq(tasks.id, id)).returning().get(),
         `Task ${id}`,
@@ -235,7 +238,7 @@ export function createStepsRepository(db: Db) {
     create(values: NewStep): Step {
       return db.insert(steps).values(values).returning().get();
     },
-    update(id: string, patch: Patch<Step>): Step {
+    update(id: string, patch: Patch<NewStep>): Step {
       return required(
         db.update(steps).set(patch).where(eq(steps.id, id)).returning().get(),
         `Step ${id}`,

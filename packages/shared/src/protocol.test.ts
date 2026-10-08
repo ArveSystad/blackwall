@@ -21,4 +21,16 @@ describe("protocol", () => {
       payload: { id: "1", serverTime: 5 },
     });
   });
+
+  it("parses a step event and revives its timestamp", () => {
+    const raw = JSON.stringify({
+      type: "step.event",
+      payload: {
+        event: { stepId: "s1", seq: 1, type: "text", payload: { text: "hi" }, createdAt: 0 },
+      },
+    });
+    const event = parseServerEvent(raw);
+    expect(event?.type).toBe("step.event");
+    expect(event?.type === "step.event" && event.payload.event.createdAt).toEqual(new Date(0));
+  });
 });
