@@ -12,7 +12,20 @@
 #
 # Within the same priority bucket, tasks are sorted alphabetically.
 # Files prefixed "proto-" are always ignored.
-# Tasks whose "depends on:" dependencies are not yet in tasks/done/ are skipped.
+#
+# Dependencies are read from the top of each file. Supported forms:
+#   depends_on: [task-003, task-004]      (YAML frontmatter, inline list)
+#   depends_on:                           (YAML frontmatter, block list)
+#     - task-003
+#   **Depends on:** `foo.md`, `bar.md`    (markdown)
+# A dependency matches a task by its frontmatter "id:" or by its filename
+# (with or without .md).
+#
+# Selection walks the backlog in priority order. When the next task has
+# unmet dependencies, the picker descends into those dependencies (in the
+# order listed) and returns the first one that is ready, so dependencies get
+# done before the tasks that need them, even if they sort later. A task whose
+# dependency exists neither in backlog/ nor done/ is blocked.
 #
 # Outputs the bare filename (e.g. "refactor-foo.md") to stdout.
 # Exits 0 on success, 1 if no eligible task exists.
@@ -35,64 +48,104 @@ function Get-Priority([string]$name) {
     return 5
 }
 
-# ── Dependency resolution ────────────────────────────────────────────────────
+# ── Parsing ──────────────────────────────────────────────────────────────────
 
-function Get-Dependencies([string]$filePath) {
-    # Read only the first 15 lines — dependencies must appear near the top.
-    $lines = Get-Content $filePath -TotalCount 15 -ErrorAction SilentlyContinue
+function ConvertTo-DepName([string]$raw) {
+    $clean = $raw.Trim().Trim('[', ']', '`', '*', '"', "'", ' ')
+    if ($clean -like '*.md') { $clean = [System.IO.Path]::GetFileNameWithoutExtension($clean) }
+    return $clean
+}
+
+function Get-TaskInfo([System.IO.FileInfo]$file) {
+    # Read only the first 20 lines — id and dependencies must appear near the top.
+    $lines = @(Get-Content $file.FullName -TotalCount 20 -ErrorAction SilentlyContinue)
+    $id    = $null
     $deps  = [System.Collections.Generic.List[string]]::new()
+    $inBlockList = $false
+
     foreach ($line in $lines) {
-        # Matches lines like:
-        #   depends on: foo.md
-        #   **Depends on:** `foo.md`, `bar.md`
-        if ($line -match '(?i)depends\s+on\s*:\s*(.+)') {
-            $raw = $Matches[1]
+        if ($inBlockList) {
+            if ($line -match '^\s*-\s*(.+)$') {
+                $dep = ConvertTo-DepName $Matches[1]
+                if ($dep -ne '') { $deps.Add($dep) }
+                continue
+            }
+            $inBlockList = $false
+        }
+
+        if (-not $id -and $line -match '^\s*id\s*:\s*(\S+)') {
+            $id = $Matches[1].Trim('"', "'")
+            continue
+        }
+
+        if ($line -match '(?i)depends[\s_]*on\s*\**\s*:\s*\**\s*(.*)$') {
+            $raw = $Matches[1].Trim()
+            if ($raw -eq '') { $inBlockList = $true; continue }
             foreach ($part in ($raw -split '[,;]')) {
-                $clean = $part.Trim().Trim('`').Trim('*').Trim()
-                if ($clean -ne '') { $deps.Add($clean) }
+                $dep = ConvertTo-DepName $part
+                if ($dep -ne '') { $deps.Add($dep) }
             }
         }
     }
-    return $deps.ToArray()
-}
 
-function Test-DependenciesMet([string[]]$deps) {
-    foreach ($dep in $deps) {
-        # Normalise: strip path and ensure .md extension for the lookup
-        $base = [System.IO.Path]::GetFileNameWithoutExtension($dep)
-        $done1 = Join-Path $doneDir "$base.md"
-        $done2 = Join-Path $doneDir $dep
-        if (-not (Test-Path $done1) -and -not (Test-Path $done2)) {
-            return $false
-        }
+    return [PSCustomObject]@{
+        Name     = $file.Name
+        Base     = $file.BaseName
+        Id       = $id
+        Deps     = $deps.ToArray()
+        Priority = Get-Priority $file.Name
     }
-    return $true
 }
 
-# ── Collect eligible candidates ──────────────────────────────────────────────
+# ── Index tasks ──────────────────────────────────────────────────────────────
 
-$candidates = [System.Collections.Generic.List[PSCustomObject]]::new()
+$doneKeys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+if (Test-Path $doneDir) {
+    Get-ChildItem -Path $doneDir -Filter '*.md' | ForEach-Object {
+        $info = Get-TaskInfo $_
+        [void]$doneKeys.Add($info.Base)
+        if ($info.Id) { [void]$doneKeys.Add($info.Id) }
+    }
+}
 
-Get-ChildItem -Path $backlogDir -Filter '*.md' |
+$backlog    = @(Get-ChildItem -Path $backlogDir -Filter '*.md' |
     Where-Object { $_.Name -notlike 'proto-*' } |
-    ForEach-Object {
-        $deps = Get-Dependencies $_.FullName
-        if (Test-DependenciesMet $deps) {
-            $candidates.Add([PSCustomObject]@{
-                Name     = $_.Name
-                Priority = Get-Priority $_.Name
-            })
-        }
-    }
+    ForEach-Object { Get-TaskInfo $_ } |
+    Sort-Object Priority, Name)
 
-if ($candidates.Count -eq 0) {
-    Write-Error 'pick-next-task: backlog is empty or all remaining tasks have unmet dependencies.'
-    exit 1
+$backlogByKey = @{}
+foreach ($task in $backlog) {
+    $backlogByKey[$task.Base.ToLowerInvariant()] = $task
+    if ($task.Id) { $backlogByKey[$task.Id.ToLowerInvariant()] = $task }
 }
 
-$selected = $candidates |
-    Sort-Object Priority, Name |
-    Select-Object -First 1
+# ── Resolution ───────────────────────────────────────────────────────────────
 
-Write-Output $selected.Name
-exit 0
+# Returns the first ready task reachable from $task (itself, or one of its
+# unmet dependencies, depth first), or $null if everything on the path is blocked.
+function Resolve-Ready($task, [System.Collections.Generic.HashSet[string]]$visiting) {
+    if (-not $visiting.Add($task.Name)) { return $null }  # dependency cycle
+
+    $unmet = @($task.Deps | Where-Object { -not $doneKeys.Contains($_) })
+    if ($unmet.Count -eq 0) { return $task }
+
+    foreach ($dep in $unmet) {
+        $depTask = $backlogByKey[$dep.ToLowerInvariant()]
+        if (-not $depTask) { return $null }  # dependency missing entirely: blocked
+        $ready = Resolve-Ready $depTask $visiting
+        if ($ready) { return $ready }
+    }
+    return $null
+}
+
+foreach ($task in $backlog) {
+    $visiting = [System.Collections.Generic.HashSet[string]]::new()
+    $ready = Resolve-Ready $task $visiting
+    if ($ready) {
+        Write-Output $ready.Name
+        exit 0
+    }
+}
+
+Write-Error 'pick-next-task: backlog is empty or all remaining tasks have unmet dependencies.'
+exit 1
