@@ -1,0 +1,24 @@
+{
+  "id": "10400",
+  "key": "ABC-100",
+  "fields": {
+    "summary": "Billing self-service",
+    "status": { "name": "In Progress", "id": "3" },
+    "issuetype": { "id": "10000", "name": "Epic", "subtask": false, "hierarchyLevel": 1 },
+    "description": {
+      "type": "doc",
+      "version": 1,
+      "content": [
+        {
+          "type": "heading",
+          "attrs": { "level": 1 },
+          "content": [{ "type": "text", "text": "Goal" }]
+        },
+        {
+          "type": "paragraph",
+          "content": [{ "type": "text", "text": "Customers manage invoices without support." }]
+        }
+      ]
+    }
+  }
+}

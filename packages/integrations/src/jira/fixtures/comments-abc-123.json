@@ -1,0 +1,77 @@
+{
+  "startAt": 0,
+  "maxResults": 100,
+  "total": 2,
+  "comments": [
+    {
+      "self": "https://acme.atlassian.net/rest/api/3/issue/10423/comment/20001",
+      "id": "20001",
+      "author": { "displayName": "Grace Hopper" },
+      "body": {
+        "type": "doc",
+        "version": 1,
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "mention",
+                "attrs": {
+                  "id": "5b10a2844c20165700ede21g",
+                  "text": "@Ada Lovelace",
+                  "accessLevel": ""
+                }
+              },
+              { "type": "text", "text": " should the export include " },
+              { "type": "text", "text": "voided", "marks": [{ "type": "em" }] },
+              { "type": "text", "text": " invoices?" }
+            ]
+          }
+        ]
+      },
+      "created": "2026-10-01T09:30:00.000+0200"
+    },
+    {
+      "self": "https://acme.atlassian.net/rest/api/3/issue/10423/comment/20002",
+      "id": "20002",
+      "author": { "displayName": "Ada Lovelace" },
+      "body": {
+        "type": "doc",
+        "version": 1,
+        "content": [
+          {
+            "type": "heading",
+            "attrs": { "level": 1 },
+            "content": [{ "type": "text", "text": "Decision" }]
+          },
+          {
+            "type": "blockquote",
+            "content": [
+              {
+                "type": "paragraph",
+                "content": [{ "type": "text", "text": "No, skip voided invoices." }]
+              }
+            ]
+          },
+          {
+            "type": "taskList",
+            "attrs": { "localId": "t1" },
+            "content": [
+              {
+                "type": "taskItem",
+                "attrs": { "localId": "t2", "state": "DONE" },
+                "content": [{ "type": "text", "text": "Agreed with finance" }]
+              },
+              {
+                "type": "taskItem",
+                "attrs": { "localId": "t3", "state": "TODO" },
+                "content": [{ "type": "text", "text": "Update the spec" }]
+              }
+            ]
+          }
+        ]
+      },
+      "created": "2026-10-02T14:05:00.000+0200"
+    }
+  ]
+}

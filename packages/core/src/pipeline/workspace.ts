@@ -7,15 +7,21 @@ import type { PreparedWorkspace } from "./engine.js";
 export interface WorkspacePreparerOptions {
   git: Pick<GitService, "createWorktree">;
   repos: Pick<Repositories["repos"], "get">;
+  /**
+   * Derives the branch of a task created without one, e.g. a Jira task's
+   * `feature/<key>-<slug>` from the issue's summary and type.
+   */
+  branchFor?: (task: Task) => Promise<string | undefined>;
 }
 
 /**
  * Creates a task's worktree next to its repo. Free-text tasks get
  * `agent/<task-id>`; Jira and PR tasks use the branch set from their origin
- * (a new branch for Jira, the PR head branch for PRs). Idempotent, so a
+ * (a new branch for Jira, the PR head branch for PRs), asking `branchFor`
+ * when the task has none yet. Idempotent, so a
  * resumed task finds its worktree where it left it.
  */
-export function createWorkspacePreparer({ git, repos }: WorkspacePreparerOptions) {
+export function createWorkspacePreparer({ git, repos, branchFor }: WorkspacePreparerOptions) {
   return async (task: Task): Promise<PreparedWorkspace> => {
     const repo = repos.get(task.repoId);
     if (!repo) throw new Error(`Repo ${task.repoId} not found`);
@@ -23,7 +29,7 @@ export function createWorkspacePreparer({ git, repos }: WorkspacePreparerOptions
       task.branch ??
       (task.origin.kind === "free-text"
         ? branchForTask({ kind: "free-text", taskId: task.id })
-        : undefined);
+        : await branchFor?.(task));
     if (!branch) throw new Error("The task's branch is not known yet");
     const worktreePath = task.worktreePath ?? worktreePathFor(repo.path, task.id);
     await git.createWorktree({

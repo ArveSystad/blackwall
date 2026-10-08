@@ -48,4 +48,25 @@ describe("createWorkspacePreparer", () => {
     );
     await expect(prepare(task({ origin }))).rejects.toThrow(/branch is not known/);
   });
+
+  it("asks branchFor for a Jira task's new branch", async () => {
+    const createWorktree = vi.fn(async (input: CreateWorktreeInput) => ({
+      path: input.worktreePath,
+      branch: input.branch,
+      baseSha: "abc",
+    }));
+    const branchFor = vi.fn(async () => "feature/abc-1-export");
+    const prepare = createWorkspacePreparer({
+      git: { createWorktree },
+      repos: { get: () => repo },
+      branchFor,
+    });
+    const ws = await prepare(
+      task({ origin: { kind: "jira-issue", key: "ABC-1", connectionId: null } }),
+    );
+    expect(ws.branch).toBe("feature/abc-1-export");
+    expect(createWorktree).toHaveBeenCalledWith(
+      expect.objectContaining({ branch: "feature/abc-1-export", checkout: { kind: "new" } }),
+    );
+  });
 });

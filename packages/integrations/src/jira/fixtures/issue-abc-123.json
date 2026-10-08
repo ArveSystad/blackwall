@@ -1,0 +1,332 @@
+{
+  "expand": "renderedFields,names,schema,operations,editmeta,changelog,versionedRepresentations",
+  "id": "10423",
+  "self": "https://acme.atlassian.net/rest/api/3/issue/10423",
+  "key": "ABC-123",
+  "fields": {
+    "summary": "Export invoices as CSV",
+    "issuetype": {
+      "self": "https://acme.atlassian.net/rest/api/3/issuetype/10001",
+      "id": "10001",
+      "name": "Story",
+      "subtask": false,
+      "hierarchyLevel": 0
+    },
+    "status": {
+      "self": "https://acme.atlassian.net/rest/api/3/status/3",
+      "name": "In Progress",
+      "id": "3",
+      "statusCategory": { "id": 4, "key": "indeterminate", "name": "In Progress" }
+    },
+    "priority": {
+      "self": "https://acme.atlassian.net/rest/api/3/priority/2",
+      "name": "High",
+      "id": "2"
+    },
+    "labels": ["billing", "export"],
+    "reporter": {
+      "accountId": "5b10a2844c20165700ede21g",
+      "displayName": "Ada Lovelace",
+      "active": true
+    },
+    "assignee": null,
+    "parent": {
+      "id": "10400",
+      "key": "ABC-100",
+      "self": "https://acme.atlassian.net/rest/api/3/issue/10400",
+      "fields": {
+        "summary": "Billing self-service",
+        "status": { "name": "In Progress", "id": "3" },
+        "priority": { "name": "Medium", "id": "3" },
+        "issuetype": { "id": "10000", "name": "Epic", "subtask": false, "hierarchyLevel": 1 }
+      }
+    },
+    "subtasks": [
+      {
+        "id": "10424",
+        "key": "ABC-124",
+        "self": "https://acme.atlassian.net/rest/api/3/issue/10424",
+        "fields": {
+          "summary": "Add CSV serializer",
+          "status": { "name": "Done", "id": "10002" },
+          "priority": { "name": "Medium", "id": "3" },
+          "issuetype": { "id": "10003", "name": "Subtask", "subtask": true, "hierarchyLevel": -1 }
+        }
+      }
+    ],
+    "issuelinks": [
+      {
+        "id": "10200",
+        "type": { "id": "10000", "name": "Blocks", "inward": "is blocked by", "outward": "blocks" },
+        "inwardIssue": {
+          "id": "10390",
+          "key": "ABC-90",
+          "fields": {
+            "summary": "Invoice totals are rounded twice",
+            "status": { "name": "To Do", "id": "10000" },
+            "issuetype": { "id": "10004", "name": "Bug", "subtask": false }
+          }
+        }
+      },
+      {
+        "id": "10201",
+        "type": {
+          "id": "10003",
+          "name": "Relates",
+          "inward": "relates to",
+          "outward": "relates to"
+        },
+        "outwardIssue": {
+          "id": "10500",
+          "key": "OPS-7",
+          "fields": {
+            "summary": "Nightly export job",
+            "status": { "name": "Done", "id": "10002" },
+            "issuetype": { "id": "10002", "name": "Task", "subtask": false }
+          }
+        }
+      }
+    ],
+    "attachment": [
+      {
+        "self": "https://acme.atlassian.net/rest/api/3/attachment/10010",
+        "id": "10010",
+        "filename": "mockup.png",
+        "author": { "displayName": "Ada Lovelace" },
+        "created": "2026-09-30T10:12:44.123+0200",
+        "size": 2048,
+        "mimeType": "image/png",
+        "content": "https://acme.atlassian.net/rest/api/3/attachment/content/10010"
+      },
+      {
+        "self": "https://acme.atlassian.net/rest/api/3/attachment/10011",
+        "id": "10011",
+        "filename": "sample-export.csv",
+        "author": { "displayName": "Ada Lovelace" },
+        "created": "2026-09-30T10:13:02.001+0200",
+        "size": 64,
+        "mimeType": "text/csv",
+        "content": "https://acme.atlassian.net/rest/api/3/attachment/content/10011"
+      },
+      {
+        "self": "https://acme.atlassian.net/rest/api/3/attachment/10012",
+        "id": "10012",
+        "filename": "screen-recording.mov",
+        "author": { "displayName": "Grace Hopper" },
+        "created": "2026-10-01T08:00:00.000+0200",
+        "size": 73400320,
+        "mimeType": "video/quicktime",
+        "content": "https://acme.atlassian.net/rest/api/3/attachment/content/10012"
+      },
+      {
+        "self": "https://acme.atlassian.net/rest/api/3/attachment/10013",
+        "id": "10013",
+        "filename": "spec.pdf",
+        "author": { "displayName": "Grace Hopper" },
+        "created": "2026-10-01T08:01:00.000+0200",
+        "size": 31457280,
+        "mimeType": "application/pdf",
+        "content": "https://acme.atlassian.net/rest/api/3/attachment/content/10013"
+      }
+    ],
+    "comment": {
+      "comments": [
+        {
+          "id": "20001",
+          "author": { "displayName": "Grace Hopper" },
+          "body": {
+            "type": "doc",
+            "version": 1,
+            "content": [
+              {
+                "type": "paragraph",
+                "content": [
+                  {
+                    "type": "mention",
+                    "attrs": {
+                      "id": "5b10a2844c20165700ede21g",
+                      "text": "@Ada Lovelace",
+                      "accessLevel": ""
+                    }
+                  },
+                  { "type": "text", "text": " should the export include " },
+                  { "type": "text", "text": "voided", "marks": [{ "type": "em" }] },
+                  { "type": "text", "text": " invoices?" }
+                ]
+              }
+            ]
+          },
+          "created": "2026-10-01T09:30:00.000+0200",
+          "updated": "2026-10-01T09:30:00.000+0200"
+        }
+      ],
+      "self": "https://acme.atlassian.net/rest/api/3/issue/10423/comment",
+      "maxResults": 1,
+      "total": 2,
+      "startAt": 0
+    },
+    "description": {
+      "type": "doc",
+      "version": 1,
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            { "type": "text", "text": "As an " },
+            { "type": "text", "text": "accountant", "marks": [{ "type": "strong" }] },
+            { "type": "text", "text": " I want to export invoices as CSV, see " },
+            {
+              "type": "text",
+              "text": "the spec",
+              "marks": [{ "type": "link", "attrs": { "href": "https://wiki.acme.test/csv" } }]
+            },
+            { "type": "text", "text": "." },
+            { "type": "hardBreak" },
+            { "type": "text", "text": "Use " },
+            { "type": "text", "text": "InvoiceExporter", "marks": [{ "type": "code" }] },
+            { "type": "text", "text": "." }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": { "level": 2 },
+          "content": [{ "type": "text", "text": "Acceptance criteria" }]
+        },
+        {
+          "type": "orderedList",
+          "attrs": { "order": 1 },
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [{ "type": "text", "text": "Columns match the sample" }]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [{ "type": "text", "text": "Dates are ISO 8601" }]
+                },
+                {
+                  "type": "bulletList",
+                  "content": [
+                    {
+                      "type": "listItem",
+                      "content": [
+                        {
+                          "type": "paragraph",
+                          "content": [
+                            { "type": "text", "text": "in UTC", "marks": [{ "type": "strike" }] }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "panel",
+          "attrs": { "panelType": "warning" },
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [{ "type": "text", "text": "Large exports must stream." }]
+            }
+          ]
+        },
+        {
+          "type": "codeBlock",
+          "attrs": { "language": "ts" },
+          "content": [{ "type": "text", "text": "exportInvoices({ format: \"csv\" });" }]
+        },
+        {
+          "type": "table",
+          "attrs": { "isNumberColumnEnabled": false, "layout": "default" },
+          "content": [
+            {
+              "type": "tableRow",
+              "content": [
+                {
+                  "type": "tableHeader",
+                  "attrs": {},
+                  "content": [
+                    { "type": "paragraph", "content": [{ "type": "text", "text": "Column" }] }
+                  ]
+                },
+                {
+                  "type": "tableHeader",
+                  "attrs": {},
+                  "content": [
+                    { "type": "paragraph", "content": [{ "type": "text", "text": "Format" }] }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "tableRow",
+              "content": [
+                {
+                  "type": "tableCell",
+                  "attrs": {},
+                  "content": [
+                    { "type": "paragraph", "content": [{ "type": "text", "text": "amount" }] }
+                  ]
+                },
+                {
+                  "type": "tableCell",
+                  "attrs": {},
+                  "content": [
+                    { "type": "paragraph", "content": [{ "type": "text", "text": "0.00 | NOK" }] }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "mediaSingle",
+          "attrs": { "layout": "center" },
+          "content": [
+            {
+              "type": "media",
+              "attrs": {
+                "id": "7b5c3c1e-1f0a-4c4e-9d55-2f1c1b0e6a11",
+                "type": "file",
+                "collection": "",
+                "alt": "mockup.png",
+                "width": 800,
+                "height": 600
+              }
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            { "type": "inlineCard", "attrs": { "url": "https://acme.atlassian.net/browse/OPS-7" } },
+            { "type": "text", "text": " " },
+            { "type": "status", "attrs": { "text": "BLOCKED", "color": "red", "localId": "a1" } },
+            { "type": "text", "text": " " },
+            {
+              "type": "emoji",
+              "attrs": { "shortName": ":warning:", "id": "atlassian-warning", "text": "!" }
+            }
+          ]
+        },
+        { "type": "rule" },
+        {
+          "type": "extension",
+          "attrs": { "extensionType": "com.atlassian.macro", "extensionKey": "toc" }
+        }
+      ]
+    }
+  }
+}

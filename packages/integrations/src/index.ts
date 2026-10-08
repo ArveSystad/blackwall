@@ -5,3 +5,4 @@ export function describeIntegrations(): string {
 }
 
 export * from "./connection-test.js";
+export * from "./jira/index.js";

@@ -76,21 +76,37 @@ function describeFinding(f: Finding): string {
 }
 
 /**
- * Baseline stage handlers: each stage runs its role's agents with a plain
- * prompt. Later work deepens them (origin context for Inform, grilling for
- * Plan review, check commands, diff-scoped reviews and aggregation, delivery);
- * the engine's transitions stay the same.
+ * Gathers a task's origin context (the Jira issue, the PR) as markdown for
+ * the Inform prompt. Runs once the worktree exists, so it can download files
+ * into it; returns undefined when the origin has nothing to add.
  */
-export function createDefaultStages(): StageHandlers {
+export type OriginContextProvider = (
+  task: Task,
+  signal: AbortSignal,
+) => Promise<string | undefined>;
+
+export interface DefaultStagesOptions {
+  originContext?: OriginContextProvider;
+}
+
+/**
+ * Baseline stage handlers: each stage runs its role's agents with a plain
+ * prompt, and Inform adds the origin context when a provider is given. Later
+ * work deepens them (grilling for Plan review, check commands, diff-scoped
+ * reviews and aggregation, delivery); the engine's transitions stay the same.
+ */
+export function createDefaultStages({ originContext }: DefaultStagesOptions = {}): StageHandlers {
   return {
     async inform(ctx) {
       // Review PR tasks gather context only; there is no plan to write.
       if (ctx.pipeline === "review") return;
       const { task } = ctx;
+      const context = await originContext?.(task, ctx.signal);
       const result = await ctx.runAgent({
         agentId: single(task, "planner"),
         prompt: prompt(
           `# Task\n\n${describeOrigin(task)}`,
+          context?.trim() ?? "",
           section("Details", task.freeText),
           section("Current plan", task.plan),
           section("Requested changes to the plan", ctx.instructions),

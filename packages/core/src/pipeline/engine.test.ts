@@ -392,6 +392,24 @@ describe("pipeline engine", () => {
     expect(task(queued.id)).toMatchObject({ status: "needs-you", gate: "plan-approval" });
     expect(() => h.engine.enqueue(running.id)).toThrow(TaskStateError);
   });
+
+  it("adds the origin context to the Inform prompt once the worktree exists", async () => {
+    const seeded = seedTask({
+      origin: { kind: "jira-issue", key: "ABC-123", connectionId: null },
+      branch: "feature/abc-123-export",
+    });
+    const originContext = vi.fn(async (t: Task) => {
+      expect(t.worktreePath).toBe(dir);
+      return "## Jira issue ABC-123: Export invoices";
+    });
+    const h = harness(() => ({}), { stages: createDefaultStages({ originContext }) });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+
+    expect(originContext).toHaveBeenCalledTimes(1);
+    const inform = h.calls.find((c) => c.stage === "inform")!;
+    expect(inform.options.prompt).toContain("## Jira issue ABC-123: Export invoices");
+  });
 });
 
 function prOrigin() {
