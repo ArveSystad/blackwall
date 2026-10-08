@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  ROLE_STAGES,
+  agentUpdateSchema,
   connectionInputSchema,
   connectionViewSchema,
   findingSchema,
@@ -8,7 +10,10 @@ import {
   newTaskInputSchema,
   repoInputSchema,
   repoScanInputSchema,
+  reviewOutputJsonSchema,
+  reviewOutputSchema,
   settingsSchema,
+  stagePermissionProfile,
   taskSchema,
 } from "./domain.js";
 
@@ -203,5 +208,52 @@ describe("connectionInputSchema", () => {
     expect(
       connectionInputSchema.safeParse({ ...jira, authMeta: { email: "me@acme.test" } }).success,
     ).toBe(true);
+  });
+});
+
+describe("agents", () => {
+  it("only lets the Implement stage edit", () => {
+    expect(stagePermissionProfile("implement")).toBe("implement");
+    for (const stage of ["inform", "plan-review", "code-review", "summarize"] as const) {
+      expect(stagePermissionProfile(stage)).toBe("read-only");
+    }
+    expect(stagePermissionProfile(ROLE_STAGES.codeReviewers)).toBe("read-only");
+  });
+
+  it("accepts partial agent updates and rejects blank permission rules", () => {
+    expect(agentUpdateSchema.parse({ model: null })).toEqual({ model: null });
+    expect(agentUpdateSchema.safeParse({ permissionOverrides: { allow: [" "] } }).success).toBe(
+      false,
+    );
+    expect(agentUpdateSchema.safeParse({ cli: "codex" }).success).toBe(false);
+  });
+});
+
+describe("reviewOutputSchema", () => {
+  const finding = {
+    severity: "high",
+    tags: ["security"],
+    file: "src/a.ts",
+    lineStart: 3,
+    lineEnd: 4,
+    title: "SQL built from input",
+    explanation: "User input reaches the query unescaped.",
+    suggestedFix: null,
+  };
+
+  it("parses a reviewer's findings and rejects unknown fields", () => {
+    expect(reviewOutputSchema.parse({ findings: [finding] }).findings).toHaveLength(1);
+    expect(reviewOutputSchema.safeParse({ findings: [{ ...finding, id: "x" }] }).success).toBe(
+      false,
+    );
+    expect(
+      reviewOutputSchema.safeParse({ findings: [{ ...finding, severity: "blocker" }] }).success,
+    ).toBe(false);
+  });
+
+  it("exports a JSON Schema for structured output", () => {
+    const schema = reviewOutputJsonSchema();
+    expect(schema.type).toBe("object");
+    expect(schema.required).toEqual(["findings"]);
   });
 });

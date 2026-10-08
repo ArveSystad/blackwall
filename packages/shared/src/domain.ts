@@ -262,9 +262,14 @@ export const repoScanResultSchema = z.object({
 });
 export type RepoScanResult = z.infer<typeof repoScanResultSchema>;
 
+/**
+ * Extra permission rules for one agent, in its CLI's own syntax (Claude:
+ * `Bash(npm test:*)`, Copilot: `shell(npm test)`). Added on top of the stage's
+ * permission profile; deny rules always win, so an allow cannot undo a built-in deny.
+ */
 export const permissionOverridesSchema = z.object({
-  allow: z.array(z.string()).optional(),
-  deny: z.array(z.string()).optional(),
+  allow: z.array(z.string().trim().min(1)).optional(),
+  deny: z.array(z.string().trim().min(1)).optional(),
 });
 export type PermissionOverrides = z.infer<typeof permissionOverridesSchema>;
 
@@ -291,6 +296,53 @@ export const agentInputSchema = agentSchema.pick({ name: true, cli: true }).exte
   permissionOverrides: permissionOverridesSchema.default({}),
 });
 export type AgentInput = z.input<typeof agentInputSchema>;
+
+/** Body for editing an agent; omitted fields keep their value. */
+export const agentUpdateSchema = z.object({
+  name: agentSchema.shape.name.optional(),
+  cli: agentSchema.shape.cli.optional(),
+  model: agentSchema.shape.model.optional(),
+  prompt: agentSchema.shape.prompt.optional(),
+  eligibleStages: agentSchema.shape.eligibleStages.optional(),
+  permissionOverrides: permissionOverridesSchema.optional(),
+});
+export type AgentUpdate = z.infer<typeof agentUpdateSchema>;
+
+/** Pipeline roles an agent can fill; `RoleAgents` holds one entry per role. */
+export const AGENT_ROLES = [
+  "planner",
+  "planReviewers",
+  "implementer",
+  "codeReviewers",
+  "summarizer",
+] as const;
+export type AgentRole = (typeof AGENT_ROLES)[number];
+
+/** Roles that take several agents (a review panel). */
+export const PANEL_ROLES = ["planReviewers", "codeReviewers"] as const satisfies AgentRole[];
+
+/** Stage each role works in; the agent must list it in `eligibleStages`. */
+export const ROLE_STAGES: Record<AgentRole, Stage> = {
+  planner: "inform",
+  planReviewers: "plan-review",
+  implementer: "implement",
+  codeReviewers: "code-review",
+  summarizer: "summarize",
+};
+
+/**
+ * What an agent may do in its worktree. `read-only`: read, search and safe git
+ * (`git diff`, `git log`, `git show`, `git status`). `implement`: also edit files
+ * and run shell commands, but never `git push`, `gh` or anything touching a remote.
+ */
+export const PERMISSION_PROFILES = ["read-only", "implement"] as const;
+export const permissionProfileSchema = z.enum(PERMISSION_PROFILES);
+export type PermissionProfile = z.infer<typeof permissionProfileSchema>;
+
+/** Only the Implement stage edits code; every other stage is read-only. */
+export function stagePermissionProfile(stage: Stage): PermissionProfile {
+  return stage === "implement" ? "implement" : "read-only";
+}
 
 export const tagSchema = z.object({ name, position: z.int().nonnegative() });
 export type Tag = z.infer<typeof tagSchema>;
@@ -485,6 +537,33 @@ export const findingSchema = z
     message: "lineEnd must not be before lineStart",
   });
 export type Finding = z.infer<typeof findingSchema>;
+
+/**
+ * One finding as a code reviewer reports it (the findings output contract).
+ * The harness adds ids, task/run/step, reviewer and status when storing it.
+ */
+export const reviewFindingSchema = z
+  .object({
+    severity: severitySchema,
+    tags: z.array(z.string().min(1)),
+    file: z.string().nullable(),
+    lineStart: z.int().positive().nullable(),
+    lineEnd: z.int().positive().nullable(),
+    title: name,
+    explanation: z.string(),
+    suggestedFix: z.string().nullable(),
+  })
+  .strict();
+export type ReviewFinding = z.infer<typeof reviewFindingSchema>;
+
+/** A code reviewer's whole output: its findings, empty when the diff is clean. */
+export const reviewOutputSchema = z.object({ findings: z.array(reviewFindingSchema) }).strict();
+export type ReviewOutput = z.infer<typeof reviewOutputSchema>;
+
+/** JSON Schema of a code reviewer's output, e.g. for Claude's `--json-schema`. */
+export function reviewOutputJsonSchema(): Record<string, unknown> {
+  return z.toJSONSchema(reviewOutputSchema);
+}
 
 /** User override on a finding (force fix / force ignore). */
 export const findingOverrideInputSchema = z.object({ status: findingOverrideSchema });

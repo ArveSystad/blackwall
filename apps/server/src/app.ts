@@ -9,8 +9,9 @@ import {
   type HealthResponse,
   type ServerEvent,
 } from "@blackwall/shared";
-import type { RepoService, Repositories } from "@blackwall/core";
+import type { AgentService, RepoService, Repositories } from "@blackwall/core";
 import { Hono } from "hono";
+import { agentRoutes } from "./agents.js";
 import { hostGuard, requireToken, tokenExchange } from "./auth.js";
 import { connectionRoutes, type ConnectionRoutesOptions } from "./connections.js";
 import { errorResponse } from "./errors.js";
@@ -27,6 +28,8 @@ export interface AppOptions {
   connections?: ConnectionRoutesOptions;
   /** Repo registry; omit to leave the repo routes out (e.g. in tests). */
   repos?: RepoService;
+  /** Agent library; omit to leave the agent routes out (e.g. in tests). */
+  agents?: AgentService;
   /** Task store; omit to leave the task routes out (e.g. in tests). */
   tasks?: Repositories["tasks"];
 }
@@ -47,6 +50,7 @@ export function createApp({
   webDist,
   connections,
   repos,
+  agents,
   tasks,
 }: AppOptions): CreatedApp {
   const app = new Hono();
@@ -67,6 +71,7 @@ export function createApp({
 
   if (connections) app.route("/api/connections", connectionRoutes(connections));
   if (repos) app.route("/api/repos", repoRoutes(repos));
+  if (agents) app.route("/api/agents", agentRoutes(agents));
   if (tasks) app.route("/api/tasks", taskRoutes(tasks));
 
   app.all("/api/*", (c) => c.json({ error: "not found" }, 404));

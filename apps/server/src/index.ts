@@ -1,4 +1,5 @@
 import {
+  createAgentService,
   createConnectionService,
   createConnectionTokens,
   createKeyringSecretStore,
@@ -37,6 +38,13 @@ try {
     tokens: connectionTokens,
   });
   const repos = createRepoService({ repos: repositories.repos, connections });
+  const agents = createAgentService({
+    agents: repositories.agents,
+    settings: repositories.settings,
+    tags: repositories.tags,
+  });
+  // First start: the built-in agents, their role defaults and the finding tags.
+  agents.seed();
 
   const { launchUrl } = await startServer({
     port: config.port,
@@ -44,6 +52,7 @@ try {
     webDevOrigin: config.webDevOrigin,
     connections: { connections, test: testConnection },
     repos,
+    agents,
     tasks: repositories.tasks,
     shutdown,
   });

@@ -1,5 +1,7 @@
 import {
+  AgentNotFoundError,
   ConnectionNotFoundError,
+  InvalidAgentError,
   InvalidConnectionError,
   InvalidRepoError,
   MissingCredentialError,
@@ -43,10 +45,18 @@ export function errorResponse(error: unknown, c: Context) {
       STALE_REPO_STATUS,
     );
   }
-  if (error instanceof ConnectionNotFoundError || error instanceof RepoNotFoundError) {
+  if (
+    error instanceof ConnectionNotFoundError ||
+    error instanceof RepoNotFoundError ||
+    error instanceof AgentNotFoundError
+  ) {
     return c.json({ error: error.message }, 404);
   }
-  if (error instanceof InvalidConnectionError || error instanceof InvalidRepoError) {
+  if (
+    error instanceof InvalidConnectionError ||
+    error instanceof InvalidRepoError ||
+    error instanceof InvalidAgentError
+  ) {
     return c.json({ error: error.message }, 400);
   }
   if (error instanceof RepoInUseError) return c.json({ error: error.message }, 409);
