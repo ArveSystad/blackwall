@@ -616,3 +616,14 @@ export type GrillQuestion = z.infer<typeof grillQuestionSchema>;
 
 export const grillAnswerInputSchema = z.object({ answer: z.string().trim().min(1) });
 export type GrillAnswerInput = z.infer<typeof grillAnswerInputSchema>;
+
+/** Whether an agent CLI is installed, detected at startup via `<cli> --version`. */
+export const cliStatusSchema = z.object({
+  cli: agentCliSchema,
+  installed: z.boolean(),
+  /** Semver from `--version`, e.g. `2.1.294`; null when not installed or unparseable. */
+  version: z.string().nullable(),
+  /** Why detection failed (command not found, non-zero exit, …); null when installed. */
+  error: z.string().nullable(),
+});
+export type CliStatus = z.infer<typeof cliStatusSchema>;

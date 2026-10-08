@@ -6,6 +6,7 @@ import {
   createRepoService,
   createRepositories,
   createSettingsService,
+  detectClis,
   openDatabase,
 } from "@blackwall/core";
 import { testConnection } from "@blackwall/integrations";
@@ -25,6 +26,8 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 }
 
 try {
+  // Runs in the background; the Settings screen shows the result.
+  const clis = detectClis();
   const database = openDatabase(config.dataDir);
   shutdown.onShutdown(() => database.close());
   const repositories = createRepositories(database.db);
@@ -60,6 +63,7 @@ try {
     agents,
     settings,
     tasks: repositories.tasks,
+    clis: () => clis,
     shutdown,
   });
   console.log(`${banner()}\n\nblackwall is running at:\n  ${launchUrl}\n`);

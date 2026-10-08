@@ -1,0 +1,200 @@
+import { permissionArgs } from "../permissions.js";
+import { runAgentProcess, type LineParser } from "./run-process.js";
+import type { AgentAdapter, AgentEvent, AgentRunOptions, AgentUsage } from "./types.js";
+import { emptyUsage } from "./types.js";
+
+/**
+ * Claude's internal tool for `--json-schema` output. Its value arrives as the
+ * result's `structured_output`, so the call is not shown as a tool call.
+ */
+const STRUCTURED_OUTPUT_TOOL = "StructuredOutput";
+
+type Json = Record<string, unknown>;
+
+const isObject = (value: unknown): value is Json =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const str = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
+
+const num = (value: unknown): number => (typeof value === "number" ? value : 0);
+
+function usageFrom(raw: unknown, costUsd?: unknown): AgentUsage {
+  if (!isObject(raw)) return emptyUsage();
+  const usage: AgentUsage = {
+    inputTokens: num(raw.input_tokens),
+    outputTokens: num(raw.output_tokens),
+    cacheReadTokens: num(raw.cache_read_input_tokens),
+    cacheWriteTokens: num(raw.cache_creation_input_tokens),
+  };
+  if (typeof costUsd === "number") usage.costUsd = costUsd;
+  return usage;
+}
+
+/** A tool result's content: a string or a list of text blocks. */
+function toolOutput(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((block) => (isObject(block) ? (str(block.text) ?? "") : ""))
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
+ * Parses `claude -p --output-format stream-json --verbose` output. Hook,
+ * rate-limit and other bookkeeping lines are dropped, as are thinking blocks.
+ */
+export function createClaudeParser(): LineParser {
+  /** Assistant messages arrive one content block per line, each repeating the usage. */
+  const counted = new Set<string>();
+  const hidden = new Set<string>();
+  let sessionId: string | undefined;
+
+  return {
+    push(line) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        return [];
+      }
+      if (!isObject(parsed)) return [];
+      const events: AgentEvent[] = [];
+
+      switch (parsed.type) {
+        case "system": {
+          const id = str(parsed.session_id);
+          if (parsed.subtype === "init" && id) {
+            sessionId = id;
+            const model = str(parsed.model);
+            events.push({ type: "session", sessionId: id, ...(model ? { model } : {}) });
+          }
+          break;
+        }
+        case "assistant": {
+          const message = parsed.message;
+          if (!isObject(message)) break;
+          const content = Array.isArray(message.content) ? message.content : [];
+          for (const block of content) {
+            if (!isObject(block)) continue;
+            if (block.type === "text") {
+              const text = str(block.text);
+              if (text?.trim()) events.push({ type: "message", text });
+            } else if (block.type === "tool_use") {
+              const id = str(block.id) ?? "";
+              const name = str(block.name) ?? "unknown";
+              if (name === STRUCTURED_OUTPUT_TOOL) {
+                hidden.add(id);
+                continue;
+              }
+              events.push({ type: "tool-call-start", id, name, input: block.input ?? {} });
+            }
+          }
+          const messageId = str(message.id);
+          if (messageId && !counted.has(messageId) && isObject(message.usage)) {
+            counted.add(messageId);
+            events.push({ type: "usage", usage: usageFrom(message.usage) });
+          }
+          break;
+        }
+        case "user": {
+          const message = parsed.message;
+          if (!isObject(message) || !Array.isArray(message.content)) break;
+          for (const block of message.content) {
+            if (!isObject(block) || block.type !== "tool_result") continue;
+            const id = str(block.tool_use_id) ?? "";
+            if (hidden.has(id)) continue;
+            events.push({
+              type: "tool-call-end",
+              id,
+              output: toolOutput(block.content),
+              isError: block.is_error === true,
+            });
+          }
+          break;
+        }
+        case "result": {
+          const id = str(parsed.session_id) ?? sessionId ?? "";
+          if (parsed.is_error === true || parsed.subtype !== "success") {
+            const errors = Array.isArray(parsed.errors)
+              ? parsed.errors.filter((e): e is string => typeof e === "string")
+              : [];
+            const message =
+              errors.join("; ") ||
+              str(parsed.result) ||
+              `Claude Code failed (${str(parsed.subtype) ?? "unknown error"})`;
+            events.push({ type: "error", message });
+            break;
+          }
+          events.push({
+            type: "result",
+            result: {
+              sessionId: id,
+              text: str(parsed.result) ?? "",
+              ...(parsed.structured_output !== undefined
+                ? { structured: parsed.structured_output }
+                : {}),
+              usage: usageFrom(parsed.usage, parsed.total_cost_usd),
+            },
+          });
+          break;
+        }
+      }
+      return events;
+    },
+  };
+}
+
+/**
+ * Arguments for a headless Claude Code run. The prompt goes to stdin: it can
+ * outgrow the Windows command line, and Claude's list flags (`--tools …`)
+ * would swallow a trailing positional prompt.
+ */
+export function claudeArgs(options: Omit<AgentRunOptions, "cwd" | "prompt" | "signal">): string[] {
+  const { systemPrompt, model, resumeSessionId, permissions, jsonSchema, maxTurns } = options;
+  if (permissions.cli !== "claude") {
+    throw new Error(`Permissions for ${permissions.cli} cannot run on Claude Code`);
+  }
+  return [
+    "-p",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    ...(model ? ["--model", model] : []),
+    ...(resumeSessionId ? ["--resume", resumeSessionId] : []),
+    ...(systemPrompt ? ["--append-system-prompt", systemPrompt] : []),
+    ...(jsonSchema ? ["--json-schema", JSON.stringify(jsonSchema)] : []),
+    ...(maxTurns !== undefined ? ["--max-turns", String(maxTurns)] : []),
+    ...permissionArgs(permissions),
+  ];
+}
+
+export interface ClaudeAdapterOptions {
+  /** Executable to run. Default `claude`. */
+  command?: string;
+  /** Arguments placed before the generated ones (e.g. a script for a fake CLI). */
+  commandArgs?: readonly string[];
+  env?: NodeJS.ProcessEnv;
+}
+
+/** Runs Claude Code headless (`claude -p`) with streamed JSON output. */
+export function createClaudeAdapter({
+  command = "claude",
+  commandArgs = [],
+  env,
+}: ClaudeAdapterOptions = {}): AgentAdapter {
+  return {
+    cli: "claude",
+    run({ cwd, prompt, signal, ...rest }) {
+      return runAgentProcess({
+        command,
+        args: [...commandArgs, ...claudeArgs(rest)],
+        cwd,
+        input: prompt,
+        signal,
+        parser: createClaudeParser(),
+        ...(env ? { env } : {}),
+      });
+    },
+  };
+}

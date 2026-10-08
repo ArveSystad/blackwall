@@ -4,6 +4,7 @@ import {
   STALE_REPO_STATUS,
   WS_PATH,
   agentSchema,
+  cliStatusSchema,
   connectionTestResultSchema,
   connectionViewSchema,
   generalSettingsSchema,
@@ -19,6 +20,7 @@ import {
   type Agent,
   type AgentInput,
   type AgentUpdate,
+  type CliStatus,
   type ConnectionTestResult,
   type ConnectionView,
   type GeneralSettings,
@@ -179,6 +181,11 @@ export function getRoleDefaults(): Promise<RoleAgents> {
 
 export function setRoleDefaults(roles: RoleAgents): Promise<RoleAgents> {
   return request("/api/agents/role-defaults", roleAgentsSchema, { method: "PUT", body: roles });
+}
+
+/** Agent CLIs found on PATH at server start, with their versions. */
+export function listClis(): Promise<CliStatus[]> {
+  return request("/api/clis", cliStatusSchema.array());
 }
 
 export function listTags(): Promise<string[]> {

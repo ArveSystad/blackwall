@@ -4,6 +4,7 @@ import {
   getRoleDefaults,
   getSettings,
   getTask,
+  listClis,
   listAgents,
   listConnections,
   listRepos,
@@ -29,6 +30,7 @@ export const queryKeys = {
   roleDefaults: ["agents", "role-defaults"] as const,
   tags: ["tags"] as const,
   settings: ["settings"] as const,
+  clis: ["clis"] as const,
 };
 
 export const tasksQuery = queryOptions({ queryKey: queryKeys.tasks, queryFn: listTasks });
@@ -48,6 +50,13 @@ export const agentsQuery = queryOptions({ queryKey: queryKeys.agents, queryFn: l
 export const roleDefaultsQuery = queryOptions({
   queryKey: queryKeys.roleDefaults,
   queryFn: getRoleDefaults,
+});
+
+/** Detected once at server start, so it never goes stale within a session. */
+export const clisQuery = queryOptions({
+  queryKey: queryKeys.clis,
+  queryFn: listClis,
+  staleTime: Infinity,
 });
 
 export const tagsQuery = queryOptions({ queryKey: queryKeys.tags, queryFn: listTags });

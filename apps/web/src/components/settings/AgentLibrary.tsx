@@ -17,6 +17,7 @@ import {
 } from "../../settings-forms";
 import { AgentTile } from "../AgentTile";
 import { ConfirmDialog } from "../ConfirmDialog";
+import { CliStatusList } from "./CliStatusList";
 import { Segmented } from "../Segmented";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -367,6 +368,7 @@ export function AgentLibrary() {
             })}
           </ul>
         )}
+        <CliStatusList />
       </section>
       {editing?.kind === "new" ? (
         <AgentEditor

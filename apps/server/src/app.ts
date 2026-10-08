@@ -6,12 +6,14 @@ import {
   APP_NAME,
   WS_PATH,
   parseClientEvent,
+  type CliStatus,
   type HealthResponse,
   type ServerEvent,
 } from "@blackwall/shared";
 import type { AgentService, RepoService, Repositories, SettingsService } from "@blackwall/core";
 import { Hono } from "hono";
 import { agentRoutes } from "./agents.js";
+import { cliRoutes } from "./clis.js";
 import { hostGuard, requireToken, tokenExchange } from "./auth.js";
 import { connectionRoutes, type ConnectionRoutesOptions } from "./connections.js";
 import { errorResponse } from "./errors.js";
@@ -35,6 +37,8 @@ export interface AppOptions {
   settings?: SettingsService;
   /** Task store; omit to leave the task routes out (e.g. in tests). */
   tasks?: Repositories["tasks"];
+  /** Agent CLI detection, started at launch; omit to leave the CLI route out (e.g. in tests). */
+  clis?: () => Promise<CliStatus[]>;
 }
 
 function send(ws: { send(data: string): void }, event: ServerEvent): void {
@@ -56,6 +60,7 @@ export function createApp({
   agents,
   settings,
   tasks,
+  clis,
 }: AppOptions): CreatedApp {
   const app = new Hono();
   const { upgradeWebSocket, injectWebSocket, wss } = createNodeWebSocket({ app });
@@ -81,6 +86,7 @@ export function createApp({
     app.route("/api/settings", settingsRoutes(settings));
   }
   if (tasks) app.route("/api/tasks", taskRoutes(tasks));
+  if (clis) app.route("/api/clis", cliRoutes(clis));
 
   app.all("/api/*", (c) => c.json({ error: "not found" }, 404));
 
