@@ -1,5 +1,6 @@
 export * from "./checks.js";
 export * from "./delivery.js";
+export * from "./diffs.js";
 export * from "./engine.js";
 export * from "./fake-adapter.js";
 export * from "./findings.js";

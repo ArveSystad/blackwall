@@ -547,6 +547,21 @@ export const pullRequestLookupSchema = z.object({
 });
 export type PullRequestLookup = z.infer<typeof pullRequestLookupSchema>;
 
+/**
+ * One round's changes on the task branch: the range Code review reviewed in
+ * that round, or (`reviewed: false`) commits made since the last review.
+ */
+export const taskDiffSchema = z.object({
+  /** Fix round: 0 for the first implementation. */
+  round: z.int().nonnegative(),
+  from: z.string(),
+  to: z.string(),
+  reviewed: z.boolean(),
+  /** Unified diff (`git diff from to`). */
+  diff: z.string(),
+});
+export type TaskDiff = z.infer<typeof taskDiffSchema>;
+
 // ---------------------------------------------------------------------------
 // Delivery
 // ---------------------------------------------------------------------------

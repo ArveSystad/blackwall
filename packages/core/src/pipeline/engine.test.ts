@@ -174,6 +174,24 @@ async function settle(engine: Harness["engine"]) {
 }
 
 describe("pipeline engine", () => {
+  it("creates a task from the form, publishes it and starts it", async () => {
+    const seeded = seedTask();
+    const h = harness((stage) => (stage === "inform" ? { text: "1. Compare with ===" } : {}));
+    const created = h.engine.createTask({
+      title: "Add dark mode",
+      origin: { kind: "free-text" },
+      mode: null,
+      repoId: seeded.repoId,
+      freeText: "Add dark mode",
+      agents: seeded.agents,
+      triageMode: "pause",
+    });
+    expect(created).toMatchObject({ status: "queued", triageMode: "pause", stage: null });
+    expect(h.events[0]).toEqual({ type: "task.upserted", payload: { task: created } });
+    await settle(h.engine);
+    expect(task(created.id)).toMatchObject({ status: "needs-you", gate: "plan-approval" });
+  });
+
   it("drives a task through every stage, with an interrupt and resume", async () => {
     const seeded = seedTask();
 

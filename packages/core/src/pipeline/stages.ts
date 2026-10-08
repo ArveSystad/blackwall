@@ -503,7 +503,7 @@ function storedRange(ctx: StageContext, step: Step): ReviewDiffRange | undefined
  * Where the task branch forked from the main branch: the local one first for
  * branches the harness created from it, the remote one first for PR branches.
  */
-async function forkPoint(
+export async function forkPoint(
   task: Task,
   git: ReviewGit,
   worktree: string,

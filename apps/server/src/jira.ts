@@ -60,6 +60,13 @@ export function createJiraOrigin({ connections, fetch: fetchImpl }: JiraOriginOp
       });
     },
 
+    /** The issue's summary, as a new task's title. */
+    async titleFor(origin: Task["origin"]): Promise<string | undefined> {
+      if (origin.kind !== "jira-issue") return undefined;
+      const client = createJiraClient(await credentials(origin), fetchImpl);
+      return (await client.getIssueSummary(origin.key)).fields?.summary ?? undefined;
+    },
+
     originContext: (async (task, signal) => {
       const origin = jiraOrigin(task);
       if (!origin) return undefined;

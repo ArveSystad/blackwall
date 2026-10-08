@@ -20,7 +20,12 @@ import { errorResponse } from "./errors.js";
 import { pullRequestRoutes } from "./github.js";
 import { repoRoutes } from "./repos.js";
 import { settingsRoutes, tagRoutes } from "./settings.js";
-import { taskRoutes, type TaskPipeline, type TaskRouteStores } from "./tasks.js";
+import {
+  taskRoutes,
+  type TaskPipeline,
+  type TaskRouteServices,
+  type TaskRouteStores,
+} from "./tasks.js";
 
 export interface AppOptions {
   token: string;
@@ -40,6 +45,8 @@ export interface AppOptions {
   tasks?: TaskRouteStores;
   /** Pipeline engine for resuming tasks, answering gates and questions; omit to leave those routes out. */
   pipeline?: TaskPipeline;
+  /** Task creation and per-round diffs; omit to leave those routes out. */
+  taskServices?: TaskRouteServices;
   /** Agent CLI detection, started at launch; omit to leave the CLI route out (e.g. in tests). */
   clis?: () => Promise<CliStatus[]>;
 }
@@ -66,6 +73,7 @@ export function createApp({
   settings,
   tasks,
   pipeline,
+  taskServices,
   clis,
 }: AppOptions): CreatedApp {
   const app = new Hono();
@@ -97,7 +105,7 @@ export function createApp({
     app.route("/api/tags", tagRoutes(settings));
     app.route("/api/settings", settingsRoutes(settings));
   }
-  if (tasks) app.route("/api/tasks", taskRoutes(tasks, pipeline));
+  if (tasks) app.route("/api/tasks", taskRoutes(tasks, pipeline, taskServices));
   if (clis) app.route("/api/clis", cliRoutes(clis));
 
   app.all("/api/*", (c) => c.json({ error: "not found" }, 404));

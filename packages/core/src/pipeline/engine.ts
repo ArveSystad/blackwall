@@ -44,6 +44,12 @@ import {
 
 type TaskPatch = Parameters<Repositories["tasks"]["update"]>[1];
 
+/** A new task as the new task form describes it, with its role agents resolved. */
+export type NewTaskValues = Pick<
+  Task,
+  "title" | "origin" | "mode" | "repoId" | "freeText" | "agents" | "triageMode"
+>;
+
 /** Prompt sent when a step resumes its interrupted CLI session. */
 export const RESUME_PROMPT =
   "You were interrupted. Continue the task from where you stopped and finish with your final answer.";
@@ -567,6 +573,14 @@ export function createPipelineEngine({
   }
 
   return {
+    /** Creates a task from the new task form and queues it to start when a slot is free. */
+    createTask(values: NewTaskValues): Task {
+      const task = r.tasks.create({ ...values, status: "queued" });
+      publish({ type: "task.upserted", payload: { task } });
+      enqueueTask(task);
+      return task;
+    },
+
     /** Queues a `queued` task to start (or continue) its pipeline when a slot is free. */
     enqueue(taskId: string): void {
       const task = getTask(taskId);

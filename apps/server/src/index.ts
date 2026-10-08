@@ -12,6 +12,7 @@ import {
   createRepoService,
   createRepositories,
   createSettingsService,
+  createTaskDiffs,
   createWorkspacePreparer,
   detectClis,
   openDatabase,
@@ -110,8 +111,20 @@ try {
       tasks: repositories.tasks,
       grillQuestions: repositories.grillQuestions,
       findings: repositories.findings,
+      runs: repositories.runs,
+      steps: repositories.steps,
+      stepEvents: repositories.stepEvents,
     },
     pipeline,
+    taskServices: {
+      newTask: {
+        repos,
+        resolveRoles: agents.resolveRoles,
+        originTitle: async (origin) =>
+          (await jira.titleFor(origin)) ?? (await github.titleFor(origin)),
+      },
+      diffs: createTaskDiffs({ repositories, git }),
+    },
     clis: () => clis,
     shutdown,
   });

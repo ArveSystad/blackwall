@@ -83,6 +83,12 @@ export function createGitHubOrigin({ connections, fetch: fetchImpl }: GitHubOrig
       return pr.head.ref;
     },
 
+    /** The pull request's title, as a new task's title. */
+    async titleFor(origin: Task["origin"]): Promise<string | undefined> {
+      if (origin.kind !== "github-pr") return undefined;
+      return (await (await prClient(origin)).getPullRequest(origin)).title;
+    },
+
     originContext: (async (task, signal) => {
       const origin = prOrigin(task);
       if (!origin) return undefined;
