@@ -1,0 +1,1 @@
+ALTER TABLE `repos` ADD `default_origin` text DEFAULT 'jira-issue' NOT NULL;

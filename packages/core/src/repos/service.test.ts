@@ -71,6 +71,7 @@ describe("repo service", () => {
       connectionId: connection.id,
       checkCommands: ["npm run test"],
       defaultCli: "claude",
+      defaultOrigin: "jira-issue",
     });
     expect(service.list()).toEqual([{ ...repo, exists: true }]);
   });
@@ -168,6 +169,11 @@ describe("repo service", () => {
       defaultCli: "copilot",
     });
     expect(service.get(repo.id).defaultCli).toBe("copilot");
+    expect(service.update(repo.id, { defaultOrigin: "github-pr" })).toMatchObject({
+      name: "App",
+      defaultOrigin: "github-pr",
+    });
+    expect(service.get(repo.id).defaultOrigin).toBe("github-pr");
 
     const connection = r.connections.create({
       name: "github.com",

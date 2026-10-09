@@ -68,6 +68,8 @@ describe("connections and repos", () => {
     expect(r.repos.getByPath("/code/app")?.checkCommands).toEqual(["pnpm test"]);
     expect(repo.defaultCli).toBe("claude");
     expect(r.repos.update(repo.id, { defaultCli: "copilot" }).defaultCli).toBe("copilot");
+    expect(repo.defaultOrigin).toBe("jira-issue");
+    expect(r.repos.update(repo.id, { defaultOrigin: "free-text" }).defaultOrigin).toBe("free-text");
 
     r.connections.delete(conn.id);
     expect(r.repos.get(repo.id)?.connectionId).toBeNull();

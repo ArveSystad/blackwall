@@ -16,6 +16,7 @@ import {
   FINDING_STATUSES,
   GATES,
   GRILL_ANSWERERS,
+  ORIGIN_KINDS,
   PR_MODES,
   STAGES,
   STEP_STATUSES,
@@ -80,6 +81,7 @@ export const repos = sqliteTable("repos", {
     .notNull()
     .default(sql`'[]'`),
   defaultCli: text("default_cli", { enum: AGENT_CLIS }).notNull().default("claude"),
+  defaultOrigin: text("default_origin", { enum: ORIGIN_KINDS }).notNull().default("jira-issue"),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

@@ -280,6 +280,8 @@ export const repoSchema = z.object({
   checkCommands: z.array(z.string().trim().min(1)),
   /** CLI whose role defaults new tasks in this repo start from. */
   defaultCli: agentCliSchema,
+  /** Origin the new-task and backlog forms open on for this repo. */
+  defaultOrigin: originKindSchema,
   createdAt: timestamp,
   updatedAt: timestamp,
 });
@@ -304,6 +306,7 @@ export const repoUpdateSchema = z.object({
   name: name.optional(),
   checkCommands: repoSchema.shape.checkCommands.optional(),
   defaultCli: agentCliSchema.optional(),
+  defaultOrigin: originKindSchema.optional(),
 });
 export type RepoUpdate = z.infer<typeof repoUpdateSchema>;
 

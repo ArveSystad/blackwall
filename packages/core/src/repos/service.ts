@@ -174,11 +174,12 @@ export function createRepoService({ repos, connections }: RepoServiceOptions) {
       existing(id);
       const parsed = repoUpdateSchema.safeParse(patch);
       if (!parsed.success) throw invalid(parsed.error);
-      const { name, checkCommands, defaultCli } = parsed.data;
+      const { name, checkCommands, defaultCli, defaultOrigin } = parsed.data;
       return repos.update(id, {
         ...(name === undefined ? {} : { name }),
         ...(checkCommands === undefined ? {} : { checkCommands }),
         ...(defaultCli === undefined ? {} : { defaultCli }),
+        ...(defaultOrigin === undefined ? {} : { defaultOrigin }),
       });
     },
 

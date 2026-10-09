@@ -38,7 +38,8 @@ import { resolveSelectedRepo, useSelectedRepoId } from "../selected-repo";
 import { ROLE_LABELS, agentsForRole, errorMessage } from "../settings-forms";
 import { jiraConnectionId, parseJiraInput } from "../task-view";
 import { AgentTile } from "./AgentTile";
-import { CheckIcon, CloseIcon, JiraIcon, PullRequestIcon, TextIcon, WarnIcon } from "./icons";
+import { CheckIcon, CloseIcon, WarnIcon } from "./icons";
+import { ORIGINS } from "./origins";
 import { Segmented } from "./Segmented";
 import { ErrorText } from "./settings/parts";
 import { Button } from "./ui/button";
@@ -49,11 +50,6 @@ import { Select } from "./ui/select";
 import { Textarea } from "./ui/textarea";
 
 const fieldLabel = "text-meta font-semibold text-foreground-strong";
-const ORIGINS: { value: OriginKind; label: string; icon: typeof JiraIcon }[] = [
-  { value: "jira-issue", label: "Jira issue", icon: JiraIcon },
-  { value: "github-pr", label: "GitHub PR", icon: PullRequestIcon },
-  { value: "free-text", label: "Free text", icon: TextIcon },
-];
 const isPanel = (role: AgentRole) => (PANEL_ROLES as readonly AgentRole[]).includes(role);
 
 function roleIds(roles: RoleAgents, role: AgentRole): string[] {
@@ -299,7 +295,8 @@ function NewTaskForm({
   const agents = useQuery(agentsQuery);
   const connections = useQuery(connectionsQuery);
 
-  const [kind, setKind] = useState<OriginKind>(item?.origin.kind ?? "jira-issue");
+  // Until the user picks an origin or types into the form, it follows the repo's default.
+  const [kindChoice, setKindChoice] = useState<OriginKind | null>(null);
   const [jiraText, setJiraText] = useState("");
   const [prUrl, setPrUrl] = useState("");
   const [mode, setMode] = useState<PrMode>(item?.mode ?? "work");
@@ -320,11 +317,22 @@ function NewTaskForm({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const usableRepos = (repos.data ?? []).filter((r) => r.exists);
+  const selectedRepo = resolveSelectedRepo(useSelectedRepoId(), usableRepos)?.id ?? null;
+  // Leaves out the PR's repo: that lookup itself depends on the origin.
+  const defaultKind =
+    (repos.data ?? []).find(
+      (r) =>
+        r.id ===
+        (backlog?.repoId ??
+          chosenRepo ??
+          selectedRepo ??
+          (usableRepos.length === 1 ? usableRepos[0]!.id : null)),
+    )?.defaultOrigin ?? "jira-issue";
+  const kind = item?.origin.kind ?? kindChoice ?? defaultKind;
   const lookup = usePullRequestLookup(kind === "github-pr" ? prUrl : "");
   const jira = parseJiraInput(jiraText);
-  const usableRepos = (repos.data ?? []).filter((r) => r.exists);
   const lookedUpRepo = lookup.state === "ok" ? lookup.result.repoId : null;
-  const selectedRepo = resolveSelectedRepo(useSelectedRepoId(), usableRepos)?.id ?? null;
   // A pick wins, then the PR's own repo, then the globally selected one.
   const repoId =
     chosenRepo ??
@@ -439,7 +447,7 @@ function NewTaskForm({
       const index = ["1", "2", "3"].indexOf(event.key);
       if (index === -1) return;
       event.preventDefault();
-      setKind(ORIGINS[index]!.value);
+      setKindChoice(ORIGINS[index]!.value);
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -512,7 +520,7 @@ function NewTaskForm({
               label="Origin"
               value={kind}
               onChange={(value) => {
-                setKind(value);
+                setKindChoice(value);
                 setError(null);
               }}
               options={ORIGINS.map(({ value, label, icon: Icon }, i) => ({
@@ -535,7 +543,10 @@ function NewTaskForm({
                     className="mono text-[12.5px]"
                     placeholder="ABC-123 or https://acme.atlassian.net/browse/ABC-123"
                     value={jiraText}
-                    onChange={(event) => setJiraText(event.target.value)}
+                    onChange={(event) => {
+                      setKindChoice(kind);
+                      setJiraText(event.target.value);
+                    }}
                   />
                 </label>
                 {jiraText.trim() && !jira && (
@@ -562,7 +573,10 @@ function NewTaskForm({
                     className="mono text-[12.5px]"
                     placeholder="https://github.com/owner/repo/pull/123"
                     value={prUrl}
-                    onChange={(event) => setPrUrl(event.target.value)}
+                    onChange={(event) => {
+                      setKindChoice(kind);
+                      setPrUrl(event.target.value);
+                    }}
                   />
                 </label>
                 {lookup.state === "loading" && (
@@ -598,7 +612,10 @@ function NewTaskForm({
                   rows={4}
                   placeholder="What should the agents do? The first line becomes the title."
                   value={freeText}
-                  onChange={(event) => setFreeText(event.target.value)}
+                  onChange={(event) => {
+                    setKindChoice(kind);
+                    setFreeText(event.target.value);
+                  }}
                 />
               </label>
             )}
@@ -710,7 +727,10 @@ function NewTaskForm({
               rows={2}
               placeholder="Anything the planner should know that the origin does not say."
               value={freeText}
-              onChange={(event) => setFreeText(event.target.value)}
+              onChange={(event) => {
+                setKindChoice(kind);
+                setFreeText(event.target.value);
+              }}
             />
           </label>
         )}
@@ -799,10 +819,12 @@ export function NewTaskModal({
   backlog?: BacklogTarget | undefined;
 }) {
   const defaults = useQuery({ ...roleDefaultsQuery, enabled: open });
+  // The form opens on the repo's default origin, so it waits for the repos too.
+  const repos = useQuery({ ...reposQuery, enabled: open });
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="max-w-[680px]">
-        {defaults.data ? (
+        {defaults.data && repos.data ? (
           <NewTaskForm defaults={defaults.data} backlog={backlog} onClose={onClose} />
         ) : (
           <div className="flex flex-col gap-2 px-5 py-6">
@@ -810,7 +832,11 @@ export function NewTaskModal({
               {backlog?.item ? "Edit backlog item" : backlog ? "Add to backlog" : "New task"}
             </DialogTitle>
             <DialogDescription className="m-0 text-muted-foreground">
-              {defaults.isError ? defaults.error.message : "Loading…"}
+              {defaults.isError
+                ? defaults.error.message
+                : repos.isError
+                  ? repos.error.message
+                  : "Loading…"}
             </DialogDescription>
           </div>
         )}

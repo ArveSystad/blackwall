@@ -16,6 +16,7 @@ import { CLI_NAMES, errorMessage, parseLines, sameList } from "../../settings-fo
 import { AgentTile } from "../AgentTile";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { RepoIcon, WarnIcon } from "../icons";
+import { ORIGINS } from "../origins";
 import { Segmented } from "../Segmented";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
@@ -149,6 +150,7 @@ function RepoEditor({
   const [name, setName] = useState(repo.name);
   const [checks, setChecks] = useState(repo.checkCommands.join("\n"));
   const [defaultCli, setDefaultCli] = useState(repo.defaultCli);
+  const [defaultOrigin, setDefaultOrigin] = useState(repo.defaultOrigin);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -158,7 +160,8 @@ function RepoEditor({
   const dirty =
     name.trim() !== repo.name ||
     !sameList(parseLines(checks), repo.checkCommands) ||
-    defaultCli !== repo.defaultCli;
+    defaultCli !== repo.defaultCli ||
+    defaultOrigin !== repo.defaultOrigin;
   const connection = connections.data?.find((c) => c.id === repo.connectionId);
   const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeys.repos });
 
@@ -180,6 +183,7 @@ function RepoEditor({
         name: name.trim(),
         checkCommands: parseLines(checks),
         defaultCli,
+        defaultOrigin,
       });
       await invalidate();
       setNotice(null);
@@ -309,6 +313,26 @@ function RepoEditor({
               New tasks here start with this CLI&apos;s role defaults.
             </span>
           </div>
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <span className={fieldLabel}>Default origin</span>
+            <Segmented
+              label="Default origin"
+              value={defaultOrigin}
+              onChange={setDefaultOrigin}
+              options={ORIGINS.map(({ value, label, icon: Icon }) => ({
+                value,
+                label: (
+                  <>
+                    <Icon size="sm" />
+                    {label}
+                  </>
+                ),
+              }))}
+            />
+            <span className="text-meta text-faint">
+              New tasks and backlog items here start on this origin.
+            </span>
+          </div>
         </div>
 
         <label className="flex flex-col gap-1.5">
@@ -347,6 +371,7 @@ function RepoEditor({
           setName(repo.name);
           setChecks(repo.checkCommands.join("\n"));
           setDefaultCli(repo.defaultCli);
+          setDefaultOrigin(repo.defaultOrigin);
           setError(null);
           setNotice(null);
         }}

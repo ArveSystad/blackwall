@@ -191,6 +191,13 @@ describe("settings and inputs", () => {
     expect(repoUpdateSchema.safeParse({ defaultCli: "codex" }).success).toBe(false);
   });
 
+  it("accepts a repo's default origin and rejects unknown ones", () => {
+    expect(repoUpdateSchema.parse({ defaultOrigin: "github-pr" })).toEqual({
+      defaultOrigin: "github-pr",
+    });
+    expect(repoUpdateSchema.safeParse({ defaultOrigin: "email" }).success).toBe(false);
+  });
+
   it("defaults the repo scan depth", () => {
     expect(repoScanInputSchema.parse({ root: "/code" })).toEqual({ root: "/code", maxDepth: 3 });
     expect(repoScanInputSchema.safeParse({ root: "/code", maxDepth: 99 }).success).toBe(false);
