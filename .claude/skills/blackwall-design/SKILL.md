@@ -71,9 +71,17 @@ Rules:
   and CTA, running dots, the active tab underline, and the current stepper node.
 - One deliberate exception: the empty-pane backdrop (`GridBackdrop`, an animated perspective grid) is
   the only decorative use of glow. It is the main pane's resting background whenever no task is
-  selected (first-run setup or "No task selected"). It stays low-opacity, uses primary/cyan only (via
+  selected (first-run setup or the active agents). It stays low-opacity, uses primary/cyan only (via
   `--grid-line` / `--grid-glow`), fades out under the centred content, stops under reduced motion,
   and never appears behind a task view, Settings or modals.
+- On that backdrop, `GridAgents` draws each active task as a small dot on the floor. These glows mark
+  state, so they follow the state rule: cyan with `animate-pulse-running` while an agent runs (one dot
+  per running step), magenta with `animate-pulse-needs` when the task needs you, faint and static
+  when queued. A dot fires a short cyan laser upward when its task changes stage (`.bw-laser`, hidden
+  under reduced motion). Each dot is a 24px link to its task, centres are at least 28px apart, and
+  needs-you dots stack above running and queued ones; hover or focus shows a card with the task,
+  stage and current work. "No active tasks" and Create task show only when nothing is active; if the
+  tasks or agents cannot load, the pane says so with Retry instead.
 - The Stats screen (`/stats`) is the second sanctioned exception. It may use `GridBackdrop` behind
   its content (the backdrop's parent does not scroll; content scrolls in a sibling and stays within
   the ~520px faded column), and the done-tinted glow (`--glow-done` / `--glow-text-done`, i.e.

@@ -1,13 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
+import { gridDots } from "../agent-dots";
+import { GridAgents } from "../components/GridAgents";
 import { GridBackdrop } from "../components/GridBackdrop";
 import { CheckIcon, PlusIcon, WallIcon } from "../components/icons";
 import { NewTaskModal } from "../components/NewTaskModal";
 import { Button } from "../components/ui/button";
 import { Kbd } from "../components/ui/kbd";
 import { cn } from "../lib/utils";
-import { connectionsQuery, reposQuery, tasksQuery } from "../query";
+import { activeAgentsQuery, agentsQuery, connectionsQuery, reposQuery, tasksQuery } from "../query";
 
 function SetupStep({
   number,
@@ -123,34 +125,96 @@ function FirstRun() {
   );
 }
 
-/** Main pane with no task selected: first-run setup, or a prompt to pick or create a task. */
+/** The centred block of the empty pane: a title, a few lines and Create task. */
+function Message({
+  title,
+  children,
+  onCreate,
+}: {
+  title: string;
+  children: ReactNode;
+  onCreate: () => void;
+}) {
+  return (
+    <div className="relative z-10 flex flex-col items-center gap-2 text-center">
+      <WallIcon className="size-7 text-faint" />
+      <span className="font-medium text-foreground-strong">{title}</span>
+      {children}
+      <Button variant="primary" className="mt-2" onClick={onCreate}>
+        <PlusIcon />
+        Create task
+        <Kbd onFill aria-hidden="true">
+          N
+        </Kbd>
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * Main pane with no task selected: first-run setup, or the active agents as
+ * dots on the grid. With nothing active it prompts to pick or create a task;
+ * when the tasks or agents cannot load it says so, with Retry.
+ */
 export function Home() {
   const tasks = useQuery(tasksQuery);
+  const active = useQuery(activeAgentsQuery);
+  const agents = useQuery(agentsQuery);
   const firstRun = tasks.data?.length === 0;
   const [creating, setCreating] = useState(false);
+  const dots = useMemo(
+    () => gridDots(tasks.data ?? [], active.data ?? []),
+    [tasks.data, active.data],
+  );
+  const taskById = useMemo(
+    () => new Map((tasks.data ?? []).map((task) => [task.id, task])),
+    [tasks.data],
+  );
+  const library = useMemo(
+    () => new Map((agents.data ?? []).map((agent) => [agent.id, agent])),
+    [agents.data],
+  );
+  // A failed refetch keeps the last data, so only a query that never loaded is an error.
+  const tasksFailed = tasks.isError && !tasks.data;
+  const activeFailed = active.isError && !active.data;
+  const loaded = !!tasks.data && !!active.data;
+  const create = () => setCreating(true);
+
   return (
     <div className="relative isolate flex h-full items-center justify-center overflow-auto px-6 py-10">
       <GridBackdrop />
       {firstRun ? (
         <FirstRun />
-      ) : (
-        <div className="relative z-10 flex flex-col items-center gap-2 text-center">
-          <WallIcon className="size-7 text-faint" />
-          <span className="font-medium text-foreground-strong">No task selected</span>
+      ) : tasksFailed || activeFailed ? (
+        <Message
+          title={tasksFailed ? "Could not load tasks" : "Could not load agents"}
+          onCreate={create}
+        >
+          <span className="max-w-80 text-meta text-muted-foreground">
+            {(tasksFailed ? tasks.error : active.error)?.message}{" "}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                if (tasksFailed) void tasks.refetch();
+                if (activeFailed) void active.refetch();
+              }}
+            >
+              Retry
+            </Button>
+          </span>
+        </Message>
+      ) : !loaded ? null : dots.length === 0 ? (
+        <Message title="No active tasks" onCreate={create}>
           <span className="text-meta text-muted-foreground">
             Pick a task from the inbox to see its progress.
           </span>
           <span className="text-meta text-muted-foreground">Why don't you create one?</span>
-          <Button variant="primary" className="mt-2" onClick={() => setCreating(true)}>
-            <PlusIcon />
-            Create task
-            <Kbd onFill aria-hidden="true">
-              N
-            </Kbd>
-          </Button>
-          <NewTaskModal open={creating} onClose={() => setCreating(false)} />
-        </div>
+        </Message>
+      ) : (
+        <GridAgents dots={dots} tasks={taskById} agents={library} />
       )}
+      <NewTaskModal open={creating} onClose={() => setCreating(false)} />
     </div>
   );
 }

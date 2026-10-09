@@ -249,6 +249,7 @@
   --text-code--line-height: 19px;
 
   --animate-pulse-running: bw-pulse 1.6s ease-in-out infinite;
+  --animate-pulse-needs: bw-pulse-needs 1.4s ease-in-out infinite;
   /* Stats chart bars grow in once on mount; height changes after that are not animated. */
   --animate-bar-grow: bw-bar-grow 480ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
   --animate-blink-needs: bw-blink 1.2s steps(2, jump-none) infinite;
@@ -271,6 +272,27 @@
   }
   50% {
     box-shadow: 0 0 0 4px transparent;
+  }
+}
+
+@keyframes bw-pulse-needs {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--st-needs) 80%, transparent);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+}
+
+@keyframes bw-laser {
+  0% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-55vh);
+    opacity: 0;
   }
 }
 
@@ -438,6 +460,35 @@
   /* Glow is dark only. */
   :root[data-theme="light"] .bw-stream {
     filter: none;
+  }
+
+  /* ---------- stage-change laser (GridAgents.tsx) ----------
+   * A cyan beam fired upward from an agent dot when its task changes stage.
+   * It ends transparent, so a finished beam needs no cleanup. The base
+   * reduced-motion rule would freeze it visible, so it is hidden instead.
+   */
+  .bw-laser {
+    position: absolute;
+    left: 50%;
+    bottom: 50%;
+    width: 2px;
+    height: 40px;
+    margin-left: -1px;
+    background: linear-gradient(to top, transparent, var(--cyan));
+    filter: drop-shadow(0 0 4px var(--cyan));
+    pointer-events: none;
+    animation: bw-laser 900ms ease-out forwards;
+  }
+
+  /* Glow is dark only. */
+  :root[data-theme="light"] .bw-laser {
+    filter: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .bw-laser {
+      display: none;
+    }
   }
 }
 

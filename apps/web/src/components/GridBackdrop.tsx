@@ -1,7 +1,8 @@
 /**
  * Decorative resting background of the empty main pane (first-run setup steps
- * or "No task selected"; never behind a task view, Settings or modals): a perspective floor that
+ * or "No active tasks"; never behind a task view, Settings or modals): a perspective floor that
  * drifts toward the viewer, a horizon glow and a slow scanline (dark only).
+ * `GridAgents` draws the active agents as dots on top of it.
  * Also the full-page Stats screen's background.
  * Pure CSS (see `.bw-grid*` in styles.css); nothing runs per frame in JS.
  * The parent must be `relative` and must not scroll: put scrolling content in
