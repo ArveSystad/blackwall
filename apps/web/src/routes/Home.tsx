@@ -1,9 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { GridBackdrop } from "../components/GridBackdrop";
-import { CheckIcon, WallIcon } from "../components/icons";
+import { CheckIcon, PlusIcon, WallIcon } from "../components/icons";
+import { NewTaskModal } from "../components/NewTaskModal";
 import { Button } from "../components/ui/button";
+import { Kbd } from "../components/ui/kbd";
 import { cn } from "../lib/utils";
 import { connectionsQuery, reposQuery, tasksQuery } from "../query";
 
@@ -121,10 +123,11 @@ function FirstRun() {
   );
 }
 
-/** Main pane with no task selected: first-run setup, or a prompt to pick a task. */
+/** Main pane with no task selected: first-run setup, or a prompt to pick or create a task. */
 export function Home() {
   const tasks = useQuery(tasksQuery);
   const firstRun = tasks.data?.length === 0;
+  const [creating, setCreating] = useState(false);
   return (
     <div className="relative isolate flex h-full items-center justify-center overflow-auto px-6 py-10">
       <GridBackdrop />
@@ -137,6 +140,15 @@ export function Home() {
           <span className="text-meta text-muted-foreground">
             Pick a task from the inbox to see its progress.
           </span>
+          <span className="text-meta text-muted-foreground">Why don't you create one?</span>
+          <Button variant="primary" className="mt-2" onClick={() => setCreating(true)}>
+            <PlusIcon />
+            Create task
+            <Kbd onFill aria-hidden="true">
+              N
+            </Kbd>
+          </Button>
+          <NewTaskModal open={creating} onClose={() => setCreating(false)} />
         </div>
       )}
     </div>
