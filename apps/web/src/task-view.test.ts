@@ -30,6 +30,7 @@ import {
   parseDiff,
   parseJiraInput,
   sortFindings,
+  stepModel,
   toolTarget,
   visibleFindings,
 } from "./task-view";
@@ -144,6 +145,38 @@ describe("currentActivity", () => {
     expect(currentActivity([read, event(2, "error", { message: "rate limited" })])).toBe(
       "rate limited",
     );
+  });
+});
+
+describe("stepModel", () => {
+  it("is null without a reported model", () => {
+    expect(stepModel([])).toBeNull();
+    expect(stepModel([event(1, "session", { sessionId: "x" })])).toBeNull();
+  });
+
+  it("returns the model from the session event", () => {
+    expect(stepModel([event(1, "session", { sessionId: "x", model: "claude-opus-5-5" })])).toBe(
+      "claude-opus-5-5",
+    );
+  });
+
+  it("takes the latest session after a resume", () => {
+    expect(
+      stepModel([
+        event(1, "session", { sessionId: "x", model: "claude-opus-5-5" }),
+        event(2, "text", { text: "hi" }),
+        event(3, "session", { sessionId: "y", model: "claude-haiku-5-5" }),
+      ]),
+    ).toBe("claude-haiku-5-5");
+  });
+
+  it("ignores models outside session events", () => {
+    expect(stepModel([event(1, "text", { text: "hi", model: "gpt" })])).toBeNull();
+  });
+
+  it("ignores non-string and empty models", () => {
+    expect(stepModel([event(1, "session", { sessionId: "x", model: 42 })])).toBeNull();
+    expect(stepModel([event(1, "session", { sessionId: "x", model: "" })])).toBeNull();
   });
 });
 

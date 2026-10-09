@@ -386,6 +386,17 @@ export function currentActivity(events: readonly StepEvent[]): string | null {
   }
 }
 
+/** Model the CLI reported for the step's session, if any. */
+export function stepModel(events: readonly StepEvent[]): string | null {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i]!;
+    if (event.type !== "session") continue;
+    const payload = record(event.payload);
+    if (typeof payload.model === "string" && payload.model) return payload.model;
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Checks
 // ---------------------------------------------------------------------------

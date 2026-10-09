@@ -7,7 +7,7 @@ import { WallIcon } from "../components/icons";
 import { Button } from "../components/ui/button";
 import { originKey, relativeTime } from "../inbox";
 import { activeAgentsQuery, agentsQuery, reposQuery, stepEventsQuery, tasksQuery } from "../query";
-import { STAGE_LABELS, currentActivity } from "../task-view";
+import { STAGE_LABELS, currentActivity, stepModel } from "../task-view";
 
 /** Re-renders every minute so elapsed times stay current. */
 function useNow(): Date {
@@ -29,7 +29,7 @@ function Message({ title, children }: { title: string; children?: ReactNode }) {
   );
 }
 
-/** One running agent: who it is, the stage, what it is doing now and the task it works on. */
+/** One running agent: who it is, the model, the stage, what it is doing now and the task it works on. */
 function AgentRow({
   step,
   agent,
@@ -45,6 +45,7 @@ function AgentRow({
 }) {
   const events = useQuery(stepEventsQuery(step.taskId, step.id));
   const activity = events.data ? currentActivity(events.data) : null;
+  const model = (events.data && stepModel(events.data)) ?? agent?.model ?? null;
   const since = step.startedAt ?? step.createdAt;
   return (
     <li className="flex flex-col gap-1.5 rounded-lg border border-border bg-card px-3.5 py-2.5">
@@ -55,6 +56,12 @@ function AgentRow({
         />
         {agent && <AgentTile cli={agent.cli} />}
         <span className="font-medium text-foreground-strong">{agent?.name ?? "Deleted agent"}</span>
+        <span
+          className="mono max-w-40 truncate text-label text-muted-foreground"
+          title={model ?? undefined}
+        >
+          {model ?? "CLI default"}
+        </span>
         <span className="label text-cyan">{STAGE_LABELS[step.stage]}</span>
         {step.round > 0 && <span className="mono text-label text-faint">round {step.round}</span>}
         <span className="flex-1" />
