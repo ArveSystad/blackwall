@@ -10,6 +10,7 @@ import {
   type Task,
   type TaskOrigin,
 } from "@blackwall/shared";
+import { groupTasks } from "./inbox";
 import { CLI_NAMES } from "./settings-forms";
 
 export const PRIORITY_LABELS: Record<BacklogPriority, string> = {
@@ -31,6 +32,37 @@ export function groupBacklog(items: readonly BacklogItemView[]): BacklogGroup[] 
   })).filter((g) => g.items.length > 0);
 }
 
+export interface BacklogSections {
+  /** Needs-you, running and queued tasks, from the backlog or not. */
+  active: Task[];
+  /** Priority buckets, without promoted items whose task is active. */
+  groups: BacklogGroup[];
+  /** Finished tasks no item links to (started outside the backlog). */
+  earlier: Task[];
+}
+
+/**
+ * The backlog view's layout: active tasks on top, then the priority buckets,
+ * then finished tasks that never came from the backlog. `tasks` are the repo's.
+ * An active task shows once, at the top, never also as its promoted item.
+ */
+export function backlogSections(
+  items: readonly BacklogItemView[],
+  tasks: readonly Task[],
+): BacklogSections {
+  const { needsYou, running, recent } = groupTasks(tasks);
+  const active = [...needsYou, ...running];
+  const activeIds = new Set(active.map((t) => t.id));
+  const linked = new Set(items.flatMap((i) => (i.taskId ? [i.taskId] : [])));
+  return {
+    active,
+    groups: groupBacklog(
+      items.filter((i) => !(i.status === "promoted" && i.taskId && activeIds.has(i.taskId))),
+    ),
+    earlier: recent.filter((t) => !linked.has(t.id)),
+  };
+}
+
 /** Items not yet promoted to a task (waiting or paused). */
 export function pendingCount(items: readonly Pick<BacklogItemView, "status">[]): number {
   return items.filter((i) => i.status !== "promoted").length;
@@ -39,16 +71,18 @@ export function pendingCount(items: readonly Pick<BacklogItemView, "status">[]):
 /**
  * The whole backlog's id order after moving `id` one step (`delta` -1 up,
  * +1 down) inside its priority bucket, or null when it cannot move further.
- * The reorder API wants every item of the repo listed once.
+ * The reorder API wants every item of the repo listed once. With `shown`,
+ * the step skips items not on screen, so a move never swaps with a hidden one.
  */
 export function moveInBucket(
   items: readonly BacklogItemView[],
   id: string,
   delta: -1 | 1,
+  shown?: ReadonlySet<string>,
 ): string[] | null {
   const item = items.find((i) => i.id === id);
   if (!item) return null;
-  const bucket = items.filter((i) => i.priority === item.priority);
+  const bucket = items.filter((i) => i.priority === item.priority && (!shown || shown.has(i.id)));
   const from = bucket.indexOf(item);
   const to = from + delta;
   if (to < 0 || to >= bucket.length) return null;

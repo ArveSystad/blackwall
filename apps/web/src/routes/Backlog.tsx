@@ -13,7 +13,7 @@ import {
 } from "../api";
 import {
   PRIORITY_LABELS,
-  groupBacklog,
+  backlogSections,
   itemState,
   moveInBucket,
   nextBacklogItem,
@@ -380,6 +380,54 @@ function BacklogRow({
   );
 }
 
+/** A task in the backlog view; the whole row opens it. */
+function TaskRow({ task, fromBacklog }: { task: Task; fromBacklog: boolean }) {
+  const OriginIcon = ORIGIN_ICONS[task.origin.kind];
+  return (
+    <li>
+      <Link
+        to="/tasks/$taskId"
+        params={{ taskId: task.id }}
+        className="flex min-h-10 items-center gap-2.5 rounded-lg border border-transparent py-1.5 pr-2 pl-1.5 text-foreground no-underline hover:bg-card hover:no-underline focus-visible:border-cyan focus-visible:shadow-ring focus-visible:outline-none"
+      >
+        <OriginIcon size="sm" className="text-muted-foreground" />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate font-medium text-foreground-strong">{task.title}</span>
+          <span className="flex min-w-0 items-center gap-2 text-label text-faint">
+            <span className="mono truncate">{originKey(task)}</span>
+            {fromBacklog && <span className="whitespace-nowrap">from backlog</span>}
+          </span>
+        </span>
+        <StatusBadge status={task.status} />
+      </Link>
+    </li>
+  );
+}
+
+/** A labelled group of rows: label, count and a rule. */
+function Section({
+  label,
+  ariaLabel,
+  count,
+  children,
+}: {
+  label: string;
+  ariaLabel: string;
+  count: number;
+  children: ReactNode;
+}) {
+  return (
+    <section aria-label={ariaLabel}>
+      <h2 className="m-0 flex items-center gap-2 px-1.5 pt-1 pb-1">
+        <span className="label text-muted-foreground">{label}</span>
+        <span className="mono text-label text-faint">{count}</span>
+        <span className="h-px flex-1 bg-border" />
+      </h2>
+      <ul className="m-0 flex list-none flex-col gap-0.5 p-0">{children}</ul>
+    </section>
+  );
+}
+
 /** Title-only free text items, added with Enter. */
 function QuickAdd({ repoId, onError }: { repoId: string; onError: (error: string) => void }) {
   const queryClient = useQueryClient();
@@ -464,6 +512,18 @@ export function Backlog({ repoId }: { repoId: string }) {
   const taskById = useMemo(
     () => new Map<string, Task>(repoTasks.map((t) => [t.id, t])),
     [repoTasks],
+  );
+  const sections = useMemo(
+    () => backlogSections(items, tasks.isError ? [] : repoTasks),
+    [items, repoTasks, tasks.isError],
+  );
+  const shown = useMemo(
+    () => new Set(sections.groups.flatMap((g) => g.items.map((i) => i.id))),
+    [sections],
+  );
+  const linked = useMemo(
+    () => new Set(items.flatMap((i) => (i.taskId ? [i.taskId] : []))),
+    [items],
   );
   const titles = useMemo(() => new Map(items.map((i) => [i.id, i.title])), [items]);
   const library = useMemo(() => new Map((agents.data ?? []).map((a) => [a.id, a])), [agents.data]);
@@ -577,7 +637,7 @@ export function Backlog({ repoId }: { repoId: string }) {
           </p>
         )}
 
-        {backlog.isPending ? (
+        {backlog.isPending || tasks.isPending ? (
           <Message title="Loading backlog…" />
         ) : backlog.isError ? (
           <Message title="Could not load the backlog">
@@ -586,78 +646,98 @@ export function Backlog({ repoId }: { repoId: string }) {
               Retry
             </Button>
           </Message>
-        ) : items.length === 0 ? (
-          <Message title="Nothing waiting">
-            Park work here and the runner starts it when the repo is idle. Quick add a line above,
-            or use Add to backlog for a Jira issue or PR.
-          </Message>
         ) : (
           <>
-            {groupBacklog(items).map((group) => (
-              <section
+            {tasks.isError && (
+              <Message title="Could not load tasks">
+                {tasks.error.message}{" "}
+                <Button variant="ghost" size="sm" onClick={() => void tasks.refetch()}>
+                  Retry
+                </Button>
+              </Message>
+            )}
+            {items.length === 0 &&
+              sections.active.length === 0 &&
+              sections.earlier.length === 0 && (
+                <Message title="Nothing waiting">
+                  Park work here and the runner starts it when the repo is idle. Quick add a line
+                  above, or use Add to backlog for a Jira issue or PR.
+                </Message>
+              )}
+            {sections.active.length > 0 && (
+              <Section label="In progress" ariaLabel="In progress" count={sections.active.length}>
+                {sections.active.map((task) => (
+                  <TaskRow key={task.id} task={task} fromBacklog={linked.has(task.id)} />
+                ))}
+              </Section>
+            )}
+            {sections.groups.map((group) => (
+              <Section
                 key={group.priority}
-                aria-label={`${PRIORITY_LABELS[group.priority]} priority`}
+                label={PRIORITY_LABELS[group.priority]}
+                ariaLabel={`${PRIORITY_LABELS[group.priority]} priority`}
+                count={group.items.length}
               >
-                <h2 className="m-0 flex items-center gap-2 px-1.5 pt-1 pb-1">
-                  <span className="label text-muted-foreground">
-                    {PRIORITY_LABELS[group.priority]}
-                  </span>
-                  <span className="mono text-label text-faint">{group.items.length}</span>
-                  <span className="h-px flex-1 bg-border" />
-                </h2>
-                <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
-                  {group.items.map((item) => (
-                    <BacklogRow
-                      key={item.id}
-                      item={item}
-                      state={itemState(item, { nextId, titles, tasks: taskById })}
-                      dependsOn={item.dependsOn.map((id) => titles.get(id) ?? "a deleted item")}
-                      dragging={dragging}
-                      onDragStart={() => setDragging(item)}
-                      onDragEnd={() => setDragging(null)}
-                      onDrop={() => {
-                        if (dragging) reorder(reorderIds(items, dragging.id, item.id));
-                        setDragging(null);
-                      }}
-                      onMove={(delta) => reorder(moveInBucket(items, item.id, delta), item.id)}
-                      onFocusStep={(delta) => focusStep(item.id, delta)}
-                      onEdit={() => setDialog({ kind: "edit", item })}
-                      onRun={() =>
-                        void act(async () => {
-                          const task = await runBacklogItem(repoId, item.id);
-                          void navigate({ to: "/tasks/$taskId", params: { taskId: task.id } });
-                        })
-                      }
-                      onTogglePause={() =>
-                        void act(() =>
-                          updateBacklogItem(repoId, item.id, {
-                            status: item.status === "paused" ? "waiting" : "paused",
-                          }),
-                        )
-                      }
-                      onDelete={() => setDialog({ kind: "delete", item })}
-                    />
-                  ))}
-                </ul>
-              </section>
+                {group.items.map((item) => (
+                  <BacklogRow
+                    key={item.id}
+                    item={item}
+                    state={itemState(item, { nextId, titles, tasks: taskById })}
+                    dependsOn={item.dependsOn.map((id) => titles.get(id) ?? "a deleted item")}
+                    dragging={dragging}
+                    onDragStart={() => setDragging(item)}
+                    onDragEnd={() => setDragging(null)}
+                    onDrop={() => {
+                      if (dragging) reorder(reorderIds(items, dragging.id, item.id));
+                      setDragging(null);
+                    }}
+                    onMove={(delta) => reorder(moveInBucket(items, item.id, delta, shown), item.id)}
+                    onFocusStep={(delta) => focusStep(item.id, delta)}
+                    onEdit={() => setDialog({ kind: "edit", item })}
+                    onRun={() =>
+                      void act(async () => {
+                        const task = await runBacklogItem(repoId, item.id);
+                        void navigate({ to: "/tasks/$taskId", params: { taskId: task.id } });
+                      })
+                    }
+                    onTogglePause={() =>
+                      void act(() =>
+                        updateBacklogItem(repoId, item.id, {
+                          status: item.status === "paused" ? "waiting" : "paused",
+                        }),
+                      )
+                    }
+                    onDelete={() => setDialog({ kind: "delete", item })}
+                  />
+                ))}
+              </Section>
             ))}
-            <p className="m-0 flex flex-wrap items-center gap-x-3 gap-y-1 px-1.5 text-label text-faint">
-              <span>
-                <Kbd>J</Kbd> <Kbd>K</Kbd> move
-              </span>
-              <span>
-                <Kbd>Alt ↑</Kbd> <Kbd>Alt ↓</Kbd> reorder
-              </span>
-              <span>
-                <Kbd>↵</Kbd> edit
-              </span>
-              <span>
-                <Kbd>P</Kbd> pause
-              </span>
-              <span>
-                <Kbd>Del</Kbd> delete
-              </span>
-            </p>
+            {sections.earlier.length > 0 && (
+              <Section label="Other tasks" ariaLabel="Other tasks" count={sections.earlier.length}>
+                {sections.earlier.map((task) => (
+                  <TaskRow key={task.id} task={task} fromBacklog={false} />
+                ))}
+              </Section>
+            )}
+            {sections.groups.length > 0 && (
+              <p className="m-0 flex flex-wrap items-center gap-x-3 gap-y-1 px-1.5 text-label text-faint">
+                <span>
+                  <Kbd>J</Kbd> <Kbd>K</Kbd> move
+                </span>
+                <span>
+                  <Kbd>Alt ↑</Kbd> <Kbd>Alt ↓</Kbd> reorder
+                </span>
+                <span>
+                  <Kbd>↵</Kbd> edit
+                </span>
+                <span>
+                  <Kbd>P</Kbd> pause
+                </span>
+                <span>
+                  <Kbd>Del</Kbd> delete
+                </span>
+              </p>
+            )}
           </>
         )}
       </div>

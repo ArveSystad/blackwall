@@ -1,6 +1,7 @@
 import type { QuotaState, RepoBacklogRunner } from "@blackwall/shared";
 import { describe, expect, it } from "vitest";
 import {
+  backlogSections,
   countdown,
   defaultBacklogTitle,
   groupBacklog,
@@ -35,6 +36,63 @@ describe("groupBacklog", () => {
   });
 });
 
+describe("backlogSections", () => {
+  const at = (minute: number) => new Date(`2026-10-08T10:${String(minute).padStart(2, "0")}:00Z`);
+
+  it("puts active tasks on top, needs-you first, each newest first, from the backlog or not", () => {
+    const running = makeTask({ status: "running", updatedAt: at(1) });
+    const queued = makeTask({ status: "queued", updatedAt: at(3) });
+    const needsOld = makeTask({ status: "needs-you", updatedAt: at(2) });
+    const needsNew = makeTask({ status: "needs-you", updatedAt: at(4) });
+    const promoted = makeBacklogItem({ status: "promoted", taskId: running.id });
+    const { active } = backlogSections([promoted], [running, queued, needsOld, needsNew]);
+    expect(active).toEqual([needsNew, needsOld, queued, running]);
+  });
+
+  it("hides promoted items whose task is active, keeping ones whose task finished or is gone", () => {
+    const live = makeTask({ status: "running" });
+    const finished = makeTask({ status: "done" });
+    const waiting = makeBacklogItem();
+    const paused = makeBacklogItem({ status: "paused" });
+    const toLive = makeBacklogItem({ status: "promoted", taskId: live.id });
+    const toDone = makeBacklogItem({ status: "promoted", taskId: finished.id });
+    const toGone = makeBacklogItem({ status: "promoted", taskId: "gone" });
+    const { groups } = backlogSections([waiting, toLive, paused, toDone, toGone], [live, finished]);
+    expect(groups).toEqual([{ priority: "normal", items: [waiting, paused, toDone, toGone] }]);
+  });
+
+  it("leaves out a bucket whose only item became an active task", () => {
+    const live = makeTask({ status: "queued" });
+    const high = makeBacklogItem({ priority: "high", status: "promoted", taskId: live.id });
+    const low = makeBacklogItem({ priority: "low" });
+    const { groups } = backlogSections([high, low], [live]);
+    expect(groups.map((g) => g.priority)).toEqual(["low"]);
+  });
+
+  it("lists finished tasks no item links to, newest first", () => {
+    const done = makeTask({ status: "done", updatedAt: at(1) });
+    const failed = makeTask({ status: "failed", updatedAt: at(3) });
+    const interrupted = makeTask({ status: "interrupted", updatedAt: at(2) });
+    const fromBacklog = makeTask({ status: "done", updatedAt: at(4) });
+    const item = makeBacklogItem({ status: "promoted", taskId: fromBacklog.id });
+    const { earlier } = backlogSections([item], [done, failed, interrupted, fromBacklog]);
+    expect(earlier).toEqual([failed, interrupted, done]);
+  });
+
+  it("without tasks groups every item as groupBacklog does", () => {
+    const items = [
+      makeBacklogItem({ priority: "low" }),
+      makeBacklogItem({ status: "promoted", taskId: "t-any" }),
+      makeBacklogItem({ priority: "high", status: "paused" }),
+    ];
+    expect(backlogSections(items, [])).toEqual({
+      active: [],
+      groups: groupBacklog(items),
+      earlier: [],
+    });
+  });
+});
+
 describe("moveInBucket and reorderIds", () => {
   const high = makeBacklogItem({ priority: "high" });
   const n1 = makeBacklogItem();
@@ -51,6 +109,13 @@ describe("moveInBucket and reorderIds", () => {
     expect(moveInBucket(items, n1.id, -1)).toBeNull();
     expect(moveInBucket(items, n3.id, 1)).toBeNull();
     expect(moveInBucket(items, high.id, 1)).toBeNull();
+  });
+
+  it("steps past items not shown, still listing every item", () => {
+    const shown = new Set([high.id, n1.id, n3.id]);
+    expect(moveInBucket(items, n3.id, -1, shown)).toEqual([high.id, n3.id, n1.id, n2.id]);
+    expect(moveInBucket(items, n1.id, 1, shown)).toEqual([high.id, n2.id, n3.id, n1.id]);
+    expect(moveInBucket(items, n3.id, 1, shown)).toBeNull();
   });
 
   it("drops onto another item of the same bucket only", () => {
