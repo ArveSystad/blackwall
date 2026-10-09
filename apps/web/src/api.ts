@@ -36,6 +36,7 @@ import {
   type BacklogItem,
   type BacklogItemView,
   type CliStatus,
+  type ConnectionInput,
   type ConnectionTestResult,
   type ConnectionView,
   type DeliveryPlan,
@@ -393,6 +394,10 @@ export function listConnections(): Promise<ConnectionView[]> {
   return request("/api/connections", connectionViewSchema.array());
 }
 
+export function createConnection(input: ConnectionInput): Promise<ConnectionView> {
+  return request("/api/connections", connectionViewSchema, { method: "POST", body: input });
+}
+
 export function deleteConnection(id: string): Promise<void> {
   return requestEmpty(at("/api/connections", id), { method: "DELETE" });
 }
@@ -439,15 +444,12 @@ export function saveCredential(
       { method: "PUT", body: { token } },
     );
   }
-  return request("/api/connections", connectionViewSchema, {
-    method: "POST",
-    body: {
-      name: missing.host,
-      kind: missing.kind,
-      baseUrl: `https://${missing.host}`,
-      authMeta: missing.kind === "jira" ? { [JIRA_EMAIL_META]: email ?? "" } : {},
-      token,
-    },
+  return createConnection({
+    name: missing.host,
+    kind: missing.kind,
+    baseUrl: `https://${missing.host}`,
+    authMeta: missing.kind === "jira" ? { [JIRA_EMAIL_META]: email ?? "" } : {},
+    token,
   });
 }
 

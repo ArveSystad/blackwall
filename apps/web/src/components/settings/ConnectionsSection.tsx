@@ -1,15 +1,33 @@
-import type { ConnectionView, MissingCredential } from "@blackwall/shared";
+import type { ConnectionKind, ConnectionView, MissingCredential } from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { MissingCredentialError, deleteConnection, forgetToken, testConnection } from "../../api";
+import { useState, type FormEvent } from "react";
+import {
+  MissingCredentialError,
+  createConnection,
+  deleteConnection,
+  forgetToken,
+  testConnection,
+} from "../../api";
 import { useWithCredential } from "../../credentials";
+import { missingTokenCopy } from "../../missing-token";
 import { connectionsQuery, queryKeys } from "../../query";
 import { ConfirmDialog } from "../ConfirmDialog";
+import { EyeIcon, EyeOffIcon } from "../icons";
 import { MissingTokenModal } from "../MissingTokenModal";
+import { Segmented } from "../Segmented";
 import { StatusBadge } from "../StatusBadge";
 import { Button } from "../ui/button";
-import { errorMessage } from "../../settings-forms";
-import { Empty, ErrorText, SectionHeader } from "./parts";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
+import { Input } from "../ui/input";
+import { Kbd } from "../ui/kbd";
+import {
+  connectionDraftHost,
+  connectionDraftToInput,
+  emptyConnectionDraft,
+  errorMessage,
+  type ConnectionDraft,
+} from "../../settings-forms";
+import { Empty, ErrorText, SectionHeader, fieldLabel } from "./parts";
 
 type TestState =
   | { state: "idle" }
@@ -158,24 +176,217 @@ function ConnectionRow({ connection }: { connection: ConnectionView }) {
   );
 }
 
+function AddConnectionDialog({
+  onClose,
+  onDone,
+}: {
+  onClose: () => void;
+  onDone: (message: string) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [draft, setDraft] = useState<ConnectionDraft>(() => emptyConnectionDraft());
+  const [reveal, setReveal] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const jira = draft.kind === "jira";
+  // The Jira link is fixed; GitHub's is built from the host, so it waits for a valid one.
+  const host = connectionDraftHost(draft.host);
+  const copy =
+    jira || host !== null
+      ? missingTokenCopy({
+          error: "MissingCredential",
+          kind: draft.kind,
+          host: host ?? "",
+          connectionId: null,
+          message: "",
+        })
+      : null;
+
+  const update = (patch: Partial<ConnectionDraft>) => setDraft((d) => ({ ...d, ...patch }));
+
+  function setKind(kind: ConnectionKind) {
+    update({ kind, host: emptyConnectionDraft(kind).host });
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (pending || !draft.host.trim()) return;
+    setPending(true);
+    setError(null);
+    try {
+      const input = connectionDraftToInput(draft);
+      const connection = await createConnection(input);
+      // Repos show the connection they use.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.connections }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.repos }),
+      ]);
+      onDone(`Added ${connection.name}.${input.token ? "" : " Set a token to use it."}`);
+    } catch (cause) {
+      setError(errorMessage(cause));
+      setPending(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <form onSubmit={(event) => void submit(event)}>
+          <div className="flex flex-col gap-3.5 px-5 pt-[18px] pb-[18px]">
+            <DialogTitle className="m-0 text-heading font-semibold text-foreground-strong">
+              Add connection
+            </DialogTitle>
+            <DialogDescription className="m-0 text-pretty">
+              Connect a GitHub host or a Jira Cloud site. The token can be set now or later.
+            </DialogDescription>
+            <Segmented
+              label="Connection type"
+              value={draft.kind}
+              onChange={setKind}
+              options={[
+                { value: "github", label: "GitHub" },
+                { value: "jira", label: "Jira Cloud" },
+              ]}
+            />
+            <label className="flex flex-col gap-1.5">
+              <span className={fieldLabel}>Host or URL</span>
+              <Input
+                className="mono"
+                autoFocus
+                required
+                spellCheck={false}
+                placeholder={jira ? "acme.atlassian.net" : "github.com"}
+                value={draft.host}
+                onChange={(event) => update({ host: event.target.value })}
+              />
+              <span className="text-meta text-muted-foreground">
+                GitHub.com, a GitHub Enterprise host, or a Jira Cloud site.
+              </span>
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span className={fieldLabel}>Name</span>
+              <Input
+                placeholder="Defaults to the host"
+                value={draft.name}
+                onChange={(event) => update({ name: event.target.value })}
+              />
+            </label>
+            {jira && (
+              <label className="flex flex-col gap-1.5">
+                <span className={fieldLabel}>Account email</span>
+                <Input
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={draft.email}
+                  onChange={(event) => update({ email: event.target.value })}
+                />
+              </label>
+            )}
+            <label className="flex flex-col gap-1.5">
+              <span className="flex items-center gap-2">
+                <span className={fieldLabel}>{jira ? "API token" : "Personal access token"}</span>
+                <span className="text-meta text-faint">Optional</span>
+              </span>
+              <span className="relative block">
+                <Input
+                  className="mono pr-9"
+                  type={reveal ? "text" : "password"}
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={draft.token}
+                  onChange={(event) => update({ token: event.target.value })}
+                />
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  type="button"
+                  className="absolute top-[3px] right-[3px]"
+                  aria-label={reveal ? "Hide token" : "Show token"}
+                  aria-pressed={reveal}
+                  onClick={() => setReveal((on) => !on)}
+                >
+                  {reveal ? <EyeOffIcon /> : <EyeIcon />}
+                </Button>
+              </span>
+            </label>
+            <div className="flex flex-col gap-1 text-meta text-muted-foreground">
+              {copy && (
+                <a href={copy.createLink.href} target="_blank" rel="noreferrer">
+                  {copy.createLink.text}
+                </a>
+              )}
+              {copy?.scope && (
+                <span>
+                  Needs the <span className="mono">{copy.scope}</span> scope.
+                </span>
+              )}
+              <span>Stored on this machine only. It is never shown again.</span>
+            </div>
+            {error && <ErrorText>{error}</ErrorText>}
+          </div>
+          <div className="flex items-center justify-end gap-2 border-t border-border bg-card px-5 py-3">
+            <Button variant="ghost" type="button" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit" disabled={pending || !draft.host.trim()}>
+              {pending ? "Adding…" : "Add connection"}
+              <Kbd onFill aria-hidden="true">
+                ↵
+              </Kbd>
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /** Connections with their token status only; tokens are never sent to the browser. */
 export function ConnectionsSection() {
   const connections = useQuery(connectionsQuery);
+  const [adding, setAdding] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-auto">
-      <SectionHeader title="Connections" />
+      <SectionHeader title="Connections">
+        <Button size="sm" variant="primary" onClick={() => setAdding(true)}>
+          + Add
+        </Button>
+      </SectionHeader>
+      {message && (
+        <p
+          className="m-0 border-b border-border px-4 py-2 text-meta text-muted-foreground"
+          role="status"
+        >
+          {message}
+        </p>
+      )}
       {connections.isPending ? (
         <Empty>Loading connections…</Empty>
       ) : connections.isError ? (
         <Empty>{connections.error.message}</Empty>
       ) : connections.data.length === 0 ? (
-        <Empty>No connections yet. Starting a task against a new host asks for a token.</Empty>
+        <Empty>
+          No connections yet. Add one, or start a task against a new host and you&apos;ll be asked
+          for a token.
+        </Empty>
       ) : (
         <ul className="m-0 list-none p-0">
           {connections.data.map((connection) => (
             <ConnectionRow key={connection.id} connection={connection} />
           ))}
         </ul>
+      )}
+      {adding && (
+        <AddConnectionDialog
+          onClose={() => setAdding(false)}
+          onDone={(text) => {
+            setAdding(false);
+            setMessage(text);
+          }}
+        />
       )}
     </div>
   );

@@ -1,10 +1,13 @@
 import {
+  JIRA_EMAIL_META,
   ROLE_STAGES,
   tagNameSchema,
   type Agent,
   type AgentCli,
   type AgentInput,
   type AgentRole,
+  type ConnectionInput,
+  type ConnectionKind,
   type Stage,
 } from "@blackwall/shared";
 
@@ -134,4 +137,56 @@ export function moveItem<T>(list: readonly T[], index: number, delta: number): T
 
 export function sameList(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((item, i) => item === b[i]);
+}
+
+/** The add-connection form's state. A blank name defaults to the host; the token is optional. */
+export interface ConnectionDraft {
+  kind: ConnectionKind;
+  name: string;
+  host: string;
+  email: string;
+  token: string;
+}
+
+export function emptyConnectionDraft(kind: ConnectionKind = "github"): ConnectionDraft {
+  return { kind, name: "", host: kind === "github" ? "github.com" : "", email: "", token: "" };
+}
+
+/** The origin for a host or URL; a bare host gets `https://`. Throws when it can't be parsed. */
+export function connectionBaseUrl(host: string): string {
+  const trimmed = host.trim();
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  let url: URL | undefined;
+  try {
+    url = new URL(withScheme);
+  } catch {
+    url = undefined;
+  }
+  if (!url || (url.protocol !== "http:" && url.protocol !== "https:") || url.hostname === "") {
+    throw new Error("Enter a host such as github.com or a URL such as https://jbf.ghe.com");
+  }
+  return url.origin;
+}
+
+/** The normalised host (with port) for the draft's host field, or null while it is invalid. */
+export function connectionDraftHost(host: string): string | null {
+  try {
+    return new URL(connectionBaseUrl(host)).host;
+  } catch {
+    return null;
+  }
+}
+
+/** The draft as an API body. Throws when the host can't be parsed. */
+export function connectionDraftToInput(draft: ConnectionDraft): ConnectionInput {
+  const baseUrl = connectionBaseUrl(draft.host);
+  const name = draft.name.trim();
+  const token = draft.token.trim();
+  return {
+    name: name === "" ? new URL(baseUrl).host : name,
+    kind: draft.kind,
+    baseUrl,
+    authMeta: draft.kind === "jira" ? { [JIRA_EMAIL_META]: draft.email.trim() } : {},
+    ...(token !== "" ? { token } : {}),
+  };
 }

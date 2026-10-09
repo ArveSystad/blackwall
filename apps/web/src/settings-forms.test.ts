@@ -1,11 +1,15 @@
-import type { Agent } from "@blackwall/shared";
+import { JIRA_EMAIL_META, type Agent } from "@blackwall/shared";
 import { describe, expect, it } from "vitest";
 import {
   addTag,
   agentDraft,
   agentsForRole,
+  connectionBaseUrl,
+  connectionDraftHost,
+  connectionDraftToInput,
   copyName,
   draftToInput,
+  emptyConnectionDraft,
   moveItem,
   parseLines,
   sameDraft,
@@ -88,5 +92,68 @@ describe("tags", () => {
     expect(moveItem(["a", "b", "c"], 0, 1)).toEqual(["b", "a", "c"]);
     expect(moveItem(["a", "b", "c"], 2, 1)).toEqual(["a", "b", "c"]);
     expect(moveItem(["a", "b", "c"], 2, -2)).toEqual(["c", "a", "b"]);
+  });
+});
+
+describe("connection drafts", () => {
+  const hostError = "Enter a host such as github.com or a URL such as https://jbf.ghe.com";
+
+  it("normalises a host or URL to its origin", () => {
+    expect(connectionBaseUrl("github.com")).toBe("https://github.com");
+    expect(connectionBaseUrl(" https://jbf.ghe.com/foo/ ")).toBe("https://jbf.ghe.com");
+    expect(connectionBaseUrl("http://localhost:8080/x")).toBe("http://localhost:8080");
+  });
+
+  it("rejects input that is not an http(s) host", () => {
+    for (const host of ["not a host", "http://", "", "ftp://x.com"]) {
+      expect(() => connectionBaseUrl(host)).toThrow(hostError);
+    }
+  });
+
+  it("reads the draft's host without throwing", () => {
+    expect(connectionDraftHost("https://jbf.ghe.com/foo/")).toBe("jbf.ghe.com");
+    expect(connectionDraftHost("github.com")).toBe("github.com");
+    expect(connectionDraftHost("http://localhost:8080/x")).toBe("localhost:8080");
+    for (const host of ["", "not a host", "http://"]) {
+      expect(connectionDraftHost(host)).toBeNull();
+    }
+  });
+
+  it("defaults the host for GitHub only", () => {
+    expect(emptyConnectionDraft().host).toBe("github.com");
+    expect(emptyConnectionDraft("jira").host).toBe("");
+  });
+
+  it("names the connection after the host when the name is blank", () => {
+    const draft = { ...emptyConnectionDraft(), host: "https://jbf.ghe.com/foo/", name: "  " };
+    expect(connectionDraftToInput(draft)).toEqual({
+      name: "jbf.ghe.com",
+      kind: "github",
+      baseUrl: "https://jbf.ghe.com",
+      authMeta: {},
+    });
+    expect(connectionDraftToInput({ ...draft, name: " Work GHE " }).name).toBe("Work GHE");
+  });
+
+  it("puts the Jira email in authMeta", () => {
+    const draft = {
+      ...emptyConnectionDraft("jira"),
+      host: "acme.atlassian.net",
+      email: " me@acme.test ",
+    };
+    expect(connectionDraftToInput(draft).authMeta).toEqual({ [JIRA_EMAIL_META]: "me@acme.test" });
+  });
+
+  it("includes the token only when it is set", () => {
+    expect(connectionDraftToInput({ ...emptyConnectionDraft(), token: "   " })).not.toHaveProperty(
+      "token",
+    );
+    expect(connectionDraftToInput({ ...emptyConnectionDraft(), token: " t " }).token).toBe("t");
+  });
+
+  it("throws the host error for an invalid host", () => {
+    expect(() => connectionDraftToInput({ ...emptyConnectionDraft(), host: "not a host" })).toThrow(
+      hostError,
+    );
   });
 });
