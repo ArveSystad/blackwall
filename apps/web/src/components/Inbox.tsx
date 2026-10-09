@@ -8,7 +8,7 @@ import { cn } from "../lib/utils";
 import { useLiveStatus } from "../live-status";
 import { activeAgentsQuery, agentsQuery, reposQuery, tasksQuery } from "../query";
 import { agentClis } from "../task-view";
-import { GearIcon, PlusIcon, SearchIcon, WallIcon } from "./icons";
+import { GearIcon, PlusIcon, SearchIcon, StatsIcon, WallIcon } from "./icons";
 import { NewTaskModal } from "./NewTaskModal";
 import { QuotaChip } from "./QuotaChip";
 import { StatusBadge } from "./StatusBadge";
@@ -158,14 +158,22 @@ export function Inbox() {
       <div className="flex flex-col gap-2.5 border-b border-border py-3 pr-3 pl-3.5">
         <div className="flex h-7 items-center gap-2">
           <WordmarkLink />
-          {needs > 0 && (
-            <StatusBadge status="needs-you" label={`${needs} need you`} className="ml-1" />
-          )}
-          <QuotaChip />
+          {/* At the widest the pills clip, never the buttons. */}
+          <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+            {needs > 0 && (
+              <StatusBadge status="needs-you" label={`${needs} need you`} className="ml-1" />
+            )}
+            <QuotaChip />
+          </div>
           <span className="flex-1" />
-          <ThemeToggle />
-          <Button variant="ghost" size="icon" asChild>
-            <Link to="/settings" aria-label="Settings">
+          <ThemeToggle className="shrink-0" />
+          <Button variant="ghost" size="icon" className="shrink-0" asChild>
+            <Link to="/stats" aria-label="Stats" title="Stats">
+              <StatsIcon />
+            </Link>
+          </Button>
+          <Button variant="ghost" size="icon" className="shrink-0" asChild>
+            <Link to="/settings" aria-label="Settings" title="Settings">
               <GearIcon />
             </Link>
           </Button>
@@ -225,7 +233,7 @@ export function Inbox() {
 
 function WordmarkLink() {
   return (
-    <Link to="/" aria-label="blackwall inbox" className="no-underline hover:no-underline">
+    <Link to="/" aria-label="blackwall inbox" className="shrink-0 no-underline hover:no-underline">
       <Wordmark />
     </Link>
   );

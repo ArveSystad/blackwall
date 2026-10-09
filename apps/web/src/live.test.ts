@@ -220,6 +220,27 @@ describe("applyServerEvent", () => {
     expect(client.getQueryState(queryKeys.backlog("r1"))?.isInvalidated).toBe(true);
   });
 
+  it("refetches the done times when a task is done or removed", () => {
+    const stale = () => client.getQueryState(queryKeys.doneTimes)?.isInvalidated;
+
+    client.setQueryData(queryKeys.doneTimes, []);
+    applyServerEvent(client, {
+      type: "task.upserted",
+      payload: { task: makeTask({ status: "running" }) },
+    });
+    expect(stale()).toBe(false);
+    applyServerEvent(client, {
+      type: "task.upserted",
+      payload: { task: makeTask({ status: "done" }) },
+    });
+    expect(stale()).toBe(true);
+
+    client.setQueryData(queryKeys.doneTimes, []);
+    expect(stale()).toBe(false);
+    applyServerEvent(client, { type: "task.removed", payload: { taskId: "t1" } });
+    expect(stale()).toBe(true);
+  });
+
   it("appends streamed step output to a loaded log", () => {
     const entry = { stepId: "s1", seq: 1 } as unknown as StepEvent;
     applyServerEvent(client, { type: "step.event", payload: { event: entry } });

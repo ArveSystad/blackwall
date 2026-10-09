@@ -135,15 +135,18 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       // A stage or gate change can mean new commits or a new delivery plan.
       void client.invalidateQueries({ queryKey: queryKeys.taskDiffs(task.id) });
       void client.invalidateQueries({ queryKey: queryKeys.taskDelivery(task.id) });
-      // A finished task can unblock the backlog items that depend on it.
+      // A finished task can unblock the backlog items that depend on it, and
+      // its delivery run's finish time is when it was resolved.
       if (task.status === "done") {
         void client.invalidateQueries({ queryKey: queryKeys.backlog(task.repoId) });
+        void client.invalidateQueries({ queryKey: queryKeys.doneTimes });
       }
       break;
     }
     case "task.removed":
       forgetTask(client, event.payload.taskId);
       void client.invalidateQueries({ queryKey: queryKeys.activeAgents });
+      void client.invalidateQueries({ queryKey: queryKeys.doneTimes });
       break;
     case "run.upserted":
       void client.invalidateQueries({ queryKey: queryKeys.taskRuns(event.payload.run.taskId) });

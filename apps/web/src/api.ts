@@ -30,6 +30,7 @@ import {
   stepSchema,
   tagListInputSchema,
   taskDiffSchema,
+  taskDoneTimeSchema,
   taskSchema,
   type ActiveAgentStep,
   type Agent,
@@ -71,6 +72,7 @@ import {
   type StepEvent,
   type Task,
   type TaskDiff,
+  type TaskDoneTime,
   type UpdateBacklogItemInput,
 } from "@blackwall/shared";
 
@@ -242,6 +244,11 @@ export function getDeliveryPlan(taskId: string): Promise<DeliveryPlan> {
 /** Every running agent step with its task, oldest first. */
 export function listActiveAgents(): Promise<ActiveAgentStep[]> {
   return request("/api/tasks/active-agents", activeAgentStepSchema.array());
+}
+
+/** When each done task was resolved. */
+export function listDoneTimes(): Promise<TaskDoneTime[]> {
+  return request("/api/tasks/done-times", taskDoneTimeSchema.array());
 }
 
 export function listRuns(taskId: string): Promise<Run[]> {

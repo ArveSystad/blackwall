@@ -13,6 +13,7 @@ import { ActiveAgents } from "./routes/ActiveAgents";
 import { Backlog } from "./routes/Backlog";
 import { Home } from "./routes/Home";
 import { Settings } from "./routes/Settings";
+import { Stats } from "./routes/Stats";
 import { TaskView } from "./routes/TaskView";
 import { isSettingsSection } from "./settings-sections";
 import { useThemeHotkey } from "./theme";
@@ -101,10 +102,18 @@ const settingsRoute = createRoute({
   },
 });
 
+/** Stats replaces both panes, like Settings. */
+const statsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/stats",
+  component: Stats,
+});
+
 const routeTree = rootRoute.addChildren([
   shellRoute.addChildren([homeRoute, taskRoute, backlogRoute, activeRoute]),
   settingsIndexRoute,
   settingsRoute,
+  statsRoute,
 ]);
 
 export const router = createRouter({ routeTree, defaultPreload: "intent" });

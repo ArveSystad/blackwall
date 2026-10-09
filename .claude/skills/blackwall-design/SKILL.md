@@ -58,7 +58,8 @@ conflict instead of silently picking one.
 | Done | `--st-done` | #5cd69a | #1a7f37 |
 | Severity Critical / High / Medium / Low | `--sev-*` | #ff4d5e / #ff8b3d / #f2c14e / #8e9dbc | #cf2236 / #c2530a / #9a6d00 / #5a6880 |
 | Diff add / del | `--diff-add-*` / `--diff-del-*` | plain GitHub-style green/red | same |
-| Empty-pane backdrop lines / glow (decoration, no task selected only) | `--grid-line` / `--grid-glow` | primary 44% / cyan 24% (`color-mix`) | border-strong 80% / none |
+| Empty-pane and Stats backdrop lines / glow (decoration only) | `--grid-line` / `--grid-glow` | primary 44% / cyan 24% (`color-mix`) | border-strong 80% / none |
+| Stats headline number and chart bars (`shadow-glow-done`, `text-shadow-glow-done`) | `--glow-done` / `--glow-text-done` | `--st-done` ring + 14px glow / 10px text glow | 1px #1a7f37 border + 3px tinted ring / none |
 
 Surfaces in dark run from near-black indigo to dusky violet: `bg-0` page, `bg-1` panes,
 `bg-2` cards and inputs, `bg-3` hover and selected, `bg-4` popovers. Body text is muted off-white
@@ -73,6 +74,12 @@ Rules:
   selected (first-run setup or "No task selected"). It stays low-opacity, uses primary/cyan only (via
   `--grid-line` / `--grid-glow`), fades out under the centred content, stops under reduced motion,
   and never appears behind a task view, Settings or modals.
+- The Stats screen (`/stats`) is the second sanctioned exception. It may use `GridBackdrop` behind
+  its content (the backdrop's parent does not scroll; content scrolls in a sibling and stays within
+  the ~520px faded column), and the done-tinted glow (`--glow-done` / `--glow-text-done`, i.e.
+  `shadow-glow-done` and `text-shadow-glow-done`) on its headline number and chart bars only. In
+  light these become a ring or none, like the other glows. Chart bars grow in once on mount
+  (`animate-bar-grow`); later height changes are not animated.
 - Never put glow or neon on diffs, transcripts, long text, or table rows.
 - Glow is dark only. Light replaces it with a 1px border plus a 3px tinted ring (`--glow-*` handles this).
 - Severity colors never mean status, and status colors never mean severity.
@@ -102,6 +109,10 @@ Rules:
 
 - **Shell:** inbox on the left (~352px), task view on the right. Settings replaces both panes with
   a settings nav, a list and an editor.
+- **Stats:** a full page at `/stats`, opened from the icon button next to the Settings cog in the
+  inbox header. Its top-left header (wordmark, theme toggle, "Inbox" back button with `Esc`) mirrors
+  Settings so the wordmark stays put. It shows tasks resolved, a tile per task type, repositories
+  touched and a per-day bar chart of the last 10 days.
 - **Inbox:** grouped Needs you → Running → Recent. Each card shows: origin icon + key (mono), relative
   time, 2-line title, needs-you reason (magenta), repo (mono), 6-pip stage indicator, agent tiles and
   a status badge.
@@ -144,6 +155,7 @@ bind a global shortcut while focus is in a text field.
 ## Accessibility
 
 - Use real `<button>`, `<a>` and `<input>` + `<label>` elements. Icon-only buttons need an `aria-label`.
+  Icon-only header buttons and links also carry a native `title` as a hover tooltip.
 - Contrast: 4.5:1 for text. `--fg-faint` is for non-essential text only.
 - States must never rely on color alone: pair each with an icon, a label or an animation
   (running pulse, needs-you blink).

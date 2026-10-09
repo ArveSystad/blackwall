@@ -10,6 +10,7 @@ import {
   listActiveAgents,
   listClis,
   listDiffs,
+  listDoneTimes,
   listFindings,
   listQuestions,
   listRuns,
@@ -39,6 +40,8 @@ export const queryKeys = {
   stepEvents: (stepId: string) => ["steps", stepId, "events"] as const,
   /** Running agent steps across all tasks; any step change invalidates it. */
   activeAgents: ["active-agents"] as const,
+  /** When each done task was resolved; a task reaching done or being removed invalidates it. */
+  doneTimes: ["done-times"] as const,
   repos: ["repos"] as const,
   connections: ["connections"] as const,
   agents: ["agents"] as const,
@@ -75,6 +78,11 @@ export const stepEventsQuery = (taskId: string, stepId: string) =>
 export const activeAgentsQuery = queryOptions({
   queryKey: queryKeys.activeAgents,
   queryFn: listActiveAgents,
+});
+
+export const doneTimesQuery = queryOptions({
+  queryKey: queryKeys.doneTimes,
+  queryFn: listDoneTimes,
 });
 
 export const taskFindingsQuery = (taskId: string) =>

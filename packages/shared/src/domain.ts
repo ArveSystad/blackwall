@@ -897,6 +897,10 @@ export type Step = z.infer<typeof stepSchema>;
 export const activeAgentStepSchema = stepSchema.extend({ taskId: id });
 export type ActiveAgentStep = z.infer<typeof activeAgentStepSchema>;
 
+/** When a done task was resolved: the time its delivery run finished, for the stats view. */
+export const taskDoneTimeSchema = z.object({ taskId: id, doneAt: timestamp });
+export type TaskDoneTime = z.infer<typeof taskDoneTimeSchema>;
+
 /** One entry in a step's append-only event log. */
 export const stepEventSchema = z.object({
   stepId: id,

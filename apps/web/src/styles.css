@@ -66,13 +66,16 @@
   --glow-primary-btn: 0 0 0 1px rgba(167, 123, 255, 0.5), 0 0 18px rgba(167, 123, 255, 0.35);
   --glow-text-magenta: 0 0 8px rgba(255, 61, 207, 0.55);
   --glow-text-cyan: 0 0 10px rgba(46, 230, 255, 0.6);
+  /* Stats screen only: resolved counts and chart bars, in --st-done. */
+  --glow-done: 0 0 0 1px rgba(92, 214, 154, 0.55), 0 0 14px rgba(92, 214, 154, 0.28);
+  --glow-text-done: 0 0 10px rgba(92, 214, 154, 0.55);
   --glow-status-needs: 0 0 0 1px rgba(255, 61, 207, 0.55), 0 0 10px rgba(255, 61, 207, 0.3);
   --glow-rail: 0 0 8px var(--magenta);
   --glow-pip: 0 0 6px currentColor; /* set text color to the status color */
   --glow-tab: 0 0 8px var(--primary);
   --ring: var(--glow-cyan);
   --wordmark-accent: var(--cyan);
-  /* Empty-pane backdrop only: the one decorative use of glow (see GridBackdrop). */
+  /* Empty-pane and Stats backdrop only: the decorative use of glow (see GridBackdrop). */
   --grid-line: color-mix(in oklab, var(--primary) 44%, transparent);
   --grid-glow: color-mix(in oklab, var(--cyan) 24%, transparent);
 
@@ -132,6 +135,8 @@
   --glow-primary-btn: none;
   --glow-text-magenta: none;
   --glow-text-cyan: none;
+  --glow-done: 0 0 0 1px #1a7f37, 0 0 0 3px rgba(26, 127, 55, 0.16);
+  --glow-text-done: none;
   --glow-status-needs: none;
   --glow-rail: none;
   --glow-pip: none;
@@ -212,9 +217,11 @@
   --shadow-glow-rail: var(--glow-rail);
   --shadow-glow-pip: var(--glow-pip);
   --shadow-glow-tab: var(--glow-tab);
+  --shadow-glow-done: var(--glow-done);
   --shadow-pop: var(--shadow-pop);
   --text-shadow-glow-needs: var(--glow-text-magenta);
   --text-shadow-glow-cyan: var(--glow-text-cyan);
+  --text-shadow-glow-done: var(--glow-text-done);
 
   --radius: 6px;
   --radius-xs: 3px; /* tag */
@@ -242,6 +249,8 @@
   --text-code--line-height: 19px;
 
   --animate-pulse-running: bw-pulse 1.6s ease-in-out infinite;
+  /* Stats chart bars grow in once on mount; height changes after that are not animated. */
+  --animate-bar-grow: bw-bar-grow 480ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
   --animate-blink-needs: bw-blink 1.2s steps(2, jump-none) infinite;
   --animate-stream: bw-sweep 1.4s linear infinite;
 }
@@ -271,6 +280,15 @@
   }
   100% {
     opacity: 0.35;
+  }
+}
+
+@keyframes bw-bar-grow {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
   }
 }
 

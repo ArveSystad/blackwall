@@ -18,6 +18,7 @@ import {
   stepEventSchema,
   stepSchema,
   taskDiffSchema,
+  taskDoneTimeSchema,
   taskSchema,
   type GateResponseInput,
 } from "@blackwall/shared";
@@ -177,6 +178,26 @@ describe("task routes", () => {
     expect(res.status).toBe(200);
     const active = activeAgentStepSchema.array().parse(await res.json());
     expect(active.map((s) => [s.id, s.taskId])).toEqual([[step.id, task.id]]);
+  });
+
+  it("lists when each done task was resolved", async () => {
+    const done = seedTask();
+    repositories.tasks.update(done.id, { status: "done" });
+    const doneAt = new Date("2026-10-08T12:00:00Z");
+    repositories.runs.setStatus(repositories.runs.create(done.id).id, "succeeded", doneAt);
+    const running = repositories.tasks.create({
+      title: "Still going",
+      origin: { kind: "free-text" },
+      repoId: done.repoId,
+      status: "running",
+    });
+    repositories.runs.create(running.id);
+
+    const res = await request("/api/tasks/done-times");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual([{ taskId: done.id, doneAt: doneAt.toISOString() }]);
+    expect(taskDoneTimeSchema.array().parse(body)).toEqual([{ taskId: done.id, doneAt }]);
   });
 
   it("returns 404 for an unknown task", async () => {

@@ -24,6 +24,7 @@ import {
   type StepEvent,
   type Task,
   type TaskDiff,
+  type TaskDoneTime,
   type TaskOrigin,
 } from "@blackwall/shared";
 import { Hono } from "hono";
@@ -145,7 +146,8 @@ export function queueTask(
  * `needs-you` task's gate answered, its grill questions answered, its
  * findings force-fixed or force-ignored, and its delivery plan shown before
  * the user confirms the finish actions. `/active-agents` lists the running
- * agent steps across all tasks.
+ * agent steps across all tasks, and `/done-times` when each done task was
+ * resolved.
  */
 export function taskRoutes(
   { tasks, grillQuestions, findings, runs, steps, stepEvents }: TaskRouteStores,
@@ -174,6 +176,11 @@ export function taskRoutes(
   if (steps) {
     /** Every running agent step with its task, oldest first. Must stay above `/:id`, which would catch it. */
     routes.get("/active-agents", (c) => c.json<ActiveAgentStep[]>(steps.listActiveAgents()));
+  }
+
+  if (runs) {
+    /** When each done task was resolved, for the stats view. Must stay above `/:id`, which would catch it. */
+    routes.get("/done-times", (c) => c.json<TaskDoneTime[]>(runs.doneTimes()));
   }
 
   routes.get("/:id", (c) => {

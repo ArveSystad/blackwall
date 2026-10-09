@@ -15,6 +15,7 @@ import type {
   StepStatus,
   Tag,
   Task,
+  TaskDoneTime,
 } from "@blackwall/shared";
 import type { Db } from "./database.js";
 import {
@@ -327,6 +328,25 @@ export function createRunsRepository(db: Db) {
       return required(
         db.update(runs).set({ status, finishedAt }).where(eq(runs.id, id)).returning().get(),
         `Run ${id}`,
+      );
+    },
+    /**
+     * The latest finish time of each task's succeeded runs. Delivery is the
+     * only path to `done`, and it marks the run succeeded, so this is when
+     * the task was resolved. Tasks without a succeeded run are left out.
+     */
+    doneTimes(): TaskDoneTime[] {
+      return (
+        db
+          .select({ taskId: runs.taskId, doneAt: max(runs.finishedAt) })
+          .from(runs)
+          .where(and(eq(runs.status, "succeeded"), isNotNull(runs.finishedAt)))
+          .groupBy(runs.taskId)
+          .all()
+          // `max()` hands back the raw stored milliseconds, not a Date.
+          .flatMap(({ taskId, doneAt }) =>
+            doneAt == null ? [] : [{ taskId, doneAt: new Date(doneAt) }],
+          )
       );
     },
   };

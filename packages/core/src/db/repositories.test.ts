@@ -277,6 +277,32 @@ describe("tasks, runs and steps", () => {
     expect(r.steps.listActiveAgents().map((s) => s.id)).toEqual([oldest.id, first.id, second.id]);
   });
 
+  it("lists the latest succeeded run finish time per task", () => {
+    const task = seedTask();
+    const other = r.tasks.create({
+      title: "Other",
+      origin: { kind: "free-text" },
+      repoId: task.repoId,
+    });
+    const pending = r.tasks.create({
+      title: "Pending",
+      origin: { kind: "free-text" },
+      repoId: task.repoId,
+    });
+    const early = new Date("2026-10-01T10:00:00Z");
+    const late = new Date("2026-10-03T10:00:00Z");
+    r.runs.setStatus(r.runs.create(task.id).id, "succeeded", early);
+    r.runs.setStatus(r.runs.create(task.id).id, "succeeded", late);
+    r.runs.setStatus(r.runs.create(task.id).id, "failed", new Date("2026-10-05T10:00:00Z"));
+    r.runs.setStatus(r.runs.create(other.id).id, "interrupted", new Date("2026-10-05T10:00:00Z"));
+    r.runs.create(other.id);
+    r.runs.setStatus(r.runs.create(pending.id).id, "succeeded");
+
+    const done = r.runs.doneTimes();
+    expect(done).toEqual([{ taskId: task.id, doneAt: late }]);
+    expect(done[0]?.doneAt).toBeInstanceOf(Date);
+  });
+
   it("appends step events with increasing sequence numbers", () => {
     const run = r.runs.create(seedTask().id);
     const step = r.steps.create({ runId: run.id, stage: "implement" });

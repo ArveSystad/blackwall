@@ -84,6 +84,8 @@ export const PullRequestIcon = icon(
 
 export const TextIcon = icon(<path d="M3 4h10M3 8h10M3 12h6" />);
 
+export const StatsIcon = icon(<path d="M3 13V9M8 13V3M13 13V6" />);
+
 export const RepoIcon = icon(
   <>
     <path d="M3 2.5h8.5v11H3a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1Z" />
