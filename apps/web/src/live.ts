@@ -155,6 +155,9 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
         queryKey: queryKeys.taskGrill(event.payload.question.taskId),
       });
       break;
+    case "backlog.changed":
+      // No backlog view yet (task-029).
+      break;
     case "pong":
     case "error":
       break;

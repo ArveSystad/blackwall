@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   agentSchema,
+  backlogItemSchema,
   connectionSchema,
   findingSchema,
   grillQuestionSchema,
@@ -81,6 +82,81 @@ describe("connections and repos", () => {
     expect(() => r.repos.delete(task.repoId)).toThrow(/FOREIGN KEY/);
     r.tasks.delete(task.id);
     expect(r.repos.hasTasks(task.repoId)).toBe(false);
+  });
+});
+
+describe("backlog items", () => {
+  it("round-trips items, appends positions per repo and reorders", () => {
+    const repo = r.repos.create({ path: "/code/app", name: "app" });
+    const other = r.repos.create({ path: "/code/other", name: "other" });
+    const a = r.backlogItems.insert({
+      repoId: repo.id,
+      title: "A",
+      origin: { kind: "free-text" },
+      freeText: "Do A",
+      dependsOn: [],
+    });
+    const b = r.backlogItems.insert({
+      repoId: repo.id,
+      title: "B",
+      origin: { kind: "free-text" },
+      dependsOn: [a.id],
+      priority: "high",
+    });
+    const c = r.backlogItems.insert({
+      repoId: other.id,
+      title: "C",
+      origin: { kind: "free-text" },
+    });
+    expect(backlogItemSchema.parse(b)).toMatchObject({
+      status: "waiting",
+      triageMode: "intervene",
+      priority: "high",
+      dependsOn: [a.id],
+      taskId: null,
+    });
+    expect([a.position, b.position, c.position]).toEqual([0, 1, 0]);
+    expect(r.backlogItems.list(repo.id).map((i) => i.id)).toEqual([a.id, b.id]);
+    expect(r.backlogItems.list()).toHaveLength(3);
+
+    r.backlogItems.reorder(repo.id, [b.id, a.id, c.id]);
+    expect(r.backlogItems.get(b.id)?.position).toBe(0);
+    expect(r.backlogItems.get(a.id)?.position).toBe(1);
+    // Items of another repo are left alone.
+    expect(r.backlogItems.get(c.id)?.position).toBe(0);
+
+    expect(r.backlogItems.update(a.id, { status: "paused", title: "A2" })).toMatchObject({
+      status: "paused",
+      title: "A2",
+    });
+    r.backlogItems.delete(a.id);
+    expect(r.backlogItems.get(a.id)).toBeUndefined();
+  });
+
+  it("links the promoted task and unlinks it when the task goes", () => {
+    const task = seedTask();
+    const item = r.backlogItems.insert({
+      repoId: task.repoId,
+      title: "Fix login",
+      origin: { kind: "free-text" },
+    });
+    expect(r.backlogItems.markPromoted(item.id, task.id)).toMatchObject({
+      status: "promoted",
+      taskId: task.id,
+    });
+    r.tasks.delete(task.id);
+    expect(r.backlogItems.get(item.id)?.taskId).toBeNull();
+  });
+
+  it("is removed with its repo", () => {
+    const repo = r.repos.create({ path: "/code/app", name: "app" });
+    const item = r.backlogItems.insert({
+      repoId: repo.id,
+      title: "A",
+      origin: { kind: "free-text" },
+    });
+    r.repos.delete(repo.id);
+    expect(r.backlogItems.get(item.id)).toBeUndefined();
   });
 });
 

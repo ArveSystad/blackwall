@@ -13,6 +13,7 @@ import {
 import type { AgentService, RepoService, SettingsService } from "@blackwall/core";
 import { Hono } from "hono";
 import { agentRoutes } from "./agents.js";
+import { backlogRoutes, type BacklogRouteStores } from "./backlog.js";
 import { cliRoutes } from "./clis.js";
 import { hostGuard, requireToken, tokenExchange } from "./auth.js";
 import { connectionRoutes, type ConnectionRoutesOptions } from "./connections.js";
@@ -47,6 +48,8 @@ export interface AppOptions {
   pipeline?: TaskPipeline;
   /** Task creation and per-round diffs; omit to leave those routes out. */
   taskServices?: TaskRouteServices;
+  /** Backlog stores; omit to leave the backlog routes out (e.g. in tests). */
+  backlog?: BacklogRouteStores;
   /** Agent CLI detection, started at launch; omit to leave the CLI route out (e.g. in tests). */
   clis?: () => Promise<CliStatus[]>;
 }
@@ -74,6 +77,7 @@ export function createApp({
   tasks,
   pipeline,
   taskServices,
+  backlog,
   clis,
 }: AppOptions): CreatedApp {
   const app = new Hono();
@@ -93,6 +97,16 @@ export function createApp({
   app.onError(errorResponse);
 
   if (connections) app.route("/api/connections", connectionRoutes(connections));
+  if (backlog) {
+    app.route(
+      "/api/repos/:repoId/backlog",
+      backlogRoutes(backlog, {
+        broadcast,
+        ...(pipeline ? { pipeline } : {}),
+        ...(taskServices?.newTask ? { newTask: taskServices.newTask } : {}),
+      }),
+    );
+  }
   if (repos) app.route("/api/repos", repoRoutes(repos));
   if (repos && connections) {
     app.route(

@@ -125,6 +125,11 @@ try {
       },
       diffs: createTaskDiffs({ repositories, git }),
     },
+    backlog: {
+      backlogItems: repositories.backlogItems,
+      repos: repositories.repos,
+      tasks: repositories.tasks,
+    },
     clis: () => clis,
     shutdown,
   });

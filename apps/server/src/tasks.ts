@@ -1,5 +1,6 @@
 import {
   MissingCredentialError,
+  type NewTaskValues,
   type PipelineEngine,
   type RepoService,
   type Repositories,
@@ -9,6 +10,7 @@ import {
   findingOverrideInputSchema,
   gateResponseInputSchema,
   grillAnswerInputSchema,
+  MAX_TITLE_CHARS,
   newTaskInputSchema,
   type DeliveryPlan,
   type Finding,
@@ -55,8 +57,6 @@ export interface TaskRouteServices {
   diffs?: TaskDiffs;
 }
 
-const MAX_TITLE_CHARS = 120;
-
 /**
  * Title for a task the form gave none and the origin could not name: a free
  * text task's first line, otherwise the Jira key or `owner/repo#number`.
@@ -88,6 +88,26 @@ async function titleFor(
   return fallbackTitle(origin, freeText);
 }
 
+/** A parsed new task form: what `POST /api/tasks` and backlog promotion both start from. */
+export type ParsedNewTaskInput = Omit<NewTaskValues, "title"> & { title?: string | undefined };
+
+/**
+ * Creates and queues a task: checks the repo is usable, puts the form's
+ * agents on top of the role defaults and, without a title, uses the Jira
+ * issue's summary, the PR's title or a fallback.
+ */
+export async function createTaskFromInput(
+  pipeline: Pick<TaskPipeline, "createTask">,
+  newTask: NewTaskServices,
+  input: ParsedNewTaskInput,
+): Promise<Task> {
+  const { origin, mode, repoId, freeText, triageMode } = input;
+  newTask.repos.use(repoId);
+  const agents = newTask.resolveRoles(input.agents);
+  const title = input.title ?? (await titleFor(origin, freeText, newTask.originTitle));
+  return pipeline.createTask({ title, origin, mode, repoId, freeText, agents, triageMode });
+}
+
 /**
  * Task routes. Tasks change through the pipeline and reach clients as WS
  * events; with a pipeline, interrupted or failed tasks can be resumed, a
@@ -115,20 +135,7 @@ export function taskRoutes(
       if (!input.success) {
         return c.json({ error: input.error.issues.map((i) => i.message).join("; ") }, 400);
       }
-      const { origin, mode, repoId, freeText, triageMode } = input.data;
-      newTask.repos.use(repoId);
-      const agents = newTask.resolveRoles(input.data.agents);
-      const title = input.data.title ?? (await titleFor(origin, freeText, newTask.originTitle));
-      const task = pipeline.createTask({
-        title,
-        origin,
-        mode,
-        repoId,
-        freeText,
-        agents,
-        triageMode,
-      });
-      return c.json<Task>(task, 201);
+      return c.json<Task>(await createTaskFromInput(pipeline, newTask, input.data), 201);
     });
   }
 

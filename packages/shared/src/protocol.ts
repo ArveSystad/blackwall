@@ -79,6 +79,8 @@ export const serverEventSchema = z.discriminatedUnion("type", [
   envelope("step.event", z.object({ event: stepEventSchema })),
   envelope("finding.upserted", z.object({ finding: findingSchema })),
   envelope("grill.upserted", z.object({ question: grillQuestionSchema })),
+  /** A repo's backlog changed (item added, edited, reordered, promoted or removed); refetch it. */
+  envelope("backlog.changed", z.object({ repoId: z.string() })),
 ]);
 export type ServerEvent = z.infer<typeof serverEventSchema>;
 

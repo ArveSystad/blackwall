@@ -1,6 +1,7 @@
 import { and, asc, eq, gt, max, sql } from "drizzle-orm";
 import type {
   Agent,
+  BacklogItem,
   Connection,
   Finding,
   FindingStatus,
@@ -17,6 +18,7 @@ import type {
 import type { Db } from "./database.js";
 import {
   agents,
+  backlogItems,
   connections,
   findings,
   grillQuestions,
@@ -28,6 +30,7 @@ import {
   tags,
   tasks,
   type NewAgent,
+  type NewBacklogItem,
   type NewConnection,
   type NewFinding,
   type NewGrillQuestion,
@@ -193,6 +196,77 @@ export function createTasksRepository(db: Db) {
     },
     delete(id: string): void {
       db.delete(tasks).where(eq(tasks.id, id)).run();
+    },
+  };
+}
+
+/** Backlog item fields the user can edit; promotion goes through `markPromoted`. */
+export type BacklogItemPatch = {
+  [K in "title" | "freeText" | "priority" | "dependsOn" | "status" | "agents" | "triageMode"]?:
+    BacklogItem[K] | undefined;
+};
+
+export function createBacklogItemsRepository(db: Db) {
+  return {
+    /** Items of one repo (or all), in insertion order; pick order is `sortBacklog`'s job. */
+    list(repoId?: string): BacklogItem[] {
+      const query = db.select().from(backlogItems);
+      return (repoId === undefined ? query : query.where(eq(backlogItems.repoId, repoId)))
+        .orderBy(asc(backlogItems.createdAt), asc(rowid))
+        .all();
+    },
+    get(id: string): BacklogItem | undefined {
+      return db.select().from(backlogItems).where(eq(backlogItems.id, id)).get();
+    },
+    /** Adds an item at the end of the repo's manual order unless a position is given. */
+    insert(values: NewBacklogItem): BacklogItem {
+      return db.transaction((tx) => {
+        let position = values.position;
+        if (position === undefined) {
+          const last = tx
+            .select({ p: max(backlogItems.position) })
+            .from(backlogItems)
+            .where(eq(backlogItems.repoId, values.repoId))
+            .get();
+          position = last?.p == null ? 0 : last.p + 1;
+        }
+        return tx
+          .insert(backlogItems)
+          .values({ ...values, position })
+          .returning()
+          .get();
+      });
+    },
+    update(id: string, patch: BacklogItemPatch): BacklogItem {
+      return required(
+        db.update(backlogItems).set(patch).where(eq(backlogItems.id, id)).returning().get(),
+        `Backlog item ${id}`,
+      );
+    },
+    delete(id: string): void {
+      db.delete(backlogItems).where(eq(backlogItems.id, id)).run();
+    },
+    /** Sets the manual order: each listed item of the repo gets its index as position. */
+    reorder(repoId: string, orderedIds: readonly string[]): void {
+      db.transaction((tx) => {
+        orderedIds.forEach((id, position) => {
+          tx.update(backlogItems)
+            .set({ position })
+            .where(and(eq(backlogItems.id, id), eq(backlogItems.repoId, repoId)))
+            .run();
+        });
+      });
+    },
+    markPromoted(id: string, taskId: string): BacklogItem {
+      return required(
+        db
+          .update(backlogItems)
+          .set({ status: "promoted", taskId })
+          .where(eq(backlogItems.id, id))
+          .returning()
+          .get(),
+        `Backlog item ${id}`,
+      );
     },
   };
 }
@@ -395,6 +469,7 @@ export function createRepositories(db: Db) {
     agents: createAgentsRepository(db),
     tags: createTagsRepository(db),
     tasks: createTasksRepository(db),
+    backlogItems: createBacklogItemsRepository(db),
     runs: createRunsRepository(db),
     steps: createStepsRepository(db),
     stepEvents: createStepEventsRepository(db),

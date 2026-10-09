@@ -25,6 +25,13 @@ export const TASK_STATUSES = [
   "failed",
   "done",
 ] as const;
+/** Backlog pick order: higher buckets run first. */
+export const BACKLOG_PRIORITIES = ["high", "normal", "low"] as const;
+/**
+ * `waiting`: eligible to run. `promoted`: turned into a task (`taskId`).
+ * `paused`: the user held it back.
+ */
+export const BACKLOG_STATUSES = ["waiting", "promoted", "paused"] as const;
 /** Pipeline stages, in order. */
 export const STAGES = [
   "inform",
@@ -136,6 +143,8 @@ export const findingStatusSchema = z.enum(FINDING_STATUSES);
 export const findingOverrideSchema = z.enum(FINDING_OVERRIDES);
 export const grillAnswererSchema = z.enum(GRILL_ANSWERERS);
 export const deliveryTargetSchema = z.enum(DELIVERY_TARGETS);
+export const backlogPrioritySchema = z.enum(BACKLOG_PRIORITIES);
+export const backlogStatusSchema = z.enum(BACKLOG_STATUSES);
 
 export type ConnectionKind = z.infer<typeof connectionKindSchema>;
 export type AgentCli = z.infer<typeof agentCliSchema>;
@@ -152,6 +161,8 @@ export type FindingStatus = z.infer<typeof findingStatusSchema>;
 export type FindingOverride = z.infer<typeof findingOverrideSchema>;
 export type GrillAnswerer = z.infer<typeof grillAnswererSchema>;
 export type DeliveryTarget = z.infer<typeof deliveryTargetSchema>;
+export type BacklogPriority = z.infer<typeof backlogPrioritySchema>;
+export type BacklogStatus = z.infer<typeof backlogStatusSchema>;
 
 export function isGatingSeverity(severity: Severity): boolean {
   return (GATING_SEVERITIES as readonly Severity[]).includes(severity);
@@ -164,6 +175,9 @@ export function isGatingSeverity(severity: Severity): boolean {
 const id = z.string().min(1);
 const timestamp = z.coerce.date();
 const name = z.string().trim().min(1);
+
+/** Longest task or backlog item title. */
+export const MAX_TITLE_CHARS = 120;
 
 export const JIRA_KEY_PATTERN = /^[A-Z][A-Z0-9_]*-\d+$/;
 
@@ -533,6 +547,104 @@ export const newTaskInputSchema = z
     }
   });
 export type NewTaskInput = z.input<typeof newTaskInputSchema>;
+
+// ---------------------------------------------------------------------------
+// Backlog
+// ---------------------------------------------------------------------------
+
+const backlogTitle = name.max(MAX_TITLE_CHARS);
+const backlogDependsOn = z
+  .array(id)
+  .refine((ids) => new Set(ids).size === ids.length, "Each dependency can be listed only once");
+
+/** Free text items need a description, like free text tasks. */
+function checkBacklogText(
+  value: { origin: TaskOrigin; freeText: string },
+  ctx: z.RefinementCtx,
+): void {
+  if (value.origin.kind === "free-text" && value.freeText.trim() === "") {
+    ctx.addIssue({ code: "custom", path: ["freeText"], message: "Describe the task" });
+  }
+}
+
+/**
+ * Work parked in a repo's backlog. It is not a task until promoted, by the
+ * user or the backlog runner; promotion creates a normal queued task.
+ */
+export const backlogItemSchema = z
+  .object({
+    id,
+    repoId: id,
+    title: backlogTitle,
+    origin: taskOriginSchema,
+    /** PR origins only. */
+    mode: prModeSchema.nullable(),
+    freeText: z.string(),
+    agents: roleAgentsSchema,
+    triageMode: triageModeSchema,
+    priority: backlogPrioritySchema,
+    /** Manual order inside a priority bucket. */
+    position: z.int(),
+    /** Backlog items (same repo) that must be done first. */
+    dependsOn: z.array(id),
+    status: backlogStatusSchema,
+    /** The task it was promoted to; null until promoted (or once that task is deleted). */
+    taskId: id.nullable(),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  })
+  .superRefine(checkMode);
+export type BacklogItem = z.infer<typeof backlogItemSchema>;
+
+/** A backlog item as listed: in pick order, with the dependencies holding it back. */
+export const backlogItemViewSchema = z.intersection(
+  backlogItemSchema,
+  z.object({
+    blocked: z.boolean(),
+    /** Unmet dependency ids, including ones that no longer exist. */
+    blockedBy: z.array(id),
+  }),
+);
+export type BacklogItemView = z.infer<typeof backlogItemViewSchema>;
+
+/** `POST /api/repos/:repoId/backlog` body. Backlog items run unattended, hence `intervene`. */
+export const newBacklogItemInputSchema = z
+  .object({
+    origin: taskOriginSchema,
+    mode: prModeSchema.nullable().default(null),
+    title: backlogTitle,
+    freeText: z.string().default(""),
+    agents: roleAgentsSchema.default({}),
+    triageMode: triageModeSchema.default("intervene"),
+    priority: backlogPrioritySchema.default("normal"),
+    dependsOn: backlogDependsOn.default([]),
+  })
+  .superRefine((value, ctx) => {
+    checkMode(value, ctx);
+    checkBacklogText(value, ctx);
+  });
+export type NewBacklogItemInput = z.input<typeof newBacklogItemInputSchema>;
+
+/** `PATCH /api/repos/:repoId/backlog/:id` body; omitted fields keep their value. */
+export const updateBacklogItemInputSchema = z.object({
+  title: backlogTitle.optional(),
+  freeText: z.string().optional(),
+  priority: backlogPrioritySchema.optional(),
+  dependsOn: backlogDependsOn.optional(),
+  /** Hold an item back or release it; promotion happens through `run`. */
+  status: z.enum(["waiting", "paused"]).optional(),
+  agents: roleAgentsSchema.optional(),
+  triageMode: triageModeSchema.optional(),
+});
+export type UpdateBacklogItemInput = z.infer<typeof updateBacklogItemInputSchema>;
+
+/** `POST /api/repos/:repoId/backlog/reorder` body: the repo's item ids in their new order. */
+export const reorderBacklogInputSchema = z.object({
+  ids: z
+    .array(id)
+    .refine((ids) => new Set(ids).size === ids.length, "Each item can be listed only once"),
+});
+export type ReorderBacklogInput = z.infer<typeof reorderBacklogInputSchema>;
 
 /** Body for looking up a pasted pull request link on the new task form. */
 export const pullRequestLookupInputSchema = z.object({ url: z.string().trim().min(1) });

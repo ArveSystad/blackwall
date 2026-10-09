@@ -10,6 +10,8 @@ import {
 } from "drizzle-orm/sqlite-core";
 import {
   AGENT_CLIS,
+  BACKLOG_PRIORITIES,
+  BACKLOG_STATUSES,
   CONNECTION_KINDS,
   FINDING_STATUSES,
   GATES,
@@ -149,6 +151,41 @@ export const tasks = sqliteTable(
   (t) => [index("tasks_repo_idx").on(t.repoId), index("tasks_branch_idx").on(t.repoId, t.branch)],
 );
 
+/** Per-repo backlog: work parked until it is promoted to a task. */
+export const backlogItems = sqliteTable(
+  "backlog_items",
+  {
+    id: id(),
+    repoId: text("repo_id")
+      .notNull()
+      .references(() => repos.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    origin: text("origin", { mode: "json" }).$type<TaskOrigin>().notNull(),
+    /** PR origins only. */
+    mode: text("mode", { enum: PR_MODES }),
+    freeText: text("free_text").notNull().default(""),
+    agents: text("agents", { mode: "json" })
+      .$type<RoleAgents>()
+      .notNull()
+      .default(sql`'{}'`),
+    triageMode: text("triage_mode", { enum: TRIAGE_MODES }).notNull().default("intervene"),
+    priority: text("priority", { enum: BACKLOG_PRIORITIES }).notNull().default("normal"),
+    /** Manual order inside a priority bucket. */
+    position: integer("position").notNull().default(0),
+    /** Backlog item ids that must be done first. */
+    dependsOn: text("depends_on", { mode: "json" })
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'`),
+    status: text("status", { enum: BACKLOG_STATUSES }).notNull().default("waiting"),
+    /** Set when promoted. */
+    taskId: text("task_id").references(() => tasks.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("backlog_items_repo_status_idx").on(t.repoId, t.status)],
+);
+
 export const runs = sqliteTable(
   "runs",
   {
@@ -268,6 +305,7 @@ export type NewConnection = typeof connections.$inferInsert;
 export type NewRepo = typeof repos.$inferInsert;
 export type NewAgent = typeof agents.$inferInsert;
 export type NewTask = typeof tasks.$inferInsert;
+export type NewBacklogItem = typeof backlogItems.$inferInsert;
 export type NewRun = typeof runs.$inferInsert;
 export type NewStep = typeof steps.$inferInsert;
 export type NewFinding = typeof findings.$inferInsert;
