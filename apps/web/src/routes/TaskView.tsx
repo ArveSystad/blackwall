@@ -23,7 +23,8 @@ import { useTaskData, type TaskData } from "../components/task/use-task-data";
 import { uiStageIndex } from "../inbox";
 import { isPlainKey, isTypingTarget } from "../keyboard";
 import { cn } from "../lib/utils";
-import { queryKeys, taskQuery } from "../query";
+import { queryKeys, reposQuery, taskQuery } from "../query";
+import { resolveSelectedRepo, useSelectedRepoId } from "../selected-repo";
 import {
   TAB_LABELS,
   TASK_TABS,
@@ -288,10 +289,34 @@ function useLeaveWhenDeleted(taskId: string) {
   }, [queryClient, navigate, taskId]);
 }
 
+/** Escape leaves the task for the selected repo's backlog, or home when none is selected. */
+function useEscapeToBacklog() {
+  const navigate = useNavigate();
+  const repos = useQuery(reposQuery);
+  const repoId = resolveSelectedRepo(useSelectedRepoId(), repos.data)?.id;
+  const target = useRef(repoId);
+  useEffect(() => {
+    target.current = repoId;
+  });
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.defaultPrevented || event.key !== "Escape" || !isPlainKey(event)) return;
+      if (isTypingTarget(event.target) || document.querySelector("[role=dialog]")) return;
+      const repoId = target.current;
+      void (repoId
+        ? navigate({ to: "/repos/$repoId/backlog", params: { repoId } })
+        : navigate({ to: "/" }));
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [navigate]);
+}
+
 /** Main pane for one task: header, needs-you banner, the section tabs and the input bar. */
 export function TaskView({ taskId }: { taskId: string }) {
   const task = useQuery(taskQuery(taskId));
   useLeaveWhenDeleted(taskId);
+  useEscapeToBacklog();
 
   if (task.isPending) return <Centered title="Loading task…" />;
   if (task.isError) {

@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-router";
 import { Inbox } from "./components/Inbox";
 import { NotFound } from "./components/NotFound";
+import { RepoContextBar } from "./components/RepoContextBar";
 import { Backlog } from "./routes/Backlog";
 import { Home } from "./routes/Home";
 import { Settings } from "./routes/Settings";
@@ -28,15 +29,21 @@ const rootRoute = createRootRoute({
   notFoundComponent: NotFound,
 });
 
-/** Two-pane shell: the inbox on the left, the selected task (or home) on the right. */
+/**
+ * Two-pane shell: the inbox on the left, the selected task (or home) on the right, under the
+ * selected repo's status bar.
+ */
 const shellRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: "shell",
   component: () => (
     <div className="flex h-full min-w-0">
       <Inbox />
-      <main className="h-full min-w-0 flex-1 bg-background">
-        <Outlet />
+      <main className="flex h-full min-w-0 flex-1 flex-col bg-background">
+        <RepoContextBar />
+        <div className="min-h-0 flex-1">
+          <Outlet />
+        </div>
       </main>
     </div>
   ),

@@ -56,6 +56,7 @@ import {
   settingsQuery,
   tasksQuery,
 } from "../query";
+import { setSelectedRepo } from "../selected-repo";
 import { errorMessage } from "../settings-forms";
 import { agentClis } from "../task-view";
 
@@ -556,6 +557,12 @@ export function Backlog({ repoId }: { repoId: string }) {
         })
       : null;
   const nextId = nextBacklogItem(items)?.id;
+
+  // Opening a backlog selects its repo, however it was reached; never a repo that isn't there.
+  const missing = repos.data !== undefined && !repo;
+  useEffect(() => {
+    if (!missing) setSelectedRepo(repoId);
+  }, [repoId, missing]);
 
   // Keep focus on a row the keyboard just moved.
   useEffect(() => {

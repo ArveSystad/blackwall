@@ -32,6 +32,7 @@ import { originKey } from "../inbox";
 import { isModKey, isPlainKey, isTypingTarget, modKeyLabel } from "../keyboard";
 import { cn } from "../lib/utils";
 import { agentsQuery, connectionsQuery, queryKeys, reposQuery, roleDefaultsQuery } from "../query";
+import { resolveSelectedRepo, useSelectedRepoId } from "../selected-repo";
 import { ROLE_LABELS, agentsForRole, errorMessage } from "../settings-forms";
 import { jiraConnectionId, parseJiraInput } from "../task-view";
 import { AgentTile } from "./AgentTile";
@@ -315,9 +316,12 @@ function NewTaskForm({
   const jira = parseJiraInput(jiraText);
   const usableRepos = (repos.data ?? []).filter((r) => r.exists);
   const lookedUpRepo = lookup.state === "ok" ? lookup.result.repoId : null;
+  const selectedRepo = resolveSelectedRepo(useSelectedRepoId(), usableRepos)?.id ?? null;
+  // A pick wins, then the PR's own repo, then the globally selected one.
   const repoId =
     chosenRepo ??
     (kind === "github-pr" ? lookedUpRepo : null) ??
+    selectedRepo ??
     (usableRepos.length === 1 ? usableRepos[0]!.id : null);
 
   function origin(): TaskOrigin | string {
