@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   backlogSections,
   countdown,
-  defaultBacklogTitle,
   groupBacklog,
   itemState,
   moveInBucket,
@@ -307,22 +306,13 @@ describe("runnerStatus", () => {
   });
 });
 
-describe("countdown and defaultBacklogTitle", () => {
+describe("countdown", () => {
   it("formats seconds, minutes and hours", () => {
     const now = new Date("2026-10-08T12:00:00Z");
     expect(countdown(new Date("2026-10-08T12:00:45Z"), now)).toBe("45s");
     expect(countdown(new Date("2026-10-08T12:12:00Z"), now)).toBe("12m");
     expect(countdown(new Date("2026-10-08T14:05:00Z"), now)).toBe("2h 05m");
     expect(countdown(new Date("2026-10-08T11:00:00Z"), now)).toBe("0s");
-  });
-
-  it("titles an item from its origin", () => {
-    expect(defaultBacklogTitle({ kind: "jira-issue", key: "ABC-1", connectionId: null }, "")).toBe(
-      "ABC-1",
-    );
-    expect(defaultBacklogTitle({ kind: "free-text" }, "\n  Fix the login\nmore")).toBe(
-      "Fix the login",
-    );
   });
 });
 

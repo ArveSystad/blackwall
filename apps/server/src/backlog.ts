@@ -17,7 +17,7 @@ import {
   type Task,
 } from "@blackwall/shared";
 import { Hono, type Context } from "hono";
-import { createTaskFromInput, type NewTaskServices, type TaskPipeline } from "./tasks.js";
+import { queueTask, titleFor, type NewTaskServices, type TaskPipeline } from "./tasks.js";
 
 export interface BacklogRouteStores {
   backlogItems: Repositories["backlogItems"];
@@ -26,10 +26,10 @@ export interface BacklogRouteStores {
   tasks: Pick<Repositories["tasks"], "get">;
 }
 
-/** A repo's backlog runner switch and halt. */
+/** The global backlog runner setting, and a repo's backlog runner switch and halt. */
 export type BacklogRunnerSettings = Pick<
   SettingsService,
-  "repoBacklogRunner" | "setRepoBacklogRunnerEnabled" | "setRepoBacklogHalt"
+  "general" | "repoBacklogRunner" | "setRepoBacklogRunnerEnabled" | "setRepoBacklogHalt"
 >;
 
 /** The backlog routes' stores, plus the backlog runner's hooks. */
@@ -52,21 +52,29 @@ export interface BacklogRouteServices {
 export interface BacklogPromotion {
   pipeline: Pick<TaskPipeline, "createTask">;
   newTask: NewTaskServices;
-  backlogItems: Pick<Repositories["backlogItems"], "markPromoted">;
+  backlogItems: Pick<Repositories["backlogItems"], "get" | "markPromoted">;
   broadcast: (event: ServerEvent) => void;
 }
 
 /**
  * Promotes a backlog item: creates a normal queued task from it through the
  * same path as the new task form, links it and announces the change. Used by
- * "Run now" and the backlog runner alike.
+ * "Run now", the backlog runner and new tasks that start at once.
+ *
+ * Synchronous on purpose: no `await` may come before `markPromoted`, so no
+ * other promotion can run between the status check and the link, and an item
+ * never becomes two tasks.
  */
-export async function promoteBacklogItem(
+export function promoteBacklogItem(
   item: BacklogItem,
   { pipeline, newTask, backlogItems, broadcast }: BacklogPromotion,
-): Promise<Task> {
-  const { title, origin, mode, repoId, freeText, agents, triageMode } = item;
-  const task = await createTaskFromInput(pipeline, newTask, {
+): Task {
+  const current = backlogItems.get(item.id);
+  if (!current || current.status === "promoted") {
+    throw new Error("The item was already promoted to a task");
+  }
+  const { title, origin, mode, repoId, freeText, agents, triageMode } = current;
+  const task = queueTask(pipeline, newTask, {
     title,
     origin,
     mode,
@@ -87,7 +95,8 @@ function badRequest(c: Context, error: { issues: { message: string }[] }) {
 /**
  * A repo's backlog, mounted at `/api/repos/:repoId/backlog`. Items wait until
  * promoted; `run` promotes one now through the same path as the new task
- * form. Every change is announced as `backlog.changed` so clients refetch.
+ * form, and a new item sent with `start` is promoted at once when the runner
+ * would start it. Every change is announced as `backlog.changed` so clients refetch.
  */
 export function backlogRoutes(
   { backlogItems, repos, tasks }: BacklogRouteStores,
@@ -102,6 +111,21 @@ export function backlogRoutes(
   function foreignDependencies(items: BacklogItem[], dependsOn: string[]): string[] {
     const ids = new Set(items.map((i) => i.id));
     return dependsOn.filter((id) => !ids.has(id));
+  }
+
+  /**
+   * Whether a new item starts at once: backlogs run automatically, the repo's
+   * runner is on and the item's dependencies are done. A halt does not count;
+   * it only stops the runner from picking other waiting items.
+   */
+  function shouldStart(repoId: string, item: BacklogItem): boolean {
+    if (!runner || !pipeline || !newTask) return false;
+    const byId = new Map(backlogItems.list(repoId).map((i) => [i.id, i]));
+    return (
+      runner.general().backlogRunner &&
+      runner.repoBacklogRunner(repoId).enabled &&
+      unmetDependencies(item, byId, isDone).length === 0
+    );
   }
 
   routes.use("*", async (c, next) => {
@@ -156,8 +180,25 @@ export function backlogRoutes(
     if (foreign.length > 0) {
       return c.json({ error: `Unknown dependencies in this repo: ${foreign.join(", ")}` }, 400);
     }
-    const item = backlogItems.insert({ ...input.data, repoId });
-    changed(repoId);
+    const { start, ...values } = input.data;
+    // Everything that can fail runs before the insert, so retries add no duplicates.
+    if (newTask && (start || values.title === undefined)) newTask.repos.use(repoId);
+    const title =
+      values.title ?? (await titleFor(values.origin, values.freeText, newTask?.originTitle));
+    let item = backlogItems.insert({ ...values, title, repoId });
+    if (start && pipeline && newTask && shouldStart(repoId, item)) {
+      try {
+        // Announces the change itself.
+        promoteBacklogItem(item, { pipeline, newTask, backlogItems, broadcast });
+        item = backlogItems.get(item.id) ?? item;
+      } catch (error) {
+        // Never announced, so clients never saw it.
+        backlogItems.delete(item.id);
+        throw error;
+      }
+    } else {
+      changed(repoId);
+    }
     return c.json<BacklogItem>(item, 201);
   });
 
@@ -218,13 +259,13 @@ export function backlogRoutes(
 
   if (pipeline && newTask) {
     /** Promotes the item now: creates a normal queued task from it and links it. */
-    routes.post("/:id/run", async (c) => {
+    routes.post("/:id/run", (c) => {
       const item = itemOf(c);
       if (!item) return notFound(c);
       if (item.status === "promoted") {
         return c.json({ error: "The item was already promoted to a task" }, 409);
       }
-      const task = await promoteBacklogItem(item, {
+      const task = promoteBacklogItem(item, {
         pipeline,
         newTask,
         backlogItems,

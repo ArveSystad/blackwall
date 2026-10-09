@@ -19,8 +19,8 @@ import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.js";
 import { tokenCookieName } from "./auth.js";
-import { backlogRoutes } from "./backlog.js";
-import type { TaskPipeline } from "./tasks.js";
+import { backlogRoutes, promoteBacklogItem } from "./backlog.js";
+import type { NewTaskServices, TaskPipeline } from "./tasks.js";
 
 let opened: OpenedDatabase;
 let repositories: Repositories;
@@ -29,6 +29,7 @@ let events: ServerEvent[];
 let createTask: ReturnType<typeof vi.fn<TaskPipeline["createTask"]>>;
 let repoId: string;
 let settings: ReturnType<typeof createSettingsService>;
+let newTask: NewTaskServices;
 
 beforeEach(() => {
   opened = openDatabase(":memory:");
@@ -37,6 +38,15 @@ beforeEach(() => {
   events = [];
   createTask = vi.fn((values) => repositories.tasks.create({ ...values, status: "queued" }));
   settings = createSettingsService({ settings: repositories.settings, tags: repositories.tags });
+  newTask = {
+    repos: { use: (id) => repositories.repos.get(id)! },
+    resolveRoles: (overrides = {}) => ({ planner: "a-default", ...overrides }),
+  };
+  mount();
+});
+
+/** Mounts the routes with the current services; call again after changing `newTask`. */
+function mount() {
   app = new Hono().route(
     "/api/repos/:repoId/backlog",
     backlogRoutes(
@@ -48,15 +58,12 @@ beforeEach(() => {
       {
         broadcast: (event) => events.push(event),
         pipeline: { createTask },
-        newTask: {
-          repos: { use: (id) => repositories.repos.get(id)! },
-          resolveRoles: (overrides = {}) => ({ planner: "a-default", ...overrides }),
-        },
+        newTask,
         runner: settings,
       },
     ),
   );
-});
+}
 
 afterEach(() => opened.close());
 
@@ -68,10 +75,10 @@ function request(path: string, init: { method?: string; body?: unknown } = {}) {
   });
 }
 
-async function create(body: Partial<NewBacklogItemInput> & { title: string }) {
+async function create(body: Partial<NewBacklogItemInput>) {
   const res = await request("", {
     method: "POST",
-    body: { origin: { kind: "free-text" }, freeText: `Do ${body.title}`, ...body },
+    body: { origin: { kind: "free-text" }, freeText: `Do ${body.title ?? "it"}`, ...body },
   });
   expect(res.status).toBe(201);
   return backlogItemSchema.parse(await res.json());
@@ -223,6 +230,118 @@ describe("backlog routes", () => {
     expect((await request(`/${item.id}/run`, { method: "POST" })).status).toBe(409);
     const edit = await request(`/${item.id}`, { method: "PATCH", body: { title: "x" } });
     expect(edit.status).toBe(409);
+  });
+});
+
+describe("new backlog item titles", () => {
+  const jira = { kind: "jira-issue", key: "APP-1", connectionId: null } as const;
+
+  it("uses the origin's title when none is given", async () => {
+    newTask.originTitle = vi.fn(async () => "Fix the login");
+    mount();
+    expect((await create({ origin: jira, title: undefined })).title).toBe("Fix the login");
+  });
+
+  it("falls back to the Jira key or the first line", async () => {
+    expect((await create({ origin: jira, title: undefined })).title).toBe("APP-1");
+    const free = await create({ title: undefined, freeText: "First line\nMore" });
+    expect(free.title).toBe("First line");
+  });
+
+  it("keeps an explicit title", async () => {
+    newTask.originTitle = vi.fn(async () => "Fix the login");
+    mount();
+    expect((await create({ origin: jira, title: "Mine" })).title).toBe("Mine");
+    expect(newTask.originTitle).not.toHaveBeenCalled();
+  });
+});
+
+describe("starting new backlog items", () => {
+  it("promotes at once when the runner is on, announcing once", async () => {
+    const item = await create({ title: "Now", start: true });
+    expect(item.status).toBe("promoted");
+    expect(item.taskId).not.toBeNull();
+    expect(repositories.tasks.get(item.taskId!)).toMatchObject({ title: "Now", status: "queued" });
+    expect(createTask).toHaveBeenCalledTimes(1);
+    expect(events).toEqual([{ type: "backlog.changed", payload: { repoId } }]);
+  });
+
+  it("leaves the item waiting when the repo's runner is off", async () => {
+    settings.setRepoBacklogRunnerEnabled(repoId, false);
+    const item = await create({ title: "Later", start: true });
+    expect(item).toMatchObject({ status: "waiting", taskId: null });
+    expect(createTask).not.toHaveBeenCalled();
+    expect(events).toEqual([{ type: "backlog.changed", payload: { repoId } }]);
+  });
+
+  it("leaves the item waiting when backlogs do not run automatically", async () => {
+    settings.updateGeneral({ backlogRunner: false });
+    const item = await create({ title: "Later", start: true });
+    expect(item.status).toBe("waiting");
+    expect(createTask).not.toHaveBeenCalled();
+    expect(events).toEqual([{ type: "backlog.changed", payload: { repoId } }]);
+  });
+
+  it("starts even while the repo's runner is halted", async () => {
+    settings.setRepoBacklogHalt(repoId, "t1");
+    expect((await create({ title: "Now", start: true })).status).toBe("promoted");
+  });
+
+  it("waits for open dependencies and starts once they are done", async () => {
+    const open = await create({ title: "Open" });
+    const blocked = await create({ title: "Blocked", dependsOn: [open.id], start: true });
+    expect(blocked.status).toBe("waiting");
+    expect(createTask).not.toHaveBeenCalled();
+
+    const task = repositories.tasks.create({
+      title: "Done",
+      origin: { kind: "free-text" },
+      repoId,
+      status: "done",
+    });
+    repositories.backlogItems.markPromoted(open.id, task.id);
+    const ready = await create({ title: "Ready", dependsOn: [open.id], start: true });
+    expect(ready.status).toBe("promoted");
+  });
+
+  it("removes the item and announces nothing when promotion fails", async () => {
+    createTask.mockImplementation(() => {
+      throw new Error("boom");
+    });
+    const res = await request("", {
+      method: "POST",
+      body: { origin: { kind: "free-text" }, freeText: "Do it", start: true },
+    });
+    expect(res.status).toBe(500);
+    expect(await list()).toEqual([]);
+    expect(events).toEqual([]);
+  });
+
+  it("inserts nothing for a stale repo", async () => {
+    newTask.repos.use = () => {
+      throw new Error("stale");
+    };
+    mount();
+    const res = await request("", {
+      method: "POST",
+      body: { origin: { kind: "free-text" }, freeText: "Do it", start: true },
+    });
+    expect(res.status).toBe(500);
+    expect(await list()).toEqual([]);
+    expect(events).toEqual([]);
+  });
+
+  it("never promotes an item twice", async () => {
+    const item = await create({ title: "Once" });
+    const services = {
+      pipeline: { createTask },
+      newTask,
+      backlogItems: repositories.backlogItems,
+      broadcast: () => undefined,
+    };
+    promoteBacklogItem(item, services);
+    expect(() => promoteBacklogItem(item, services)).toThrow("already promoted");
+    expect(createTask).toHaveBeenCalledTimes(1);
   });
 });
 

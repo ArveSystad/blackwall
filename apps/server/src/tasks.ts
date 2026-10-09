@@ -81,7 +81,11 @@ export function fallbackTitle(origin: TaskOrigin, freeText: string): string {
     : `${origin.owner}/${origin.repo}#${origin.number}`;
 }
 
-async function titleFor(
+/**
+ * A task's title from its origin: the Jira issue's summary or the PR's title,
+ * otherwise {@link fallbackTitle}. A missing token still throws.
+ */
+export async function titleFor(
   origin: TaskOrigin,
   freeText: string,
   originTitle: NewTaskServices["originTitle"],
@@ -111,10 +115,24 @@ export async function createTaskFromInput(
   newTask: NewTaskServices,
   input: ParsedNewTaskInput,
 ): Promise<Task> {
-  const { origin, mode, repoId, freeText, triageMode } = input;
+  const { origin, freeText } = input;
+  newTask.repos.use(input.repoId);
+  const title = input.title ?? (await titleFor(origin, freeText, newTask.originTitle));
+  return queueTask(pipeline, newTask, { ...input, title });
+}
+
+/**
+ * Queues a titled task without awaiting anything: checks the repo is usable
+ * and puts the given agents on top of the repo's CLI's role defaults.
+ */
+export function queueTask(
+  pipeline: Pick<TaskPipeline, "createTask">,
+  newTask: NewTaskServices,
+  input: NewTaskValues,
+): Task {
+  const { title, origin, mode, repoId, freeText, triageMode } = input;
   const repo = newTask.repos.use(repoId);
   const agents = newTask.resolveRoles(input.agents, repo.defaultCli);
-  const title = input.title ?? (await titleFor(origin, freeText, newTask.originTitle));
   return pipeline.createTask({ title, origin, mode, repoId, freeText, agents, triageMode });
 }
 

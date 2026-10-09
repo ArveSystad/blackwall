@@ -39,13 +39,12 @@ import {
   TextIcon,
   WallIcon,
 } from "../components/icons";
-import { NewTaskModal, type BacklogTarget } from "../components/NewTaskModal";
+import { NewTaskModal } from "../components/NewTaskModal";
 import { StatusBadge } from "../components/StatusBadge";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Kbd } from "../components/ui/kbd";
 import { originKey } from "../inbox";
-import { isTypingTarget } from "../keyboard";
 import { cn } from "../lib/utils";
 import {
   agentsQuery,
@@ -580,10 +579,7 @@ function QuickAdd({ repoId, onError }: { repoId: string; onError: (error: string
 }
 
 type Dialog =
-  | { kind: "add" }
-  | { kind: "edit"; item: BacklogItemView }
-  | { kind: "delete"; item: BacklogItemView }
-  | null;
+  { kind: "edit"; item: BacklogItemView } | { kind: "delete"; item: BacklogItemView } | null;
 
 /** A repo's backlog: what waits, in pick order, and why the runner is or isn't promoting it. */
 export function Backlog({ repoId }: { repoId: string }) {
@@ -704,28 +700,9 @@ export function Backlog({ repoId }: { repoId: string }) {
     rows[index + delta]?.focus();
   }
 
-  // "A" opens Add to backlog while no text field has focus.
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.ctrlKey || event.metaKey || event.altKey || isTypingTarget(event.target)) return;
-      if (event.key.toLowerCase() !== "a" || document.querySelector("[role=dialog]")) return;
-      event.preventDefault();
-      setDialog({ kind: "add" });
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
-
   if (repos.data && !repo) {
     return <Message title="Repo not found">It may have been removed in Settings.</Message>;
   }
-
-  const target: BacklogTarget | undefined =
-    dialog?.kind === "add"
-      ? { repoId, items }
-      : dialog?.kind === "edit"
-        ? { repoId, items, item: dialog.item }
-        : undefined;
 
   return (
     <div className="flex h-full min-w-0 flex-col">
@@ -736,14 +713,6 @@ export function Backlog({ repoId }: { repoId: string }) {
         {backlog.data && (
           <span className="mono text-label text-faint">{pendingCount(items)} waiting</span>
         )}
-        <span className="flex-1" />
-        <Button variant="primary" onClick={() => setDialog({ kind: "add" })}>
-          <PlusIcon />
-          Add to backlog
-          <Kbd onFill aria-hidden="true">
-            A
-          </Kbd>
-        </Button>
       </div>
 
       <RunnerBar
@@ -786,7 +755,7 @@ export function Backlog({ repoId }: { repoId: string }) {
               !(showArchive && sections.archived.length > 0) && (
                 <Message title="Nothing waiting">
                   Park work here and the runner starts it when the repo is idle. Quick add a line
-                  above, or use Add to backlog for a Jira issue or PR.
+                  above, or use New task for a Jira issue or PR.
                 </Message>
               )}
             {sections.active.length > 0 && (
@@ -937,7 +906,11 @@ export function Backlog({ repoId }: { repoId: string }) {
         />
       )}
 
-      <NewTaskModal open={target !== undefined} onClose={() => setDialog(null)} backlog={target} />
+      <NewTaskModal
+        open={dialog?.kind === "edit"}
+        item={dialog?.kind === "edit" ? dialog.item : undefined}
+        onClose={() => setDialog(null)}
+      />
       {dialog?.kind === "delete" && (
         <ConfirmDialog
           title="Delete backlog item"

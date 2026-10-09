@@ -1,6 +1,5 @@
 import {
   BACKLOG_PRIORITIES,
-  MAX_TITLE_CHARS,
   type AgentCli,
   type BacklogItemView,
   type BacklogPriority,
@@ -8,7 +7,6 @@ import {
   type QuotaState,
   type RepoBacklogRunner,
   type Task,
-  type TaskOrigin,
 } from "@blackwall/shared";
 import { groupTasks } from "./inbox";
 import { CLI_NAMES } from "./settings-forms";
@@ -354,18 +352,4 @@ export function repoStatusLine({
         ? "halted"
         : "enabled";
   return `${plural(running, "task")} running · auto-start ${autoStart}`;
-}
-
-/** A title for an item added from an origin: the Jira key, the PR, or the first line of the text. */
-export function defaultBacklogTitle(origin: TaskOrigin, freeText: string): string {
-  switch (origin.kind) {
-    case "jira-issue":
-      return origin.key;
-    case "github-pr":
-      return `${origin.owner}/${origin.repo}#${origin.number}`;
-    case "free-text":
-      return (freeText.split("\n").find((line) => line.trim()) ?? "")
-        .trim()
-        .slice(0, MAX_TITLE_CHARS);
-  }
 }

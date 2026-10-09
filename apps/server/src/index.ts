@@ -91,7 +91,7 @@ try {
   // Uses the engine only once started, after the engine below exists.
   const backlogRunner = createBacklogRunner({
     repositories,
-    createTask: (item) =>
+    createTask: async (item) =>
       promoteBacklogItem(item, {
         pipeline,
         newTask,

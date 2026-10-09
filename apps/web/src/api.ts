@@ -51,7 +51,6 @@ import {
   type HealthResponse,
   type MissingCredential,
   type NewBacklogItemInput,
-  type NewTaskInput,
   type PullRequestLookup,
   type QuotaState,
   type RepoBacklogRunner,
@@ -160,11 +159,6 @@ export function listTasks(): Promise<Task[]> {
 
 export function getTask(id: string): Promise<Task> {
   return request(`/api/tasks/${encodeURIComponent(id)}`, taskSchema);
-}
-
-/** Creates a task from the new task form; the server queues it. */
-export function createTask(input: NewTaskInput): Promise<Task> {
-  return request("/api/tasks", taskSchema, { method: "POST", body: input });
 }
 
 /** Resolves a pasted PR link to a task origin and the registered repo it belongs to. */

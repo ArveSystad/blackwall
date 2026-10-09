@@ -8,7 +8,6 @@ import {
   type AgentRole,
   type BacklogItemView,
   type BacklogPriority,
-  type NewTaskInput,
   type OriginKind,
   type PrMode,
   type PullRequestLookup,
@@ -24,16 +23,25 @@ import { useEffect, useState } from "react";
 import {
   MissingCredentialError,
   createBacklogItem,
-  createTask,
   lookupPullRequest,
   updateBacklogItem,
 } from "../api";
-import { PRIORITY_LABELS, defaultBacklogTitle } from "../backlog";
+import { PRIORITY_LABELS } from "../backlog";
 import { useWithCredential } from "../credentials";
 import { originKey } from "../inbox";
 import { isModKey, isPlainKey, isTypingTarget, modKeyLabel } from "../keyboard";
 import { cn } from "../lib/utils";
-import { agentsQuery, connectionsQuery, queryKeys, reposQuery, roleDefaultsQuery } from "../query";
+import {
+  agentsQuery,
+  backlogQuery,
+  backlogRunnerQuery,
+  connectionsQuery,
+  queryKeys,
+  reposQuery,
+  roleDefaultsQuery,
+  settingsQuery,
+  taskQuery,
+} from "../query";
 import { resolveSelectedRepo, useSelectedRepoId } from "../selected-repo";
 import { ROLE_LABELS, agentsForRole, errorMessage } from "../settings-forms";
 import { jiraConnectionId, parseJiraInput } from "../task-view";
@@ -212,14 +220,6 @@ const TRIAGE_OPTIONS: { value: TriageMode; title: string; detail: string }[] = [
   },
 ];
 
-/** Add-to-backlog mode: the repo is fixed; `item` switches to editing that item. */
-export interface BacklogTarget {
-  repoId: string;
-  /** The repo's backlog, for the depends-on choices. */
-  items: readonly BacklogItemView[];
-  item?: BacklogItemView;
-}
-
 function DependsOnField({
   items,
   selfId,
@@ -280,14 +280,14 @@ function DependsOnField({
 
 function NewTaskForm({
   defaults,
-  backlog,
+  item,
   onClose,
 }: {
   defaults: RoleDefaultsByCli;
-  backlog: BacklogTarget | undefined;
+  /** The backlog item to edit; without it the form creates a new task. */
+  item: BacklogItemView | undefined;
   onClose: () => void;
 }) {
-  const item = backlog?.item;
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const withCredential = useWithCredential();
@@ -300,7 +300,7 @@ function NewTaskForm({
   const [jiraText, setJiraText] = useState("");
   const [prUrl, setPrUrl] = useState("");
   const [mode, setMode] = useState<PrMode>(item?.mode ?? "work");
-  const [chosenRepo, setChosenRepo] = useState<string | null>(backlog?.repoId ?? null);
+  const [chosenRepo, setChosenRepo] = useState<string | null>(item?.repoId ?? null);
   const [freeText, setFreeText] = useState(item?.freeText ?? "");
   /** The role defaults of a CLI, under the edited backlog item's agents. */
   const startRoles = (cli: AgentCli): RoleAgents =>
@@ -324,10 +324,7 @@ function NewTaskForm({
     (repos.data ?? []).find(
       (r) =>
         r.id ===
-        (backlog?.repoId ??
-          chosenRepo ??
-          selectedRepo ??
-          (usableRepos.length === 1 ? usableRepos[0]!.id : null)),
+        (chosenRepo ?? selectedRepo ?? (usableRepos.length === 1 ? usableRepos[0]!.id : null)),
     )?.defaultOrigin ?? "jira-issue";
   const kind = item?.origin.kind ?? kindChoice ?? defaultKind;
   const lookup = usePullRequestLookup(kind === "github-pr" ? prUrl : "");
@@ -339,12 +336,31 @@ function NewTaskForm({
     (kind === "github-pr" ? lookedUpRepo : null) ??
     selectedRepo ??
     (usableRepos.length === 1 ? usableRepos[0]!.id : null);
-  const cli =
-    (repos.data ?? []).find((r) => r.id === (backlog?.repoId ?? repoId))?.defaultCli ?? "claude";
+  const cli = (repos.data ?? []).find((r) => r.id === repoId)?.defaultCli ?? "claude";
   if (cli !== rolesCli) {
     setRolesCli(cli);
     if (!rolesEdited) setRoles(startRoles(cli));
   }
+
+  const backlogList = useQuery({ ...backlogQuery(repoId ?? ""), enabled: !!repoId });
+  const runner = useQuery({ ...backlogRunnerQuery(repoId ?? ""), enabled: !!repoId && !item });
+  const settings = useQuery(settingsQuery);
+  const backlogItems = backlogList.data ?? [];
+  // The repo can change after picking dependencies: keep only that repo's items.
+  const chosenDeps = item
+    ? dependsOn
+    : dependsOn.filter((id) => backlogItems.some((i) => i.id === id));
+  // Only a prediction (it cannot tell whether dependencies are done); the server decides.
+  const runnerOn = !!settings.data?.backlogRunner && !!runner.data?.enabled;
+  const footerHint = item
+    ? "Waits in the backlog until you run it or the runner picks it."
+    : !repoId
+      ? "Added to the repo's backlog."
+      : !runnerOn
+        ? "Waits in this repo's backlog; its runner is off."
+        : chosenDeps.length > 0
+          ? "Starts now if its dependencies are done; otherwise the runner starts it once they are."
+          : "Starts now: this repo's backlog runs.";
 
   function origin(): TaskOrigin | string {
     switch (kind) {
@@ -364,37 +380,22 @@ function NewTaskForm({
     }
   }
 
-  async function submitBacklog(target: BacklogTarget) {
-    const resolved = item ? item.origin : origin();
-    if (typeof resolved === "string") return setError(resolved);
+  async function submitEdit(edited: BacklogItemView) {
     if (kind === "free-text" && !freeText.trim()) return setError("Describe the task");
-    const name = title.trim() || defaultBacklogTitle(resolved, freeText);
+    const name = title.trim();
     if (!name) return setError("Give the item a title");
     setSubmitting(true);
     setError(null);
     try {
-      if (item) {
-        await updateBacklogItem(target.repoId, item.id, {
-          title: name,
-          freeText,
-          priority,
-          dependsOn,
-          agents: roles,
-          triageMode,
-        });
-      } else {
-        await createBacklogItem(target.repoId, {
-          origin: resolved,
-          mode: kind === "github-pr" ? mode : null,
-          title: name,
-          freeText,
-          agents: roles,
-          triageMode,
-          priority,
-          dependsOn,
-        });
-      }
-      await queryClient.invalidateQueries({ queryKey: queryKeys.backlog(target.repoId) });
+      await updateBacklogItem(edited.repoId, edited.id, {
+        title: name,
+        freeText,
+        priority,
+        dependsOn: chosenDeps,
+        agents: roles,
+        triageMode,
+      });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.backlog(edited.repoId) });
       onClose();
     } catch (cause) {
       setError(errorMessage(cause));
@@ -402,34 +403,45 @@ function NewTaskForm({
     }
   }
 
+  /** Adds the item to the repo's backlog; the server starts it at once when the backlog runs. */
   async function submit() {
     if (submitting) return;
-    if (backlog) return submitBacklog(backlog);
+    if (item) return submitEdit(item);
     const resolved = origin();
     if (typeof resolved === "string") return setError(resolved);
     if (!repoId) return setError("Pick the repository to work in");
     if (kind === "free-text" && !freeText.trim()) return setError("Describe the task");
-    const input: NewTaskInput = {
-      origin: resolved,
-      mode: kind === "github-pr" ? mode : null,
-      repoId,
-      freeText,
-      agents: roles,
-      triageMode,
-    };
     setSubmitting(true);
     setError(null);
     try {
-      const task: Task = await withCredential(
+      const created = await withCredential(
         { label: "New task", target: originKey({ origin: resolved }) },
-        () => createTask(input),
+        () =>
+          createBacklogItem(repoId, {
+            origin: resolved,
+            mode: kind === "github-pr" ? mode : null,
+            title: title.trim() || undefined,
+            freeText,
+            agents: roles,
+            triageMode,
+            priority,
+            dependsOn: chosenDeps,
+            start: true,
+          }),
       );
-      queryClient.setQueryData<Task[]>(queryKeys.tasks, (tasks) =>
-        tasks && !tasks.some((t) => t.id === task.id) ? [...tasks, task] : tasks,
-      );
-      queryClient.setQueryData(queryKeys.task(task.id), task);
-      onClose();
-      void navigate({ to: "/tasks/$taskId", params: { taskId: task.id } });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.backlog(repoId) });
+      const { taskId } = created;
+      if (taskId) {
+        const task = await queryClient.fetchQuery(taskQuery(taskId));
+        queryClient.setQueryData<Task[]>(queryKeys.tasks, (tasks) =>
+          tasks && !tasks.some((t) => t.id === task.id) ? [...tasks, task] : tasks,
+        );
+        onClose();
+        void navigate({ to: "/tasks/$taskId", params: { taskId } });
+      } else {
+        onClose();
+        void navigate({ to: "/repos/$repoId/backlog", params: { repoId } });
+      }
     } catch (cause) {
       setError(
         cause instanceof MissingCredentialError ? "Cancelled: no token saved" : errorMessage(cause),
@@ -453,8 +465,8 @@ function NewTaskForm({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [editing]);
 
-  const heading = item ? "Edit backlog item" : backlog ? "Add to backlog" : "New task";
-  const backlogRepo = backlog && (repos.data ?? []).find((r) => r.id === backlog.repoId);
+  const heading = item ? "Edit backlog item" : "New task";
+  const itemRepo = item && (repos.data ?? []).find((r) => r.id === item.repoId);
 
   const repoHint =
     kind === "github-pr" && lookup.state === "ok"
@@ -482,9 +494,9 @@ function NewTaskForm({
           {heading}
         </DialogTitle>
         <DialogDescription className="sr-only">
-          {backlog
-            ? "Park work in the repo's backlog; the backlog runner starts it when the repo is idle."
-            : "Start a task from a Jira issue, a pull request or a description."}
+          {item
+            ? "Edit a backlog item; the backlog runner starts it when the repo is idle."
+            : "Create a task from a Jira issue, a pull request or a description. It starts now when the repo's backlog runs; otherwise it waits in the backlog."}
         </DialogDescription>
         <span className="flex-1" />
         <Kbd aria-hidden="true">Esc</Kbd>
@@ -622,41 +634,6 @@ function NewTaskForm({
           </div>
         )}
 
-        {backlog && (
-          <>
-            <label className="flex flex-col gap-1.5">
-              <span className={fieldLabel}>
-                Title{" "}
-                {!item && (
-                  <span className="font-normal text-faint">
-                    optional, defaults to {kind === "free-text" ? "the first line" : "the origin"}
-                  </span>
-                )}
-              </span>
-              <Input
-                maxLength={MAX_TITLE_CHARS}
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-              />
-            </label>
-            <div className="flex flex-col gap-1.5">
-              <span className={fieldLabel}>Priority</span>
-              <Segmented
-                label="Priority"
-                value={priority}
-                onChange={setPriority}
-                options={BACKLOG_PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABELS[p] }))}
-              />
-            </div>
-            <DependsOnField
-              items={backlog.items}
-              selfId={item?.id}
-              value={dependsOn}
-              onChange={setDependsOn}
-            />
-          </>
-        )}
-
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {kind === "github-pr" && !item && (
             <div className="flex flex-col gap-1.5">
@@ -677,11 +654,11 @@ function NewTaskForm({
               </span>
             </div>
           )}
-          {backlog ? (
+          {item ? (
             <div className="flex flex-col gap-1.5">
               <span className={fieldLabel}>Repository</span>
               <span className="mono text-[12.5px] text-muted-foreground">
-                {backlogRepo?.name ?? backlog.repoId}
+                {itemRepo?.name ?? item.repoId}
               </span>
             </div>
           ) : (
@@ -717,6 +694,47 @@ function NewTaskForm({
             </div>
           )}
         </div>
+
+        <label className="flex flex-col gap-1.5">
+          <span className={fieldLabel}>
+            Title{" "}
+            {!item && (
+              <span className="font-normal text-faint">
+                optional, defaults to{" "}
+                {kind === "free-text" ? "the first line" : "the issue or PR title"}
+              </span>
+            )}
+          </span>
+          <Input
+            maxLength={MAX_TITLE_CHARS}
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+          />
+        </label>
+        <div className="flex flex-col gap-1.5">
+          <span className={fieldLabel}>Priority</span>
+          <Segmented
+            label="Priority"
+            value={priority}
+            onChange={setPriority}
+            options={BACKLOG_PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABELS[p] }))}
+          />
+        </div>
+        {repoId ? (
+          <DependsOnField
+            items={backlogItems}
+            selfId={item?.id}
+            value={chosenDeps}
+            onChange={setDependsOn}
+          />
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            <span className={fieldLabel}>
+              Depends on <span className="font-normal text-faint">optional</span>
+            </span>
+            <span className="text-meta text-faint">Pick a repository first.</span>
+          </div>
+        )}
 
         {kind !== "free-text" && (
           <label className="flex flex-col gap-1.5">
@@ -784,18 +802,14 @@ function NewTaskForm({
         {error ? (
           <ErrorText>{error}</ErrorText>
         ) : (
-          <span className="text-[11.5px] text-faint">
-            {backlog
-              ? "Waits in the backlog until you run it or the runner picks it."
-              : "The worktree and branch are created when the task starts."}
-          </span>
+          <span className="text-[11.5px] text-faint">{footerHint}</span>
         )}
         <span className="flex-1" />
         <Button variant="ghost" onClick={onClose}>
           Cancel
         </Button>
         <Button variant="primary" type="submit" disabled={submitting}>
-          {submitting ? "Saving…" : item ? "Save item" : backlog ? "Add to backlog" : "Create task"}
+          {submitting ? "Saving…" : item ? "Save item" : "Create task"}
           <Kbd onFill aria-hidden="true">
             {modKeyLabel("↵")}
           </Kbd>
@@ -807,16 +821,17 @@ function NewTaskForm({
 
 /**
  * The new task form, over the dimmed shell. Esc closes; ⌘↵ creates the task.
- * With `backlog` it adds an item to (or edits one in) a repo's backlog instead.
+ * A new task is a backlog item of the chosen repo, started at once when the
+ * repo's backlog runs. With `item` it edits that backlog item instead.
  */
 export function NewTaskModal({
   open,
   onClose,
-  backlog,
+  item,
 }: {
   open: boolean;
   onClose: () => void;
-  backlog?: BacklogTarget | undefined;
+  item?: BacklogItemView | undefined;
 }) {
   const defaults = useQuery({ ...roleDefaultsQuery, enabled: open });
   // The form opens on the repo's default origin, so it waits for the repos too.
@@ -825,11 +840,11 @@ export function NewTaskModal({
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="max-w-[680px]">
         {defaults.data && repos.data ? (
-          <NewTaskForm defaults={defaults.data} backlog={backlog} onClose={onClose} />
+          <NewTaskForm defaults={defaults.data} item={item} onClose={onClose} />
         ) : (
           <div className="flex flex-col gap-2 px-5 py-6">
             <DialogTitle className="m-0 text-heading font-semibold text-foreground-strong">
-              {backlog?.item ? "Edit backlog item" : backlog ? "Add to backlog" : "New task"}
+              {item ? "Edit backlog item" : "New task"}
             </DialogTitle>
             <DialogDescription className="m-0 text-muted-foreground">
               {defaults.isError

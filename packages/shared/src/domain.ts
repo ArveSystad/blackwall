@@ -640,17 +640,24 @@ export const backlogItemViewSchema = z.intersection(
 );
 export type BacklogItemView = z.infer<typeof backlogItemViewSchema>;
 
-/** `POST /api/repos/:repoId/backlog` body. Backlog items run unattended, hence `intervene`. */
+/**
+ * `POST /api/repos/:repoId/backlog` body. Backlog items run unattended, hence `intervene`.
+ * Without a title the server uses the Jira summary, PR title or a fallback. With
+ * `start` the item is promoted at once when the repo's backlog runner is on and
+ * its dependencies are done.
+ */
 export const newBacklogItemInputSchema = z
   .object({
     origin: taskOriginSchema,
     mode: prModeSchema.nullable().default(null),
-    title: backlogTitle,
+    title: backlogTitle.optional(),
     freeText: z.string().default(""),
     agents: roleAgentsSchema.default({}),
     triageMode: triageModeSchema.default("intervene"),
     priority: backlogPrioritySchema.default("normal"),
     dependsOn: backlogDependsOn.default([]),
+    /** Not stored: whether to promote the item at once when the runner would. */
+    start: z.boolean().default(false),
   })
   .superRefine((value, ctx) => {
     checkMode(value, ctx);
