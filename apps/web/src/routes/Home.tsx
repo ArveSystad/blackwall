@@ -127,11 +127,11 @@ export function Home() {
   const firstRun = tasks.data?.length === 0;
   return (
     <div className="relative isolate flex h-full items-center justify-center overflow-auto px-6 py-10">
-      {firstRun && <GridBackdrop />}
+      <GridBackdrop />
       {firstRun ? (
         <FirstRun />
       ) : (
-        <div className="flex flex-col items-center gap-2 text-center">
+        <div className="relative z-10 flex flex-col items-center gap-2 text-center">
           <WallIcon className="size-7 text-faint" />
           <span className="font-medium text-foreground-strong">No task selected</span>
           <span className="text-meta text-muted-foreground">

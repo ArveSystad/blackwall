@@ -71,7 +71,7 @@
   --glow-tab: 0 0 8px var(--primary);
   --ring: var(--glow-cyan);
   --wordmark-accent: var(--cyan);
-  /* First-run backdrop only: the one decorative use of glow (see GridBackdrop). */
+  /* Empty-pane backdrop only: the one decorative use of glow (see GridBackdrop). */
   --grid-line: color-mix(in oklab, var(--primary) 34%, transparent);
   --grid-glow: color-mix(in oklab, var(--cyan) 16%, transparent);
 
