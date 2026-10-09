@@ -778,6 +778,26 @@ export function createPipelineEngine({
       return queued;
     },
 
+    /**
+     * Archives a done task: it leaves the Inbox and the backlog lists but keeps
+     * its status, so backlog dependencies on it stay met. Archiving an archived
+     * task keeps its original `archivedAt`.
+     */
+    archive(taskId: string): Task {
+      const task = getTask(taskId);
+      if (task.status !== "done") {
+        throw new TaskStateError(`Task ${taskId} is ${task.status}; only done tasks are archived`);
+      }
+      if (task.archivedAt) return task;
+      return saveTask(taskId, { archivedAt: new Date() });
+    },
+
+    /** Lists an archived task again. */
+    unarchive(taskId: string): Task {
+      getTask(taskId);
+      return saveTask(taskId, { archivedAt: null });
+    },
+
     stop,
 
     /**

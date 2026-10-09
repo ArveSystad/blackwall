@@ -90,7 +90,42 @@ describe("backlogSections", () => {
       active: [],
       groups: groupBacklog(items),
       earlier: [],
+      archived: [],
+      archivable: [],
     });
+  });
+
+  it("moves archived tasks out of earlier into the archive, most recently archived first", () => {
+    const listed = makeTask({ status: "done" });
+    const older = makeTask({ status: "done", archivedAt: at(1), updatedAt: at(9) });
+    const newer = makeTask({ status: "done", archivedAt: at(5), updatedAt: at(2) });
+    const { earlier, archived } = backlogSections([], [older, listed, newer]);
+    expect(earlier).toEqual([listed]);
+    expect(archived).toEqual([newer, older]);
+  });
+
+  it("hides promoted items whose task is archived, and buckets left empty", () => {
+    const archivedTask = makeTask({ status: "done", archivedAt: at(1) });
+    const doneTask = makeTask({ status: "done" });
+    const high = makeBacklogItem({ priority: "high", status: "promoted", taskId: archivedTask.id });
+    const toArchived = makeBacklogItem({ status: "promoted", taskId: archivedTask.id });
+    const toDone = makeBacklogItem({ status: "promoted", taskId: doneTask.id });
+    const { groups, archived } = backlogSections(
+      [high, toArchived, toDone],
+      [archivedTask, doneTask],
+    );
+    expect(groups).toEqual([{ priority: "normal", items: [toDone] }]);
+    expect(archived).toEqual([archivedTask]);
+  });
+
+  it("offers only unarchived done tasks for archiving", () => {
+    const done = makeTask({ status: "done" });
+    const archived = makeTask({ status: "done", archivedAt: at(1) });
+    const failed = makeTask({ status: "failed" });
+    const interrupted = makeTask({ status: "interrupted" });
+    const running = makeTask({ status: "running" });
+    const { archivable } = backlogSections([], [done, archived, failed, interrupted, running]);
+    expect(archivable).toEqual([done]);
   });
 });
 

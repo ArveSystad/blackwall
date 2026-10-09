@@ -3,12 +3,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
+  archiveTask,
   createBacklogItem,
   deleteBacklogItem,
   reorderBacklog,
   resumeBacklogRunner,
   runBacklogItem,
   setBacklogRunner,
+  unarchiveTask,
   updateBacklogItem,
 } from "../api";
 import {
@@ -212,6 +214,68 @@ function RunnerBar({
   );
 }
 
+/**
+ * Bottom bar of the backlog view: how many tasks are archived, a toggle that
+ * lists them, and a bulk action that archives every done task still listed.
+ */
+function ArchiveBar({
+  archived,
+  archivable,
+  shown,
+  onToggle,
+}: {
+  archived: number;
+  /** Done tasks not archived yet. */
+  archivable: readonly Task[];
+  shown: boolean;
+  onToggle: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function archiveDone() {
+    setPending(true);
+    setError(null);
+    const results = await Promise.allSettled(archivable.map((task) => archiveTask(task.id)));
+    const failed = results.filter((r) => r.status === "rejected");
+    if (failed.length > 0) {
+      setError(
+        `Archived ${results.length - failed.length} of ${results.length}: ${errorMessage(failed[0]!.reason)}`,
+      );
+    }
+    await queryClient.invalidateQueries({ queryKey: queryKeys.tasks, exact: true });
+    setPending(false);
+  }
+
+  return (
+    <div
+      className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border bg-sidebar px-5 py-2"
+      aria-label="Archive"
+      role="region"
+    >
+      <span className="label text-muted-foreground">Archive</span>
+      <span className="mono flex-1 text-label text-faint">{archived} archived</span>
+      {error && (
+        <span className="text-meta text-destructive" role="alert">
+          {error}
+        </span>
+      )}
+      <Button size="sm" variant="ghost" aria-expanded={shown} onClick={onToggle}>
+        {shown ? "Hide archive" : `Show archive (${archived})`}
+      </Button>
+      <Button
+        size="sm"
+        disabled={pending || archivable.length === 0}
+        onClick={() => void archiveDone()}
+        title="Move every done task to the archive"
+      >
+        Archive done ({archivable.length})
+      </Button>
+    </div>
+  );
+}
+
 function StateChip({ state }: { state: BacklogItemState }) {
   switch (state.kind) {
     case "next":
@@ -267,6 +331,7 @@ function BacklogRow({
   onRun,
   onTogglePause,
   onDelete,
+  onArchive,
 }: {
   item: BacklogItemView;
   state: BacklogItemState;
@@ -284,9 +349,13 @@ function BacklogRow({
   onRun: () => void;
   onTogglePause: () => void;
   onDelete: () => void;
+  /** Archives the item's done task. */
+  onArchive?: () => void;
 }) {
   const OriginIcon = ORIGIN_ICONS[item.origin.kind];
   const promoted = item.status === "promoted";
+  const archivable =
+    state.kind === "promoted" && state.task?.status === "done" && state.task.archivedAt === null;
   const dropTarget =
     dragging !== null && dragging.id !== item.id && dragging.priority === item.priority;
   return (
@@ -380,6 +449,16 @@ function BacklogRow({
             </Button>
           </>
         )}
+        {archivable && onArchive && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onArchive}
+            aria-label={`Archive ${item.title}`}
+          >
+            Archive
+          </Button>
+        )}
         <Button
           size="sm"
           variant="ghost"
@@ -394,15 +473,23 @@ function BacklogRow({
   );
 }
 
-/** A task in the backlog view; the whole row opens it. */
-function TaskRow({ task, fromBacklog }: { task: Task; fromBacklog: boolean }) {
+/** A task in the backlog view; the row opens it, except for its trailing `action`. */
+function TaskRow({
+  task,
+  fromBacklog,
+  action,
+}: {
+  task: Task;
+  fromBacklog: boolean;
+  action?: ReactNode;
+}) {
   const OriginIcon = ORIGIN_ICONS[task.origin.kind];
   return (
-    <li>
+    <li className="flex items-center gap-1 rounded-lg hover:bg-card">
       <Link
         to="/tasks/$taskId"
         params={{ taskId: task.id }}
-        className="flex min-h-10 items-center gap-2.5 rounded-lg border border-transparent py-1.5 pr-2 pl-1.5 text-foreground no-underline hover:bg-card hover:no-underline focus-visible:border-cyan focus-visible:shadow-ring focus-visible:outline-none"
+        className="flex min-h-10 min-w-0 flex-1 items-center gap-2.5 rounded-lg border border-transparent py-1.5 pr-2 pl-1.5 text-foreground no-underline hover:no-underline focus-visible:border-cyan focus-visible:shadow-ring focus-visible:outline-none"
       >
         <OriginIcon size="sm" className="text-muted-foreground" />
         <span className="flex min-w-0 flex-1 flex-col">
@@ -414,6 +501,7 @@ function TaskRow({ task, fromBacklog }: { task: Task; fromBacklog: boolean }) {
         </span>
         <StatusBadge status={task.status} />
       </Link>
+      {action && <span className="flex flex-none items-center pr-2">{action}</span>}
     </li>
   );
 }
@@ -512,6 +600,7 @@ export function Backlog({ repoId }: { repoId: string }) {
   const [dialog, setDialog] = useState<Dialog>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState<BacklogItemView | null>(null);
+  const [showArchive, setShowArchive] = useState(false);
   const focusAfter = useRef<string | null>(null);
 
   // Tick every second while a quota pause may be counting down.
@@ -583,6 +672,18 @@ export function Backlog({ repoId }: { repoId: string }) {
       setError(errorMessage(cause));
     } finally {
       await queryClient.invalidateQueries({ queryKey: queryKeys.backlog(repoId) });
+    }
+  }
+
+  async function setArchived(task: Task, archived: boolean) {
+    setError(null);
+    try {
+      await (archived ? archiveTask(task.id) : unarchiveTask(task.id));
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      // The task.upserted event may arrive after the response.
+      await queryClient.invalidateQueries({ queryKey: queryKeys.tasks, exact: true });
     }
   }
 
@@ -681,7 +782,8 @@ export function Backlog({ repoId }: { repoId: string }) {
             )}
             {items.length === 0 &&
               sections.active.length === 0 &&
-              sections.earlier.length === 0 && (
+              sections.earlier.length === 0 &&
+              !(showArchive && sections.archived.length > 0) && (
                 <Message title="Nothing waiting">
                   Park work here and the runner starts it when the repo is idle. Quick add a line
                   above, or use Add to backlog for a Jira issue or PR.
@@ -747,6 +849,10 @@ export function Backlog({ repoId }: { repoId: string }) {
                         )
                       }
                       onDelete={() => setDialog({ kind: "delete", item })}
+                      onArchive={() => {
+                        const task = item.taskId ? taskById.get(item.taskId) : undefined;
+                        if (task) void setArchived(task, true);
+                      }}
                     />
                   );
                 })}
@@ -755,10 +861,50 @@ export function Backlog({ repoId }: { repoId: string }) {
             {sections.earlier.length > 0 && (
               <Section label="Other tasks" ariaLabel="Other tasks" count={sections.earlier.length}>
                 {sections.earlier.map((task) => (
-                  <TaskRow key={task.id} task={task} fromBacklog={false} />
+                  <TaskRow
+                    key={task.id}
+                    task={task}
+                    fromBacklog={false}
+                    action={
+                      task.status === "done" && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void setArchived(task, true)}
+                          aria-label={`Archive ${task.title}`}
+                        >
+                          Archive
+                        </Button>
+                      )
+                    }
+                  />
                 ))}
               </Section>
             )}
+            {showArchive &&
+              (sections.archived.length > 0 ? (
+                <Section label="Archived" ariaLabel="Archived" count={sections.archived.length}>
+                  {sections.archived.map((task) => (
+                    <TaskRow
+                      key={task.id}
+                      task={task}
+                      fromBacklog={linked.has(task.id)}
+                      action={
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void setArchived(task, false)}
+                          aria-label={`Unarchive ${task.title}`}
+                        >
+                          Unarchive
+                        </Button>
+                      }
+                    />
+                  ))}
+                </Section>
+              ) : (
+                <p className="m-0 px-1.5 text-label text-faint">No archived tasks</p>
+              ))}
             {sections.groups.length > 0 && (
               <p className="m-0 flex flex-wrap items-center gap-x-3 gap-y-1 px-1.5 text-label text-faint">
                 <span>
@@ -781,6 +927,15 @@ export function Backlog({ repoId }: { repoId: string }) {
           </>
         )}
       </div>
+
+      {tasks.data && (
+        <ArchiveBar
+          archived={sections.archived.length}
+          archivable={sections.archivable}
+          shown={showArchive}
+          onToggle={() => setShowArchive((shown) => !shown)}
+        />
+      )}
 
       <NewTaskModal open={target !== undefined} onClose={() => setDialog(null)} backlog={target} />
       {dialog?.kind === "delete" && (

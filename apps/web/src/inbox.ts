@@ -47,13 +47,18 @@ export interface InboxGroups {
   needsYou: Task[];
   /** Running and queued. */
   running: Task[];
-  /** Interrupted, failed and done. */
+  /** Interrupted, failed and done, without archived tasks. */
   recent: Task[];
 }
 
-/** Inbox groups, needs-you first; each group lists the most recently updated task first. */
+/**
+ * Inbox groups, needs-you first; each group lists the most recently updated
+ * task first. Archived tasks are left out.
+ */
 export function groupTasks(tasks: readonly Task[]): InboxGroups {
-  const sorted = tasks.toSorted((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+  const sorted = tasks
+    .filter((t) => t.archivedAt === null)
+    .toSorted((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
   return {
     needsYou: sorted.filter((t) => t.status === "needs-you"),
     running: sorted.filter((t) => t.status === "running" || t.status === "queued"),

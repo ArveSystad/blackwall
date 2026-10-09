@@ -378,7 +378,8 @@ describe("pipeline engine", () => {
 
     await second.engine.respond(seeded.id, { gate: "finish", decision: "approve" });
     expect(second.delivered).toEqual([seeded.id]);
-    expect(task(seeded.id)).toMatchObject({ status: "done", gate: null });
+    // Archiving is manual: a done task stays listed.
+    expect(task(seeded.id)).toMatchObject({ status: "done", gate: null, archivedAt: null });
     expect(r.runs.listByTask(seeded.id)[0]).toMatchObject({ status: "succeeded" });
 
     // Everything was broadcast as it happened.
@@ -800,6 +801,45 @@ describe("stop and delete", () => {
     // A squash alone never left the machine.
     await h.engine.delete(squashed.id);
     expect(r.tasks.get(squashed.id)).toBeUndefined();
+  });
+});
+
+describe("archive", () => {
+  it("archives a done task and publishes it", () => {
+    const done = seedTask({ status: "done" });
+    const h = harness();
+    const archived = h.engine.archive(done.id);
+    expect(archived).toMatchObject({ status: "done", archivedAt: expect.any(Date) });
+    expect(task(done.id).archivedAt).toEqual(archived.archivedAt);
+    expect(h.events).toEqual([{ type: "task.upserted", payload: { task: archived } }]);
+  });
+
+  it("refuses to archive a task that is not done", () => {
+    const h = harness();
+    for (const status of ["failed", "interrupted", "needs-you", "running"] as const) {
+      const seeded = seedTask({ status });
+      expect(() => h.engine.archive(seeded.id)).toThrow(TaskStateError);
+      expect(task(seeded.id).archivedAt).toBeNull();
+    }
+    expect(() => h.engine.archive("nope")).toThrow(TaskNotFoundError);
+  });
+
+  it("keeps the first archive time when archived twice", () => {
+    const archivedAt = new Date("2026-01-02T03:04:05Z");
+    const done = seedTask({ status: "done", archivedAt });
+    const h = harness();
+    expect(h.engine.archive(done.id).archivedAt).toEqual(archivedAt);
+    expect(task(done.id).archivedAt).toEqual(archivedAt);
+  });
+
+  it("unarchives a task", () => {
+    const done = seedTask({ status: "done", archivedAt: new Date() });
+    const h = harness();
+    const listed = h.engine.unarchive(done.id);
+    expect(listed).toMatchObject({ status: "done", archivedAt: null });
+    expect(task(done.id).archivedAt).toBeNull();
+    expect(h.events).toEqual([{ type: "task.upserted", payload: { task: listed } }]);
+    expect(() => h.engine.unarchive("nope")).toThrow(TaskNotFoundError);
   });
 });
 

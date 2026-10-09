@@ -32,6 +32,8 @@ export type TaskPipeline = Pick<
   PipelineEngine,
   | "createTask"
   | "resume"
+  | "archive"
+  | "unarchive"
   | "stop"
   | "delete"
   | "respond"
@@ -118,8 +120,9 @@ export async function createTaskFromInput(
 
 /**
  * Task routes. Tasks change through the pipeline and reach clients as WS
- * events; with a pipeline, interrupted or failed tasks can be resumed, a
- * queued or running task stopped, an undelivered task deleted, a
+ * events; with a pipeline, interrupted or failed tasks can be resumed, done
+ * tasks archived and unarchived, a queued or running task stopped, an
+ * undelivered task deleted, a
  * `needs-you` task's gate answered, its grill questions answered, its
  * findings force-fixed or force-ignored, and its delivery plan shown before
  * the user confirms the finish actions.
@@ -209,6 +212,12 @@ export function taskRoutes(
   if (pipeline) {
     /** Re-queues an interrupted or failed task; interrupted steps resume their CLI sessions. */
     routes.post("/:id/resume", (c) => c.json<Task>(pipeline.resume(c.req.param("id"))));
+
+    /** Archives a done task (409 otherwise): it leaves the Inbox and the backlog lists. */
+    routes.post("/:id/archive", (c) => c.json<Task>(pipeline.archive(c.req.param("id"))));
+
+    /** Lists an archived task again. */
+    routes.post("/:id/unarchive", (c) => c.json<Task>(pipeline.unarchive(c.req.param("id"))));
 
     /**
      * Stops a queued or running task: it ends `interrupted` ("Stopped by

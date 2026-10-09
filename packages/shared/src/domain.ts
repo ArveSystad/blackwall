@@ -550,6 +550,8 @@ export const taskSchema = z
     summary: z.string().nullable(),
     /** Commit message for the optional squash at finish, written with the summary. */
     squashMessage: z.string().nullable(),
+    /** Set when the user archives a done task; hidden from the Inbox and the backlog view's lists. */
+    archivedAt: timestamp.nullable(),
     createdAt: timestamp,
     updatedAt: timestamp,
   })

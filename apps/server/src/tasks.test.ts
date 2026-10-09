@@ -171,6 +171,13 @@ describe("pipeline task routes", () => {
     pipeline = {
       createTask: vi.fn((values) => repositories.tasks.create({ ...values, status: "queued" })),
       resume: vi.fn((id: string) => repositories.tasks.update(id, { status: "queued" })),
+      archive: vi.fn((id: string) => {
+        const task = repositories.tasks.get(id);
+        if (!task) throw new TaskNotFoundError(id);
+        if (task.status !== "done") throw new TaskStateError(`Task ${id} is ${task.status}`);
+        return repositories.tasks.update(id, { archivedAt: new Date() });
+      }),
+      unarchive: vi.fn((id: string) => repositories.tasks.update(id, { archivedAt: null })),
       stop: vi.fn(async (id: string) =>
         repositories.tasks.update(id, { status: "interrupted", error: "Stopped by you" }),
       ),
@@ -219,6 +226,37 @@ describe("pipeline task routes", () => {
     expect(res.status).toBe(200);
     expect(taskSchema.parse(await res.json()).status).toBe("queued");
     expect(pipeline.resume).toHaveBeenCalledWith(task.id);
+  });
+
+  it("archives a done task: 200, 409 unless done, 404 when unknown", async () => {
+    const task = seedTask();
+    repositories.tasks.update(task.id, { status: "done" });
+    const res = await request(`/api/tasks/${task.id}/archive`, { method: "POST" });
+    expect(res.status).toBe(200);
+    expect(taskSchema.parse(await res.json()).archivedAt).toBeInstanceOf(Date);
+    expect(pipeline.archive).toHaveBeenCalledWith(task.id);
+
+    const failed = repositories.tasks.create({
+      title: "Other",
+      origin: { kind: "free-text" },
+      repoId: task.repoId,
+      status: "failed",
+    });
+    const refused = await request(`/api/tasks/${failed.id}/archive`, { method: "POST" });
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({ error: `Task ${failed.id} is failed` });
+    expect(repositories.tasks.get(failed.id)?.archivedAt).toBeNull();
+
+    expect((await request("/api/tasks/nope/archive", { method: "POST" })).status).toBe(404);
+  });
+
+  it("unarchives a task", async () => {
+    const task = seedTask();
+    repositories.tasks.update(task.id, { status: "done", archivedAt: new Date() });
+    const res = await request(`/api/tasks/${task.id}/unarchive`, { method: "POST" });
+    expect(res.status).toBe(200);
+    expect(taskSchema.parse(await res.json()).archivedAt).toBeNull();
+    expect(pipeline.unarchive).toHaveBeenCalledWith(task.id);
   });
 
   it("stops a task", async () => {
@@ -364,6 +402,8 @@ describe("new tasks", () => {
     pipeline = {
       createTask: vi.fn((values) => repositories.tasks.create({ ...values, status: "queued" })),
       resume: vi.fn(),
+      archive: vi.fn(),
+      unarchive: vi.fn(),
       stop: vi.fn(),
       delete: vi.fn(),
       respond: vi.fn(),

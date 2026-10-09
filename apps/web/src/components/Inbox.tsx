@@ -60,8 +60,12 @@ function TaskList({ tasks, filter }: { tasks: Task[]; filter: string }) {
   );
   const groups = groupTasks(tasks.filter((task) => matchesFilter(task, filter)));
 
-  if (tasks.length === 0) {
-    return <Message title="The wall is quiet">Tasks you start show up here.</Message>;
+  if (tasks.every((task) => task.archivedAt !== null)) {
+    return (
+      <Message title="The wall is quiet">
+        Tasks you start show up here; archived tasks stay in each repo&apos;s backlog.
+      </Message>
+    );
   }
   if (GROUPS.every((g) => groups[g.key].length === 0)) {
     return <Message title="No tasks match">Nothing matches “{filter.trim()}”.</Message>;

@@ -35,16 +35,21 @@ export function groupBacklog(items: readonly BacklogItemView[]): BacklogGroup[] 
 export interface BacklogSections {
   /** Needs-you, running and queued tasks, from the backlog or not. */
   active: Task[];
-  /** Priority buckets, without promoted items whose task is active. */
+  /** Priority buckets, without promoted items whose task is active or archived. */
   groups: BacklogGroup[];
-  /** Finished tasks no item links to (started outside the backlog). */
+  /** Finished, unarchived tasks no item links to (started outside the backlog). */
   earlier: Task[];
+  /** Archived tasks, most recently archived first. */
+  archived: Task[];
+  /** Done tasks not archived yet: what "Archive done" moves to the archive. */
+  archivable: Task[];
 }
 
 /**
  * The backlog view's layout: active tasks on top, then the priority buckets,
- * then finished tasks that never came from the backlog. `tasks` are the repo's.
- * An active task shows once, at the top, never also as its promoted item.
+ * then finished tasks that never came from the backlog, then the archive.
+ * `tasks` are the repo's. An active task shows once, at the top, never also
+ * as its promoted item; an archived task shows only in the archive.
  */
 export function backlogSections(
   items: readonly BacklogItemView[],
@@ -54,12 +59,18 @@ export function backlogSections(
   const active = [...needsYou, ...running];
   const activeIds = new Set(active.map((t) => t.id));
   const linked = new Set(items.flatMap((i) => (i.taskId ? [i.taskId] : [])));
+  const archived = tasks
+    .filter((t) => t.archivedAt !== null)
+    .toSorted((a, b) => b.archivedAt!.getTime() - a.archivedAt!.getTime());
+  const hiddenIds = new Set([...activeIds, ...archived.map((t) => t.id)]);
   return {
     active,
     groups: groupBacklog(
-      items.filter((i) => !(i.status === "promoted" && i.taskId && activeIds.has(i.taskId))),
+      items.filter((i) => !(i.status === "promoted" && i.taskId && hiddenIds.has(i.taskId))),
     ),
     earlier: recent.filter((t) => !linked.has(t.id)),
+    archived,
+    archivable: tasks.filter((t) => t.status === "done" && t.archivedAt === null),
   };
 }
 

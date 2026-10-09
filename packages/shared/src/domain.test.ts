@@ -47,6 +47,7 @@ const task = {
   plan: null,
   summary: null,
   squashMessage: null,
+  archivedAt: null,
   createdAt: now,
   updatedAt: now,
 };

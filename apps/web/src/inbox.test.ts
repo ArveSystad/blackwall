@@ -25,6 +25,12 @@ describe("groupTasks", () => {
     expect(groups.recent).toEqual(expect.arrayContaining([failed, done]));
     expect(needsYouCount([done, old, fresh])).toBe(2);
   });
+
+  it("leaves archived tasks out", () => {
+    const listed = makeTask({ status: "done" });
+    const archived = makeTask({ status: "done", archivedAt: new Date("2026-10-08T12:00:00Z") });
+    expect(groupTasks([listed, archived]).recent).toEqual([listed]);
+  });
 });
 
 describe("uiStageIndex", () => {

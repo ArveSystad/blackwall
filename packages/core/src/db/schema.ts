@@ -146,6 +146,8 @@ export const tasks = sqliteTable(
     summary: text("summary"),
     /** Commit message for the optional squash at finish. */
     squashMessage: text("squash_message"),
+    /** When the user archived the done task; null while it is listed. */
+    archivedAt: timestamp("archived_at"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

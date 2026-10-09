@@ -50,6 +50,13 @@
       "when": 1791536585698,
       "tag": "0006_repo_default_cli",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1791537648312,
+      "tag": "0007_task_archive",
+      "breakpoints": true
     }
   ]
 }

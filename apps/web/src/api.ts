@@ -218,6 +218,16 @@ export function resumeTask(taskId: string): Promise<Task> {
   return request(`${taskPath(taskId)}/resume`, taskSchema, { method: "POST" });
 }
 
+/** Archives a done task: it leaves the Inbox and the backlog lists. */
+export function archiveTask(taskId: string): Promise<Task> {
+  return request(`${taskPath(taskId)}/archive`, taskSchema, { method: "POST" });
+}
+
+/** Lists an archived task again. */
+export function unarchiveTask(taskId: string): Promise<Task> {
+  return request(`${taskPath(taskId)}/unarchive`, taskSchema, { method: "POST" });
+}
+
 /** Stops a queued or running task; it ends interrupted and Resume continues its session. */
 export function stopTask(taskId: string): Promise<Task> {
   return request(`${taskPath(taskId)}/stop`, taskSchema, { method: "POST" });
