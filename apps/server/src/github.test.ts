@@ -59,7 +59,7 @@ function fakeGitHub(headRepo = "acme/shop") {
     const accept = new Headers(init?.headers).get("accept") ?? "";
     const json = (body: unknown) =>
       new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
-    if (path === "/api/v3/repos/acme/shop/pulls/42") {
+    if (path === "/repos/acme/shop/pulls/42") {
       if (accept.includes("diff")) {
         return Promise.resolve(
           new Response("diff --git a/x b/x\n", { headers: { "content-type": "text/plain" } }),
@@ -92,7 +92,7 @@ describe("createGitHubOrigin", () => {
       remote: "https://jbf.ghe.com/acme/shop/pull/42",
     });
     const [url, init] = fetchImpl.mock.calls[0]!;
-    expect(String(url)).toBe("https://jbf.ghe.com/api/v3/repos/acme/shop/pulls/42");
+    expect(String(url)).toBe("https://api.jbf.ghe.com/repos/acme/shop/pulls/42");
     expect(new Headers(init?.headers).get("authorization")).toBe(`token ${TOKEN}`);
   });
 
@@ -235,7 +235,7 @@ describe("GitHub delivery", () => {
       finding("On the diff", "src/a.ts", 2),
       finding("Elsewhere", "src/b.ts", 9),
     ]);
-    expect(url).toBe("https://jbf.ghe.com/created/api/v3/repos/acme/shop/pulls/42/reviews");
+    expect(url).toBe("https://jbf.ghe.com/created/repos/acme/shop/pulls/42/reviews");
     expect(writes).toHaveLength(1);
     const body = writes[0]!.body;
     expect(body).toMatchObject({ event: "COMMENT", commit_id: "head-sha" });
@@ -260,15 +260,15 @@ describe("GitHub delivery", () => {
       title: "ABC-1 X",
       body: "Summary",
     });
-    expect(url).toBe("https://jbf.ghe.com/created/api/v3/repos/acme/shop/pulls");
+    expect(url).toBe("https://jbf.ghe.com/created/repos/acme/shop/pulls");
     expect(list.requireCredential).toHaveBeenCalledWith({
       kind: "github",
       remote: "https://jbf.ghe.com/acme/shop.git",
     });
     expect(writes).toEqual([
-      { path: "/api/v3/repos/acme/shop/issues/42/comments", body: { body: "Summary" } },
+      { path: "/repos/acme/shop/issues/42/comments", body: { body: "Summary" } },
       {
-        path: "/api/v3/repos/acme/shop/pulls",
+        path: "/repos/acme/shop/pulls",
         body: { head: "feature/abc-1-x", base: "main", title: "ABC-1 X", body: "Summary" },
       },
     ]);

@@ -126,17 +126,22 @@ describe("saveCredential", () => {
 });
 
 describe("missingTokenCopy", () => {
-  it("describes a GHE host with the repo scope and a token link", () => {
+  it("describes a GHE.com host with the repo scope and a token link", () => {
     const copy = missingTokenCopy(missing);
     expect(copy).toMatchObject({
       title: "Token needed for jbf.ghe.com",
-      hostType: "GitHub Enterprise Server",
+      hostType: "GitHub Enterprise Cloud",
       scope: "repo",
       needsEmail: false,
     });
     expect(copy.createLink.href).toBe(
       "https://jbf.ghe.com/settings/tokens/new?scopes=repo&description=blackwall",
     );
+  });
+
+  it("names a self-hosted GitHub host GitHub Enterprise Server", () => {
+    const copy = missingTokenCopy({ ...missing, host: "git.acme.test" });
+    expect(copy.hostType).toBe("GitHub Enterprise Server");
   });
 
   it("asks for the email only when a Jira connection is created", () => {

@@ -1,5 +1,5 @@
 import { Octokit } from "@octokit/rest";
-import { githubApiUrl, type Fetch } from "../connection-test.js";
+import { githubApiUrl, githubFailureReason, type Fetch } from "../connection-test.js";
 import type { ReviewPayload } from "./review.js";
 
 /** A GitHub.com or GHE host and a personal access token for it. */
@@ -107,8 +107,8 @@ function statusOf(error: unknown): number | undefined {
 
 /**
  * GitHub/GHE REST client on Octokit. The API root comes from the
- * connection's base URL (api.github.com, or `/api/v3` on GHE), so the token
- * only goes to that host. Errors become {@link GitHubError}s that never
+ * connection's base URL (api.github.com, `api.<sub>.ghe.com` on GHE.com, or
+ * `/api/v3` on GHE Server), so the token only goes to that host. Errors become {@link GitHubError}s that never
  * echo the request or its headers.
  */
 export function createGitHubClient(credentials: GitHubCredentials, fetchImpl: Fetch = fetch) {
@@ -134,16 +134,23 @@ export function createGitHubClient(credentials: GitHubCredentials, fetchImpl: Fe
         error instanceof Error && /timeout|abort/i.test(`${error.name} ${error.message}`);
       return new GitHubError(`${host}: ${timedOut ? "timed out" : "could not connect"}`);
     }
+    const { response } = error as {
+      response?: { headers?: Record<string, unknown>; data?: unknown };
+    };
+    const data = response?.data;
     const reason =
-      status === 401
-        ? "token rejected"
-        : status === 403
-          ? "access denied (check the token's scopes)"
-          : status === 404
-            ? `${what} not found (or not visible to this token)`
-            : status === 422
-              ? `${what} rejected by GitHub (validation failed)`
-              : `unexpected response ${status}`;
+      status === 404
+        ? `${what} not found (or not visible to this token)`
+        : status === 422
+          ? `${what} rejected by GitHub (validation failed)`
+          : githubFailureReason(status, {
+              headers: response?.headers,
+              message:
+                data && typeof data === "object"
+                  ? (data as { message?: unknown }).message
+                  : undefined,
+              token: credentials.token,
+            });
     return new GitHubError(`${host}: ${reason}`, status);
   }
 

@@ -10,7 +10,7 @@ export interface CredentialAction {
 
 export interface MissingTokenCopy {
   title: string;
-  /** "GitHub.com", "GitHub Enterprise Server" or "Jira Cloud". */
+  /** "GitHub.com", "GitHub Enterprise Cloud" (`*.ghe.com`), "GitHub Enterprise Server" or "Jira Cloud". */
   hostType: string;
   /** Rest of the sentence after "Starting <action> on <target> ". */
   needs: string;
@@ -41,7 +41,11 @@ export function missingTokenCopy(missing: MissingCredential): MissingTokenCopy {
   const query = new URLSearchParams({ scopes: "repo", description: "blackwall" });
   return {
     title: `Token needed for ${host}`,
-    hostType: dotCom ? "GitHub.com" : "GitHub Enterprise Server",
+    hostType: dotCom
+      ? "GitHub.com"
+      : host.endsWith(".ghe.com")
+        ? "GitHub Enterprise Cloud"
+        : "GitHub Enterprise Server",
     needs: `needs a personal access token for this ${dotCom ? "GitHub" : "GitHub Enterprise"} host.`,
     tokenLabel: "Personal access token",
     scope: "repo",
