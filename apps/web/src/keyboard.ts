@@ -1,9 +1,13 @@
-/** True when a key press goes to a text field, where global shortcuts must not fire. */
+/**
+ * True when a key press goes to a text field or an open/focused select menu, where global shortcuts
+ * must not fire (menus use letter keys for type-to-find).
+ */
 export function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable) return true;
   const tag = target.tagName;
-  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  return target.closest("[role=combobox],[role=listbox]") !== null;
 }
 
 /** A plain key press: no Ctrl, Meta or Alt held. */

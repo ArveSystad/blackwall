@@ -82,7 +82,7 @@ export function Settings({ section }: { section: SettingsSection }) {
     <div className="flex h-full min-w-0">
       <nav
         aria-label="Settings"
-        className="flex h-full w-[232px] shrink-0 flex-col gap-0.5 border-r border-border bg-sidebar px-2.5 py-3"
+        className="flex h-full w-[352px] shrink-0 flex-col gap-0.5 border-r border-border bg-sidebar px-2.5 py-3"
       >
         <div className="mb-2.5 flex h-7 items-center gap-2 pl-1.5">
           <Wordmark />

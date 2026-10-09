@@ -58,11 +58,12 @@ conflict instead of silently picking one.
 | Done | `--st-done` | #5cd69a | #1a7f37 |
 | Severity Critical / High / Medium / Low | `--sev-*` | #ff4d5e / #ff8b3d / #f2c14e / #8e9dbc | #cf2236 / #c2530a / #9a6d00 / #5a6880 |
 | Diff add / del | `--diff-add-*` / `--diff-del-*` | plain GitHub-style green/red | same |
-| Empty-pane backdrop lines / glow (decoration, no task selected only) | `--grid-line` / `--grid-glow` | primary 34% / cyan 16% (`color-mix`) | border-strong 80% / none |
+| Empty-pane backdrop lines / glow (decoration, no task selected only) | `--grid-line` / `--grid-glow` | primary 44% / cyan 24% (`color-mix`) | border-strong 80% / none |
 
 Surfaces in dark run from near-black indigo to dusky violet: `bg-0` page, `bg-1` panes,
 `bg-2` cards and inputs, `bg-3` hover and selected, `bg-4` popovers. Body text is muted off-white
-(`--fg` #c4c1d9). Never use pure white for text.
+(`--fg` #c4c1d9). Never use pure white for text. The repo picker in the context bar is a themed
+dropdown on the popover surface (`bg-4`) and marks favourites with a filled primary star.
 
 Rules:
 - Neon and glow mark **state**, never decoration. Allowed on focus rings, the needs-you rail, banner

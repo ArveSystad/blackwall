@@ -73,8 +73,8 @@
   --ring: var(--glow-cyan);
   --wordmark-accent: var(--cyan);
   /* Empty-pane backdrop only: the one decorative use of glow (see GridBackdrop). */
-  --grid-line: color-mix(in oklab, var(--primary) 34%, transparent);
-  --grid-glow: color-mix(in oklab, var(--cyan) 16%, transparent);
+  --grid-line: color-mix(in oklab, var(--primary) 44%, transparent);
+  --grid-glow: color-mix(in oklab, var(--cyan) 24%, transparent);
 
   color-scheme: dark;
 }
@@ -328,7 +328,7 @@
   .bw-grid-glow {
     position: absolute;
     inset: 0;
-    background: radial-gradient(ellipse 60% 22% at 50% 58%, var(--grid-glow), transparent 70%);
+    background: radial-gradient(ellipse 70% 28% at 50% 58%, var(--grid-glow), transparent 70%);
   }
 
   .bw-grid-floor {
@@ -354,6 +354,7 @@
       linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
       linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
     background-size: 48px 48px;
+    filter: drop-shadow(0 0 2px var(--grid-glow));
     animation: bw-grid-drift 28s linear infinite;
   }
 
@@ -365,7 +366,7 @@
       linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
     background-size: 48px 48px;
     background-position: center bottom;
-    opacity: 0.35;
+    opacity: 0.45;
     mask-image: radial-gradient(ellipse 70% 90% at 50% 100%, #000, transparent 75%);
   }
 
@@ -382,7 +383,7 @@
       var(--grid-line) 70%,
       transparent
     );
-    box-shadow: 0 0 12px 1px var(--grid-glow);
+    box-shadow: 0 0 18px 2px var(--grid-glow);
   }
 
   .bw-grid-scan {

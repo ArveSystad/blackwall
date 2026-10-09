@@ -2,11 +2,21 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { pendingCount, repoStatusLine } from "../backlog";
 import { backlogQuery, backlogRunnerQuery, reposQuery, settingsQuery, tasksQuery } from "../query";
-import { repoOptionLabel } from "../repo-order";
 import { resolveSelectedRepo, setSelectedRepo, useSelectedRepoId } from "../selected-repo";
-import { BacklogIcon } from "./icons";
+import { BacklogIcon, StarIcon } from "./icons";
 import { Button } from "./ui/button";
-import { Select } from "./ui/select";
+import {
+  SelectMenu,
+  SelectMenuContent,
+  SelectMenuGroup,
+  SelectMenuItem,
+  SelectMenuLabel,
+  SelectMenuSeparator,
+  SelectMenuTrigger,
+} from "./ui/select-menu";
+
+/** Item value for "No repo": Radix Select forbids an empty one, and repo ids are UUIDs. */
+const NO_REPO = "none";
 
 /**
  * Status bar atop the main pane: pick the repo to work in (each with how many items wait in its
@@ -29,12 +39,29 @@ export function RepoContextBar() {
       : null;
 
   const pick = (id: string) => {
-    if (!id) {
+    if (id === NO_REPO) {
       setSelectedRepo(null);
       return;
     }
     setSelectedRepo(id);
     void navigate({ to: "/repos/$repoId/backlog", params: { repoId: id } });
+  };
+
+  // The server sorts favourites first, so filtering keeps each group in order.
+  const favourites = usable.filter((r) => r.favorite);
+  const others = usable.filter((r) => !r.favorite);
+  const repoItem = (r: (typeof usable)[number]) => {
+    const items = backlogs[usable.indexOf(r)]?.data;
+    return (
+      <SelectMenuItem
+        key={r.id}
+        value={r.id}
+        trailing={items && <span className="mono text-faint">{pendingCount(items)} waiting</span>}
+      >
+        {r.favorite && <StarIcon size="sm" className="fill-current text-primary" />}
+        <span className="truncate">{r.name}</span>
+      </SelectMenuItem>
+    );
   };
 
   return (
@@ -44,24 +71,24 @@ export function RepoContextBar() {
       role="region"
     >
       <span className="label text-muted-foreground">Repo</span>
-      <Select
-        aria-label="Selected repo"
-        className="mono h-7 w-auto max-w-[260px] shrink-0"
-        value={repo?.id ?? ""}
-        onChange={(e) => pick(e.target.value)}
-      >
-        <option value="">No repo</option>
-        {usable.map((r, i) => {
-          const items = backlogs[i]?.data;
-          return (
-            <option key={r.id} value={r.id}>
-              {items
-                ? `${repoOptionLabel(r)} · ${pendingCount(items)} waiting`
-                : repoOptionLabel(r)}
-            </option>
-          );
-        })}
-      </Select>
+      <SelectMenu value={repo?.id ?? NO_REPO} onValueChange={pick}>
+        <SelectMenuTrigger
+          aria-label="Selected repo"
+          className="mono h-7 w-auto max-w-[260px] shrink-0"
+        />
+        <SelectMenuContent>
+          <SelectMenuItem value={NO_REPO}>No repo</SelectMenuItem>
+          {usable.length > 0 && <SelectMenuSeparator />}
+          {favourites.length > 0 && (
+            <SelectMenuGroup>
+              <SelectMenuLabel>Favourites</SelectMenuLabel>
+              {favourites.map(repoItem)}
+            </SelectMenuGroup>
+          )}
+          {favourites.length > 0 && others.length > 0 && <SelectMenuSeparator />}
+          {others.length > 0 && <SelectMenuGroup>{others.map(repoItem)}</SelectMenuGroup>}
+        </SelectMenuContent>
+      </SelectMenu>
       {repo ? (
         <>
           {status && (
