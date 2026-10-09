@@ -1,11 +1,14 @@
 import { MAX_FIX_ROUNDS, type Agent, type Task } from "@blackwall/shared";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { originKey, relativeTime } from "../../inbox";
 import { agentsQuery, connectionsQuery, reposQuery } from "../../query";
 import { canStop, deleteBlockedReason, originUrl, taskAgentIds } from "../../task-view";
 import { AgentTile } from "../AgentTile";
 import {
+  BacklogIcon,
   BranchIcon,
+  ChevronRightIcon,
   JiraIcon,
   PullRequestIcon,
   RepoIcon,
@@ -60,9 +63,9 @@ function startedLabel(date: Date): string {
 }
 
 /**
- * Task header: origin, title, repo, branch, agents and the stage stepper with
- * the review round, plus Stop (while queued or running) and Delete (until
- * something was delivered).
+ * Task header: origin, title with a breadcrumb back to the repo's backlog,
+ * repo, branch, agents and the stage stepper with the review round, plus Stop
+ * (while queued or running) and Delete (until something was delivered).
  */
 export function TaskHeader({
   task,
@@ -139,9 +142,25 @@ export function TaskHeader({
         </span>
         <StatusBadge status={task.status} />
       </div>
-      <h1 className="m-0 text-title font-semibold tracking-[-0.01em] text-foreground-strong">
-        {task.title}
-      </h1>
+      <div className="flex items-baseline gap-1.5">
+        {repo?.exists && (
+          <nav aria-label="Breadcrumb" className="flex max-w-[40%] shrink-0 items-center gap-1.5">
+            <Link
+              to="/repos/$repoId/backlog"
+              params={{ repoId: repo.id }}
+              aria-label={`${repo.name} backlog`}
+              className="inline-flex min-w-0 items-center gap-1 text-meta text-muted-foreground no-underline hover:text-foreground hover:underline focus-visible:shadow-ring focus-visible:outline-none"
+            >
+              <BacklogIcon size="sm" className="shrink-0" />
+              <span className="mono truncate">{repo.name}</span>
+            </Link>
+            <ChevronRightIcon size="sm" className="shrink-0 text-faint" aria-hidden />
+          </nav>
+        )}
+        <h1 className="m-0 min-w-0 text-title font-semibold tracking-[-0.01em] text-foreground-strong">
+          {task.title}
+        </h1>
+      </div>
       <div className="flex flex-wrap items-center gap-3.5 text-meta text-muted-foreground">
         {repo && (
           <span className="inline-flex items-center gap-[5px]">
