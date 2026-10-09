@@ -2,7 +2,7 @@
 
 A local, browser-based harness for coding agents. Claude Code and GitHub Copilot CLI plan, implement and review each other's work on your own repos, driven by Jira Cloud tickets, GitHub/GHE pull requests or free-text prompts.
 
-> Status: planning. See [`grill-result.md`](grill-result.md) for the design, [`claude-design.md`](claude-design.md) for the UI design brief and [`tasks/backlog/`](tasks/backlog/) for the work items. The commands below describe the intended launch flow (task-023).
+> Status: planning. See [`grill-result.md`](grill-result.md) for the design, [`claude-design.md`](claude-design.md) for the UI design brief and [`tasks/backlog/`](tasks/backlog/) for the work items.
 
 ## Requirements
 
@@ -18,10 +18,10 @@ A local, browser-based harness for coding agents. Claude Code and GitHub Copilot
 git clone <this repo> ~/code/blackwall
 cd ~/code/blackwall
 pnpm install
-pnpm start          # builds if needed, starts on 127.0.0.1 and opens your browser
+pnpm start          # builds if output is missing or stale, starts on 127.0.0.1 and opens your browser
 ```
 
-`pnpm start -- --no-open` skips opening the browser. `pnpm start -- --port 4711` picks a port.
+`pnpm start -- --no-open` skips opening the browser. `pnpm start -- --port 4711` picks a port (default 4711, or `BLACKWALL_PORT`). The build is skipped when nothing under the workspace sources or config has changed since the last `pnpm start` build.
 
 The server binds to `127.0.0.1` only and prints a URL containing a per-launch token. Data lives in `~/.blackwall/`. Personal access tokens are stored in your OS keychain, never in the database.
 
@@ -51,4 +51,4 @@ blackwall() {
 }
 ```
 
-Restart the shell (or `. $PROFILE` / `source ~/.zshrc`), then run `blackwall`.
+Replace the path with where you cloned the repo. Restart the shell (or `. $PROFILE` / `source ~/.zshrc`), then run `blackwall` from any directory. Flags pass through: `blackwall --no-open --port 5000`.

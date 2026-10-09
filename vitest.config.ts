@@ -8,6 +8,7 @@ const projects = [
   "packages/integrations",
   "apps/server",
   "apps/web",
+  "scripts",
 ];
 
 export default defineConfig({
@@ -16,7 +17,7 @@ export default defineConfig({
   test: {
     projects: projects.map((root) => ({
       extends: true,
-      test: { name: root.split("/")[1], root },
+      test: { name: root.split("/").at(-1), root },
     })),
   },
 });

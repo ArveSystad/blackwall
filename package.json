@@ -17,7 +17,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "start": "pnpm build && node apps/server/dist/index.js",
+    "start": "node scripts/start.js",
     "clean": "tsc -b --clean && pnpm -r exec node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "devDependencies": {
