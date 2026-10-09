@@ -11,7 +11,6 @@ import {
   ChevronRightIcon,
   JiraIcon,
   PullRequestIcon,
-  RepoIcon,
   StopIcon,
   TextIcon,
   TrashIcon,
@@ -64,7 +63,7 @@ function startedLabel(date: Date): string {
 
 /**
  * Task header: origin, title with a breadcrumb back to the repo's backlog,
- * repo, branch, agents and the stage stepper with the review round, plus Stop
+ * branch, agents and the stage stepper with the review round, plus Stop
  * (while queued or running), Archive (when done), Unarchive (when archived)
  * and Delete (until something was delivered).
  * While running, a cyan stream sweeps along the bottom border.
@@ -195,12 +194,6 @@ export function TaskHeader({
         </h1>
       </div>
       <div className="flex flex-wrap items-center gap-3.5 text-meta text-muted-foreground">
-        {repo && (
-          <span className="inline-flex items-center gap-[5px]">
-            <RepoIcon size="sm" />
-            <span className="mono">{repo.name}</span>
-          </span>
-        )}
         {task.branch && (
           <span className="inline-flex items-center gap-[5px]">
             <BranchIcon size="sm" />
