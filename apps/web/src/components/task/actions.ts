@@ -1,5 +1,5 @@
 import type { GateDecision, GateResponseInput, Task } from "@blackwall/shared";
-import { respondToGate, resumeTask, stopTask } from "../../api";
+import { archiveTask, respondToGate, resumeTask, stopTask, unarchiveTask } from "../../api";
 import type { TaskAction } from "./use-task-action";
 
 /** Answers the task's gate; `message` rides along as instructions for the next stage. */
@@ -21,6 +21,16 @@ export function resume(action: TaskAction, task: Task) {
 /** Stops a queued or running task; Resume continues it later. */
 export function stop(action: TaskAction, task: Task) {
   return action.run("Stop", () => stopTask(task.id));
+}
+
+/** Moves a done task to the repo's archive, out of the inbox. */
+export function archive(action: TaskAction, task: Task) {
+  return action.run("Archive", () => archiveTask(task.id));
+}
+
+/** Brings an archived task back to the inbox. */
+export function unarchive(action: TaskAction, task: Task) {
+  return action.run("Unarchive", () => unarchiveTask(task.id));
 }
 
 /** Puts the cursor in the input bar, where change requests and instructions are typed. */

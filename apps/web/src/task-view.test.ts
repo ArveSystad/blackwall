@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { TASK_STOPPED_ERROR } from "@blackwall/shared";
 import {
   agentClis,
+  canArchive,
   canStop,
   deleteBlockedReason,
   deleteTaskCopy,
@@ -331,6 +332,17 @@ describe("stop and delete", () => {
     expect(canStop(makeTask({ status: "running" }))).toBe(true);
     expect(canStop(makeTask({ status: "needs-you", gate: "finish" }))).toBe(false);
     expect(canStop(makeTask({ status: "interrupted" }))).toBe(false);
+  });
+
+  it("offers Archive only for done, unarchived tasks", () => {
+    expect(canArchive(makeTask({ status: "done" }))).toBe(true);
+    expect(
+      canArchive(makeTask({ status: "done", archivedAt: new Date("2026-10-08T12:00:00Z") })),
+    ).toBe(false);
+    expect(canArchive(makeTask({ status: "failed" }))).toBe(false);
+    expect(canArchive(makeTask({ status: "interrupted" }))).toBe(false);
+    expect(canArchive(makeTask({ status: "running" }))).toBe(false);
+    expect(canArchive(makeTask({ status: "needs-you", gate: "finish" }))).toBe(false);
   });
 
   it("tells a user stop apart from a shutdown or usage limit", () => {

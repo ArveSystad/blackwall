@@ -1,9 +1,9 @@
 import { MAX_FIX_ROUNDS, type Agent, type Task } from "@blackwall/shared";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { originKey, relativeTime } from "../../inbox";
-import { agentsQuery, connectionsQuery, reposQuery } from "../../query";
-import { canStop, deleteBlockedReason, originUrl, taskAgentIds } from "../../task-view";
+import { agentsQuery, connectionsQuery, queryKeys, reposQuery } from "../../query";
+import { canArchive, canStop, deleteBlockedReason, originUrl, taskAgentIds } from "../../task-view";
 import { AgentTile } from "../AgentTile";
 import {
   BacklogIcon,
@@ -20,7 +20,7 @@ import { StageStepper } from "../StageStepper";
 import { StatusBadge } from "../StatusBadge";
 import { Button } from "../ui/button";
 import { Kbd } from "../ui/kbd";
-import { stop } from "./actions";
+import { archive, stop, unarchive } from "./actions";
 import type { TaskAction } from "./use-task-action";
 
 const MODE_LABELS = { work: "Work on PR", review: "Review PR" } as const;
@@ -65,7 +65,8 @@ function startedLabel(date: Date): string {
 /**
  * Task header: origin, title with a breadcrumb back to the repo's backlog,
  * repo, branch, agents and the stage stepper with the review round, plus Stop
- * (while queued or running) and Delete (until something was delivered).
+ * (while queued or running), Archive (when done), Unarchive (when archived)
+ * and Delete (until something was delivered).
  * While running, a cyan stream sweeps along the bottom border.
  */
 export function TaskHeader({
@@ -80,6 +81,7 @@ export function TaskHeader({
   onDelete: () => void;
 }) {
   const blocked = deleteBlockedReason(task);
+  const queryClient = useQueryClient();
   const repos = useQuery(reposQuery);
   const connections = useQuery(connectionsQuery);
   const agents = useQuery(agentsQuery);
@@ -96,6 +98,15 @@ export function TaskHeader({
           : "Pull request"
         : "Free text";
   const inReview = task.stage === "code-review" || task.stage === "aggregate";
+
+  async function setArchived(archived: boolean) {
+    try {
+      await (archived ? archive(action, task) : unarchive(action, task));
+    } finally {
+      // The task.upserted event may arrive after the response.
+      await queryClient.invalidateQueries({ queryKey: queryKeys.tasks, exact: true });
+    }
+  }
 
   return (
     <header className="relative flex flex-col gap-2 border-b border-border bg-sidebar px-5 pt-3.5 pb-3">
@@ -126,6 +137,27 @@ export function TaskHeader({
             <StopIcon size="sm" />
             Stop
             <Kbd>S</Kbd>
+          </Button>
+        )}
+        {canArchive(task) && (
+          <Button
+            size="sm"
+            variant="ghost"
+            title="Move the task to the repo's archive"
+            disabled={action.pending}
+            onClick={() => void setArchived(true)}
+          >
+            Archive
+          </Button>
+        )}
+        {task.archivedAt !== null && (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={action.pending}
+            onClick={() => void setArchived(false)}
+          >
+            Unarchive
           </Button>
         )}
         {/* A disabled button shows no tooltip of its own, so the wrapper carries why. */}

@@ -158,12 +158,17 @@ export function openQuestionCount(questions: readonly GrillQuestion[]): number {
 }
 
 // ---------------------------------------------------------------------------
-// Stop and delete
+// Stop, archive and delete
 // ---------------------------------------------------------------------------
 
 /** Queued and running tasks can be stopped. */
 export function canStop(task: Pick<Task, "status">): boolean {
   return task.status === "queued" || task.status === "running";
+}
+
+/** Done tasks not yet archived can be archived; archiving keeps them done. */
+export function canArchive(task: Pick<Task, "status" | "archivedAt">): boolean {
+  return task.status === "done" && task.archivedAt === null;
 }
 
 /** An interrupted task the user stopped, as opposed to a shutdown or a usage limit. */
