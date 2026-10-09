@@ -137,11 +137,11 @@ function RunnerBar({
   const tone = status ? RUNNER_TONES[status.tone] : RUNNER_TONES.idle;
   return (
     <div
-      className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-sidebar px-5 py-2"
+      className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-sidebar px-5 py-2 text-body"
       aria-label="Backlog runner"
       role="region"
     >
-      <span className="label text-muted-foreground">Runner</span>
+      <span className="label text-foreground">Runner</span>
       {status ? (
         <span className="flex min-w-0 flex-1 items-center gap-2" role="status">
           {status.tone === "paused" ? (
@@ -159,22 +159,22 @@ function RunnerBar({
             />
           )}
           <span className={cn("font-semibold", tone.text)}>{status.label}</span>
-          <span className="truncate text-muted-foreground">{status.detail}</span>
+          <span className="truncate text-foreground">{status.detail}</span>
           {status.haltedTaskId && (
             <Link
               to="/tasks/$taskId"
               params={{ taskId: status.haltedTaskId }}
-              className="text-meta whitespace-nowrap"
+              className="text-body whitespace-nowrap"
             >
               Open task
             </Link>
           )}
         </span>
       ) : (
-        <span className="flex-1 text-muted-foreground">Loading…</span>
+        <span className="flex-1 text-foreground">Loading…</span>
       )}
       {error && (
-        <span className="text-meta text-destructive" role="alert">
+        <span className="text-body text-destructive" role="alert">
           {error}
         </span>
       )}
@@ -191,7 +191,7 @@ function RunnerBar({
       {enabled !== undefined && (
         <label
           className={cn(
-            "inline-flex h-6 cursor-pointer items-center gap-1.5 rounded-sm px-1.5 text-meta text-muted-foreground has-focus-visible:shadow-ring",
+            "inline-flex h-6 cursor-pointer items-center gap-1.5 rounded-sm px-1.5 text-body text-foreground has-focus-visible:shadow-ring",
             !globalOn && "opacity-60",
           )}
           title={globalOn ? undefined : "The runner is off for every repo in Settings"}
@@ -249,14 +249,14 @@ function ArchiveBar({
 
   return (
     <div
-      className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border bg-sidebar px-5 py-2"
+      className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border bg-sidebar px-5 py-2 text-body"
       aria-label="Archive"
       role="region"
     >
-      <span className="label text-muted-foreground">Archive</span>
-      <span className="mono flex-1 text-label text-faint">{archived} archived</span>
+      <span className="label text-foreground">Archive</span>
+      <span className="mono flex-1 text-[12.5px] text-muted-foreground">{archived} archived</span>
       {error && (
-        <span className="text-meta text-destructive" role="alert">
+        <span className="text-body text-destructive" role="alert">
           {error}
         </span>
       )}

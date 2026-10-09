@@ -34,8 +34,3 @@ export function moveRepo(repos: readonly Ordered[], id: string, delta: -1 | 1): 
   if (to < 0 || to >= group.length) return null;
   return reorderRepoIds(repos, id, group[to]!.id);
 }
-
-/** A repo's name for native `<option>`s, which cannot hold an icon: favourites get a star. */
-export function repoOptionLabel(repo: Pick<Repo, "name" | "favorite">): string {
-  return repo.favorite ? `★ ${repo.name}` : repo.name;
-}

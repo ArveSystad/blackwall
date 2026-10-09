@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { moveRepo, reorderRepoIds, repoOptionLabel } from "./repo-order";
+import { moveRepo, reorderRepoIds } from "./repo-order";
 
 const repos = [
   { id: "f1", favorite: true },
@@ -35,12 +35,5 @@ describe("moveRepo", () => {
     expect(moveRepo(repos, "f2", 1)).toBeNull();
     expect(moveRepo(repos, "f1", -1)).toBeNull();
     expect(moveRepo(repos, "c", 1)).toBeNull();
-  });
-});
-
-describe("repoOptionLabel", () => {
-  it("prefixes favourites with a star", () => {
-    expect(repoOptionLabel({ name: "app", favorite: true })).toBe("★ app");
-    expect(repoOptionLabel({ name: "app", favorite: false })).toBe("app");
   });
 });

@@ -42,13 +42,13 @@ import {
   settingsQuery,
   taskQuery,
 } from "../query";
-import { repoOptionLabel } from "../repo-order";
 import { resolveSelectedRepo, useSelectedRepoId } from "../selected-repo";
 import { ROLE_LABELS, agentsForRole, errorMessage } from "../settings-forms";
 import { jiraConnectionId, parseJiraInput } from "../task-view";
 import { AgentTile } from "./AgentTile";
 import { CheckIcon, CloseIcon, WarnIcon } from "./icons";
 import { ORIGINS } from "./origins";
+import { RepoMenuItems } from "./RepoMenuItems";
 import { Segmented } from "./Segmented";
 import { ErrorText } from "./settings/parts";
 import { Button } from "./ui/button";
@@ -56,6 +56,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./ui/dial
 import { Input } from "./ui/input";
 import { Kbd } from "./ui/kbd";
 import { Select } from "./ui/select";
+import { SelectMenu, SelectMenuContent, SelectMenuTrigger } from "./ui/select-menu";
 import { Textarea } from "./ui/textarea";
 
 const fieldLabel = "text-meta font-semibold text-foreground-strong";
@@ -667,18 +668,21 @@ function NewTaskForm({
               <label htmlFor="new-task-repo" className={fieldLabel}>
                 Repository
               </label>
-              <Select
-                id="new-task-repo"
-                value={repoId ?? ""}
-                onChange={(event) => setChosenRepo(event.target.value || null)}
-              >
-                <option value="">Choose a repo</option>
-                {usableRepos.map((repo) => (
-                  <option key={repo.id} value={repo.id}>
-                    {repoOptionLabel(repo)} · {repo.path}
-                  </option>
-                ))}
-              </Select>
+              <SelectMenu value={repoId ?? ""} onValueChange={setChosenRepo}>
+                <SelectMenuTrigger
+                  id="new-task-repo"
+                  placeholder="Choose a repo"
+                  className="mono text-[12.5px]"
+                />
+                <SelectMenuContent>
+                  <RepoMenuItems
+                    repos={usableRepos}
+                    trailing={(r) => (
+                      <span className="mono block max-w-64 truncate text-faint">{r.path}</span>
+                    )}
+                  />
+                </SelectMenuContent>
+              </SelectMenu>
               {repoHint && <span className="text-[11.5px] text-muted-foreground">{repoHint}</span>}
               {repos.data && usableRepos.length === 0 && (
                 <span className="text-[11.5px] text-muted-foreground">

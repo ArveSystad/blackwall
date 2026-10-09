@@ -84,7 +84,8 @@ export function Settings({ section }: { section: SettingsSection }) {
         aria-label="Settings"
         className="flex h-full w-[352px] shrink-0 flex-col gap-0.5 border-r border-border bg-sidebar px-2.5 py-3"
       >
-        <div className="mb-2.5 flex h-7 items-center gap-2 pl-1.5">
+        {/* Mirrors the inbox header offsets (14px left, 12px right) so the wordmark stays put. */}
+        <div className="mb-2.5 flex h-7 items-center gap-2 pr-0.5 pl-1">
           <Wordmark />
           <span className="flex-1" />
           <ThemeToggle />
