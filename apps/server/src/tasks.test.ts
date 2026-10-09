@@ -1,6 +1,7 @@
 import {
   FindingNotFoundError,
   MissingCredentialError,
+  TaskNotFoundError,
   TaskStateError,
   createRepositories,
   openDatabase,
@@ -170,6 +171,15 @@ describe("pipeline task routes", () => {
     pipeline = {
       createTask: vi.fn((values) => repositories.tasks.create({ ...values, status: "queued" })),
       resume: vi.fn((id: string) => repositories.tasks.update(id, { status: "queued" })),
+      stop: vi.fn(async (id: string) =>
+        repositories.tasks.update(id, { status: "interrupted", error: "Stopped by you" }),
+      ),
+      delete: vi.fn(async (id: string) => {
+        const task = repositories.tasks.get(id);
+        if (!task) throw new TaskNotFoundError(id);
+        if (task.deliveryTargets.length > 0) throw new TaskStateError("already delivered");
+        repositories.tasks.delete(id);
+      }),
       answerQuestion: vi.fn(async (id: string, questionId: string, input: { answer: string }) => ({
         question: repositories.grillQuestions.answer(questionId, input.answer, "user"),
         task: repositories.tasks.update(id, { status: "queued", gate: null }),
@@ -209,6 +219,39 @@ describe("pipeline task routes", () => {
     expect(res.status).toBe(200);
     expect(taskSchema.parse(await res.json()).status).toBe("queued");
     expect(pipeline.resume).toHaveBeenCalledWith(task.id);
+  });
+
+  it("stops a task", async () => {
+    const task = seedTask();
+    repositories.tasks.update(task.id, { status: "running" });
+    const res = await request(`/api/tasks/${task.id}/stop`, { method: "POST" });
+    expect(res.status).toBe(200);
+    expect(taskSchema.parse(await res.json())).toMatchObject({
+      status: "interrupted",
+      error: "Stopped by you",
+    });
+    expect(pipeline.stop).toHaveBeenCalledWith(task.id);
+  });
+
+  it("deletes a task: 204, 409 once delivered, 404 when unknown", async () => {
+    const delivered = seedTask();
+    const task = repositories.tasks.create({
+      title: "Other",
+      origin: { kind: "free-text" },
+      repoId: delivered.repoId,
+      freeText: "",
+      agents: {},
+    });
+    const res = await request(`/api/tasks/${task.id}`, { method: "DELETE" });
+    expect(res.status).toBe(204);
+    expect(repositories.tasks.get(task.id)).toBeUndefined();
+
+    repositories.tasks.update(delivered.id, { status: "done", deliveryTargets: ["push-branch"] });
+    const refused = await request(`/api/tasks/${delivered.id}`, { method: "DELETE" });
+    expect(refused.status).toBe(409);
+    expect(repositories.tasks.get(delivered.id)).toBeDefined();
+
+    expect((await request("/api/tasks/nope", { method: "DELETE" })).status).toBe(404);
   });
 
   it("answers a gate, rejecting bad bodies and the wrong gate", async () => {
@@ -321,6 +364,8 @@ describe("new tasks", () => {
     pipeline = {
       createTask: vi.fn((values) => repositories.tasks.create({ ...values, status: "queued" })),
       resume: vi.fn(),
+      stop: vi.fn(),
+      delete: vi.fn(),
       respond: vi.fn(),
       answerQuestion: vi.fn(),
       overrideFinding: vi.fn(),

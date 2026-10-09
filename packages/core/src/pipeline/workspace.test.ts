@@ -1,8 +1,8 @@
 import type { Repo, Task } from "@blackwall/shared";
 import { describe, expect, it, vi } from "vitest";
-import type { CreateWorktreeInput } from "../git/service.js";
+import type { CreateWorktreeInput, RemoveWorktreeInput } from "../git/service.js";
 import { worktreePathFor } from "../git/branches.js";
-import { createWorkspacePreparer } from "./workspace.js";
+import { createWorkspacePreparer, createWorkspaceRemover } from "./workspace.js";
 
 const repo = { id: "r1", path: "/code/app", name: "app" } as Repo;
 
@@ -68,5 +68,42 @@ describe("createWorkspacePreparer", () => {
     expect(createWorktree).toHaveBeenCalledWith(
       expect.objectContaining({ branch: "feature/abc-1-export", checkout: { kind: "new" } }),
     );
+  });
+});
+
+describe("createWorkspaceRemover", () => {
+  function remover() {
+    const removeWorktree = vi.fn<(input: RemoveWorktreeInput) => Promise<void>>(
+      async () => undefined,
+    );
+    const remove = createWorkspaceRemover({
+      git: { removeWorktree },
+      repos: { get: (id) => (id === repo.id ? repo : undefined) },
+    });
+    return { remove, removeWorktree };
+  }
+
+  it("removes the worktree and deletes the task's own branch", async () => {
+    const { remove, removeWorktree } = remover();
+    await remove(task({ origin: { kind: "free-text" }, branch: "agent/t1", worktreePath: "/wt" }));
+    expect(removeWorktree).toHaveBeenCalledWith({
+      repoPath: "/code/app",
+      worktreePath: "/wt",
+      deleteBranch: "agent/t1",
+    });
+  });
+
+  it("keeps a PR task's existing branch", async () => {
+    const { remove, removeWorktree } = remover();
+    const origin = {
+      kind: "github-pr" as const,
+      url: "https://github.com/acme/app/pull/7",
+      owner: "acme",
+      repo: "app",
+      number: 7,
+      connectionId: null,
+    };
+    await remove(task({ origin, branch: "fix-login", worktreePath: "/wt" }));
+    expect(removeWorktree).toHaveBeenCalledWith({ repoPath: "/code/app", worktreePath: "/wt" });
   });
 });

@@ -1,6 +1,7 @@
 import {
   isGatingSeverity,
   JIRA_KEY_PATTERN,
+  TASK_STOPPED_ERROR,
   type ConnectionView,
   type AgentCli,
   type DeliveryAction,
@@ -154,6 +155,45 @@ export function gateBanner(
 /** Grill questions only the user can answer that are still open. */
 export function openQuestionCount(questions: readonly GrillQuestion[]): number {
   return questions.filter((q) => q.needsHuman && q.answer === null).length;
+}
+
+// ---------------------------------------------------------------------------
+// Stop and delete
+// ---------------------------------------------------------------------------
+
+/** Queued and running tasks can be stopped. */
+export function canStop(task: Pick<Task, "status">): boolean {
+  return task.status === "queued" || task.status === "running";
+}
+
+/** An interrupted task the user stopped, as opposed to a shutdown or a usage limit. */
+export function isStoppedByUser(task: Pick<Task, "status" | "error">): boolean {
+  return task.status === "interrupted" && task.error === TASK_STOPPED_ERROR;
+}
+
+/**
+ * Why the task cannot be deleted, or null when it can: once anything was
+ * delivered, the branch, PR or comments it sent would outlive it. (A failed
+ * delivery attempt that already sent something is refused by the server.)
+ */
+export function deleteBlockedReason(task: Pick<Task, "deliveryTargets">): string | null {
+  return task.deliveryTargets.length > 0
+    ? "Already delivered, so it stays: what it sent cannot be taken back here."
+    : null;
+}
+
+/** What deleting the task removes, for the confirm dialog. */
+export function deleteTaskCopy(
+  task: Pick<Task, "status" | "origin" | "branch" | "worktreePath">,
+): string {
+  const stopFirst = canStop(task) ? "Stops the task, then removes " : "Removes ";
+  if (!task.worktreePath) return `${stopFirst}the task and all run history.`;
+  if (task.origin.kind === "github-pr") {
+    return `${stopFirst}the worktree and all run history. The PR branch${task.branch ? ` ${task.branch}` : ""} stays.`;
+  }
+  return task.branch
+    ? `${stopFirst}the worktree, the local branch ${task.branch} and all run history.`
+    : `${stopFirst}the worktree and all run history.`;
 }
 
 // ---------------------------------------------------------------------------

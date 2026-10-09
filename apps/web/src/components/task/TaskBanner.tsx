@@ -1,6 +1,6 @@
 import type { Task } from "@blackwall/shared";
-import { gateBanner, type TaskTab } from "../../task-view";
-import { FailedIcon, PausedIcon } from "../icons";
+import { deleteBlockedReason, gateBanner, isStoppedByUser, type TaskTab } from "../../task-view";
+import { FailedIcon, PausedIcon, StopIcon } from "../icons";
 import { NeedsBanner } from "../NeedsBanner";
 import { ErrorText } from "../settings/parts";
 import { Button } from "../ui/button";
@@ -120,6 +120,7 @@ export function TaskBanner({
   draft,
   tab,
   onTab,
+  onDelete,
 }: {
   task: Task;
   action: TaskAction;
@@ -127,6 +128,7 @@ export function TaskBanner({
   draft: string;
   tab: TaskTab;
   onTab: (tab: TaskTab) => void;
+  onDelete: () => void;
 }) {
   const error = action.error && <ErrorText>{action.error}</ErrorText>;
 
@@ -156,7 +158,8 @@ export function TaskBanner({
 
   if (task.status === "interrupted" || task.status === "failed") {
     const failed = task.status === "failed";
-    const Icon = failed ? FailedIcon : PausedIcon;
+    const stoppedByUser = isStoppedByUser(task);
+    const Icon = failed ? FailedIcon : stoppedByUser ? StopIcon : PausedIcon;
     return (
       <div className="flex flex-col gap-1.5 px-5 pt-3">
         <div
@@ -170,9 +173,14 @@ export function TaskBanner({
           <Icon size="lg" className={failed ? "mt-0.5 text-failed" : "mt-0.5 text-interrupted"} />
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
             <span className="font-semibold text-foreground-strong">
-              {failed ? "The task failed" : "Stopped mid-step"}
+              {failed ? "The task failed" : stoppedByUser ? "Stopped" : "Stopped mid-step"}
             </span>
-            {failed ? (
+            {stoppedByUser ? (
+              <span className="text-[12.5px]">
+                You stopped this task. The worktree is intact; Resume continues the agent&apos;s
+                session where it stopped, or Delete removes the task.
+              </span>
+            ) : failed ? (
               <pre className="m-0 max-h-48 overflow-auto font-mono text-code whitespace-pre-wrap text-foreground">
                 {task.error ?? "No error was recorded."}
               </pre>
@@ -183,6 +191,11 @@ export function TaskBanner({
               </span>
             )}
           </div>
+          {stoppedByUser && deleteBlockedReason(task) === null && (
+            <Button variant="ghost" className="hover:text-destructive" onClick={onDelete}>
+              Delete
+            </Button>
+          )}
           <Button
             variant="primary"
             disabled={action.pending}

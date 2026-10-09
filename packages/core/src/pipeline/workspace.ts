@@ -42,3 +42,26 @@ export function createWorkspacePreparer({ git, repos, branchFor }: WorkspacePrep
     return { branch, worktreePath };
   };
 }
+
+export interface WorkspaceRemoverOptions {
+  git: Pick<GitService, "removeWorktree">;
+  repos: Pick<Repositories["repos"], "get">;
+}
+
+/**
+ * Removes a deleted task's worktree and deletes its local branch. PR tasks
+ * work on the PR's existing branch, so only their worktree goes. Protected
+ * branches are refused by the git service.
+ */
+export function createWorkspaceRemover({ git, repos }: WorkspaceRemoverOptions) {
+  return async (task: Task): Promise<void> => {
+    const repo = repos.get(task.repoId);
+    if (!repo || !task.worktreePath) return;
+    const deleteBranch = task.origin.kind === "github-pr" || !task.branch ? undefined : task.branch;
+    await git.removeWorktree({
+      repoPath: repo.path,
+      worktreePath: task.worktreePath,
+      ...(deleteBranch ? { deleteBranch } : {}),
+    });
+  };
+}

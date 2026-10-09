@@ -1,7 +1,12 @@
 import { findingSchema, type Finding, type StepEvent } from "@blackwall/shared";
 import { describe, expect, it } from "vitest";
+import { TASK_STOPPED_ERROR } from "@blackwall/shared";
 import {
   agentClis,
+  canStop,
+  deleteBlockedReason,
+  deleteTaskCopy,
+  isStoppedByUser,
   buildTranscript,
   checkRuns,
   confirmLabel,
@@ -317,5 +322,60 @@ describe("new task form", () => {
       "claude",
       "copilot",
     ]);
+  });
+});
+
+describe("stop and delete", () => {
+  it("offers Stop only while queued or running", () => {
+    expect(canStop(makeTask({ status: "queued" }))).toBe(true);
+    expect(canStop(makeTask({ status: "running" }))).toBe(true);
+    expect(canStop(makeTask({ status: "needs-you", gate: "finish" }))).toBe(false);
+    expect(canStop(makeTask({ status: "interrupted" }))).toBe(false);
+  });
+
+  it("tells a user stop apart from a shutdown or usage limit", () => {
+    expect(isStoppedByUser(makeTask({ status: "interrupted", error: TASK_STOPPED_ERROR }))).toBe(
+      true,
+    );
+    expect(isStoppedByUser(makeTask({ status: "interrupted" }))).toBe(false);
+    expect(isStoppedByUser(makeTask({ status: "interrupted", error: "usage limit" }))).toBe(false);
+  });
+
+  it("blocks delete once something was delivered", () => {
+    expect(deleteBlockedReason(makeTask())).toBeNull();
+    expect(deleteBlockedReason(makeTask({ status: "done", deliveryTargets: [] }))).toBeNull();
+    expect(
+      deleteBlockedReason(makeTask({ status: "done", deliveryTargets: ["push-branch"] })),
+    ).toMatch(/delivered/);
+  });
+
+  it("says what deleting removes", () => {
+    const workspace = { branch: "agent/t1", worktreePath: "/wt" };
+    expect(deleteTaskCopy(makeTask({ status: "failed", ...workspace }))).toBe(
+      "Removes the worktree, the local branch agent/t1 and all run history.",
+    );
+    expect(deleteTaskCopy(makeTask({ status: "running", ...workspace }))).toMatch(
+      /^Stops the task, then removes the worktree/,
+    );
+    expect(deleteTaskCopy(makeTask({ status: "queued" }))).toBe(
+      "Stops the task, then removes the task and all run history.",
+    );
+    const pr = makeTask({
+      status: "interrupted",
+      origin: {
+        kind: "github-pr",
+        url: "https://github.com/acme/app/pull/7",
+        owner: "acme",
+        repo: "app",
+        number: 7,
+        connectionId: null,
+      },
+      mode: "review",
+      branch: "fix-login",
+      worktreePath: "/wt",
+    });
+    expect(deleteTaskCopy(pr)).toBe(
+      "Removes the worktree and all run history. The PR branch fix-login stays.",
+    );
   });
 });

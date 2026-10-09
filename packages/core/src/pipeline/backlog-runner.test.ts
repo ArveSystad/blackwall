@@ -1,7 +1,13 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentCli, BacklogItem, Task, TaskStatus } from "@blackwall/shared";
+import {
+  TASK_STOPPED_ERROR,
+  type AgentCli,
+  type BacklogItem,
+  type Task,
+  type TaskStatus,
+} from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQuotaTracker, type QuotaTracker } from "../agents/quota.js";
 import { createAgentService, type AgentService } from "../agents/service.js";
@@ -219,6 +225,49 @@ describe("backlog runner", () => {
     runner.handleEvent({ type: "task.upserted", payload: { task: manual } });
     expect(halts).toEqual([]);
     expect(settings.repoBacklogRunner(repoId).haltedTaskId).toBeNull();
+  });
+
+  it("does not halt on a stopped backlog task, and moves on to the next item", async () => {
+    addItem("A");
+    addItem("B");
+    const { runner, promoted, halts } = unitRunner({
+      settings: {
+        ...settings,
+        general: () => ({ ...settings.general(), maxBacklogTasksPerRepo: 1 }),
+      },
+    });
+    await runner.tick();
+    const stopped = r.tasks.update(item(promoted[0]!.id).taskId!, {
+      status: "interrupted",
+      error: TASK_STOPPED_ERROR,
+    });
+    runner.handleEvent({ type: "task.upserted", payload: { task: stopped } });
+    expect(halts).toEqual([]);
+    await runner.tick();
+    expect(promoted.map((i) => i.title)).toEqual(["A", "B"]);
+  });
+
+  it("lifts the halt when the halting task is deleted", async () => {
+    addItem("A");
+    const { runner, promoted } = unitRunner();
+    await runner.tick();
+    const failed = setStatus(item(promoted[0]!.id).taskId!, "failed");
+    runner.handleEvent({ type: "task.upserted", payload: { task: failed } });
+    expect(settings.repoBacklogRunner(repoId).haltedTaskId).toBe(failed.id);
+
+    r.tasks.delete(failed.id);
+    runner.handleEvent({ type: "task.removed", payload: { taskId: failed.id } });
+    expect(settings.repoBacklogRunner(repoId).haltedTaskId).toBeNull();
+  });
+
+  it("does not resume a task the user stopped after its usage limit", async () => {
+    const limited = addTask("interrupted");
+    quota.report("claude", { resetsAt: new Date(now.getTime() + 60_000), taskId: limited.id });
+    r.tasks.update(limited.id, { error: TASK_STOPPED_ERROR });
+    const { runner, resumed } = unitRunner();
+    advance(60_001);
+    await runner.tick();
+    expect(resumed).toEqual([]);
   });
 
   it("skips items whose CLI is quota-paused but promotes ones on other CLIs", async () => {

@@ -3,6 +3,7 @@ import {
   findingOverrideInputSchema,
   gateResponseInputSchema,
   grillAnswerInputSchema,
+  TASK_STOPPED_ERROR,
   type AgentCli,
   type DeliveryConfirmation,
   type DeliveryPlan,
@@ -164,6 +165,11 @@ export interface PipelineEngineOptions {
   stages: StageHandlers;
   /** Creates the task's worktree before its first stage. */
   prepareWorkspace: (task: Task) => Promise<PreparedWorkspace>;
+  /**
+   * Removes a deleted task's worktree and, unless it works on an existing PR
+   * branch, its local branch. Called only for tasks that have a worktree.
+   */
+  removeWorkspace?: (task: Task) => Promise<void>;
   /** Plans and performs the delivery actions the user confirms at finish (or posts the review). */
   delivery: Deliverer;
   maxTasksPerRepo: () => number;
@@ -197,6 +203,7 @@ export function createPipelineEngine({
   adapters,
   stages,
   prepareWorkspace,
+  removeWorkspace = async () => undefined,
   delivery,
   maxTasksPerRepo,
   quota,
@@ -209,6 +216,8 @@ export function createPipelineEngine({
   const pending = new Map<string, Pending>();
   /** Tasks whose delivery is in flight; a second confirmation must not run it twice. */
   const delivering = new Set<string>();
+  /** Tasks the user stopped; their drive ends `interrupted` with {@link TASK_STOPPED_ERROR}. */
+  const stopping = new Set<string>();
   let stopped = false;
 
   function getTask(id: string): Task {
@@ -520,7 +529,10 @@ export function createPipelineEngine({
       }
     } catch (error) {
       if (signal.aborted || error instanceof InterruptedError) {
-        saveTask(taskId, { status: "interrupted" });
+        saveTask(taskId, {
+          status: "interrupted",
+          ...(stopping.has(taskId) ? { error: TASK_STOPPED_ERROR } : {}),
+        });
         if (run) saveRun(run.id, "interrupted");
         return;
       }
@@ -614,6 +626,56 @@ export function createPipelineEngine({
     const queued = saveTask(taskId, { status: "queued", gate: null, stage: next.stage });
     enqueueTask(queued);
     return queued;
+  }
+
+  /**
+   * Whether anything of the task left the machine or reached local main: a
+   * finished delivery, or an action a failed attempt already performed. The
+   * optional squash only rewrites the task's own branch, so it does not count.
+   */
+  function hasDelivered(task: Task): boolean {
+    if (task.deliveryTargets.length > 0) return true;
+    return r.runs.listByTask(task.id).some((run) =>
+      r.steps
+        .listByRun(run.id)
+        .filter((s) => s.agentId === null)
+        .some((s) =>
+          r.stepEvents
+            .list(s.id)
+            .some(
+              (e) =>
+                e.type === DELIVERY_DONE_EVENT &&
+                (e.payload as DeliveryOutcome).action !== "squash",
+            ),
+        ),
+    );
+  }
+
+  /**
+   * Halts a queued or running task as `interrupted` with
+   * {@link TASK_STOPPED_ERROR}: a queued one leaves the queue unstarted, a
+   * running one has its agent CLIs killed like on shutdown, its step left
+   * `interrupted` with the session id, so Resume continues that session.
+   * Resolves once the drive has settled. Any other status is left as it is.
+   */
+  async function stop(taskId: string): Promise<Task> {
+    const task = getTask(taskId);
+    if (task.status !== "queued" && task.status !== "running") return task;
+    stopping.add(taskId);
+    try {
+      scheduler.dequeue(taskId);
+      pending.delete(taskId);
+      controllers.get(taskId)?.abort();
+      await drives.get(taskId);
+      const settled = getTask(taskId);
+      // A queued task never started a drive, or its drive ended before the abort.
+      if (settled.status === "queued" || settled.status === "running") {
+        return saveTask(taskId, { status: "interrupted", gate: null, error: TASK_STOPPED_ERROR });
+      }
+      return settled;
+    } finally {
+      stopping.delete(taskId);
+    }
   }
 
   return {
@@ -714,6 +776,35 @@ export function createPipelineEngine({
       const queued = saveTask(taskId, { status: "queued", error: null });
       enqueueTask(queued);
       return queued;
+    },
+
+    stop,
+
+    /**
+     * Deletes a task with its worktree, its local branch (kept for PR tasks,
+     * which work on an existing branch) and its history. A queued or running
+     * task is stopped first. Refused while delivery runs or once anything was
+     * delivered. Backlog items that promoted it keep `taskId: null`.
+     */
+    async delete(taskId: string): Promise<void> {
+      const task = getTask(taskId);
+      if (delivering.has(taskId)) {
+        throw new TaskStateError(`Task ${taskId} is delivering; it cannot be deleted now`);
+      }
+      if (hasDelivered(task)) {
+        throw new TaskStateError(
+          `Task ${taskId} was already delivered; delete its branch or PR by hand instead`,
+        );
+      }
+      await stop(taskId);
+      // A gate answer may have queued it again meanwhile.
+      scheduler.dequeue(taskId);
+      pending.delete(taskId);
+      await drives.get(taskId);
+      const settled = getTask(taskId);
+      if (settled.worktreePath) await removeWorkspace(settled);
+      r.tasks.delete(taskId);
+      publish({ type: "task.removed", payload: { taskId } });
     },
 
     /**

@@ -1,11 +1,12 @@
-import type {
-  AgentCli,
-  BacklogItem,
-  GeneralSettings,
-  RepoBacklogRunner,
-  ServerEvent,
-  Task,
-  TaskStatus,
+import {
+  TASK_STOPPED_ERROR,
+  type AgentCli,
+  type BacklogItem,
+  type GeneralSettings,
+  type RepoBacklogRunner,
+  type ServerEvent,
+  type Task,
+  type TaskStatus,
 } from "@blackwall/shared";
 import type { QuotaTracker } from "../agents/quota.js";
 import type { Repositories } from "../db/repositories.js";
@@ -88,7 +89,9 @@ export function createBacklogRunner({
 
   function resumeReleased(): void {
     for (const taskId of quota.release()) {
-      if (r.tasks.get(taskId)?.status !== "interrupted") continue;
+      const task = r.tasks.get(taskId);
+      // The user may have stopped it since; a stop is theirs to resume.
+      if (task?.status !== "interrupted" || task.error === TASK_STOPPED_ERROR) continue;
       try {
         resumeTask(taskId);
       } catch (error) {
@@ -206,8 +209,9 @@ export function createBacklogRunner({
     poke,
 
     /**
-     * Reacts to engine and backlog events: a task that settled frees capacity
-     * (a failed backlog task halts its repo), a changed backlog may hold new
+     * Reacts to engine and backlog events: a task that settled or was deleted
+     * frees capacity (a failed backlog task halts its repo, a stopped one does
+     * not, and deleting the halting task lifts the halt), a changed backlog may hold new
      * work, a quota change may end a pause.
      */
     handleEvent(event: ServerEvent): void {
@@ -215,6 +219,14 @@ export function createBacklogRunner({
         const { task } = event.payload;
         if (!SETTLED.includes(task.status)) return;
         if (task.status === "failed") haltOnFailure(task);
+        poke();
+      } else if (event.type === "task.removed") {
+        // A deleted task that halted its repo's runner no longer holds it.
+        for (const repo of r.repos.list()) {
+          if (settings.repoBacklogRunner(repo.id).haltedTaskId === event.payload.taskId) {
+            settings.setRepoBacklogHalt(repo.id, null);
+          }
+        }
         poke();
       } else if (event.type === "backlog.changed" || event.type === "quota.changed") {
         poke();

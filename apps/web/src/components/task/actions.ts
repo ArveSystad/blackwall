@@ -1,5 +1,5 @@
 import type { GateDecision, GateResponseInput, Task } from "@blackwall/shared";
-import { respondToGate, resumeTask } from "../../api";
+import { respondToGate, resumeTask, stopTask } from "../../api";
 import type { TaskAction } from "./use-task-action";
 
 /** Answers the task's gate; `message` rides along as instructions for the next stage. */
@@ -16,6 +16,11 @@ export function answerGate(
 
 export function resume(action: TaskAction, task: Task) {
   return action.run("Resume", () => resumeTask(task.id));
+}
+
+/** Stops a queued or running task; Resume continues it later. */
+export function stop(action: TaskAction, task: Task) {
+  return action.run("Stop", () => stopTask(task.id));
 }
 
 /** Puts the cursor in the input bar, where change requests and instructions are typed. */

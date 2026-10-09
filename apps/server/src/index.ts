@@ -16,6 +16,7 @@ import {
   createSettingsService,
   createTaskDiffs,
   createWorkspacePreparer,
+  createWorkspaceRemover,
   detectClis,
   openDatabase,
 } from "@blackwall/core";
@@ -115,6 +116,7 @@ try {
       repos: repositories.repos,
       branchFor: firstBranchFor(jira.branchFor, github.branchFor),
     }),
+    removeWorkspace: createWorkspaceRemover({ git, repos: repositories.repos }),
     delivery: createDeliverer({
       git,
       repositories,

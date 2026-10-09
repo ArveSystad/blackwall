@@ -131,6 +131,14 @@ describe("applyServerEvent", () => {
     expect(client.getQueryData(queryKeys.task(first.id))).toBeUndefined();
   });
 
+  it("refetches the deleted task's backlog", () => {
+    const task = makeTask({ repoId: "r9" });
+    client.setQueryData<Task[]>(queryKeys.tasks, [task]);
+    client.setQueryData(queryKeys.backlog("r9"), []);
+    applyServerEvent(client, { type: "task.removed", payload: { taskId: task.id } });
+    expect(client.getQueryState(queryKeys.backlog("r9"))?.isInvalidated).toBe(true);
+  });
+
   it("leaves an unloaded task list alone", () => {
     applyServerEvent(client, { type: "task.upserted", payload: { task: makeTask() } });
     expect(client.getQueryData(queryKeys.tasks)).toBeUndefined();

@@ -2,11 +2,23 @@ import { MAX_FIX_ROUNDS, type Agent, type Task } from "@blackwall/shared";
 import { useQuery } from "@tanstack/react-query";
 import { originKey, relativeTime } from "../../inbox";
 import { agentsQuery, connectionsQuery, reposQuery } from "../../query";
-import { originUrl, taskAgentIds } from "../../task-view";
+import { canStop, deleteBlockedReason, originUrl, taskAgentIds } from "../../task-view";
 import { AgentTile } from "../AgentTile";
-import { BranchIcon, JiraIcon, PullRequestIcon, RepoIcon, TextIcon } from "../icons";
+import {
+  BranchIcon,
+  JiraIcon,
+  PullRequestIcon,
+  RepoIcon,
+  StopIcon,
+  TextIcon,
+  TrashIcon,
+} from "../icons";
 import { StageStepper } from "../StageStepper";
 import { StatusBadge } from "../StatusBadge";
+import { Button } from "../ui/button";
+import { Kbd } from "../ui/kbd";
+import { stop } from "./actions";
+import type { TaskAction } from "./use-task-action";
 
 const MODE_LABELS = { work: "Work on PR", review: "Review PR" } as const;
 const ORIGIN_ICONS = {
@@ -47,8 +59,23 @@ function startedLabel(date: Date): string {
   return `Started ${ago} ago`;
 }
 
-/** Task header: origin, title, repo, branch, agents and the stage stepper with the review round. */
-export function TaskHeader({ task, round }: { task: Task; round: number }) {
+/**
+ * Task header: origin, title, repo, branch, agents and the stage stepper with
+ * the review round, plus Stop (while queued or running) and Delete (until
+ * something was delivered).
+ */
+export function TaskHeader({
+  task,
+  round,
+  action,
+  onDelete,
+}: {
+  task: Task;
+  round: number;
+  action: TaskAction;
+  onDelete: () => void;
+}) {
+  const blocked = deleteBlockedReason(task);
   const repos = useQuery(reposQuery);
   const connections = useQuery(connectionsQuery);
   const agents = useQuery(agentsQuery);
@@ -85,6 +112,31 @@ export function TaskHeader({ task, round }: { task: Task; round: number }) {
           {startedLabel(task.createdAt)}
         </time>
         <span className="flex-1" />
+        {canStop(task) && (
+          <Button
+            size="sm"
+            disabled={action.pending}
+            onClick={() => void stop(action, task)}
+            aria-keyshortcuts="S"
+          >
+            <StopIcon size="sm" />
+            Stop
+            <Kbd>S</Kbd>
+          </Button>
+        )}
+        {/* A disabled button shows no tooltip of its own, so the wrapper carries why. */}
+        <span title={blocked ?? "Delete task"} className="inline-flex">
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            className="hover:text-destructive"
+            disabled={blocked !== null}
+            onClick={onDelete}
+            aria-label={blocked ? `Delete task: ${blocked}` : "Delete task"}
+          >
+            <TrashIcon size="sm" />
+          </Button>
+        </span>
         <StatusBadge status={task.status} />
       </div>
       <h1 className="m-0 text-title font-semibold tracking-[-0.01em] text-foreground-strong">

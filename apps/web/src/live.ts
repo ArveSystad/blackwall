@@ -110,6 +110,18 @@ function upsertTask(tasks: Task[] | undefined, task: Task): Task[] | undefined {
 }
 
 /**
+ * Drops a deleted task from the cache: from the inbox list and its own query
+ * (an open task view leaves for the inbox). The backlog that may have
+ * promoted it is refetched, since its item lost the link.
+ */
+export function forgetTask(client: QueryClient, taskId: string): void {
+  const repoId = client.getQueryData<Task[]>(queryKeys.tasks)?.find((t) => t.id === taskId)?.repoId;
+  client.setQueryData<Task[]>(queryKeys.tasks, (tasks) => tasks?.filter((t) => t.id !== taskId));
+  client.removeQueries({ queryKey: queryKeys.task(taskId) });
+  if (repoId) void client.invalidateQueries({ queryKey: queryKeys.backlog(repoId) });
+}
+
+/**
  * Applies a server event to the Query cache: task changes are written in
  * place; everything else invalidates the queries that hold it, so open views
  * refetch. Step output is appended to an already loaded log.
@@ -129,14 +141,9 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       }
       break;
     }
-    case "task.removed": {
-      const { taskId } = event.payload;
-      client.setQueryData<Task[]>(queryKeys.tasks, (tasks) =>
-        tasks?.filter((t) => t.id !== taskId),
-      );
-      client.removeQueries({ queryKey: queryKeys.task(taskId) });
+    case "task.removed":
+      forgetTask(client, event.payload.taskId);
       break;
-    }
     case "run.upserted":
       void client.invalidateQueries({ queryKey: queryKeys.taskRuns(event.payload.run.taskId) });
       break;

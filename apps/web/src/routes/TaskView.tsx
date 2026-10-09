@@ -1,5 +1,6 @@
 import type { Task } from "@blackwall/shared";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { Tabs } from "radix-ui";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ApiError } from "../api";
@@ -12,7 +13,8 @@ import { FinishPanel } from "../components/task/FinishPanel";
 import { GrillPanel } from "../components/task/GrillPanel";
 import { InputBar } from "../components/task/InputBar";
 import { OutputPanel } from "../components/task/OutputPanel";
-import { answerGate, focusInputBar, resume } from "../components/task/actions";
+import { answerGate, focusInputBar, resume, stop } from "../components/task/actions";
+import { DeleteTaskDialog } from "../components/task/DeleteTaskDialog";
 import { PlanPanel } from "../components/task/PlanPanel";
 import { TaskBanner } from "../components/task/TaskBanner";
 import { TaskHeader } from "../components/task/TaskHeader";
@@ -21,10 +23,11 @@ import { useTaskData, type TaskData } from "../components/task/use-task-data";
 import { uiStageIndex } from "../inbox";
 import { isPlainKey, isTypingTarget } from "../keyboard";
 import { cn } from "../lib/utils";
-import { taskQuery } from "../query";
+import { queryKeys, taskQuery } from "../query";
 import {
   TAB_LABELS,
   TASK_TABS,
+  canStop,
   checkPassed,
   defaultTab,
   diffStat,
@@ -106,9 +109,10 @@ function TabDecoration({ tab, task, data }: { tab: TaskTab; task: Task; data: Ta
 
 /**
  * Task keys: A approves the plan, R requests changes (at plan approval) or
- * resumes an interrupted or failed task. Never while typing.
+ * resumes an interrupted or failed task, S stops a queued or running one.
+ * Never while typing.
  */
-function useTaskKeys(task: Task, onKey: (key: "a" | "r") => void) {
+function useTaskKeys(task: Task, onKey: (key: "a" | "r" | "s") => void) {
   const handler = useRef(onKey);
   useEffect(() => {
     handler.current = onKey;
@@ -117,7 +121,7 @@ function useTaskKeys(task: Task, onKey: (key: "a" | "r") => void) {
     function onKeyDown(event: KeyboardEvent) {
       if (!isPlainKey(event) || isTypingTarget(event.target)) return;
       const key = event.key.toLowerCase();
-      if (key === "a" || key === "r") {
+      if (key === "a" || key === "r" || key === "s") {
         event.preventDefault();
         handler.current(key);
       }
@@ -132,6 +136,7 @@ function TaskScreen({ task }: { task: Task }) {
   const action = useTaskAction(task);
   const [draft, setDraft] = useState("");
   const [tab, setTab] = useState<TaskTab>(() => defaultTab(task));
+  const [deleting, setDeleting] = useState(false);
 
   // A new gate or status opens the tab where the user is needed (or the work is).
   const signal = `${task.status}:${task.gate}`;
@@ -159,6 +164,8 @@ function TaskScreen({ task }: { task: Task }) {
       focusInputBar();
     } else if (key === "r" && (task.status === "interrupted" || task.status === "failed")) {
       void resume(action, task);
+    } else if (key === "s" && canStop(task)) {
+      void stop(action, task);
     }
   });
 
@@ -218,7 +225,12 @@ function TaskScreen({ task }: { task: Task }) {
 
   return (
     <div className="flex h-full min-w-0 flex-col">
-      <TaskHeader task={task} round={data.round} />
+      <TaskHeader
+        task={task}
+        round={data.round}
+        action={action}
+        onDelete={() => setDeleting(true)}
+      />
       <TaskBanner
         task={task}
         action={action}
@@ -226,6 +238,7 @@ function TaskScreen({ task }: { task: Task }) {
         draft={draft}
         tab={current}
         onTab={setTab}
+        onDelete={() => setDeleting(true)}
       />
       <Tabs.Root
         value={current}
@@ -256,13 +269,29 @@ function TaskScreen({ task }: { task: Task }) {
         </Tabs.Content>
       </Tabs.Root>
       <InputBar task={task} action={action} draft={draft} onDraft={setDraft} />
+      {deleting && <DeleteTaskDialog task={task} onClose={() => setDeleting(false)} />}
     </div>
   );
+}
+
+/** Returns to the inbox once the task is deleted, here or anywhere else. */
+function useLeaveWhenDeleted(taskId: string) {
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  useEffect(() => {
+    const key = JSON.stringify(queryKeys.task(taskId));
+    return queryClient.getQueryCache().subscribe((event) => {
+      if (event.type === "removed" && JSON.stringify(event.query.queryKey) === key) {
+        void navigate({ to: "/" });
+      }
+    });
+  }, [queryClient, navigate, taskId]);
 }
 
 /** Main pane for one task: header, needs-you banner, the section tabs and the input bar. */
 export function TaskView({ taskId }: { taskId: string }) {
   const task = useQuery(taskQuery(taskId));
+  useLeaveWhenDeleted(taskId);
 
   if (task.isPending) return <Centered title="Loading task…" />;
   if (task.isError) {

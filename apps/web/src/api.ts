@@ -215,6 +215,16 @@ export function resumeTask(taskId: string): Promise<Task> {
   return request(`${taskPath(taskId)}/resume`, taskSchema, { method: "POST" });
 }
 
+/** Stops a queued or running task; it ends interrupted and Resume continues its session. */
+export function stopTask(taskId: string): Promise<Task> {
+  return request(`${taskPath(taskId)}/stop`, taskSchema, { method: "POST" });
+}
+
+/** Deletes an undelivered task with its worktree, local branch and history. */
+export function deleteTask(taskId: string): Promise<void> {
+  return requestEmpty(taskPath(taskId), { method: "DELETE" });
+}
+
 /** What finishing the task would send, action by action. */
 export function getDeliveryPlan(taskId: string): Promise<DeliveryPlan> {
   return request(`${taskPath(taskId)}/delivery`, deliveryPlanSchema);

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   MAX_GRILL_ROUNDS,
+  TASK_STOPPED_ERROR,
   type ReviewFinding,
   type ServerEvent,
   type Stage,
@@ -18,12 +19,13 @@ import {
   FindingNotFoundError,
   GrillQuestionNotFoundError,
   RESUME_PROMPT,
+  TaskNotFoundError,
   TaskStateError,
   createPipelineEngine,
   type StageHandlers,
 } from "./engine.js";
 import { createFakeAdapter, type FakeScript } from "./fake-adapter.js";
-import { DeliveryError, type DeliveryContext } from "./delivery.js";
+import { DELIVERY_DONE_EVENT, DeliveryError, type DeliveryContext } from "./delivery.js";
 import type { CheckOutcome, CheckRunner } from "./checks.js";
 import { InvalidGateResponseError } from "./transitions.js";
 import { commitKey, commitMessage, createDefaultStages } from "./stages.js";
@@ -108,11 +110,13 @@ function harness(
     maxPerRepo = 3,
     deliver = async () => undefined,
     quota,
+    removeWorkspace,
   }: {
     stages?: StageHandlers;
     maxPerRepo?: number;
     deliver?: (ctx: DeliveryContext) => Promise<void>;
     quota?: Pick<QuotaTracker, "report" | "succeeded">;
+    removeWorkspace?: (task: Task) => Promise<void>;
   } = {},
 ): Harness {
   const agents = createAgentService({ agents: r.agents, settings: r.settings, tags: r.tags });
@@ -151,6 +155,7 @@ function harness(
     },
     maxTasksPerRepo: () => maxPerRepo,
     ...(quota ? { quota } : {}),
+    ...(removeWorkspace ? { removeWorkspace } : {}),
     publish: (event) => events.push(event),
     log: () => undefined,
   });
@@ -677,6 +682,114 @@ function stepsOf(taskId: string) {
 function lastStep(taskId: string) {
   return stepsOf(taskId).at(-1)!;
 }
+
+describe("stop and delete", () => {
+  it("stops a running task, kills its agent and resumes the same session", async () => {
+    const seeded = seedTask();
+    let hang = true;
+    const h = harness((stage) =>
+      stage === "inform" && hang ? { hang: true, sessionId: "inform-1" } : {},
+    );
+    h.engine.enqueue(seeded.id);
+    await vi.waitFor(() => expect(lastStep(seeded.id)?.sessionId).toBe("inform-1"));
+
+    const stopped = await h.engine.stop(seeded.id);
+    expect(stopped).toMatchObject({ status: "interrupted", error: TASK_STOPPED_ERROR });
+    expect(lastStep(seeded.id)).toMatchObject({ status: "interrupted", sessionId: "inform-1" });
+    expect(h.calls[0]!.options.signal?.aborted).toBe(true);
+    expect(h.engine.activeTaskIds()).toEqual([]);
+
+    hang = false;
+    expect(h.engine.resume(seeded.id)).toMatchObject({ status: "queued", error: null });
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "plan-approval" });
+    expect(h.calls.some((c) => c.options.resumeSessionId === "inform-1")).toBe(true);
+  });
+
+  it("stops a queued task without starting it", async () => {
+    const gate = new Promise<void>(() => undefined);
+    const stages: StageHandlers = { ...createDefaultStages(), inform: () => gate };
+    const h = harness(() => ({}), { stages, maxPerRepo: 1 });
+    const first = seedTask();
+    const second = seedTask();
+    h.engine.enqueue(first.id);
+    h.engine.enqueue(second.id);
+    expect(h.engine.queuedTaskIds()).toEqual([second.id]);
+
+    const stopped = await h.engine.stop(second.id);
+    expect(stopped).toMatchObject({ status: "interrupted", error: TASK_STOPPED_ERROR });
+    expect(h.engine.queuedTaskIds()).toEqual([]);
+    expect(r.runs.listByTask(second.id)).toEqual([]);
+  });
+
+  it("leaves a task that is neither queued nor running as it is", async () => {
+    const seeded = seedTask();
+    const h = harness();
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(await h.engine.stop(seeded.id)).toMatchObject({ status: "needs-you" });
+  });
+
+  it("deletes a running task with its workspace and history", async () => {
+    const seeded = seedTask();
+    const removed: Task[] = [];
+    const h = harness((stage) => (stage === "inform" ? { hang: true, sessionId: "s" } : {}), {
+      removeWorkspace: async (t) => void removed.push(t),
+    });
+    h.engine.enqueue(seeded.id);
+    await vi.waitFor(() => expect(lastStep(seeded.id)?.sessionId).toBe("s"));
+
+    await h.engine.delete(seeded.id);
+    expect(r.tasks.get(seeded.id)).toBeUndefined();
+    expect(r.runs.listByTask(seeded.id)).toEqual([]);
+    expect(removed).toHaveLength(1);
+    expect(removed[0]).toMatchObject({ id: seeded.id, worktreePath: dir });
+    expect(h.events.at(-1)).toEqual({ type: "task.removed", payload: { taskId: seeded.id } });
+    await expect(h.engine.delete(seeded.id)).rejects.toThrow(TaskNotFoundError);
+  });
+
+  it("deletes a task that never got a worktree without touching git", async () => {
+    const seeded = seedTask();
+    const removeWorkspace = vi.fn(async () => undefined);
+    const h = harness(() => ({}), { removeWorkspace });
+    await h.engine.delete(seeded.id);
+    expect(r.tasks.get(seeded.id)).toBeUndefined();
+    expect(removeWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("keeps a backlog item that promoted a deleted task, unlinked", async () => {
+    const seeded = seedTask();
+    const item = r.backlogItems.insert({
+      repoId: seeded.repoId,
+      title: "Fix login",
+      origin: { kind: "free-text" },
+    });
+    r.backlogItems.markPromoted(item.id, seeded.id);
+    await harness().engine.delete(seeded.id);
+    expect(r.backlogItems.get(item.id)).toMatchObject({ status: "promoted", taskId: null });
+  });
+
+  it("refuses to delete a delivered task", async () => {
+    const done = seedTask({ status: "done", deliveryTargets: ["push-branch"] });
+    const partial = seedTask({ status: "needs-you", gate: "finish" });
+    const run = r.runs.create(partial.id);
+    const step = r.steps.create({ runId: run.id, stage: "summarize", agentId: null });
+    r.stepEvents.append(step.id, DELIVERY_DONE_EVENT, { action: "push-branch", detail: "x" });
+    const squashed = seedTask({ status: "needs-you", gate: "finish" });
+    const squashRun = r.runs.create(squashed.id);
+    const squashStep = r.steps.create({ runId: squashRun.id, stage: "summarize", agentId: null });
+    r.stepEvents.append(squashStep.id, DELIVERY_DONE_EVENT, { action: "squash", detail: "x" });
+
+    const h = harness();
+    await expect(h.engine.delete(done.id)).rejects.toThrow(TaskStateError);
+    await expect(h.engine.delete(partial.id)).rejects.toThrow(TaskStateError);
+    expect(r.tasks.get(done.id)).toBeDefined();
+    expect(r.tasks.get(partial.id)).toBeDefined();
+    // A squash alone never left the machine.
+    await h.engine.delete(squashed.id);
+    expect(r.tasks.get(squashed.id)).toBeUndefined();
+  });
+});
 
 describe("implement and checks", () => {
   const failing = (output: string): CheckOutcome => ({ exitCode: 1, output, timedOut: false });

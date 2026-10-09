@@ -25,6 +25,11 @@ export const TASK_STATUSES = [
   "failed",
   "done",
 ] as const;
+/**
+ * The `error` of an `interrupted` task the user stopped, which tells a stop
+ * apart from a shutdown (no error) or a usage limit (the limit's message).
+ */
+export const TASK_STOPPED_ERROR = "Stopped by you";
 /** Backlog pick order: higher buckets run first. */
 export const BACKLOG_PRIORITIES = ["high", "normal", "low"] as const;
 /**
@@ -521,7 +526,10 @@ export const taskSchema = z
     stage: stageSchema.nullable(),
     /** What the task waits on while `needs-you`; null otherwise. */
     gate: gateSchema.nullable(),
-    /** Why the task failed; null unless `failed`. */
+    /**
+     * Why the task failed, or why an `interrupted` one stopped (a usage limit,
+     * or {@link TASK_STOPPED_ERROR}); null otherwise.
+     */
     error: z.string().nullable(),
     triageMode: triageModeSchema,
     agents: roleAgentsSchema,

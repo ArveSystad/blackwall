@@ -29,7 +29,14 @@ import { Hono } from "hono";
 /** The engine actions the task routes expose. */
 export type TaskPipeline = Pick<
   PipelineEngine,
-  "createTask" | "resume" | "respond" | "answerQuestion" | "overrideFinding" | "deliveryPlan"
+  | "createTask"
+  | "resume"
+  | "stop"
+  | "delete"
+  | "respond"
+  | "answerQuestion"
+  | "overrideFinding"
+  | "deliveryPlan"
 >;
 
 export interface TaskRouteStores {
@@ -111,6 +118,7 @@ export async function createTaskFromInput(
 /**
  * Task routes. Tasks change through the pipeline and reach clients as WS
  * events; with a pipeline, interrupted or failed tasks can be resumed, a
+ * queued or running task stopped, an undelivered task deleted, a
  * `needs-you` task's gate answered, its grill questions answered, its
  * findings force-fixed or force-ignored, and its delivery plan shown before
  * the user confirms the finish actions.
@@ -200,6 +208,21 @@ export function taskRoutes(
   if (pipeline) {
     /** Re-queues an interrupted or failed task; interrupted steps resume their CLI sessions. */
     routes.post("/:id/resume", (c) => c.json<Task>(pipeline.resume(c.req.param("id"))));
+
+    /**
+     * Stops a queued or running task: it ends `interrupted` ("Stopped by
+     * you"), its agent CLIs killed, and Resume continues the same session.
+     */
+    routes.post("/:id/stop", async (c) => c.json<Task>(await pipeline.stop(c.req.param("id"))));
+
+    /**
+     * Deletes a task with its worktree, local branch (kept for PR tasks) and
+     * history; 409 once delivery has started or finished.
+     */
+    routes.delete("/:id", async (c) => {
+      await pipeline.delete(c.req.param("id"));
+      return c.body(null, 204);
+    });
 
     /**
      * What finishing would do: each delivery action with its exact target
