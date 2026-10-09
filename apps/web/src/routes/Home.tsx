@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { GridBackdrop } from "../components/GridBackdrop";
 import { CheckIcon, WallIcon } from "../components/icons";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
@@ -57,7 +58,7 @@ function FirstRun() {
   const current = !hasConnection ? 1 : !hasRepo ? 2 : 3;
 
   return (
-    <div className="flex w-full max-w-[600px] flex-col gap-[22px]">
+    <div className="relative z-10 flex w-full max-w-[600px] flex-col gap-[22px]">
       <div className="flex flex-col gap-2">
         <span className="label text-cyan">First run</span>
         <h1 className="m-0 font-display text-[28px] leading-[34px] font-semibold tracking-[0.01em] text-foreground-strong">
@@ -123,9 +124,11 @@ function FirstRun() {
 /** Main pane with no task selected: first-run setup, or a prompt to pick a task. */
 export function Home() {
   const tasks = useQuery(tasksQuery);
+  const firstRun = tasks.data?.length === 0;
   return (
-    <div className="flex h-full items-center justify-center overflow-auto px-6 py-10">
-      {tasks.data?.length === 0 ? (
+    <div className="relative isolate flex h-full items-center justify-center overflow-auto px-6 py-10">
+      {firstRun && <GridBackdrop />}
+      {firstRun ? (
         <FirstRun />
       ) : (
         <div className="flex flex-col items-center gap-2 text-center">

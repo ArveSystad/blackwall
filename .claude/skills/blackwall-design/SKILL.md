@@ -58,6 +58,7 @@ conflict instead of silently picking one.
 | Done | `--st-done` | #5cd69a | #1a7f37 |
 | Severity Critical / High / Medium / Low | `--sev-*` | #ff4d5e / #ff8b3d / #f2c14e / #8e9dbc | #cf2236 / #c2530a / #9a6d00 / #5a6880 |
 | Diff add / del | `--diff-add-*` / `--diff-del-*` | plain GitHub-style green/red | same |
+| First-run backdrop lines / glow (decoration, first run only) | `--grid-line` / `--grid-glow` | primary 34% / cyan 16% (`color-mix`) | border-strong 80% / none |
 
 Surfaces in dark run from near-black indigo to dusky violet: `bg-0` page, `bg-1` panes,
 `bg-2` cards and inputs, `bg-3` hover and selected, `bg-4` popovers. Body text is muted off-white
@@ -66,6 +67,10 @@ Surfaces in dark run from near-black indigo to dusky violet: `bg-0` page, `bg-1`
 Rules:
 - Neon and glow mark **state**, never decoration. Allowed on focus rings, the needs-you rail, banner
   and CTA, running dots, the active tab underline, and the current stepper node.
+- One deliberate exception: the first-run backdrop (`GridBackdrop`, an animated perspective grid) is
+  the only decorative use of glow. It stays low-opacity, uses primary/cyan only (via `--grid-line` /
+  `--grid-glow`), fades out under the setup cards, stops under reduced motion, and never appears on
+  working screens (inbox with tasks, task view, settings).
 - Never put glow or neon on diffs, transcripts, long text, or table rows.
 - Glow is dark only. Light replaces it with a 1px border plus a 3px tinted ring (`--glow-*` handles this).
 - Severity colors never mean status, and status colors never mean severity.

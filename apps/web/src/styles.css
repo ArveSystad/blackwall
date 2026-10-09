@@ -71,6 +71,9 @@
   --glow-tab: 0 0 8px var(--primary);
   --ring: var(--glow-cyan);
   --wordmark-accent: var(--cyan);
+  /* First-run backdrop only: the one decorative use of glow (see GridBackdrop). */
+  --grid-line: color-mix(in oklab, var(--primary) 34%, transparent);
+  --grid-glow: color-mix(in oklab, var(--cyan) 16%, transparent);
 
   color-scheme: dark;
 }
@@ -133,6 +136,8 @@
   --glow-tab: none;
   --ring: var(--glow-violet);
   --wordmark-accent: var(--primary);
+  --grid-line: color-mix(in oklab, var(--border-strong) 80%, transparent);
+  --grid-glow: transparent;
 
   color-scheme: light;
 }
@@ -192,6 +197,8 @@
   --color-kbd-on-fill-border: var(--kbd-on-fill-border);
   --color-seg-on: var(--seg-on-bg);
   --color-seg-on-ring: var(--seg-on-ring);
+  --color-grid-line: var(--grid-line);
+  --color-grid-glow: var(--grid-glow);
 
   --shadow-ring: var(--ring);
   --shadow-glow-cyan: var(--glow-cyan);
@@ -261,6 +268,134 @@
   }
   100% {
     opacity: 0.35;
+  }
+}
+
+/* ---------- first-run grid backdrop (GridBackdrop.tsx) ----------
+ * A perspective floor drifting toward the viewer plus a slow scanline.
+ * Only transform/opacity/background-position animate; reduced motion stops
+ * both via the base rule below. Masks keep lines away from the card column.
+ */
+@keyframes bw-grid-drift {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 0 48px;
+  }
+}
+
+@keyframes bw-grid-scan {
+  0% {
+    transform: translateY(-10vh);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  45% {
+    opacity: 1;
+  }
+  55%,
+  100% {
+    transform: translateY(110vh);
+    opacity: 0;
+  }
+}
+
+@layer components {
+  .bw-grid {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 0;
+    /* Lines fade out under the centered card column (~600px). */
+    mask-image: linear-gradient(
+      to right,
+      #000 0,
+      #000 calc(50% - 400px),
+      rgb(0 0 0 / 0.18) calc(50% - 260px),
+      rgb(0 0 0 / 0.18) calc(50% + 260px),
+      #000 calc(50% + 400px),
+      #000 100%
+    );
+  }
+
+  .bw-grid-glow {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 60% 22% at 50% 58%, var(--grid-glow), transparent 70%);
+  }
+
+  .bw-grid-floor {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 58%;
+    bottom: 0;
+    perspective: 320px;
+    perspective-origin: 50% 0;
+    mask-image: linear-gradient(to bottom, transparent, #000 40%);
+  }
+
+  .bw-grid-plane {
+    position: absolute;
+    left: -100%;
+    right: -100%;
+    top: 0;
+    height: 300%;
+    transform-origin: 50% 0;
+    transform: rotateX(62deg);
+    background-image:
+      linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+    background-size: 48px 48px;
+    animation: bw-grid-drift 28s linear infinite;
+  }
+
+  .bw-grid-sky {
+    position: absolute;
+    inset: 0 0 42% 0;
+    background-image:
+      linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+    background-size: 48px 48px;
+    background-position: center bottom;
+    opacity: 0.35;
+    mask-image: radial-gradient(ellipse 70% 90% at 50% 100%, #000, transparent 75%);
+  }
+
+  .bw-grid-horizon {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 58%;
+    height: 1px;
+    background: linear-gradient(
+      to right,
+      transparent,
+      var(--grid-line) 30%,
+      var(--grid-line) 70%,
+      transparent
+    );
+    box-shadow: 0 0 12px 1px var(--grid-glow);
+  }
+
+  .bw-grid-scan {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 2px;
+    background: linear-gradient(to right, transparent, var(--grid-glow), transparent);
+    box-shadow: 0 0 10px 2px var(--grid-glow);
+    animation: bw-grid-scan 12s ease-in-out infinite;
+  }
+
+  /* Glow is dark only: light keeps the static-feeling floor and drops the sweep. */
+  :root[data-theme="light"] .bw-grid-scan {
+    display: none;
   }
 }
 
