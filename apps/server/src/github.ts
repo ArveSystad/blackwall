@@ -10,6 +10,7 @@ import {
   findRepoForPullRequest,
   informFromPullRequest,
   parsePullRequestUrl,
+  signComment,
   type Fetch,
   type GitHubCredentials,
   type JiraCredentials,
@@ -120,16 +121,17 @@ export function createGitHubOrigin({ connections, fetch: fetchImpl }: GitHubOrig
       return { url };
     },
 
-    /** Posts a conversation comment on the task's pull request. */
+    /** Posts a conversation comment on the task's pull request, signed as blackwall's. */
     async commentOnPullRequest(task: Task, body: string): Promise<{ url: string }> {
       const origin = requirePr(task);
-      const { url } = await (await prClient(origin)).addComment(origin, body);
+      const { url } = await (await prClient(origin)).addComment(origin, signComment(body));
       return { url };
     },
 
     /**
      * Submits a `COMMENT` review on the task's pull request: findings on a
-     * line of the PR's diff become inline comments, the rest go in the body.
+     * line of the PR's diff become inline comments, the rest go in the body,
+     * which is signed as blackwall's.
      */
     async reviewPullRequest(task: Task, findings: readonly Finding[]): Promise<{ url: string }> {
       const origin = requirePr(task);
@@ -139,7 +141,10 @@ export function createGitHubOrigin({ connections, fetch: fetchImpl }: GitHubOrig
         client.getPullRequestDiff(origin),
       ]);
       const payload = buildReviewPayload(findings, { diff, commitId: pr.head.sha });
-      const { url } = await client.createReview(origin, payload);
+      const { url } = await client.createReview(origin, {
+        ...payload,
+        body: signComment(payload.body),
+      });
       return { url };
     },
   };

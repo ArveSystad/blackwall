@@ -243,6 +243,10 @@ describe("GitHub delivery", () => {
       expect.objectContaining({ path: "src/a.ts", line: 2, side: "RIGHT" }),
     ]);
     expect(body.body).toContain("Elsewhere");
+    expect(body.body).toMatch(/_Posted from blackwall_$/);
+    for (const comment of body.comments as { body: string }[]) {
+      expect(comment.body).not.toContain("Posted from blackwall");
+    }
   });
 
   it("comments on the PR and opens a PR on the remote's host", async () => {
@@ -266,7 +270,10 @@ describe("GitHub delivery", () => {
       remote: "https://jbf.ghe.com/acme/shop.git",
     });
     expect(writes).toEqual([
-      { path: "/repos/acme/shop/issues/42/comments", body: { body: "Summary" } },
+      {
+        path: "/repos/acme/shop/issues/42/comments",
+        body: { body: "Summary\n\n---\n_Posted from blackwall_" },
+      },
       {
         path: "/repos/acme/shop/pulls",
         body: { head: "feature/abc-1-x", base: "main", title: "ABC-1 X", body: "Summary" },

@@ -11,6 +11,7 @@ import {
 } from "./pr-ref.js";
 import { assemblePullRequest, findJiraKey } from "./pull-request.js";
 import { buildReviewPayload, commentableLines } from "./review.js";
+import { COMMENT_SIGNATURE, signComment } from "./signature.js";
 
 const fixturePath = (name: string) => new URL(`./fixtures/${name}`, import.meta.url);
 const fixtureText = (name: string) => readFileSync(fixturePath(name), "utf8");
@@ -431,5 +432,26 @@ describe("review payloads", () => {
     const [url, init] = fetchImpl.mock.calls[0]!;
     expect(String(url)).toBe("https://api.jbf.ghe.com/repos/acme/shop/pulls/42/reviews");
     expect(JSON.parse(String(init?.body))).toEqual(payload);
+  });
+});
+
+describe("signComment", () => {
+  it("appends the signature below a rule", () => {
+    expect(signComment("Summary")).toBe(`Summary\n\n---\n${COMMENT_SIGNATURE}`);
+    expect(COMMENT_SIGNATURE).toBe("_Posted from blackwall_");
+  });
+
+  it("trims trailing whitespace first", () => {
+    expect(signComment("Summary\n\n  \n")).toBe(`Summary\n\n---\n${COMMENT_SIGNATURE}`);
+  });
+
+  it("does not sign a body twice", () => {
+    const signed = signComment("Summary");
+    expect(signComment(signed)).toBe(signed);
+    expect(signComment(`${signed}\n`)).toBe(signed);
+  });
+
+  it("signs an empty body", () => {
+    expect(signComment("  ")).toBe(`---\n${COMMENT_SIGNATURE}`);
   });
 });
