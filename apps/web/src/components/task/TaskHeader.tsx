@@ -66,6 +66,7 @@ function startedLabel(date: Date): string {
  * Task header: origin, title with a breadcrumb back to the repo's backlog,
  * repo, branch, agents and the stage stepper with the review round, plus Stop
  * (while queued or running) and Delete (until something was delivered).
+ * While running, a cyan stream sweeps along the bottom border.
  */
 export function TaskHeader({
   task,
@@ -97,7 +98,7 @@ export function TaskHeader({
   const inReview = task.stage === "code-review" || task.stage === "aggregate";
 
   return (
-    <header className="flex flex-col gap-2 border-b border-border bg-sidebar px-5 pt-3.5 pb-3">
+    <header className="relative flex flex-col gap-2 border-b border-border bg-sidebar px-5 pt-3.5 pb-3">
       <div className="flex items-center gap-2 text-meta">
         <OriginIcon size="sm" className="text-muted-foreground" />
         {url ? (
@@ -188,6 +189,9 @@ export function TaskHeader({
           }
         />
       </div>
+      {task.status === "running" && (
+        <span aria-hidden="true" className="bw-stream absolute inset-x-0 -bottom-px" />
+      )}
     </header>
   );
 }

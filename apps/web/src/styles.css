@@ -400,6 +400,26 @@
   :root[data-theme="light"] .bw-grid-scan {
     display: none;
   }
+
+  /* ---------- running stream sweep (TaskHeader.tsx) ----------
+   * A cyan band sweeping along a faint track under a running task's header.
+   * Reduced motion stops the sweep via the base rule; the track stays.
+   */
+  .bw-stream {
+    height: 2px;
+    background-color: color-mix(in oklab, var(--cyan) 14%, transparent);
+    background-image: linear-gradient(90deg, transparent, var(--cyan), transparent);
+    background-repeat: no-repeat;
+    background-size: 120px 2px;
+    animation: var(--animate-stream);
+    filter: drop-shadow(0 0 4px var(--cyan));
+    pointer-events: none;
+  }
+
+  /* Glow is dark only. */
+  :root[data-theme="light"] .bw-stream {
+    filter: none;
+  }
 }
 
 @layer base {
