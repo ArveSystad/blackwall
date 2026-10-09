@@ -33,7 +33,7 @@ Follow the `caveman` skill for narration and status updates while running this �
 
 ### 2. Check Dependencies (manual-argument path only)
 
-When a task was specified by argument (not selected by the script), read its first 15 lines and check for a `depends on:` line. If any listed dependency does not exist in `tasks/done/`, either start that dependency first or pick a different task.
+When a task was specified by argument (not selected by the script), read its first 20 lines and check its `depends_on:` frontmatter (or older `depends on:` line). If any listed dependency does not exist in `tasks/done/`, either start that dependency first or pick a different task.
 
 *(When the script picks the task this check is already done — skip it.)*
 
@@ -61,4 +61,4 @@ Confirm the move succeeded before continuing.
 
 - Always read the full task file before writing any code
 - Follow the project conventions in `.github/copilot-instructions.md`
-- Task files are plain markdown — the first 15 lines are used by the picker for priority and dependency metadata
+- Task files are plain markdown — the first 20 lines are used by the picker for id and dependency metadata; priority and order come from the filename

@@ -10,7 +10,10 @@
 #   4  sec-*
 #   5  everything else
 #
-# Within the same priority bucket, tasks are sorted alphabetically.
+# Within the same priority bucket, tasks are sorted by task number, then by
+# name. The number is the filename's leading digits ("0031-backlog-ui.md") or,
+# for older files, the digits after "task-" ("task-027-foo.md"). Files without
+# a number sort after numbered ones, alphabetically.
 # Files prefixed "proto-" are always ignored.
 #
 # Dependencies are read from the top of each file. Supported forms:
@@ -27,7 +30,7 @@
 # done before the tasks that need them, even if they sort later. A task whose
 # dependency exists neither in backlog/ nor done/ is blocked.
 #
-# Outputs the bare filename (e.g. "refactor-foo.md") to stdout.
+# Outputs the bare filename (e.g. "0031-backlog-ui.md") to stdout.
 # Exits 0 on success, 1 if no eligible task exists.
 
 param(
@@ -46,6 +49,11 @@ function Get-Priority([string]$name) {
     if ($name -like 'perf-*')       { return 3 }
     if ($name -like 'sec-*')        { return 4 }
     return 5
+}
+
+function Get-TaskNumber([string]$name) {
+    if ($name -match '^(?:task-)?(\d+)') { return [int]$Matches[1] }
+    return [int]::MaxValue
 }
 
 # ── Parsing ──────────────────────────────────────────────────────────────────
@@ -94,6 +102,7 @@ function Get-TaskInfo([System.IO.FileInfo]$file) {
         Id       = $id
         Deps     = $deps.ToArray()
         Priority = Get-Priority $file.Name
+        Number   = Get-TaskNumber $file.Name
     }
 }
 
@@ -111,7 +120,7 @@ if (Test-Path $doneDir) {
 $backlog    = @(Get-ChildItem -Path $backlogDir -Filter '*.md' |
     Where-Object { $_.Name -notlike 'proto-*' } |
     ForEach-Object { Get-TaskInfo $_ } |
-    Sort-Object Priority, Name)
+    Sort-Object Priority, Number, Name)
 
 $backlogByKey = @{}
 foreach ($task in $backlog) {

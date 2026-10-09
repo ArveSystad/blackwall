@@ -26,12 +26,21 @@ The result is a single filename on stdout — fully deterministic and free of LL
 | 4 | `sec-*` | `sec-xss-sanitize.md` |
 | 5 — lowest | *(anything else)* | `refactor-button-styles.md` |
 
-Within the same bucket, tasks are sorted alphabetically by filename.
+Within the same bucket, tasks are sorted by task number: the filename's leading digits (`0031-backlog-ui.md`, the current naming, see `create-task`) or the digits after `task-` in older files (`task-027-repo-backlog-storage.md`). Unnumbered files come last, alphabetically.
 Files prefixed `proto-` are always ignored.
 
 ## Dependency Format
 
-A task file may declare dependencies **in the first 15 lines**:
+A task file may declare dependencies **in the first 20 lines**. The standard form is YAML frontmatter listing task ids:
+
+```markdown
+---
+id: task-0032
+depends_on: [task-0031, task-027]
+---
+```
+
+A dependency matches a task by its frontmatter `id:` or by its filename (with or without `.md`). Older markdown forms still work:
 
 ```markdown
 depends on: other-task.md
@@ -49,8 +58,7 @@ Markdown formatting is stripped before parsing, so bold/code variants also work:
 **Depends on:** `task-a.md`, `task-b.md`
 ```
 
-A task is considered **blocked** if any listed dependency file does not exist in `tasks/done/`.
-Blocked tasks are silently skipped; the script moves on to the next eligible candidate.
+A task with unmet dependencies is not picked; the script picks the first ready dependency still in `tasks/backlog/` instead, so prerequisites run first. A task whose dependency exists neither in `backlog/` nor `done/` is blocked and skipped.
 
 ## Procedure
 
@@ -65,6 +73,6 @@ task=$(pwsh -File tasks/pick-next-task.ps1)
 
 ## Notes
 
-- The script reads only the first 15 lines of each file — keep `depends on:` near the top
+- The script reads only the first 20 lines of each file — keep `id:` and `depends_on:` near the top
 - Dependency lookup is case-insensitive and strips backticks, asterisks, and surrounding whitespace
 - The script never moves files; it only reads and reports
