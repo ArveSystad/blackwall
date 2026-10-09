@@ -170,6 +170,16 @@ export function itemState(
   return { kind: "waiting" };
 }
 
+export type BacklogRowAction = { kind: "edit" } | { kind: "open-task"; taskId: string } | null;
+
+/** What clicking a backlog row (or Enter on it) does. */
+export function rowAction(state: BacklogItemState): BacklogRowAction {
+  if (state.kind === "promoted") {
+    return state.task ? { kind: "open-task", taskId: state.task.id } : null;
+  }
+  return { kind: "edit" };
+}
+
 /** CLIs paused on a usage limit right now, with when they reset. */
 export function pausedQuotas(quota: readonly QuotaState[], now: Date): QuotaState[] {
   return quota.filter((q) => q.pausedUntil !== null && q.pausedUntil.getTime() > now.getTime());

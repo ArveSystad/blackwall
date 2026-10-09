@@ -19,6 +19,7 @@ import {
   nextBacklogItem,
   pendingCount,
   reorderIds,
+  rowAction,
   runnerStatus,
   type BacklogItemState,
   type RunnerStatus,
@@ -260,6 +261,7 @@ function BacklogRow({
   onDrop,
   onMove,
   onFocusStep,
+  onOpen,
   onEdit,
   onRun,
   onTogglePause,
@@ -275,6 +277,8 @@ function BacklogRow({
   onDrop: () => void;
   onMove: (delta: -1 | 1) => void;
   onFocusStep: (delta: -1 | 1) => void;
+  /** What a click or Enter on the row does; none for a promoted item whose task is gone. */
+  onOpen: (() => void) | undefined;
   onEdit: () => void;
   onRun: () => void;
   onTogglePause: () => void;
@@ -290,7 +294,15 @@ function BacklogRow({
       tabIndex={0}
       draggable
       aria-label={item.title}
-      aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Enter P Delete"
+      aria-keyshortcuts={`Alt+ArrowUp Alt+ArrowDown${onOpen ? " Enter" : ""} P Delete`}
+      onClick={(event) => {
+        if (!onOpen) return;
+        // Leave clicks on the row's own buttons and links to them.
+        const control = (event.target as Element).closest("button, a, input");
+        if (control && event.currentTarget.contains(control)) return;
+        if (window.getSelection()?.isCollapsed === false) return;
+        onOpen();
+      }}
       onDragStart={(event) => {
         event.dataTransfer.effectAllowed = "move";
         onDragStart();
@@ -317,9 +329,9 @@ function BacklogRow({
         } else if (key === "ArrowDown" || key === "j" || key === "J") {
           event.preventDefault();
           onFocusStep(1);
-        } else if (key === "Enter" && !promoted) {
+        } else if (key === "Enter" && onOpen) {
           event.preventDefault();
-          onEdit();
+          onOpen();
         } else if ((key === "p" || key === "P") && !promoted) {
           event.preventDefault();
           onTogglePause();
@@ -330,6 +342,7 @@ function BacklogRow({
       }}
       className={cn(
         "group flex min-h-10 items-center gap-2.5 rounded-lg border border-transparent py-1.5 pr-2 pl-1.5 hover:bg-card focus-visible:border-cyan focus-visible:shadow-ring focus-visible:outline-none",
+        onOpen && "cursor-pointer",
         dragging?.id === item.id && "opacity-50",
         dropTarget && "border-dashed border-border-strong",
       )}
@@ -678,38 +691,55 @@ export function Backlog({ repoId }: { repoId: string }) {
                 ariaLabel={`${PRIORITY_LABELS[group.priority]} priority`}
                 count={group.items.length}
               >
-                {group.items.map((item) => (
-                  <BacklogRow
-                    key={item.id}
-                    item={item}
-                    state={itemState(item, { nextId, titles, tasks: taskById })}
-                    dependsOn={item.dependsOn.map((id) => titles.get(id) ?? "a deleted item")}
-                    dragging={dragging}
-                    onDragStart={() => setDragging(item)}
-                    onDragEnd={() => setDragging(null)}
-                    onDrop={() => {
-                      if (dragging) reorder(reorderIds(items, dragging.id, item.id));
-                      setDragging(null);
-                    }}
-                    onMove={(delta) => reorder(moveInBucket(items, item.id, delta, shown), item.id)}
-                    onFocusStep={(delta) => focusStep(item.id, delta)}
-                    onEdit={() => setDialog({ kind: "edit", item })}
-                    onRun={() =>
-                      void act(async () => {
-                        const task = await runBacklogItem(repoId, item.id);
-                        void navigate({ to: "/tasks/$taskId", params: { taskId: task.id } });
-                      })
-                    }
-                    onTogglePause={() =>
-                      void act(() =>
-                        updateBacklogItem(repoId, item.id, {
-                          status: item.status === "paused" ? "waiting" : "paused",
-                        }),
-                      )
-                    }
-                    onDelete={() => setDialog({ kind: "delete", item })}
-                  />
-                ))}
+                {group.items.map((item) => {
+                  const state = itemState(item, { nextId, titles, tasks: taskById });
+                  const action = rowAction(state);
+                  return (
+                    <BacklogRow
+                      key={item.id}
+                      item={item}
+                      state={state}
+                      dependsOn={item.dependsOn.map((id) => titles.get(id) ?? "a deleted item")}
+                      dragging={dragging}
+                      onDragStart={() => setDragging(item)}
+                      onDragEnd={() => setDragging(null)}
+                      onDrop={() => {
+                        if (dragging) reorder(reorderIds(items, dragging.id, item.id));
+                        setDragging(null);
+                      }}
+                      onMove={(delta) =>
+                        reorder(moveInBucket(items, item.id, delta, shown), item.id)
+                      }
+                      onFocusStep={(delta) => focusStep(item.id, delta)}
+                      onOpen={
+                        action?.kind === "edit"
+                          ? () => setDialog({ kind: "edit", item })
+                          : action?.kind === "open-task"
+                            ? () =>
+                                void navigate({
+                                  to: "/tasks/$taskId",
+                                  params: { taskId: action.taskId },
+                                })
+                            : undefined
+                      }
+                      onEdit={() => setDialog({ kind: "edit", item })}
+                      onRun={() =>
+                        void act(async () => {
+                          const task = await runBacklogItem(repoId, item.id);
+                          void navigate({ to: "/tasks/$taskId", params: { taskId: task.id } });
+                        })
+                      }
+                      onTogglePause={() =>
+                        void act(() =>
+                          updateBacklogItem(repoId, item.id, {
+                            status: item.status === "paused" ? "waiting" : "paused",
+                          }),
+                        )
+                      }
+                      onDelete={() => setDialog({ kind: "delete", item })}
+                    />
+                  );
+                })}
               </Section>
             ))}
             {sections.earlier.length > 0 && (
@@ -728,7 +758,7 @@ export function Backlog({ repoId }: { repoId: string }) {
                   <Kbd>Alt ↑</Kbd> <Kbd>Alt ↓</Kbd> reorder
                 </span>
                 <span>
-                  <Kbd>↵</Kbd> edit
+                  <Kbd>↵</Kbd> open
                 </span>
                 <span>
                   <Kbd>P</Kbd> pause

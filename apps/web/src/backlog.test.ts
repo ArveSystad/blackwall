@@ -10,6 +10,7 @@ import {
   nextBacklogItem,
   pendingCount,
   reorderIds,
+  rowAction,
   runnerStatus,
   type RunnerStatusInput,
 } from "./backlog";
@@ -172,6 +173,21 @@ describe("itemState", () => {
       task,
     });
     expect(itemState(makeBacklogItem(), ctx)).toEqual({ kind: "waiting" });
+  });
+});
+
+describe("rowAction", () => {
+  it("edits an item not yet promoted", () => {
+    expect(rowAction({ kind: "waiting" })).toEqual({ kind: "edit" });
+    expect(rowAction({ kind: "paused" })).toEqual({ kind: "edit" });
+    expect(rowAction({ kind: "next" })).toEqual({ kind: "edit" });
+    expect(rowAction({ kind: "blocked", by: ["x"] })).toEqual({ kind: "edit" });
+  });
+
+  it("opens a promoted item's task, or does nothing when the task is gone", () => {
+    const task = makeTask({ id: "t1" });
+    expect(rowAction({ kind: "promoted", task })).toEqual({ kind: "open-task", taskId: "t1" });
+    expect(rowAction({ kind: "promoted", task: undefined })).toBeNull();
   });
 });
 
