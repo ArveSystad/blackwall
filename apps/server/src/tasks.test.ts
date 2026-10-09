@@ -9,6 +9,7 @@ import {
   type Repositories,
 } from "@blackwall/core";
 import {
+  activeAgentStepSchema,
   deliveryPlanSchema,
   findingSchema,
   grillAnswerResultSchema,
@@ -155,6 +156,27 @@ describe("task routes", () => {
     expect((await request(`/api/tasks/nope/runs`)).status).toBe(404);
     expect((await request(`/api/tasks/nope/runs/${run.id}/steps`)).status).toBe(404);
     expect((await request(`/api/tasks/nope/steps/${step.id}/events`)).status).toBe(404);
+  });
+
+  it("lists the running agent steps with their task", async () => {
+    const task = seedTask();
+    const run = repositories.runs.create(task.id);
+    const agent = repositories.agents.create({
+      name: "coder",
+      cli: "claude",
+      eligibleStages: ["implement"],
+    });
+    const step = repositories.steps.create({
+      runId: run.id,
+      stage: "implement",
+      agentId: agent.id,
+      status: "running",
+    });
+
+    const res = await request("/api/tasks/active-agents");
+    expect(res.status).toBe(200);
+    const active = activeAgentStepSchema.array().parse(await res.json());
+    expect(active.map((s) => [s.id, s.taskId])).toEqual([[step.id, task.id]]);
   });
 
   it("returns 404 for an unknown task", async () => {

@@ -240,6 +240,43 @@ describe("tasks, runs and steps", () => {
     expect(r.steps.listByRun(run2.id).map((s) => s.status)).toEqual(["succeeded", "interrupted"]);
   });
 
+  it("lists running agent steps with their task", () => {
+    const task = seedTask();
+    const run = r.runs.create(task.id);
+    const agent = r.agents.create({ name: "coder", cli: "claude", eligibleStages: ["implement"] });
+    const running = r.steps.create({
+      runId: run.id,
+      stage: "implement",
+      agentId: agent.id,
+      status: "running",
+    });
+    r.steps.create({ runId: run.id, stage: "checks", status: "running" });
+    r.steps.create({ runId: run.id, stage: "inform", agentId: agent.id, status: "succeeded" });
+
+    const active = r.steps.listActiveAgents();
+    expect(active.map((s) => s.id)).toEqual([running.id]);
+    expect(active[0]).toMatchObject({ taskId: task.id, agentId: agent.id, stage: "implement" });
+  });
+
+  it("orders active agent steps oldest first, then by insertion", () => {
+    const run = r.runs.create(seedTask().id);
+    const agent = r.agents.create({ name: "rev", cli: "claude", eligibleStages: ["code-review"] });
+    const at = new Date("2026-01-01T10:00:00Z");
+    const step = (createdAt: Date) =>
+      r.steps.create({
+        runId: run.id,
+        stage: "code-review",
+        agentId: agent.id,
+        status: "running",
+        createdAt,
+      });
+    const first = step(at);
+    const second = step(at);
+    const oldest = step(new Date("2026-01-01T09:00:00Z"));
+
+    expect(r.steps.listActiveAgents().map((s) => s.id)).toEqual([oldest.id, first.id, second.id]);
+  });
+
   it("appends step events with increasing sequence numbers", () => {
     const run = r.runs.create(seedTask().id);
     const step = r.steps.create({ runId: run.id, stage: "implement" });

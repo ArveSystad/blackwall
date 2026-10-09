@@ -1,5 +1,6 @@
-import { and, asc, desc, eq, gt, max, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNotNull, max, sql } from "drizzle-orm";
 import type {
+  ActiveAgentStep,
   Agent,
   BacklogItem,
   Connection,
@@ -340,6 +341,20 @@ export function createStepsRepository(db: Db) {
         .where(eq(steps.runId, runId))
         .orderBy(asc(steps.createdAt), asc(rowid))
         .all();
+    },
+    /** Running agent steps (harness steps left out) with their task, oldest first. */
+    listActiveAgents(): ActiveAgentStep[] {
+      return (
+        db
+          .select({ step: steps, taskId: runs.taskId })
+          .from(steps)
+          .innerJoin(runs, eq(steps.runId, runs.id))
+          .where(and(eq(steps.status, "running"), isNotNull(steps.agentId)))
+          // The bare `rowid` is ambiguous in a join, so it is qualified here.
+          .orderBy(asc(steps.createdAt), asc(sql`${steps}.rowid`))
+          .all()
+          .map(({ step, taskId }) => ({ ...step, taskId }))
+      );
     },
     get(id: string): Step | undefined {
       return db.select().from(steps).where(eq(steps.id, id)).get();

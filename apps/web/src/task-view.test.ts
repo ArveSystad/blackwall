@@ -11,6 +11,7 @@ import {
   buildTranscript,
   checkRuns,
   confirmLabel,
+  currentActivity,
   currentRound,
   defaultStepId,
   defaultTab,
@@ -105,6 +106,44 @@ describe("parseDiff", () => {
   it("tells a diff from prose", () => {
     expect(looksLikeDiff("@@ -1 +1 @@\n-a\n+b")).toBe(true);
     expect(looksLikeDiff("Use a mutex around the refresh.")).toBe(false);
+  });
+});
+
+describe("currentActivity", () => {
+  const read = event(1, "tool-call-start", {
+    id: "c1",
+    name: "Read",
+    input: { file_path: "src/x.ts" },
+  });
+
+  it("is null before the agent does anything", () => {
+    expect(currentActivity([])).toBeNull();
+    expect(currentActivity([event(1, "session", { sessionId: "x" })])).toBeNull();
+  });
+
+  it("names the latest tool call and its target", () => {
+    expect(currentActivity([read])).toBe("Read src/x.ts");
+  });
+
+  it("shows the first line of a later message", () => {
+    expect(currentActivity([read, event(2, "message", { text: "Done reading." })])).toBe(
+      "Done reading.",
+    );
+    expect(currentActivity([event(1, "message", { text: "\n  First line\nSecond line" })])).toBe(
+      "First line",
+    );
+  });
+
+  it("cuts a long message", () => {
+    const activity = currentActivity([event(1, "message", { text: "x".repeat(200) })]);
+    expect(activity).toHaveLength(120);
+    expect(activity?.endsWith("…")).toBe(true);
+  });
+
+  it("shows an error's message", () => {
+    expect(currentActivity([read, event(2, "error", { message: "rate limited" })])).toBe(
+      "rate limited",
+    );
   });
 });
 

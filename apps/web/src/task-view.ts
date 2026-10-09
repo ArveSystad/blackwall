@@ -356,6 +356,36 @@ export function buildTranscript(events: readonly StepEvent[]): TranscriptItem[] 
   return items;
 }
 
+const ACTIVITY_CHARS = 120;
+
+/**
+ * What a running step is doing now, from its latest transcript item: a tool
+ * call's name and target, a message's first line or an error. Null before
+ * the first item.
+ */
+export function currentActivity(events: readonly StepEvent[]): string | null {
+  const item = buildTranscript(events).at(-1);
+  if (!item) return null;
+  switch (item.kind) {
+    case "tool":
+      return item.target ? `${item.name} ${item.target}` : item.name;
+    case "message": {
+      const line =
+        item.text
+          .split("\n")
+          .find((l) => l.trim())
+          ?.trim() ?? "";
+      return line.length > ACTIVITY_CHARS ? `${line.slice(0, ACTIVITY_CHARS - 1)}…` : line;
+    }
+    case "error":
+      return item.message;
+    case "check":
+      return item.check.command;
+    case "note":
+      return item.text;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Checks
 // ---------------------------------------------------------------------------

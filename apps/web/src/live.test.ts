@@ -171,6 +171,22 @@ describe("applyServerEvent", () => {
     expect(stale(queryKeys.taskRuns("t2"))).toBe(false);
   });
 
+  it("refetches the active agents when a step changes or a task is removed", () => {
+    const stale = () => client.getQueryState(queryKeys.activeAgents)?.isInvalidated;
+
+    client.setQueryData(queryKeys.activeAgents, []);
+    applyServerEvent(client, {
+      type: "step.upserted",
+      payload: { step: { runId: "r1" } as never },
+    });
+    expect(stale()).toBe(true);
+
+    client.setQueryData(queryKeys.activeAgents, []);
+    expect(stale()).toBe(false);
+    applyServerEvent(client, { type: "task.removed", payload: { taskId: "t1" } });
+    expect(stale()).toBe(true);
+  });
+
   it("refetches a repo's backlog and runner on backlog.changed, and stores quota", () => {
     for (const key of [
       queryKeys.backlog("r1"),

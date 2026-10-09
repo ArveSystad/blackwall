@@ -7,6 +7,7 @@ import {
   getSettings,
   getDeliveryPlan,
   getTask,
+  listActiveAgents,
   listClis,
   listDiffs,
   listFindings,
@@ -36,6 +37,8 @@ export const queryKeys = {
   taskDelivery: (taskId: string) => ["tasks", taskId, "delivery"] as const,
   runSteps: (runId: string) => ["runs", runId, "steps"] as const,
   stepEvents: (stepId: string) => ["steps", stepId, "events"] as const,
+  /** Running agent steps across all tasks; any step change invalidates it. */
+  activeAgents: ["active-agents"] as const,
   repos: ["repos"] as const,
   connections: ["connections"] as const,
   agents: ["agents"] as const,
@@ -68,6 +71,11 @@ export const stepEventsQuery = (taskId: string, stepId: string) =>
     queryFn: () => listStepEvents(taskId, stepId),
     staleTime: Infinity,
   });
+
+export const activeAgentsQuery = queryOptions({
+  queryKey: queryKeys.activeAgents,
+  queryFn: listActiveAgents,
+});
 
 export const taskFindingsQuery = (taskId: string) =>
   queryOptions({ queryKey: queryKeys.taskFindings(taskId), queryFn: () => listFindings(taskId) });

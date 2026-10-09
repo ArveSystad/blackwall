@@ -12,6 +12,7 @@ import {
   grillAnswerInputSchema,
   MAX_TITLE_CHARS,
   newTaskInputSchema,
+  type ActiveAgentStep,
   type AgentCli,
   type DeliveryPlan,
   type Finding,
@@ -143,7 +144,8 @@ export function queueTask(
  * undelivered task deleted, a
  * `needs-you` task's gate answered, its grill questions answered, its
  * findings force-fixed or force-ignored, and its delivery plan shown before
- * the user confirms the finish actions.
+ * the user confirms the finish actions. `/active-agents` lists the running
+ * agent steps across all tasks.
  */
 export function taskRoutes(
   { tasks, grillQuestions, findings, runs, steps, stepEvents }: TaskRouteStores,
@@ -167,6 +169,11 @@ export function taskRoutes(
       }
       return c.json<Task>(await createTaskFromInput(pipeline, newTask, input.data), 201);
     });
+  }
+
+  if (steps) {
+    /** Every running agent step with its task, oldest first. Must stay above `/:id`, which would catch it. */
+    routes.get("/active-agents", (c) => c.json<ActiveAgentStep[]>(steps.listActiveAgents()));
   }
 
   routes.get("/:id", (c) => {

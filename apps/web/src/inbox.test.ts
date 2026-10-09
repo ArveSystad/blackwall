@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   UI_STAGES,
+  activeAgentsLabel,
   groupTasks,
   matchesFilter,
   needsYouCount,
@@ -68,6 +69,14 @@ describe("originKey and matchesFilter", () => {
     expect(matchesFilter(jira, "LOGIN")).toBe(true);
     expect(matchesFilter(pr, "login")).toBe(false);
     expect(matchesFilter(pr, "")).toBe(true);
+  });
+});
+
+describe("activeAgentsLabel", () => {
+  it("counts agents, and is null when none run", () => {
+    expect(activeAgentsLabel(0)).toBeNull();
+    expect(activeAgentsLabel(1)).toBe("1 active agent");
+    expect(activeAgentsLabel(3)).toBe("3 active agents");
   });
 });
 

@@ -893,6 +893,10 @@ export const stepSchema = z.object({
 });
 export type Step = z.infer<typeof stepSchema>;
 
+/** A running agent step with the task it works on, for the active agents view. */
+export const activeAgentStepSchema = stepSchema.extend({ taskId: id });
+export type ActiveAgentStep = z.infer<typeof activeAgentStepSchema>;
+
 /** One entry in a step's append-only event log. */
 export const stepEventSchema = z.object({
   stepId: id,

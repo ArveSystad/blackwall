@@ -2,11 +2,11 @@ import type { Task } from "@blackwall/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { groupTasks, matchesFilter, needsYouCount } from "../inbox";
+import { activeAgentsLabel, groupTasks, matchesFilter, needsYouCount } from "../inbox";
 import { isPlainKey, isTypingTarget } from "../keyboard";
 import { cn } from "../lib/utils";
 import { useLiveStatus } from "../live-status";
-import { agentsQuery, reposQuery, tasksQuery } from "../query";
+import { activeAgentsQuery, agentsQuery, reposQuery, tasksQuery } from "../query";
 import { agentClis } from "../task-view";
 import { GearIcon, PlusIcon, SearchIcon, WallIcon } from "./icons";
 import { NewTaskModal } from "./NewTaskModal";
@@ -102,10 +102,16 @@ function TaskList({ tasks, filter }: { tasks: Task[]; filter: string }) {
 
 const LIVE_LABELS = { open: "Live", connecting: "Connecting…", reconnecting: "Reconnecting…" };
 
+/** The socket state and, while live, how many agents run; opens the active agents page. */
 function LiveIndicator() {
   const status = useLiveStatus();
+  const active = useQuery(activeAgentsQuery);
+  const agents = status === "open" ? activeAgentsLabel(active.data?.length ?? 0) : null;
   return (
-    <span className="inline-flex items-center gap-1.5" role="status">
+    <Link
+      to="/active"
+      className="inline-flex items-center gap-1.5 text-muted-foreground no-underline hover:text-foreground hover:no-underline"
+    >
       <span
         aria-hidden="true"
         className={cn(
@@ -113,8 +119,11 @@ function LiveIndicator() {
           status === "open" ? "bg-done" : "animate-blink-needs bg-interrupted",
         )}
       />
-      {LIVE_LABELS[status]}
-    </span>
+      <span role="status">
+        {LIVE_LABELS[status]}
+        {agents && <span className="text-cyan"> · {agents}</span>}
+      </span>
+    </Link>
   );
 }
 

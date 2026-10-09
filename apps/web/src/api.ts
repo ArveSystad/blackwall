@@ -3,6 +3,7 @@ import {
   MISSING_CREDENTIAL_STATUS,
   STALE_REPO_STATUS,
   WS_PATH,
+  activeAgentStepSchema,
   agentSchema,
   backlogItemSchema,
   backlogItemViewSchema,
@@ -30,6 +31,7 @@ import {
   tagListInputSchema,
   taskDiffSchema,
   taskSchema,
+  type ActiveAgentStep,
   type Agent,
   type AgentCli,
   type AgentInput,
@@ -235,6 +237,11 @@ export function deleteTask(taskId: string): Promise<void> {
 /** What finishing the task would send, action by action. */
 export function getDeliveryPlan(taskId: string): Promise<DeliveryPlan> {
   return request(`${taskPath(taskId)}/delivery`, deliveryPlanSchema);
+}
+
+/** Every running agent step with its task, oldest first. */
+export function listActiveAgents(): Promise<ActiveAgentStep[]> {
+  return request("/api/tasks/active-agents", activeAgentStepSchema.array());
 }
 
 export function listRuns(taskId: string): Promise<Run[]> {

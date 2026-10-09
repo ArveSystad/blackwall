@@ -72,6 +72,12 @@ export function needsYouCount(tasks: readonly Pick<Task, "status">[]): number {
   return tasks.filter((t) => t.status === "needs-you").length;
 }
 
+/** "1 active agent", "3 active agents"; null when none run. */
+export function activeAgentsLabel(count: number): string | null {
+  if (count <= 0) return null;
+  return `${count} active agent${count === 1 ? "" : "s"}`;
+}
+
 /** Case-insensitive match on title and origin key. */
 export function matchesFilter(task: Task, filter: string): boolean {
   const needle = filter.trim().toLowerCase();

@@ -143,12 +143,14 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     }
     case "task.removed":
       forgetTask(client, event.payload.taskId);
+      void client.invalidateQueries({ queryKey: queryKeys.activeAgents });
       break;
     case "run.upserted":
       void client.invalidateQueries({ queryKey: queryKeys.taskRuns(event.payload.run.taskId) });
       break;
     case "step.upserted":
       void client.invalidateQueries({ queryKey: queryKeys.runSteps(event.payload.step.runId) });
+      void client.invalidateQueries({ queryKey: queryKeys.activeAgents });
       break;
     case "step.event": {
       const { event: entry } = event.payload;

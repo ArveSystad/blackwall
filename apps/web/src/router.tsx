@@ -9,6 +9,7 @@ import {
 import { Inbox } from "./components/Inbox";
 import { NotFound } from "./components/NotFound";
 import { RepoContextBar } from "./components/RepoContextBar";
+import { ActiveAgents } from "./routes/ActiveAgents";
 import { Backlog } from "./routes/Backlog";
 import { Home } from "./routes/Home";
 import { Settings } from "./routes/Settings";
@@ -74,6 +75,12 @@ const backlogRoute = createRoute({
   },
 });
 
+const activeRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: "/active",
+  component: ActiveAgents,
+});
+
 const settingsIndexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
@@ -95,7 +102,7 @@ const settingsRoute = createRoute({
 });
 
 const routeTree = rootRoute.addChildren([
-  shellRoute.addChildren([homeRoute, taskRoute, backlogRoute]),
+  shellRoute.addChildren([homeRoute, taskRoute, backlogRoute, activeRoute]),
   settingsIndexRoute,
   settingsRoute,
 ]);
