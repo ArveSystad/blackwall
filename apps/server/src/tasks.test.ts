@@ -380,7 +380,10 @@ describe("new tasks", () => {
       taskServices: {
         newTask: {
           repos: { use: (id) => repositories.repos.get(id)! },
-          resolveRoles: (overrides = {}) => ({ planner: "a-default", ...overrides }),
+          resolveRoles: (overrides = {}, cli = "claude") => ({
+            planner: cli === "copilot" ? "a-copilot-default" : "a-default",
+            ...overrides,
+          }),
           originTitle,
         },
         diffs: async (task) => [
@@ -414,6 +417,20 @@ describe("new tasks", () => {
       triageMode: "intervene",
     });
     expect(originTitle).toHaveBeenCalledWith(prOrigin);
+  });
+
+  it("starts a task from the role defaults of its repo's CLI", async () => {
+    const copilotRepo = repositories.repos.create({
+      path: "/code/jbf",
+      name: "jbf",
+      defaultCli: "copilot",
+    });
+    const res = await request("/api/tasks", {
+      method: "POST",
+      body: { origin: prOrigin, mode: "work", repoId: copilotRepo.id },
+    });
+    expect(res.status).toBe(201);
+    expect(taskSchema.parse(await res.json()).agents).toEqual({ planner: "a-copilot-default" });
   });
 
   it("titles a free text task from its first line and validates the form", async () => {

@@ -85,12 +85,16 @@ describe("repo routes", () => {
     });
     expect(add.status).toBe(201);
     const repo = repoSchema.parse(await add.json());
+    expect(repo.defaultCli).toBe("claude");
 
     const patch = await request(`/api/repos/${repo.id}`, {
       method: "PATCH",
-      body: { checkCommands: [] },
+      body: { checkCommands: [], defaultCli: "copilot" },
     });
-    expect(repoSchema.parse(await patch.json()).checkCommands).toEqual([]);
+    expect(repoSchema.parse(await patch.json())).toMatchObject({
+      checkCommands: [],
+      defaultCli: "copilot",
+    });
 
     expect((await request(`/api/repos/${repo.id}`, { method: "DELETE" })).status).toBe(204);
     expect((await request(`/api/repos/${repo.id}`)).status).toBe(404);

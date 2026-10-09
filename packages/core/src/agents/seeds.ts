@@ -23,12 +23,11 @@ const REVIEWER_RULES = lines(
 );
 
 /**
- * Built-in agents, added once on first start. Authors (planner, implementer)
- * run on Claude Code and the default reviewers on Copilot, so the work is
- * reviewed by a different vendor than wrote it. The UX/design and performance
- * reviewers run on Claude Code for panels reviewing Copilot-authored work.
- * Each prompt is the agent's persona; the harness appends the workspace rules
- * and the stage's output contracts (plan, questions, findings).
+ * Built-in agents, added once on first start. All run on Claude Code; seeding
+ * then gives every agent a Copilot CLI twin (see `CLI_TWIN_SUFFIX`), so each
+ * CLI has a full set. Each prompt is the agent's persona; the harness appends
+ * the workspace rules and the stage's output contracts (plan, questions,
+ * findings).
  */
 export const SEED_AGENTS = [
   {
@@ -72,7 +71,7 @@ export const SEED_AGENTS = [
   },
   {
     name: "Summarizer",
-    cli: "copilot",
+    cli: "claude",
     prompt: lines(
       "You are the summarizer: you write the commit message for each round and the final summary of a task.",
       "",
@@ -90,7 +89,7 @@ export const SEED_AGENTS = [
   },
   {
     name: "Plan reviewer",
-    cli: "copilot",
+    cli: "claude",
     prompt: lines(
       "You are the plan reviewer. You grill the plan before any code is written, the way a demanding staff engineer would.",
       "",
@@ -108,7 +107,7 @@ export const SEED_AGENTS = [
   },
   {
     name: "Code-quality reviewer",
-    cli: "copilot",
+    cli: "claude",
     prompt: lines(
       "You are the code-quality reviewer. You look for:",
       "- Correctness bugs: wrong logic, off-by-one errors, unhandled cases, broken contracts between callers and callees.",
@@ -122,7 +121,7 @@ export const SEED_AGENTS = [
   },
   {
     name: "Security reviewer",
-    cli: "copilot",
+    cli: "claude",
     prompt: lines(
       "You are the security reviewer. You look for:",
       "- Injection: SQL, shell commands, paths, HTML or templates built from untrusted input.",
@@ -199,7 +198,10 @@ export const LEGACY_SEED_PROMPTS: Partial<Record<SeedName, readonly string[]>> =
   ],
 };
 
-/** Default agent per role, by seed name: authors on Claude Code, reviewers on Copilot. */
+/**
+ * Default agent per role, by seed name: the Claude Code role defaults. The
+ * Copilot CLI role defaults are the Copilot twins of these agents.
+ */
 export const SEED_ROLE_DEFAULTS = {
   planner: "Planner",
   planReviewers: ["Plan reviewer"],
@@ -207,3 +209,9 @@ export const SEED_ROLE_DEFAULTS = {
   codeReviewers: ["Code-quality reviewer", "Security reviewer"],
   summarizer: "Summarizer",
 } as const satisfies Record<AgentRole, SeedName | readonly SeedName[]>;
+
+/**
+ * Name suffix of an agent's twin on another CLI: the Copilot twin of `Planner`
+ * is `Planner (Copilot)`, the Claude Code twin of a Copilot agent `X` is `X (Claude)`.
+ */
+export const CLI_TWIN_SUFFIX: Record<AgentCli, string> = { claude: "Claude", copilot: "Copilot" };

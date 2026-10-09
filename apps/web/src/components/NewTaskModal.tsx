@@ -4,6 +4,7 @@ import {
   MAX_TITLE_CHARS,
   PANEL_ROLES,
   type Agent,
+  type AgentCli,
   type AgentRole,
   type BacklogItemView,
   type BacklogPriority,
@@ -12,6 +13,7 @@ import {
   type PrMode,
   type PullRequestLookup,
   type RoleAgents,
+  type RoleDefaultsByCli,
   type Task,
   type TaskOrigin,
   type TriageMode,
@@ -285,7 +287,7 @@ function NewTaskForm({
   backlog,
   onClose,
 }: {
-  defaults: RoleAgents;
+  defaults: RoleDefaultsByCli;
   backlog: BacklogTarget | undefined;
   onClose: () => void;
 }) {
@@ -303,7 +305,13 @@ function NewTaskForm({
   const [mode, setMode] = useState<PrMode>(item?.mode ?? "work");
   const [chosenRepo, setChosenRepo] = useState<string | null>(backlog?.repoId ?? null);
   const [freeText, setFreeText] = useState(item?.freeText ?? "");
-  const [roles, setRoles] = useState<RoleAgents>(item ? { ...defaults, ...item.agents } : defaults);
+  /** The role defaults of a CLI, under the edited backlog item's agents. */
+  const startRoles = (cli: AgentCli): RoleAgents =>
+    item ? { ...defaults[cli], ...item.agents } : defaults[cli];
+  const [roles, setRoles] = useState<RoleAgents>(() => startRoles("claude"));
+  // Until the user picks agents, they follow the role defaults of the repo's CLI.
+  const [rolesEdited, setRolesEdited] = useState(false);
+  const [rolesCli, setRolesCli] = useState<AgentCli>("claude");
   // Backlog items run unattended, so they default to "Run and let me intervene" too.
   const [triageMode, setTriageMode] = useState<TriageMode>(item?.triageMode ?? "intervene");
   const [title, setTitle] = useState(item?.title ?? "");
@@ -323,6 +331,12 @@ function NewTaskForm({
     (kind === "github-pr" ? lookedUpRepo : null) ??
     selectedRepo ??
     (usableRepos.length === 1 ? usableRepos[0]!.id : null);
+  const cli =
+    (repos.data ?? []).find((r) => r.id === (backlog?.repoId ?? repoId))?.defaultCli ?? "claude";
+  if (cli !== rolesCli) {
+    setRolesCli(cli);
+    if (!rolesEdited) setRoles(startRoles(cli));
+  }
 
   function origin(): TaskOrigin | string {
     switch (kind) {
@@ -705,8 +719,14 @@ function NewTaskForm({
           <AgentsField
             agents={agents.data}
             roles={roles}
-            onChange={setRoles}
-            onReset={() => setRoles(defaults)}
+            onChange={(next) => {
+              setRolesEdited(true);
+              setRoles(next);
+            }}
+            onReset={() => {
+              setRolesEdited(false);
+              setRoles(defaults[cli]);
+            }}
           />
         )}
 

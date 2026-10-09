@@ -79,6 +79,7 @@ export const repos = sqliteTable("repos", {
     .$type<string[]>()
     .notNull()
     .default(sql`'[]'`),
+  defaultCli: text("default_cli", { enum: AGENT_CLIS }).notNull().default("claude"),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

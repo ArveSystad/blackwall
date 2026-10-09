@@ -18,6 +18,7 @@ import {
   planReviewOutputSchema,
   repoInputSchema,
   repoScanInputSchema,
+  repoUpdateSchema,
   reviewOutputJsonSchema,
   reviewOutputSchema,
   settingsSchema,
@@ -182,6 +183,11 @@ describe("settings and inputs", () => {
     expect(repoInputSchema.parse({ path: "/code/app", checkCommands: [] }).checkCommands).toEqual(
       [],
     );
+  });
+
+  it("accepts a repo's default CLI and rejects unknown ones", () => {
+    expect(repoUpdateSchema.parse({ defaultCli: "copilot" })).toEqual({ defaultCli: "copilot" });
+    expect(repoUpdateSchema.safeParse({ defaultCli: "codex" }).success).toBe(false);
   });
 
   it("defaults the repo scan depth", () => {

@@ -542,7 +542,10 @@ export function Backlog({ repoId }: { repoId: string }) {
   const titles = useMemo(() => new Map(items.map((i) => [i.id, i.title])), [items]);
   const library = useMemo(() => new Map((agents.data ?? []).map((a) => [a.id, a])), [agents.data]);
   const clisFor = (item: BacklogItemView) =>
-    agentClis(resolvedRoles(item.agents, roleDefaults.data ?? {}), library);
+    agentClis(
+      resolvedRoles(item.agents, roleDefaults.data?.[repo?.defaultCli ?? "claude"] ?? {}),
+      library,
+    );
 
   const status =
     settings.data && runner.data && backlog.data && tasks.data

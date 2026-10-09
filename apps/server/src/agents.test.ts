@@ -4,7 +4,7 @@ import {
   openDatabase,
   type OpenedDatabase,
 } from "@blackwall/core";
-import { agentSchema, roleAgentsSchema, type Agent } from "@blackwall/shared";
+import { agentSchema, roleDefaultsByCliSchema, type Agent } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "./app.js";
 import { tokenCookieName } from "./auth.js";
@@ -24,6 +24,8 @@ beforeEach(() => {
     agents: repositories.agents,
     settings: repositories.settings,
     tags: repositories.tags,
+    repos: repositories.repos,
+    backlogItems: repositories.backlogItems,
   });
   agents.seed();
   app = createApp({ token: launchToken, getPort: () => port, agents }).app;
@@ -44,10 +46,10 @@ async function list(): Promise<Agent[]> {
 }
 
 describe("agent routes", () => {
-  it("lists the seeded agents", async () => {
+  it("lists the seeded agents and their Copilot twins", async () => {
     const agents = await list();
-    expect(agents).toHaveLength(8);
-    expect(new Set(agents.map((a) => a.cli))).toEqual(new Set(["claude", "copilot"]));
+    expect(agents).toHaveLength(16);
+    expect(agents.filter((a) => a.cli === "copilot")).toHaveLength(8);
   });
 
   it("creates, edits and deletes an agent", async () => {
@@ -80,25 +82,34 @@ describe("agent routes", () => {
     expect(await duplicate.json()).toEqual({ error: "An agent named Planner already exists" });
   });
 
-  it("reads and replaces the role defaults", async () => {
-    const defaults = roleAgentsSchema.parse(
+  it("reads and replaces each CLI's role defaults", async () => {
+    const defaults = roleDefaultsByCliSchema.parse(
       await (await request("/api/agents/role-defaults")).json(),
     );
-    expect(defaults.codeReviewers).toHaveLength(2);
+    expect(defaults.claude.codeReviewers).toHaveLength(2);
+    expect(defaults.copilot.codeReviewers).toHaveLength(2);
 
     const agents = await list();
-    const ux = agents.find((a) => a.name === "UX/design reviewer");
-    const put = await request("/api/agents/role-defaults", {
+    const ux = agents.find((a) => a.name === "UX/design reviewer (Copilot)");
+    const put = await request("/api/agents/role-defaults/copilot", {
       method: "PUT",
-      body: { ...defaults, codeReviewers: [ux?.id] },
+      body: { ...defaults.copilot, codeReviewers: [ux?.id] },
     });
     expect(put.status).toBe(200);
-    expect(roleAgentsSchema.parse(await put.json()).codeReviewers).toEqual([ux?.id]);
+    const after = roleDefaultsByCliSchema.parse(await put.json());
+    expect(after.copilot.codeReviewers).toEqual([ux?.id]);
+    expect(after.claude).toEqual(defaults.claude);
 
-    const ineligible = await request("/api/agents/role-defaults", {
+    const ineligible = await request("/api/agents/role-defaults/claude", {
       method: "PUT",
       body: { implementer: ux?.id },
     });
     expect(ineligible.status).toBe(400);
+
+    const unknownCli = await request("/api/agents/role-defaults/codex", {
+      method: "PUT",
+      body: {},
+    });
+    expect(unknownCli.status).toBe(400);
   });
 });

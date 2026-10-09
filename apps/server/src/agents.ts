@@ -1,10 +1,11 @@
 import type { AgentService } from "@blackwall/core";
 import {
+  agentCliSchema,
   agentInputSchema,
   agentUpdateSchema,
   roleAgentsSchema,
   type Agent,
-  type RoleAgents,
+  type RoleDefaultsByCli,
 } from "@blackwall/shared";
 import { Hono, type Context } from "hono";
 
@@ -28,13 +29,19 @@ export function agentRoutes(agents: AgentService): Hono {
     return c.json<Agent>(agents.create(input.data), 201);
   });
 
-  routes.get("/role-defaults", (c) => c.json<RoleAgents>(agents.roleDefaults()));
+  routes.get("/role-defaults", (c) => c.json<RoleDefaultsByCli>(agents.allRoleDefaults()));
 
-  /** Replaces the role defaults; each agent must exist and be eligible for its role's stage. */
-  routes.put("/role-defaults", async (c) => {
+  /**
+   * Replaces one CLI's role defaults; each agent must exist and be eligible
+   * for its role's stage. Returns every CLI's defaults.
+   */
+  routes.put("/role-defaults/:cli", async (c) => {
+    const cli = agentCliSchema.safeParse(c.req.param("cli"));
+    if (!cli.success) return badRequest(c, cli.error.issues);
     const input = roleAgentsSchema.safeParse(await body(c));
     if (!input.success) return badRequest(c, input.error.issues);
-    return c.json<RoleAgents>(agents.setRoleDefaults(input.data));
+    agents.setRoleDefaults(input.data, cli.data);
+    return c.json<RoleDefaultsByCli>(agents.allRoleDefaults());
   });
 
   routes.get("/:id", (c) => c.json<Agent>(agents.get(c.req.param("id"))));

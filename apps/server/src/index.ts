@@ -59,6 +59,8 @@ try {
     agents: repositories.agents,
     settings: repositories.settings,
     tags: repositories.tags,
+    repos: repositories.repos,
+    backlogItems: repositories.backlogItems,
   });
   // First start: the built-in agents, their role defaults and the finding tags.
   agents.seed();
@@ -99,7 +101,7 @@ try {
     resumeTask: (taskId) => void pipeline.resume(taskId),
     settings,
     quota,
-    clisFor: (item) => agents.clisFor(item.agents),
+    clisFor: (item) => agents.clisFor(item.agents, repositories.repos.get(item.repoId)?.defaultCli),
     onHalt: (repoId) => publish({ type: "backlog.changed", payload: { repoId } }),
   });
   const pipeline = createPipelineEngine({

@@ -1,4 +1,4 @@
-import { DEFAULT_REPO_SCAN_DEPTH, type RepoView } from "@blackwall/shared";
+import { AGENT_CLIS, DEFAULT_REPO_SCAN_DEPTH, type RepoView } from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import {
@@ -12,7 +12,8 @@ import {
 } from "../../api";
 import { cn } from "../../lib/utils";
 import { connectionsQuery, queryKeys, reposQuery } from "../../query";
-import { errorMessage, parseLines, sameList } from "../../settings-forms";
+import { CLI_NAMES, errorMessage, parseLines, sameList } from "../../settings-forms";
+import { AgentTile } from "../AgentTile";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { RepoIcon, WarnIcon } from "../icons";
 import { Segmented } from "../Segmented";
@@ -147,13 +148,17 @@ function RepoEditor({
   const connections = useQuery(connectionsQuery);
   const [name, setName] = useState(repo.name);
   const [checks, setChecks] = useState(repo.checkCommands.join("\n"));
+  const [defaultCli, setDefaultCli] = useState(repo.defaultCli);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<"suggest" | "refresh" | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
 
-  const dirty = name.trim() !== repo.name || !sameList(parseLines(checks), repo.checkCommands);
+  const dirty =
+    name.trim() !== repo.name ||
+    !sameList(parseLines(checks), repo.checkCommands) ||
+    defaultCli !== repo.defaultCli;
   const connection = connections.data?.find((c) => c.id === repo.connectionId);
   const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeys.repos });
 
@@ -171,7 +176,11 @@ function RepoEditor({
     setSaving(true);
     setError(null);
     try {
-      await updateRepo(repo.id, { name: name.trim(), checkCommands: parseLines(checks) });
+      await updateRepo(repo.id, {
+        name: name.trim(),
+        checkCommands: parseLines(checks),
+        defaultCli,
+      });
       await invalidate();
       setNotice(null);
     } catch (cause) {
@@ -280,6 +289,26 @@ function RepoEditor({
                   : "None"}
             </span>
           </div>
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <span className={fieldLabel}>Default CLI</span>
+            <Segmented
+              label="Default CLI"
+              value={defaultCli}
+              onChange={setDefaultCli}
+              options={AGENT_CLIS.map((cli) => ({
+                value: cli,
+                label: (
+                  <>
+                    <AgentTile cli={cli} />
+                    {CLI_NAMES[cli]}
+                  </>
+                ),
+              }))}
+            />
+            <span className="text-meta text-faint">
+              New tasks here start with this CLI&apos;s role defaults.
+            </span>
+          </div>
         </div>
 
         <label className="flex flex-col gap-1.5">
@@ -317,6 +346,7 @@ function RepoEditor({
         onDiscard={() => {
           setName(repo.name);
           setChecks(repo.checkCommands.join("\n"));
+          setDefaultCli(repo.defaultCli);
           setError(null);
           setNotice(null);
         }}

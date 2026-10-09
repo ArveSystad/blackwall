@@ -70,6 +70,7 @@ describe("repo service", () => {
       remoteUrl: "git@jbf.ghe.com:team/app.git",
       connectionId: connection.id,
       checkCommands: ["npm run test"],
+      defaultCli: "claude",
     });
     expect(service.list()).toEqual([{ ...repo, exists: true }]);
   });
@@ -162,6 +163,11 @@ describe("repo service", () => {
       checkCommands: [],
     });
     expect(() => service.update(repo.id, { name: " " })).toThrow(InvalidRepoError);
+    expect(service.update(repo.id, { defaultCli: "copilot" })).toMatchObject({
+      name: "App",
+      defaultCli: "copilot",
+    });
+    expect(service.get(repo.id).defaultCli).toBe("copilot");
 
     const connection = r.connections.create({
       name: "github.com",

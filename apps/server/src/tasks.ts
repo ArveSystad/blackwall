@@ -12,6 +12,7 @@ import {
   grillAnswerInputSchema,
   MAX_TITLE_CHARS,
   newTaskInputSchema,
+  type AgentCli,
   type DeliveryPlan,
   type Finding,
   type GrillAnswerResult,
@@ -52,8 +53,8 @@ export interface TaskRouteStores {
 /** What creating a task needs besides the pipeline. */
 export interface NewTaskServices {
   repos: Pick<RepoService, "use">;
-  /** The role defaults with the form's choices on top. */
-  resolveRoles: (overrides?: RoleAgents) => RoleAgents;
+  /** The role defaults of `cli` with the form's choices on top. */
+  resolveRoles: (overrides?: RoleAgents, cli?: AgentCli) => RoleAgents;
   /** The Jira issue's summary or the PR's title; undefined when the origin has none. */
   originTitle?: (origin: TaskOrigin) => Promise<string | undefined>;
 }
@@ -100,7 +101,7 @@ export type ParsedNewTaskInput = Omit<NewTaskValues, "title"> & { title?: string
 
 /**
  * Creates and queues a task: checks the repo is usable, puts the form's
- * agents on top of the role defaults and, without a title, uses the Jira
+ * agents on top of the repo's CLI's role defaults and, without a title, uses the Jira
  * issue's summary, the PR's title or a fallback.
  */
 export async function createTaskFromInput(
@@ -109,8 +110,8 @@ export async function createTaskFromInput(
   input: ParsedNewTaskInput,
 ): Promise<Task> {
   const { origin, mode, repoId, freeText, triageMode } = input;
-  newTask.repos.use(repoId);
-  const agents = newTask.resolveRoles(input.agents);
+  const repo = newTask.repos.use(repoId);
+  const agents = newTask.resolveRoles(input.agents, repo.defaultCli);
   const title = input.title ?? (await titleFor(origin, freeText, newTask.originTitle));
   return pipeline.createTask({ title, origin, mode, repoId, freeText, agents, triageMode });
 }

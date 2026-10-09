@@ -43,6 +43,13 @@
       "when": 1791528491427,
       "tag": "0005_repo_backlog",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1791536585698,
+      "tag": "0006_repo_default_cli",
+      "breakpoints": true
     }
   ]
 }

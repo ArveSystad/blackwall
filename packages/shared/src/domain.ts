@@ -278,6 +278,8 @@ export const repoSchema = z.object({
   connectionId: id.nullable(),
   /** Build/test commands run in the Checks stage; empty = skip. */
   checkCommands: z.array(z.string().trim().min(1)),
+  /** CLI whose role defaults new tasks in this repo start from. */
+  defaultCli: agentCliSchema,
   createdAt: timestamp,
   updatedAt: timestamp,
 });
@@ -301,6 +303,7 @@ export type RepoInput = z.input<typeof repoInputSchema>;
 export const repoUpdateSchema = z.object({
   name: name.optional(),
   checkCommands: repoSchema.shape.checkCommands.optional(),
+  defaultCli: agentCliSchema.optional(),
 });
 export type RepoUpdate = z.infer<typeof repoUpdateSchema>;
 
@@ -434,6 +437,13 @@ export const roleAgentsSchema = z.object({
   summarizer: id.optional(),
 });
 export type RoleAgents = z.infer<typeof roleAgentsSchema>;
+
+/** The role defaults of each CLI; a repo's `defaultCli` picks the set its new tasks start from. */
+export const roleDefaultsByCliSchema = z.object({
+  claude: roleAgentsSchema,
+  copilot: roleAgentsSchema,
+});
+export type RoleDefaultsByCli = z.infer<typeof roleDefaultsByCliSchema>;
 
 export const DEFAULT_MAX_TASKS_PER_REPO = 3;
 export const DEFAULT_MAX_BACKLOG_TASKS_PER_REPO = 1;

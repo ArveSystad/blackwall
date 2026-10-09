@@ -119,7 +119,13 @@ function harness(
     removeWorkspace?: (task: Task) => Promise<void>;
   } = {},
 ): Harness {
-  const agents = createAgentService({ agents: r.agents, settings: r.settings, tags: r.tags });
+  const agents = createAgentService({
+    agents: r.agents,
+    settings: r.settings,
+    tags: r.tags,
+    repos: r.repos,
+    backlogItems: r.backlogItems,
+  });
   const calls: Harness["calls"] = [];
   const run = (options: AgentRunOptions) => {
     const stage = stageOf(options);
@@ -163,7 +169,13 @@ function harness(
 }
 
 function seedTask(patch: Partial<Parameters<Repositories["tasks"]["create"]>[0]> = {}): Task {
-  const agents = createAgentService({ agents: r.agents, settings: r.settings, tags: r.tags });
+  const agents = createAgentService({
+    agents: r.agents,
+    settings: r.settings,
+    tags: r.tags,
+    repos: r.repos,
+    backlogItems: r.backlogItems,
+  });
   agents.seed();
   const repo = r.repos.getByPath("/code/app") ?? r.repos.create({ path: "/code/app", name: "app" });
   return r.tasks.create({

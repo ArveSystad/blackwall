@@ -1,18 +1,22 @@
 import {
+  AGENT_CLIS,
   AGENT_ROLES,
   PANEL_ROLES,
   type Agent,
+  type AgentCli,
   type AgentRole,
   type GeneralSettings,
   type RoleAgents,
+  type RoleDefaultsByCli,
 } from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { setRoleDefaults, updateSettings } from "../../api";
 import { cn } from "../../lib/utils";
 import { agentsQuery, queryKeys, roleDefaultsQuery, settingsQuery } from "../../query";
-import { ROLE_LABELS, agentsForRole, errorMessage } from "../../settings-forms";
+import { CLI_NAMES, ROLE_LABELS, agentsForRole, errorMessage } from "../../settings-forms";
 import { AgentTile } from "../AgentTile";
+import { Segmented } from "../Segmented";
 import { Input } from "../ui/input";
 import { Select } from "../ui/select";
 import { Empty, SaveBar, SectionHeader, fieldLabel } from "./parts";
@@ -31,14 +35,20 @@ function sameRoles(a: RoleAgents, b: RoleAgents): boolean {
 
 function DefaultsEditor({
   agents,
-  savedRoles,
+  cli,
+  onCliChange,
+  savedByCli,
   savedSettings,
 }: {
   agents: Agent[];
-  savedRoles: RoleAgents;
+  /** The CLI whose role defaults are edited. */
+  cli: AgentCli;
+  onCliChange: (cli: AgentCli) => void;
+  savedByCli: RoleDefaultsByCli;
   savedSettings: GeneralSettings;
 }) {
   const queryClient = useQueryClient();
+  const savedRoles = savedByCli[cli];
   const [roles, setRoles] = useState(savedRoles);
   const [cap, setCap] = useState(String(savedSettings.maxTasksPerRepo));
   const [saving, setSaving] = useState(false);
@@ -70,7 +80,7 @@ function DefaultsEditor({
     setError(null);
     try {
       if (rolesDirty) {
-        queryClient.setQueryData(queryKeys.roleDefaults, await setRoleDefaults(roles));
+        queryClient.setQueryData(queryKeys.roleDefaults, await setRoleDefaults(cli, roles));
       }
       if (capDirty) {
         queryClient.setQueryData(
@@ -90,9 +100,26 @@ function DefaultsEditor({
       <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-auto px-5 py-[18px]">
         <fieldset className="m-0 flex max-w-[720px] flex-col gap-4 border-none p-0">
           <legend className="label mb-1 p-0 text-muted-foreground">Agent per role</legend>
+          <div className="grid grid-cols-[140px_minmax(0,1fr)] items-center gap-3">
+            <span className={fieldLabel}>Defaults for</span>
+            <Segmented
+              label="Defaults for"
+              value={cli}
+              onChange={onCliChange}
+              options={AGENT_CLIS.map((option) => ({
+                value: option,
+                label: (
+                  <>
+                    <AgentTile cli={option} />
+                    {CLI_NAMES[option]}
+                  </>
+                ),
+              }))}
+            />
+          </div>
           <p className="m-0 text-meta text-muted-foreground">
-            New tasks start with these agents; the new-task form can change them. Pick reviewers on
-            a different CLI than the author so another vendor checks the work.
+            New tasks start with these agents; the new-task form can change them. Each repo picks
+            the CLI whose defaults it uses under Repositories.
           </p>
           {AGENT_ROLES.map((role) => {
             const eligible = agentsForRole(agents, role);
@@ -208,8 +235,9 @@ function DefaultsEditor({
   );
 }
 
-/** Role defaults and the concurrency cap per repo. */
+/** Role defaults per CLI and the concurrency cap per repo. */
 export function DefaultsSection() {
+  const [cli, setCli] = useState<AgentCli>("claude");
   const agents = useQuery(agentsQuery);
   const roles = useQuery(roleDefaultsQuery);
   const settings = useQuery(settingsQuery);
@@ -223,10 +251,13 @@ export function DefaultsSection() {
         <Empty>Loading defaults…</Empty>
       ) : (
         <DefaultsEditor
-          // Re-keyed when the stored values change (after a save, or an agent edit elsewhere).
-          key={JSON.stringify([roles.data, settings.data])}
+          // Re-keyed when the stored values change (after a save, or an agent edit elsewhere)
+          // and when switching CLI, which drops unsaved edits.
+          key={JSON.stringify([cli, roles.data, settings.data])}
           agents={agents.data}
-          savedRoles={roles.data}
+          cli={cli}
+          onCliChange={setCli}
+          savedByCli={roles.data}
           savedSettings={settings.data}
         />
       )}

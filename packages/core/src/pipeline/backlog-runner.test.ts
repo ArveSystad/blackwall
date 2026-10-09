@@ -38,7 +38,13 @@ beforeEach(() => {
   opened = openDatabase(dir);
   r = createRepositories(opened.db);
   settings = createSettingsService({ settings: r.settings, tags: r.tags });
-  agents = createAgentService({ agents: r.agents, settings: r.settings, tags: r.tags });
+  agents = createAgentService({
+    agents: r.agents,
+    settings: r.settings,
+    tags: r.tags,
+    repos: r.repos,
+    backlogItems: r.backlogItems,
+  });
   agents.seed();
   now = new Date("2026-10-09T12:00:00Z");
   quota = createQuotaTracker({ settings: r.settings, clock });
@@ -353,6 +359,9 @@ describe("backlog runner with the pipeline engine", () => {
       limit && options.prompt !== RESUME_PROMPT
         ? { sessionId: "planner-1", rateLimit: { resetsAt: resetsAt.toISOString() } }
         : {};
+    // The planner runs on Claude Code, the plan reviewer on Copilot.
+    const copilotReviewer = agents.roleDefaults("copilot").planReviewers ?? [];
+    agents.setRoleDefaults({ ...agents.roleDefaults(), planReviewers: copilotReviewer });
     const engine = createPipelineEngine({
       repositories: r,
       invocation: agents.invocation,

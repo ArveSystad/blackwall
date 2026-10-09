@@ -34,7 +34,13 @@ describe("tags", () => {
   });
 
   it("feeds the new list into code reviewer prompts", () => {
-    const agents = createAgentService({ agents: r.agents, settings: r.settings, tags: r.tags });
+    const agents = createAgentService({
+      agents: r.agents,
+      settings: r.settings,
+      tags: r.tags,
+      repos: r.repos,
+      backlogItems: r.backlogItems,
+    });
     agents.seed();
     service.setTags({ tags: ["only-this-tag"] });
     const reviewer = agents.list().find((a) => a.name === "Security reviewer");
