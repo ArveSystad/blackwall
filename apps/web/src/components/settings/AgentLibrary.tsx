@@ -16,13 +16,26 @@ import {
   type AgentDraft,
 } from "../../settings-forms";
 import { AgentTile } from "../AgentTile";
+import {
+  editorBody,
+  listPane,
+  paneHeader,
+  paneTitle,
+  rowSelectable,
+  rowSelected,
+  sideList,
+} from "../classes";
 import { ConfirmDialog } from "../ConfirmDialog";
+import { PlusIcon } from "../icons";
 import { CliStatusList } from "./CliStatusList";
 import { Segmented } from "../Segmented";
 import { Button } from "../ui/button";
+import { CheckChip } from "../ui/check-chip";
+import { Tag } from "../ui/chip";
+import { Field, fieldLabel } from "../ui/field";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
-import { Empty, SaveBar, SectionHeader, fieldLabel } from "./parts";
+import { Empty, SaveBar, SectionHeader } from "./parts";
 
 /** What the editor shows: an existing agent, or a new one (blank or a duplicate). */
 type Editing = { kind: "agent"; id: string } | { kind: "new"; draft: AgentDraft; key: string };
@@ -94,11 +107,9 @@ function AgentEditor({
 
   return (
     <section aria-label="Edit agent" className="flex min-w-0 flex-1 flex-col bg-sidebar">
-      <div className="flex min-h-[52px] items-center gap-2.5 border-b border-border px-5 py-3">
+      <div className={paneHeader}>
         <AgentTile cli={draft.cli} size="lg" />
-        <span className="truncate text-heading font-semibold text-foreground-strong">
-          {draft.name.trim() || (isNew ? "New agent" : agent.name)}
-        </span>
+        <span className={paneTitle}>{draft.name.trim() || (isNew ? "New agent" : agent.name)}</span>
         {isNew && <span className="text-meta text-muted-foreground">not saved yet</span>}
         <span className="flex-1" />
         {!isNew && (
@@ -112,30 +123,23 @@ function AgentEditor({
             >
               Duplicate
             </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-destructive hover:text-destructive"
-              onClick={() => setConfirmDelete(true)}
-            >
+            <Button size="sm" variant="destructive-ghost" onClick={() => setConfirmDelete(true)}>
               Delete
             </Button>
           </>
         )}
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-[18px] overflow-auto px-5 py-[18px]">
+      <div className={editorBody}>
         <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
-          <label className="flex flex-col gap-1.5">
-            <span className={fieldLabel}>Name</span>
+          <Field label="Name">
             <Input
               value={draft.name}
               autoFocus={isNew}
               onChange={(event) => set("name", event.target.value)}
             />
-          </label>
-          <div className="flex flex-col gap-1.5">
-            <span className={fieldLabel}>CLI</span>
+          </Field>
+          <Field label="CLI" group>
             <Segmented
               label="CLI"
               value={draft.cli}
@@ -150,9 +154,8 @@ function AgentEditor({
                 ),
               }))}
             />
-          </div>
-          <label className="flex flex-col gap-1.5">
-            <span className={fieldLabel}>Model</span>
+          </Field>
+          <Field label="Model">
             <Input
               className="mono"
               spellCheck={false}
@@ -160,38 +163,26 @@ function AgentEditor({
               value={draft.model}
               onChange={(event) => set("model", event.target.value)}
             />
-          </label>
-          <div className="flex flex-col gap-1.5">
-            <span className={fieldLabel}>Permission profile</span>
+          </Field>
+          <Field label="Permission profile" group>
             <span className="flex h-[30px] items-center text-muted-foreground">
               {permissionSummary(draft.eligibleStages)}
             </span>
-          </div>
+          </Field>
         </div>
 
         <fieldset className="m-0 border-none p-0">
           <legend className={cn(fieldLabel, "mb-2 p-0")}>Eligible stages</legend>
           <div className="flex flex-wrap gap-1.5">
-            {AGENT_STAGES.map(({ stage, label }) => {
-              const on = draft.eligibleStages.includes(stage);
-              return (
-                <label
-                  key={stage}
-                  className={cn(
-                    "inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-sm border border-input px-2.5 text-[12.5px] font-medium text-muted-foreground has-focus-visible:shadow-ring",
-                    on && "border-primary text-foreground-strong",
-                  )}
-                >
-                  <input
-                    type="checkbox"
-                    className="accent-primary focus:outline-none"
-                    checked={on}
-                    onChange={(event) => toggleStage(stage, event.target.checked)}
-                  />
-                  {label}
-                </label>
-              );
-            })}
+            {AGENT_STAGES.map(({ stage, label }) => (
+              <CheckChip
+                key={stage}
+                checked={draft.eligibleStages.includes(stage)}
+                onCheckedChange={(checked) => toggleStage(stage, checked)}
+              >
+                {label}
+              </CheckChip>
+            ))}
           </div>
         </fieldset>
 
@@ -296,14 +287,12 @@ export function AgentLibrary() {
 
   return (
     <>
-      <section
-        aria-label="Agents"
-        className="flex w-[360px] shrink-0 flex-col border-r border-border"
-      >
+      <section aria-label="Agents" className={listPane}>
         <div className="flex flex-col gap-2.5 border-b border-border">
           <SectionHeader title="Agent library">
             <Button size="sm" variant="primary" onClick={() => setEditing(newDraft(agentDraft()))}>
-              + New agent
+              <PlusIcon />
+              New agent
             </Button>
           </SectionHeader>
           <div className="px-3.5 pb-2.5">
@@ -326,7 +315,7 @@ export function AgentLibrary() {
         ) : shown.length === 0 ? (
           <Empty>No agents match “{filter.trim()}”.</Empty>
         ) : (
-          <ul className="m-0 flex min-h-0 flex-1 list-none flex-col gap-0.5 overflow-auto p-1.5">
+          <ul className={sideList}>
             {shown.map((agent) => {
               const current = agent.id === selected?.id;
               return (
@@ -336,8 +325,9 @@ export function AgentLibrary() {
                     aria-current={current ? "true" : undefined}
                     onClick={() => setEditing({ kind: "agent", id: agent.id })}
                     className={cn(
-                      "flex w-full cursor-pointer flex-col gap-1 rounded-lg border border-transparent bg-transparent px-2.5 py-[9px] text-left text-foreground hover:bg-card focus-visible:shadow-ring focus-visible:outline-none",
-                      current && "border-border-strong bg-muted hover:bg-muted",
+                      "flex w-full cursor-pointer flex-col gap-1 bg-transparent px-2.5 py-[9px] text-left text-foreground focus-visible:shadow-ring focus-visible:outline-none",
+                      rowSelectable,
+                      current && rowSelected,
                     )}
                   >
                     <span className="flex items-center gap-2">
@@ -353,12 +343,7 @@ export function AgentLibrary() {
                         <span className="text-label text-faint">No stages</span>
                       ) : (
                         agent.eligibleStages.map((stage) => (
-                          <span
-                            key={stage}
-                            className="mono inline-flex h-[18px] items-center rounded-xs bg-muted px-[5px] text-label text-muted-foreground"
-                          >
-                            {stageLabel(stage).toLowerCase()}
-                          </span>
+                          <Tag key={stage}>{stageLabel(stage).toLowerCase()}</Tag>
                         ))
                       )}
                     </span>

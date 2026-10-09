@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
 import { BackIcon } from "../components/icons";
 import { BacklogSection } from "../components/settings/BacklogSection";
 import { AgentLibrary } from "../components/settings/AgentLibrary";
@@ -13,7 +12,7 @@ import { ThemeToggle } from "../components/ThemeToggle";
 import { Button } from "../components/ui/button";
 import { Kbd } from "../components/ui/kbd";
 import { Wordmark } from "../components/Wordmark";
-import { isPlainKey, isTypingTarget } from "../keyboard";
+import { isPlainKey, isTypingTarget, useWindowKeydown } from "../keyboard";
 import { agentsQuery, connectionsQuery, reposQuery, tagsQuery } from "../query";
 import { SETTINGS_SECTIONS, type SettingsSection } from "../settings-sections";
 
@@ -68,15 +67,11 @@ function SectionBody({ section }: { section: SettingsSection }) {
 export function Settings({ section }: { section: SettingsSection }) {
   const navigate = useNavigate();
 
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.defaultPrevented || event.key !== "Escape" || !isPlainKey(event)) return;
-      if (isTypingTarget(event.target) || document.querySelector("[role=dialog]")) return;
-      void navigate({ to: "/" });
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [navigate]);
+  useWindowKeydown((event) => {
+    if (event.defaultPrevented || event.key !== "Escape" || !isPlainKey(event)) return;
+    if (isTypingTarget(event.target) || document.querySelector("[role=dialog]")) return;
+    void navigate({ to: "/" });
+  });
 
   return (
     <div className="flex h-full min-w-0">

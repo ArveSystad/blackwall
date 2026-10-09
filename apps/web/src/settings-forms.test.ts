@@ -11,8 +11,12 @@ import {
   draftToInput,
   emptyConnectionDraft,
   moveItem,
+  parseCap,
   parseLines,
+  roleIds,
   sameDraft,
+  sameRoles,
+  withRole,
 } from "./settings-forms";
 
 const agent: Agent = {
@@ -74,6 +78,40 @@ describe("helpers", () => {
     const implementer = { ...agent, id: "a2", eligibleStages: ["implement" as const] };
     expect(agentsForRole([agent, implementer], "codeReviewers")).toEqual([agent]);
     expect(agentsForRole([agent, implementer], "implementer")).toEqual([implementer]);
+  });
+});
+
+describe("role agents", () => {
+  it("lists a role's ids", () => {
+    expect(roleIds({}, "planner")).toEqual([]);
+    expect(roleIds({ planner: "a1" }, "planner")).toEqual(["a1"]);
+    expect(roleIds({ codeReviewers: ["a1", "a2"] }, "codeReviewers")).toEqual(["a1", "a2"]);
+  });
+
+  it("sets a panel role to the list and a single role to the first id", () => {
+    expect(withRole({}, "codeReviewers", ["a1", "a2"])).toEqual({ codeReviewers: ["a1", "a2"] });
+    expect(withRole({}, "planner", ["a1", "a2"])).toEqual({ planner: "a1" });
+  });
+
+  it("removes a single role without an id and leaves the input alone", () => {
+    const roles = { planner: "a1", implementer: "a2" };
+    expect(withRole(roles, "planner", [""])).toEqual({ implementer: "a2" });
+    expect(withRole(roles, "planner", [])).toEqual({ implementer: "a2" });
+    expect(roles).toEqual({ planner: "a1", implementer: "a2" });
+  });
+
+  it("compares role agents", () => {
+    expect(sameRoles({ planner: "a1" }, { planner: "a1", codeReviewers: [] })).toBe(true);
+    expect(sameRoles({ codeReviewers: ["a1", "a2"] }, { codeReviewers: ["a2", "a1"] })).toBe(false);
+    expect(sameRoles({ planner: "a1" }, {})).toBe(false);
+  });
+});
+
+describe("caps", () => {
+  it("accepts whole numbers from 1 to 20", () => {
+    expect(parseCap("1")).toBe(1);
+    expect(parseCap("20")).toBe(20);
+    for (const text of ["0", "21", "2.5", "", "  "]) expect(parseCap(text)).toBeNull();
   });
 });
 

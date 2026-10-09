@@ -16,16 +16,26 @@ import { connectionsQuery, queryKeys, reposQuery } from "../../query";
 import { moveRepo, reorderRepoIds } from "../../repo-order";
 import { CLI_NAMES, errorMessage, parseLines, sameList } from "../../settings-forms";
 import { AgentTile } from "../AgentTile";
+import {
+  editorBody,
+  listPane,
+  paneHeader,
+  paneTitle,
+  rowSelectable,
+  rowSelected,
+  sideList,
+} from "../classes";
 import { ConfirmDialog } from "../ConfirmDialog";
-import { GripIcon, RepoIcon, StarIcon, WarnIcon } from "../icons";
+import { GripIcon, PlusIcon, RepoIcon, StarIcon, WarnIcon } from "../icons";
 import { ORIGINS } from "../origins";
 import { Segmented } from "../Segmented";
 import { Button } from "../ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "../ui/dialog";
+import { ErrorText, Field, fieldLabel } from "../ui/field";
 import { Input } from "../ui/input";
 import { Kbd } from "../ui/kbd";
 import { Textarea } from "../ui/textarea";
-import { Empty, ErrorText, SaveBar, SectionHeader, fieldLabel } from "./parts";
+import { Empty, SaveBar, SectionHeader } from "./parts";
 
 type AddMode = "one" | "scan";
 
@@ -74,9 +84,7 @@ function AddRepoDialog({
       <DialogContent>
         <form onSubmit={(event) => void submit(event)}>
           <div className="flex flex-col gap-3.5 px-5 pt-[18px] pb-[18px]">
-            <DialogTitle className="m-0 text-heading font-semibold text-foreground-strong">
-              Add repositories
-            </DialogTitle>
+            <DialogTitle>Add repositories</DialogTitle>
             <DialogDescription className="m-0 text-pretty">
               Register one git repo, or scan a folder and register every repo inside it. Check
               commands are suggested from each repo&apos;s build files.
@@ -90,8 +98,7 @@ function AddRepoDialog({
                 { value: "scan", label: "Scan a folder" },
               ]}
             />
-            <label className="flex flex-col gap-1.5">
-              <span className={fieldLabel}>{mode === "one" ? "Repo folder" : "Root folder"}</span>
+            <Field label={mode === "one" ? "Repo folder" : "Root folder"}>
               <Input
                 className="mono"
                 autoFocus
@@ -101,10 +108,12 @@ function AddRepoDialog({
                 value={path}
                 onChange={(event) => setPath(event.target.value)}
               />
-            </label>
+            </Field>
             {mode === "scan" && (
-              <label className="flex flex-col gap-1.5">
-                <span className={fieldLabel}>Depth</span>
+              <Field
+                label="Depth"
+                hint="Folder levels below the root. Skips node_modules, hidden folders and worktrees."
+              >
                 <Input
                   type="number"
                   min={0}
@@ -113,15 +122,12 @@ function AddRepoDialog({
                   value={depth}
                   onChange={(event) => setDepth(event.target.value)}
                 />
-                <span className="text-meta text-muted-foreground">
-                  Folder levels below the root. Skips node_modules, hidden folders and worktrees.
-                </span>
-              </label>
+              </Field>
             )}
             {error && <ErrorText>{error}</ErrorText>}
           </div>
-          <div className="flex items-center justify-end gap-2 border-t border-border bg-card px-5 py-3">
-            <Button variant="ghost" type="button" onClick={onClose}>
+          <DialogFooter>
+            <Button variant="ghost" onClick={onClose}>
               Cancel
             </Button>
             <Button variant="primary" type="submit" disabled={pending || !path.trim()}>
@@ -130,7 +136,7 @@ function AddRepoDialog({
                 ↵
               </Kbd>
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -230,11 +236,9 @@ function RepoEditor({
 
   return (
     <section aria-label="Edit repository" className="flex min-w-0 flex-1 flex-col bg-sidebar">
-      <div className="flex min-h-[52px] items-center gap-2.5 border-b border-border px-5 py-3">
+      <div className={paneHeader}>
         <RepoIcon size="lg" className="text-muted-foreground" />
-        <span className="truncate text-heading font-semibold text-foreground-strong">
-          {repo.name}
-        </span>
+        <span className={paneTitle}>{repo.name}</span>
         <span className="flex-1" />
         <Button
           size="sm"
@@ -244,17 +248,12 @@ function RepoEditor({
         >
           {busy === "refresh" ? "Reading…" : "Re-read remote"}
         </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="text-destructive hover:text-destructive"
-          onClick={() => setConfirmRemove(true)}
-        >
+        <Button size="sm" variant="destructive-ghost" onClick={() => setConfirmRemove(true)}>
           Remove
         </Button>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-[18px] overflow-auto px-5 py-[18px]">
+      <div className={editorBody}>
         {!repo.exists && (
           <div
             role="alert"
@@ -269,24 +268,20 @@ function RepoEditor({
           </div>
         )}
         <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
-          <label className="flex flex-col gap-1.5">
-            <span className={fieldLabel}>Name</span>
+          <Field label="Name">
             <Input value={name} onChange={(event) => setName(event.target.value)} />
-          </label>
-          <div className="flex min-w-0 flex-col gap-1.5">
-            <span className={fieldLabel}>Path</span>
+          </Field>
+          <Field label="Path" group className="min-w-0">
             <span className="mono flex h-[30px] items-center truncate text-muted-foreground">
               {repo.path}
             </span>
-          </div>
-          <div className="flex min-w-0 flex-col gap-1.5">
-            <span className={fieldLabel}>Origin</span>
+          </Field>
+          <Field label="Origin" group className="min-w-0">
             <span className="mono flex h-[30px] items-center truncate text-muted-foreground">
               {repo.remoteUrl ?? "No origin remote"}
             </span>
-          </div>
-          <div className="flex min-w-0 flex-col gap-1.5">
-            <span className={fieldLabel}>Connection</span>
+          </Field>
+          <Field label="Connection" group className="min-w-0">
             <span className="flex h-[30px] items-center truncate text-muted-foreground">
               {connection
                 ? `${connection.name}${connection.hasToken ? "" : " (token missing)"}`
@@ -294,9 +289,8 @@ function RepoEditor({
                   ? "None yet; added when a task needs it"
                   : "None"}
             </span>
-          </div>
-          <div className="flex min-w-0 flex-col gap-1.5">
-            <span className={fieldLabel}>Default CLI</span>
+          </Field>
+          <Field label="Default CLI" group className="min-w-0">
             <Segmented
               label="Default CLI"
               value={defaultCli}
@@ -314,9 +308,8 @@ function RepoEditor({
             <span className="text-meta text-faint">
               New tasks here start with this CLI&apos;s role defaults.
             </span>
-          </div>
-          <div className="flex min-w-0 flex-col gap-1.5">
-            <span className={fieldLabel}>Default origin</span>
+          </Field>
+          <Field label="Default origin" group className="min-w-0">
             <Segmented
               label="Default origin"
               value={defaultOrigin}
@@ -334,7 +327,7 @@ function RepoEditor({
             <span className="text-meta text-faint">
               New tasks and backlog items here start on this origin.
             </span>
-          </div>
+          </Field>
         </div>
 
         <label className="flex flex-col gap-1.5">
@@ -439,8 +432,9 @@ function RepoRow({
         onDrop();
       }}
       className={cn(
-        "flex items-center gap-1 rounded-lg border border-transparent p-1 hover:bg-card",
-        selected && "border-border-strong bg-muted hover:bg-muted",
+        "flex items-center gap-1 p-1",
+        rowSelectable,
+        selected && rowSelected,
         dragging?.id === repo.id && "opacity-50",
         dropTarget && "border-dashed border-border-strong",
       )}
@@ -545,13 +539,11 @@ export function RepositoriesSection() {
 
   return (
     <>
-      <section
-        aria-label="Repositories"
-        className="flex w-[360px] shrink-0 flex-col border-r border-border"
-      >
+      <section aria-label="Repositories" className={listPane}>
         <SectionHeader title="Repositories">
           <Button size="sm" variant="primary" onClick={() => setAdding(true)}>
-            + Add
+            <PlusIcon />
+            Add
           </Button>
         </SectionHeader>
         <p className="m-0 border-b border-border px-4 py-1.5 text-label text-faint">
@@ -572,7 +564,7 @@ export function RepositoriesSection() {
         ) : list.length === 0 ? (
           <Empty>No repositories registered yet. Add one, or scan a folder of repos.</Empty>
         ) : (
-          <ul className="m-0 flex min-h-0 flex-1 list-none flex-col gap-0.5 overflow-auto p-1.5">
+          <ul className={sideList}>
             {list.map((repo) => (
               <RepoRow
                 key={repo.id}

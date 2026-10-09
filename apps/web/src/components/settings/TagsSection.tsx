@@ -2,11 +2,14 @@ import { DEFAULT_TAGS } from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { setTags } from "../../api";
+import { cn } from "../../lib/utils";
 import { queryKeys, tagsQuery } from "../../query";
 import { addTag, errorMessage, moveItem, sameList } from "../../settings-forms";
+import { editorBody } from "../classes";
 import { Button } from "../ui/button";
+import { ErrorText } from "../ui/field";
 import { Input } from "../ui/input";
-import { Empty, ErrorText, SaveBar, SectionHeader } from "./parts";
+import { Empty, SaveBar, SectionHeader } from "./parts";
 
 function TagEditor({ saved }: { saved: string[] }) {
   const queryClient = useQueryClient();
@@ -46,7 +49,7 @@ function TagEditor({ saved }: { saved: string[] }) {
 
   return (
     <>
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto px-4 py-3">
+      <div className={cn(editorBody, "gap-3")}>
         <p className="m-0 max-w-[640px] text-meta text-muted-foreground">
           Code reviewers tag each finding from this list. Changes apply to review steps that start
           after saving.

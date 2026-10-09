@@ -2,6 +2,7 @@ import type { TaskDiff } from "@blackwall/shared";
 import { useState } from "react";
 import { cn } from "../../lib/utils";
 import { diffStat, parseDiff, type DiffFile } from "../../task-view";
+import { panelNote } from "../classes";
 import { DiffView } from "../DiffView";
 import { ChevronRightIcon } from "../icons";
 import { Segmented } from "../Segmented";
@@ -47,10 +48,10 @@ function FileDiff({ file }: { file: DiffFile }) {
 /** The task branch's changes per fix round, file by file (plain diff colors, never neon). */
 export function DiffPanel({ diffs, loading }: { diffs: readonly TaskDiff[]; loading: boolean }) {
   const [selected, setSelected] = useState<string | null>(null);
-  if (loading) return <p className="m-0 px-5 py-4 text-muted-foreground">Loading the diff…</p>;
+  if (loading) return <p className={panelNote}>Loading the diff…</p>;
   if (diffs.length === 0) {
     return (
-      <p className="m-0 px-5 py-4 text-muted-foreground">
+      <p className={panelNote}>
         No changes on the branch yet. The implementer commits in the Implement stage.
       </p>
     );

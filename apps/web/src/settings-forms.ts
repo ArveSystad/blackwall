@@ -1,5 +1,7 @@
 import {
+  AGENT_ROLES,
   JIRA_EMAIL_META,
+  PANEL_ROLES,
   ROLE_STAGES,
   tagNameSchema,
   type Agent,
@@ -8,7 +10,9 @@ import {
   type AgentRole,
   type ConnectionInput,
   type ConnectionKind,
+  type RoleAgents,
   type Stage,
+  type TriageMode,
 } from "@blackwall/shared";
 
 export function errorMessage(error: unknown): string {
@@ -110,6 +114,50 @@ export function copyName(name: string, taken: readonly string[]): string {
 /** Agents that can fill a role: eligible for the role's stage. */
 export function agentsForRole(agents: readonly Agent[], role: AgentRole): Agent[] {
   return agents.filter((a) => a.eligibleStages.includes(ROLE_STAGES[role]));
+}
+
+/** Whether a role takes a panel of agents rather than one. */
+export function isPanelRole(role: AgentRole): boolean {
+  return (PANEL_ROLES as readonly AgentRole[]).includes(role);
+}
+
+/** The agent ids picked for a role, as a list. */
+export function roleIds(roles: RoleAgents, role: AgentRole): string[] {
+  const value = roles[role];
+  if (value === undefined) return [];
+  return typeof value === "string" ? [value] : value;
+}
+
+/** `roles` with the role's agents set to `ids`; a single role without an id is removed. */
+export function withRole(roles: RoleAgents, role: AgentRole, ids: string[]): RoleAgents {
+  const next: RoleAgents = { ...roles };
+  if (isPanelRole(role)) Object.assign(next, { [role]: ids });
+  else if (ids[0]) Object.assign(next, { [role]: ids[0] });
+  else delete next[role];
+  return next;
+}
+
+export function sameRoles(a: RoleAgents, b: RoleAgents): boolean {
+  return AGENT_ROLES.every((role) => roleIds(a, role).join() === roleIds(b, role).join());
+}
+
+export const TRIAGE_OPTIONS: { value: TriageMode; title: string; detail: string }[] = [
+  {
+    value: "intervene",
+    title: "Run and let me intervene",
+    detail: "Loops up to 3 fix rounds; stops for you on escalation.",
+  },
+  {
+    value: "pause",
+    title: "Pause each review round",
+    detail: "You triage findings before every fix round.",
+  },
+];
+
+/** A concurrency cap typed into a settings field: a whole number from 1 to 20, else null. */
+export function parseCap(text: string): number | null {
+  const value = Number(text);
+  return text.trim() !== "" && Number.isInteger(value) && value >= 1 && value <= 20 ? value : null;
 }
 
 export type TagEdit = { ok: true; tags: string[] } | { ok: false; error: string };

@@ -4,6 +4,7 @@ import { clisQuery } from "../../query";
 import { CLI_NAMES } from "../../settings-forms";
 import { AgentTile } from "../AgentTile";
 import { CheckIcon, WarnIcon } from "../icons";
+import { ErrorText } from "../ui/field";
 
 function CliRow({ status }: { status: CliStatus }) {
   return (
@@ -38,9 +39,7 @@ export function CliStatusList() {
       {clis.isPending ? (
         <p className="m-0 py-1 text-meta text-muted-foreground">Checking installed CLIs…</p>
       ) : clis.isError ? (
-        <p className="m-0 py-1 text-meta text-destructive" role="alert">
-          {clis.error.message}
-        </p>
+        <ErrorText className="py-1">{clis.error.message}</ErrorText>
       ) : (
         <>
           <ul className="m-0 list-none p-0">

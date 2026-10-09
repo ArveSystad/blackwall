@@ -8,9 +8,11 @@ import { cn } from "../lib/utils";
 import { findingLocation, looksLikeDiff, parseDiff } from "../task-view";
 import { AgentTile } from "./AgentTile";
 import { DiffView } from "./DiffView";
+import { codeBlock } from "./classes";
 import { ChevronRightIcon, LockIcon } from "./icons";
 import { SeverityChip } from "./SeverityChip";
 import { Button } from "./ui/button";
+import { Chip, Tag } from "./ui/chip";
 import { Kbd } from "./ui/kbd";
 
 export const FINDING_GRID =
@@ -27,17 +29,11 @@ function Triage({
 }) {
   switch (finding.status) {
     case "fixed":
-      return (
-        <span className="inline-flex h-5 items-center rounded-sm border border-done/40 px-1.5 text-[11.5px] font-medium text-done">
-          Fixed · r{finding.round}
-        </span>
-      );
+      return <Chip tone="done">Fixed · r{finding.round}</Chip>;
     case "force-fix":
       return (
         <>
-          <span className="inline-flex h-5 items-center rounded-sm border border-cyan/45 px-1.5 text-[11.5px] font-medium text-cyan">
-            Force fix
-          </span>
+          <Chip tone="cyan">Force fix</Chip>
           <Button
             size="sm"
             variant="ghost"
@@ -51,9 +47,7 @@ function Triage({
     case "force-ignore":
       return (
         <>
-          <span className="inline-flex h-5 items-center rounded-sm border border-border-strong px-1.5 text-[11.5px] font-medium text-muted-foreground">
-            Ignored
-          </span>
+          <Chip tone="neutral">Ignored</Chip>
           <Button
             size="sm"
             variant="ghost"
@@ -137,12 +131,7 @@ export function FindingRow({
             </span>
           </button>
           {finding.tags.slice(0, 2).map((tag) => (
-            <span
-              key={tag}
-              className="inline-flex h-[18px] flex-none items-center rounded-xs bg-muted px-[5px] font-mono text-[11px] text-muted-foreground"
-            >
-              {tag}
-            </span>
+            <Tag key={tag}>{tag}</Tag>
           ))}
         </span>
         <span
@@ -208,9 +197,7 @@ export function FindingRow({
             ) : looksLikeDiff(fix) ? (
               <DiffView lines={parseDiffLines(fix)} />
             ) : (
-              <pre className="m-0 overflow-x-auto rounded-md border border-border bg-code px-3 py-2 font-mono text-code whitespace-pre-wrap text-foreground">
-                {fix}
-              </pre>
+              <pre className={cn(codeBlock, "whitespace-pre-wrap")}>{fix}</pre>
             )}
           </div>
         </div>

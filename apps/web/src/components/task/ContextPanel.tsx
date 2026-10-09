@@ -1,14 +1,10 @@
-import { AGENT_ROLES, type AgentRole, type Task } from "@blackwall/shared";
+import { AGENT_ROLES, type Task } from "@blackwall/shared";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { agentsQuery, reposQuery } from "../../query";
-import { ROLE_LABELS } from "../../settings-forms";
+import { useAgentLibrary } from "../../hooks";
+import { reposQuery } from "../../query";
+import { ROLE_LABELS, TRIAGE_OPTIONS, roleIds } from "../../settings-forms";
 import { AgentTile } from "../AgentTile";
-
-const TRIAGE_LABELS = {
-  intervene: "Run and let me intervene",
-  pause: "Pause each review round",
-} as const;
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -19,17 +15,11 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function roleIds(task: Task, role: AgentRole): string[] {
-  const value = task.agents[role];
-  return value === undefined ? [] : Array.isArray(value) ? value : [value];
-}
-
 /** What the task started from: its text, origin, workspace, agents and triage mode. */
 export function ContextPanel({ task }: { task: Task }) {
   const repos = useQuery(reposQuery);
-  const agents = useQuery(agentsQuery);
   const repo = repos.data?.find((r) => r.id === task.repoId);
-  const agentMap = new Map((agents.data ?? []).map((a) => [a.id, a]));
+  const agentMap = useAgentLibrary();
 
   return (
     <div className="flex max-w-3xl flex-col gap-5 px-5 py-4">
@@ -65,14 +55,18 @@ export function ContextPanel({ task }: { task: Task }) {
               {task.worktreePath ?? "created when the task starts"}
             </span>
           </Field>
-          {task.mode !== "review" && <Field label="Triage">{TRIAGE_LABELS[task.triageMode]}</Field>}
+          {task.mode !== "review" && (
+            <Field label="Triage">
+              {TRIAGE_OPTIONS.find((o) => o.value === task.triageMode)?.title}
+            </Field>
+          )}
         </dl>
       </section>
       <section className="flex flex-col">
         <h2 className="label m-0 mb-1 text-muted-foreground">Agents</h2>
         <dl className="m-0">
           {AGENT_ROLES.map((role) => {
-            const ids = roleIds(task, role);
+            const ids = roleIds(task.agents, role);
             return (
               <Field key={role} label={ROLE_LABELS[role]}>
                 {ids.length === 0 ? (

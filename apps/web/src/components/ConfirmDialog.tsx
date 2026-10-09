@@ -1,6 +1,8 @@
 import { useState, type ReactNode } from "react";
+import { errorMessage } from "../settings-forms";
 import { Button } from "./ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "./ui/dialog";
+import { ErrorText } from "./ui/field";
 import { Kbd } from "./ui/kbd";
 
 /**
@@ -30,7 +32,7 @@ export function ConfirmDialog({
       await onConfirm();
       onClose();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(errorMessage(cause));
       setPending(false);
     }
   }
@@ -39,30 +41,19 @@ export function ConfirmDialog({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-[420px]">
         <div className="flex flex-col gap-2 px-5 pt-[18px] pb-4">
-          <DialogTitle className="m-0 text-heading font-semibold text-foreground-strong">
-            {title}
-          </DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
           <DialogDescription className="m-0 text-pretty">{children}</DialogDescription>
-          {error && (
-            <p className="m-0 text-meta text-destructive" role="alert">
-              {error}
-            </p>
-          )}
+          {error && <ErrorText>{error}</ErrorText>}
         </div>
-        <div className="flex items-center justify-end gap-2 border-t border-border bg-card px-5 py-3">
+        <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button
-            autoFocus
-            className="border-destructive/50 text-destructive hover:bg-destructive/12"
-            disabled={pending}
-            onClick={() => void confirm()}
-          >
+          <Button autoFocus variant="destructive" disabled={pending} onClick={() => void confirm()}>
             {pending ? "Working…" : confirmLabel}
             <Kbd aria-hidden="true">↵</Kbd>
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

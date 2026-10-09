@@ -2,32 +2,19 @@ import { MAX_FIX_ROUNDS, type Agent, type Task } from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { originKey, relativeTime } from "../../inbox";
-import { agentsQuery, connectionsQuery, queryKeys, reposQuery } from "../../query";
+import { useAgentLibrary } from "../../hooks";
+import { connectionsQuery, queryKeys, reposQuery } from "../../query";
 import { canArchive, canStop, deleteBlockedReason, originUrl, taskAgentIds } from "../../task-view";
 import { AgentTile } from "../AgentTile";
-import {
-  BacklogIcon,
-  BranchIcon,
-  ChevronRightIcon,
-  JiraIcon,
-  PullRequestIcon,
-  StopIcon,
-  TextIcon,
-  TrashIcon,
-} from "../icons";
+import { BacklogIcon, BranchIcon, ChevronRightIcon, StopIcon, TrashIcon } from "../icons";
+import { ORIGIN_ICONS, PR_MODE_LABELS } from "../origins";
 import { StageStepper } from "../StageStepper";
 import { StatusBadge } from "../StatusBadge";
 import { Button } from "../ui/button";
+import { Chip } from "../ui/chip";
 import { Kbd } from "../ui/kbd";
 import { archive, stop, unarchive } from "./actions";
 import type { TaskAction } from "./use-task-action";
-
-const MODE_LABELS = { work: "Work on PR", review: "Review PR" } as const;
-const ORIGIN_ICONS = {
-  "jira-issue": JiraIcon,
-  "github-pr": PullRequestIcon,
-  "free-text": TextIcon,
-} as const;
 
 function AgentSummary({ task, agents }: { task: Task; agents: ReadonlyMap<string, Agent> }) {
   const ids = taskAgentIds(task.agents);
@@ -83,8 +70,7 @@ export function TaskHeader({
   const queryClient = useQueryClient();
   const repos = useQuery(reposQuery);
   const connections = useQuery(connectionsQuery);
-  const agents = useQuery(agentsQuery);
-  const agentMap = new Map((agents.data ?? []).map((a) => [a.id, a]));
+  const agentMap = useAgentLibrary();
   const repo = repos.data?.find((r) => r.id === task.repoId);
   const url = originUrl(task, connections.data ?? []);
   const OriginIcon = ORIGIN_ICONS[task.origin.kind];
@@ -93,7 +79,7 @@ export function TaskHeader({
       ? "Jira"
       : task.origin.kind === "github-pr"
         ? task.mode
-          ? MODE_LABELS[task.mode]
+          ? PR_MODE_LABELS[task.mode]
           : "Pull request"
         : "Free text";
   const inReview = task.stage === "code-review" || task.stage === "aggregate";
@@ -118,9 +104,7 @@ export function TaskHeader({
         ) : (
           <span className="mono text-muted-foreground">{originKey(task)}</span>
         )}
-        <span className="inline-flex h-5 items-center rounded-sm border border-border-strong px-1.5 text-[11.5px] font-medium text-muted-foreground">
-          {kindLabel}
-        </span>
+        <Chip tone="neutral">{kindLabel}</Chip>
         <span className="text-faint">·</span>
         <time className="text-muted-foreground" dateTime={task.createdAt.toISOString()}>
           {startedLabel(task.createdAt)}

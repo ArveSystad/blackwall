@@ -2,7 +2,9 @@ import type { Step } from "@blackwall/shared";
 import { useState } from "react";
 import { cn } from "../../lib/utils";
 import { checkPassed, type CheckRun } from "../../task-view";
+import { panelNote } from "../classes";
 import { CheckIcon, ChevronRightIcon, FailedIcon } from "../icons";
+import { ErrorText } from "../ui/field";
 
 function CheckRow({ check }: { check: CheckRun }) {
   const passed = checkPassed(check);
@@ -57,12 +59,12 @@ export function ChecksPanel({
 }) {
   if (!step) {
     return (
-      <p className="m-0 px-5 py-4 text-muted-foreground">
+      <p className={panelNote}>
         Checks have not run yet. They run after each implementation round.
       </p>
     );
   }
-  if (loading) return <p className="m-0 px-5 py-4 text-muted-foreground">Loading checks…</p>;
+  if (loading) return <p className={panelNote}>Loading checks…</p>;
   const passed = checks.filter(checkPassed).length;
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto px-5 py-4">
@@ -83,7 +85,7 @@ export function ChecksPanel({
       ) : (
         checks.map((check, i) => <CheckRow key={`${check.command}:${i}`} check={check} />)
       )}
-      {step.error && <p className="m-0 text-meta text-destructive">{step.error}</p>}
+      {step.error && <ErrorText>{step.error}</ErrorText>}
     </div>
   );
 }

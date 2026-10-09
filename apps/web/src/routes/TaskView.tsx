@@ -2,9 +2,10 @@ import type { Task } from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Tabs } from "radix-ui";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ApiError } from "../api";
-import { CheckIcon, WallIcon } from "../components/icons";
+import { EmptyState } from "../components/EmptyState";
+import { CheckIcon } from "../components/icons";
 import { ChecksPanel } from "../components/task/ChecksPanel";
 import { ContextPanel } from "../components/task/ContextPanel";
 import { DiffPanel, DiffStat } from "../components/task/DiffPanel";
@@ -21,7 +22,7 @@ import { TaskHeader } from "../components/task/TaskHeader";
 import { useTaskAction } from "../components/task/use-task-action";
 import { useTaskData, type TaskData } from "../components/task/use-task-data";
 import { uiStageIndex } from "../inbox";
-import { isPlainKey, isTypingTarget } from "../keyboard";
+import { isPlainKey, isTypingTarget, useWindowKeydown } from "../keyboard";
 import { cn } from "../lib/utils";
 import { queryKeys, reposQuery, taskQuery } from "../query";
 import { resolveSelectedRepo, useSelectedRepoId } from "../selected-repo";
@@ -38,16 +39,6 @@ import {
   parseDiff,
   type TaskTab,
 } from "../task-view";
-
-function Centered({ title, detail }: { title: string; detail?: string }) {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
-      <WallIcon className="size-7 text-faint" />
-      <span className="font-medium text-foreground-strong">{title}</span>
-      {detail && <span className="text-meta text-muted-foreground">{detail}</span>}
-    </div>
-  );
-}
 
 function Count({ children, needs = false }: { children: ReactNode; needs?: boolean }) {
   return (
@@ -113,23 +104,15 @@ function TabDecoration({ tab, task, data }: { tab: TaskTab; task: Task; data: Ta
  * resumes an interrupted or failed task, S stops a queued or running one.
  * Never while typing.
  */
-function useTaskKeys(task: Task, onKey: (key: "a" | "r" | "s") => void) {
-  const handler = useRef(onKey);
-  useEffect(() => {
-    handler.current = onKey;
-  });
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (!isPlainKey(event) || isTypingTarget(event.target)) return;
-      const key = event.key.toLowerCase();
-      if (key === "a" || key === "r" || key === "s") {
-        event.preventDefault();
-        handler.current(key);
-      }
+function useTaskKeys(onKey: (key: "a" | "r" | "s") => void) {
+  useWindowKeydown((event) => {
+    if (!isPlainKey(event) || isTypingTarget(event.target)) return;
+    const key = event.key.toLowerCase();
+    if (key === "a" || key === "r" || key === "s") {
+      event.preventDefault();
+      onKey(key);
     }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [task.id]);
+  });
 }
 
 function TaskScreen({ task }: { task: Task }) {
@@ -155,7 +138,7 @@ function TaskScreen({ task }: { task: Task }) {
     round: data.round,
   };
 
-  useTaskKeys(task, (key) => {
+  useTaskKeys((key) => {
     if (action.pending) return;
     const atApproval = task.status === "needs-you" && task.gate === "plan-approval";
     if (key === "a" && atApproval) {
@@ -294,22 +277,13 @@ function useEscapeToBacklog() {
   const navigate = useNavigate();
   const repos = useQuery(reposQuery);
   const repoId = resolveSelectedRepo(useSelectedRepoId(), repos.data)?.id;
-  const target = useRef(repoId);
-  useEffect(() => {
-    target.current = repoId;
+  useWindowKeydown((event) => {
+    if (event.defaultPrevented || event.key !== "Escape" || !isPlainKey(event)) return;
+    if (isTypingTarget(event.target) || document.querySelector("[role=dialog]")) return;
+    void (repoId
+      ? navigate({ to: "/repos/$repoId/backlog", params: { repoId } })
+      : navigate({ to: "/" }));
   });
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.defaultPrevented || event.key !== "Escape" || !isPlainKey(event)) return;
-      if (isTypingTarget(event.target) || document.querySelector("[role=dialog]")) return;
-      const repoId = target.current;
-      void (repoId
-        ? navigate({ to: "/repos/$repoId/backlog", params: { repoId } })
-        : navigate({ to: "/" }));
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [navigate]);
 }
 
 /** Main pane for one task: header, needs-you banner, the section tabs and the input bar. */
@@ -318,12 +292,18 @@ export function TaskView({ taskId }: { taskId: string }) {
   useLeaveWhenDeleted(taskId);
   useEscapeToBacklog();
 
-  if (task.isPending) return <Centered title="Loading task…" />;
+  if (task.isPending) {
+    return <EmptyState key="loading" role="status" className="h-full" title="Loading task…" />;
+  }
   if (task.isError) {
     return task.error instanceof ApiError && task.error.status === 404 ? (
-      <Centered title="Task not found" detail="It may have been deleted." />
+      <EmptyState key="not-found" className="h-full" title="Task not found">
+        It may have been deleted.
+      </EmptyState>
     ) : (
-      <Centered title="Could not load the task" detail={task.error.message} />
+      <EmptyState key="error" role="alert" className="h-full" title="Could not load the task">
+        {task.error.message}
+      </EmptyState>
     );
   }
   return <TaskScreen task={task.data} />;

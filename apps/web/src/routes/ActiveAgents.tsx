@@ -1,33 +1,15 @@
 import type { ActiveAgentStep, Agent, Task } from "@blackwall/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo } from "react";
 import { AgentTile } from "../components/AgentTile";
-import { WallIcon } from "../components/icons";
-import { Button } from "../components/ui/button";
+import { paneBody, paneHeader, paneTitle } from "../components/classes";
+import { EmptyState } from "../components/EmptyState";
+import { useAgentLibrary, useNow } from "../hooks";
 import { originKey, relativeTime } from "../inbox";
-import { activeAgentsQuery, agentsQuery, reposQuery, stepEventsQuery, tasksQuery } from "../query";
+import { cn } from "../lib/utils";
+import { activeAgentsQuery, reposQuery, stepEventsQuery, tasksQuery } from "../query";
 import { STAGE_LABELS, currentActivity, stepModel } from "../task-view";
-
-/** Re-renders every minute so elapsed times stay current. */
-function useNow(): Date {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 60_000);
-    return () => clearInterval(timer);
-  }, []);
-  return now;
-}
-
-function Message({ title, children }: { title: string; children?: ReactNode }) {
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
-      <WallIcon className="size-7 text-faint" />
-      <div className="font-medium text-foreground-strong">{title}</div>
-      {children && <div className="max-w-80 text-meta text-muted-foreground">{children}</div>}
-    </div>
-  );
-}
 
 /** One running agent: who it is, the model, the stage, what it is doing now and the task it works on. */
 function AgentRow({
@@ -97,16 +79,12 @@ function AgentRow({
 export function ActiveAgents() {
   const active = useQuery(activeAgentsQuery);
   const tasks = useQuery(tasksQuery);
-  const agents = useQuery(agentsQuery);
+  const library = useAgentLibrary();
   const repos = useQuery(reposQuery);
   const now = useNow();
   const taskById = useMemo(
     () => new Map((tasks.data ?? []).map((task) => [task.id, task])),
     [tasks.data],
-  );
-  const library = useMemo(
-    () => new Map((agents.data ?? []).map((agent) => [agent.id, agent])),
-    [agents.data],
   );
   const repoNames = useMemo(
     () => new Map((repos.data ?? []).map((repo) => [repo.id, repo.name])),
@@ -115,27 +93,29 @@ export function ActiveAgents() {
 
   return (
     <div className="flex h-full min-w-0 flex-col">
-      <div className="flex min-h-[52px] items-center gap-2.5 border-b border-border bg-sidebar px-5 py-3">
-        <h1 className="m-0 text-heading font-semibold text-foreground-strong">Active agents</h1>
+      <div className={cn(paneHeader, "bg-sidebar")}>
+        <h1 className={paneTitle}>Active agents</h1>
         {active.data && (
           <span className="mono text-label text-faint">{active.data.length} running</span>
         )}
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 py-4">
+      <div className={paneBody}>
         {active.isPending ? (
-          <Message title="Loading agents…" />
+          <EmptyState key="loading" role="status" title="Loading agents…" />
         ) : active.isError ? (
-          <Message title="Could not load agents">
-            {active.error.message}{" "}
-            <Button variant="ghost" size="sm" onClick={() => void active.refetch()}>
-              Retry
-            </Button>
-          </Message>
+          <EmptyState
+            key="error"
+            role="alert"
+            title="Could not load agents"
+            onRetry={() => void active.refetch()}
+          >
+            {active.error.message}
+          </EmptyState>
         ) : active.data.length === 0 ? (
-          <Message title="No agents running">
+          <EmptyState key="empty" title="No agents running">
             Agents show up here while a task is in a stage they work on.
-          </Message>
+          </EmptyState>
         ) : (
           <ul className="m-0 flex list-none flex-col gap-2 p-0" aria-label="Active agents">
             {active.data.map((step) => {

@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+
 /**
  * True when a key press goes to a text field or an open/focused select menu, where global shortcuts
  * must not fire (menus use letter keys for type-to-find).
@@ -28,4 +30,20 @@ export function isModKey(event: KeyboardEvent): boolean {
 /** Label for a ⌘/Ctrl shortcut, e.g. `modKeyLabel("S")` is "⌘S" on macOS and "Ctrl S" elsewhere. */
 export function modKeyLabel(key: string): string {
   return isMac() ? `⌘${key}` : `Ctrl ${key}`;
+}
+
+/** Calls the latest `handler` for every key press on the window while `enabled`. */
+export function useWindowKeydown(handler: (event: KeyboardEvent) => void, enabled = true): void {
+  const latest = useRef(handler);
+  useEffect(() => {
+    latest.current = handler;
+  });
+  useEffect(() => {
+    if (!enabled) return;
+    function onKeyDown(event: KeyboardEvent) {
+      latest.current(event);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [enabled]);
 }

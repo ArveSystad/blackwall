@@ -2,10 +2,8 @@ import {
   AGENT_ROLES,
   BACKLOG_PRIORITIES,
   MAX_TITLE_CHARS,
-  PANEL_ROLES,
   type Agent,
   type AgentCli,
-  type AgentRole,
   type BacklogItemView,
   type BacklogPriority,
   type OriginKind,
@@ -29,7 +27,7 @@ import {
 import { PRIORITY_LABELS } from "../backlog";
 import { useWithCredential } from "../credentials";
 import { originKey } from "../inbox";
-import { isModKey, isPlainKey, isTypingTarget, modKeyLabel } from "../keyboard";
+import { isModKey, isPlainKey, isTypingTarget, modKeyLabel, useWindowKeydown } from "../keyboard";
 import { cn } from "../lib/utils";
 import {
   agentsQuery,
@@ -43,29 +41,30 @@ import {
   taskQuery,
 } from "../query";
 import { resolveSelectedRepo, useSelectedRepoId } from "../selected-repo";
-import { ROLE_LABELS, agentsForRole, errorMessage } from "../settings-forms";
+import {
+  ROLE_LABELS,
+  TRIAGE_OPTIONS,
+  agentsForRole,
+  errorMessage,
+  isPanelRole,
+  roleIds,
+  withRole,
+} from "../settings-forms";
 import { jiraConnectionId, parseJiraInput } from "../task-view";
 import { AgentTile } from "./AgentTile";
 import { CheckIcon, CloseIcon, WarnIcon } from "./icons";
-import { ORIGINS } from "./origins";
+import { ORIGINS, PR_MODE_LABELS } from "./origins";
 import { RepoMenuItems } from "./RepoMenuItems";
 import { Segmented } from "./Segmented";
-import { ErrorText } from "./settings/parts";
 import { Button } from "./ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
+import { CheckChip } from "./ui/check-chip";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "./ui/dialog";
+import { ErrorText, Field, fieldLabel } from "./ui/field";
 import { Input } from "./ui/input";
 import { Kbd } from "./ui/kbd";
 import { Select } from "./ui/select";
 import { SelectMenu, SelectMenuContent, SelectMenuTrigger } from "./ui/select-menu";
 import { Textarea } from "./ui/textarea";
-
-const fieldLabel = "text-meta font-semibold text-foreground-strong";
-const isPanel = (role: AgentRole) => (PANEL_ROLES as readonly AgentRole[]).includes(role);
-
-function roleIds(roles: RoleAgents, role: AgentRole): string[] {
-  const value = roles[role];
-  return value === undefined ? [] : Array.isArray(value) ? value : [value];
-}
 
 type Lookup =
   | { state: "idle" }
@@ -107,14 +106,6 @@ function AgentsField({
   onChange: (roles: RoleAgents) => void;
   onReset: () => void;
 }) {
-  function setRole(role: AgentRole, value: string[]) {
-    const next: RoleAgents = { ...roles };
-    if (isPanel(role)) Object.assign(next, { [role]: value });
-    else if (value[0]) Object.assign(next, { [role]: value[0] });
-    else delete next[role];
-    onChange(next);
-  }
-
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center">
@@ -137,7 +128,7 @@ function AgentsField({
                 i < AGENT_ROLES.length - 1 && "border-b border-border",
               )}
             >
-              {isPanel(role) ? (
+              {isPanelRole(role) ? (
                 <>
                   <span className="text-meta text-muted-foreground" id={`${id}-label`}>
                     {ROLE_LABELS[role]}
@@ -150,34 +141,27 @@ function AgentsField({
                     {eligible.length === 0 && (
                       <span className="text-meta text-faint">No agent is eligible.</span>
                     )}
-                    {eligible.map((agent) => {
-                      const on = chosen.includes(agent.id);
-                      return (
-                        <label
-                          key={agent.id}
-                          className={cn(
-                            "inline-flex h-6 cursor-pointer items-center gap-1.5 rounded-sm border border-input px-2 text-meta text-muted-foreground has-focus-visible:shadow-ring",
-                            on && "border-primary text-foreground-strong",
-                          )}
-                        >
-                          <input
-                            type="checkbox"
-                            className="focus:outline-none"
-                            checked={on}
-                            onChange={(event) =>
-                              setRole(
-                                role,
-                                event.target.checked
-                                  ? [...chosen, agent.id]
-                                  : chosen.filter((c) => c !== agent.id),
-                              )
-                            }
-                          />
-                          <AgentTile cli={agent.cli} />
-                          {agent.name}
-                        </label>
-                      );
-                    })}
+                    {eligible.map((agent) => (
+                      <CheckChip
+                        key={agent.id}
+                        size="sm"
+                        checked={chosen.includes(agent.id)}
+                        onCheckedChange={(checked) =>
+                          onChange(
+                            withRole(
+                              roles,
+                              role,
+                              checked
+                                ? [...chosen, agent.id]
+                                : chosen.filter((c) => c !== agent.id),
+                            ),
+                          )
+                        }
+                      >
+                        <AgentTile cli={agent.cli} />
+                        {agent.name}
+                      </CheckChip>
+                    ))}
                   </div>
                 </>
               ) : (
@@ -189,7 +173,7 @@ function AgentsField({
                     id={id}
                     className="h-7 max-w-80"
                     value={chosen[0] ?? ""}
-                    onChange={(event) => setRole(role, [event.target.value])}
+                    onChange={(event) => onChange(withRole(roles, role, [event.target.value]))}
                   >
                     <option value="">None</option>
                     {eligible.map((agent) => (
@@ -208,19 +192,6 @@ function AgentsField({
     </div>
   );
 }
-
-const TRIAGE_OPTIONS: { value: TriageMode; title: string; detail: string }[] = [
-  {
-    value: "intervene",
-    title: "Run and let me intervene",
-    detail: "Loops up to 3 fix rounds; stops for you on escalation.",
-  },
-  {
-    value: "pause",
-    title: "Pause each review round",
-    detail: "You triage findings before every fix round.",
-  },
-];
 
 function DependsOnField({
   items,
@@ -246,32 +217,19 @@ function DependsOnField({
         {choices.length === 0 && (
           <span className="text-meta text-faint">No other items in this backlog.</span>
         )}
-        {choices.map((choice) => {
-          const on = value.includes(choice.id);
-          return (
-            <label
-              key={choice.id}
-              className={cn(
-                "inline-flex h-6 max-w-72 cursor-pointer items-center gap-1.5 rounded-sm border border-input px-2 text-meta text-muted-foreground has-focus-visible:shadow-ring",
-                on && "border-primary text-foreground-strong",
-              )}
-            >
-              <input
-                type="checkbox"
-                className="focus:outline-none"
-                checked={on}
-                onChange={(event) =>
-                  onChange(
-                    event.target.checked
-                      ? [...value, choice.id]
-                      : value.filter((id) => id !== choice.id),
-                  )
-                }
-              />
-              <span className="truncate">{choice.title}</span>
-            </label>
-          );
-        })}
+        {choices.map((choice) => (
+          <CheckChip
+            key={choice.id}
+            size="sm"
+            className="max-w-72"
+            checked={value.includes(choice.id)}
+            onCheckedChange={(checked) =>
+              onChange(checked ? [...value, choice.id] : value.filter((id) => id !== choice.id))
+            }
+          >
+            <span className="truncate">{choice.title}</span>
+          </CheckChip>
+        ))}
       </div>
       <span className="text-[11.5px] text-muted-foreground">
         The runner starts this item only once these are done.
@@ -454,18 +412,13 @@ function NewTaskForm({
 
   // 1 / 2 / 3 pick the origin while no text field has focus.
   const editing = item !== undefined;
-  useEffect(() => {
-    if (editing) return;
-    function onKeyDown(event: KeyboardEvent) {
-      if (!isPlainKey(event) || isTypingTarget(event.target)) return;
-      const index = ["1", "2", "3"].indexOf(event.key);
-      if (index === -1) return;
-      event.preventDefault();
-      setKindChoice(ORIGINS[index]!.value);
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [editing]);
+  useWindowKeydown((event) => {
+    if (!isPlainKey(event) || isTypingTarget(event.target)) return;
+    const index = ["1", "2", "3"].indexOf(event.key);
+    if (index === -1) return;
+    event.preventDefault();
+    setKindChoice(ORIGINS[index]!.value);
+  }, !editing);
 
   const heading = item ? "Edit backlog item" : "New task";
   const itemRepo = item && (repos.data ?? []).find((r) => r.id === item.repoId);
@@ -492,9 +445,7 @@ function NewTaskForm({
       }}
     >
       <div className="flex items-center gap-2.5 border-b border-border px-[18px] py-3.5">
-        <DialogTitle className="m-0 text-heading font-semibold text-foreground-strong">
-          {heading}
-        </DialogTitle>
+        <DialogTitle>{heading}</DialogTitle>
         <DialogDescription className="sr-only">
           {item
             ? "Edit a backlog item; the backlog runner starts it when the repo is idle."
@@ -509,23 +460,21 @@ function NewTaskForm({
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto px-[18px] py-4">
         {item && (
-          <div className="flex flex-col gap-1.5">
-            <span className={fieldLabel}>Origin</span>
+          <Field label="Origin" group>
             <span className="mono text-[12.5px] text-muted-foreground">
               {originKey(item)}
-              {item.mode && ` · ${item.mode === "work" ? "Work on PR" : "Review PR"}`}
+              {item.mode && ` · ${PR_MODE_LABELS[item.mode]}`}
             </span>
-          </div>
+          </Field>
         )}
         {item && kind === "free-text" && (
-          <label className="flex flex-col gap-1.5">
-            <span className={fieldLabel}>Description</span>
+          <Field label="Description">
             <Textarea
               rows={4}
               value={freeText}
               onChange={(event) => setFreeText(event.target.value)}
             />
-          </label>
+          </Field>
         )}
         {!item && (
           <div className="flex flex-col gap-2">
@@ -638,31 +587,29 @@ function NewTaskForm({
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {kind === "github-pr" && !item && (
-            <div className="flex flex-col gap-1.5">
-              <span className={fieldLabel}>Mode</span>
+            <Field label="Mode" group>
               <Segmented
                 label="Mode"
                 value={mode}
                 onChange={setMode}
-                options={[
-                  { value: "work", label: "Work on PR" },
-                  { value: "review", label: "Review PR" },
-                ]}
+                options={(["work", "review"] as const).map((value) => ({
+                  value,
+                  label: PR_MODE_LABELS[value],
+                }))}
               />
               <span className="text-[11.5px] text-muted-foreground">
                 {mode === "work"
                   ? "Agents commit to the PR branch."
                   : "Agents only review; you pick the findings to post."}
               </span>
-            </div>
+            </Field>
           )}
           {item ? (
-            <div className="flex flex-col gap-1.5">
-              <span className={fieldLabel}>Repository</span>
+            <Field label="Repository" group>
               <span className="mono text-[12.5px] text-muted-foreground">
                 {itemRepo?.name ?? item.repoId}
               </span>
-            </div>
+            </Field>
           ) : (
             <div className="flex flex-col gap-1.5">
               <label htmlFor="new-task-repo" className={fieldLabel}>
@@ -700,31 +647,33 @@ function NewTaskForm({
           )}
         </div>
 
-        <label className="flex flex-col gap-1.5">
-          <span className={fieldLabel}>
-            Title{" "}
-            {!item && (
-              <span className="font-normal text-faint">
-                optional, defaults to{" "}
-                {kind === "free-text" ? "the first line" : "the issue or PR title"}
-              </span>
-            )}
-          </span>
+        <Field
+          label={
+            <>
+              Title{" "}
+              {!item && (
+                <span className="font-normal text-faint">
+                  optional, defaults to{" "}
+                  {kind === "free-text" ? "the first line" : "the issue or PR title"}
+                </span>
+              )}
+            </>
+          }
+        >
           <Input
             maxLength={MAX_TITLE_CHARS}
             value={title}
             onChange={(event) => setTitle(event.target.value)}
           />
-        </label>
-        <div className="flex flex-col gap-1.5">
-          <span className={fieldLabel}>Priority</span>
+        </Field>
+        <Field label="Priority" group>
           <Segmented
             label="Priority"
             value={priority}
             onChange={setPriority}
             options={BACKLOG_PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABELS[p] }))}
           />
-        </div>
+        </Field>
         {repoId ? (
           <DependsOnField
             items={backlogItems}
@@ -742,10 +691,13 @@ function NewTaskForm({
         )}
 
         {kind !== "free-text" && (
-          <label className="flex flex-col gap-1.5">
-            <span className={fieldLabel}>
-              Context <span className="font-normal text-faint">optional</span>
-            </span>
+          <Field
+            label={
+              <>
+                Context <span className="font-normal text-faint">optional</span>
+              </>
+            }
+          >
             <Textarea
               rows={2}
               placeholder="Anything the planner should know that the origin does not say."
@@ -755,7 +707,7 @@ function NewTaskForm({
                 setFreeText(event.target.value);
               }}
             />
-          </label>
+          </Field>
         )}
 
         {agents.data && (
@@ -803,7 +755,7 @@ function NewTaskForm({
         )}
       </div>
 
-      <div className="flex items-center gap-2 border-t border-border bg-card px-[18px] py-3">
+      <DialogFooter className="justify-start px-[18px]">
         {error ? (
           <ErrorText>{error}</ErrorText>
         ) : (
@@ -819,7 +771,7 @@ function NewTaskForm({
             {modKeyLabel("↵")}
           </Kbd>
         </Button>
-      </div>
+      </DialogFooter>
     </form>
   );
 }
@@ -848,9 +800,7 @@ export function NewTaskModal({
           <NewTaskForm defaults={defaults.data} item={item} onClose={onClose} />
         ) : (
           <div className="flex flex-col gap-2 px-5 py-6">
-            <DialogTitle className="m-0 text-heading font-semibold text-foreground-strong">
-              {item ? "Edit backlog item" : "New task"}
-            </DialogTitle>
+            <DialogTitle>{item ? "Edit backlog item" : "New task"}</DialogTitle>
             <DialogDescription className="m-0 text-muted-foreground">
               {defaults.isError
                 ? defaults.error.message

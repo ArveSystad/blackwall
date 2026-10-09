@@ -6,17 +6,19 @@ import {
   type Severity,
   type Task,
 } from "@blackwall/shared";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { overrideFinding } from "../../api";
-import { isPlainKey, isTypingTarget } from "../../keyboard";
+import { useAgentLibrary } from "../../hooks";
+import { isPlainKey, isTypingTarget, useWindowKeydown } from "../../keyboard";
 import { cn } from "../../lib/utils";
-import { agentsQuery, queryKeys } from "../../query";
+import { queryKeys } from "../../query";
 import { errorMessage } from "../../settings-forms";
 import { SEVERITY_LABELS, severityCounts, sortFindings } from "../../task-view";
+import { panelNote } from "../classes";
 import { FINDING_GRID, FindingRow } from "../FindingRow";
 import { ChevronRightIcon, LockIcon } from "../icons";
-import { ErrorText } from "../settings/parts";
+import { ErrorText } from "../ui/field";
 import { SeverityChip } from "../SeverityChip";
 
 /**
@@ -26,8 +28,7 @@ import { SeverityChip } from "../SeverityChip";
  */
 export function FindingsPanel({ task, findings }: { task: Task; findings: readonly Finding[] }) {
   const queryClient = useQueryClient();
-  const agents = useQuery(agentsQuery);
-  const agentMap = new Map((agents.data ?? []).map((a) => [a.id, a]));
+  const agentMap = useAgentLibrary();
   const [severities, setSeverities] = useState<ReadonlySet<Severity>>(new Set());
   const [gatingOnly, setGatingOnly] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -61,28 +62,21 @@ export function FindingsPanel({ task, findings }: { task: Task; findings: readon
     }
   }
 
-  const overrideRef = useRef(override);
-  useEffect(() => {
-    overrideRef.current = override;
-  });
   const open = findings.find((f) => f.id === expanded);
-  useEffect(() => {
-    if (!open || open.status === "fixed") return;
-    const target = open;
-    function onKeyDown(event: KeyboardEvent) {
-      if (!isPlainKey(event) || isTypingTarget(event.target)) return;
+  useWindowKeydown(
+    (event) => {
+      if (!open || !isPlainKey(event) || isTypingTarget(event.target)) return;
       const key = event.key.toLowerCase();
-      if (key === "f" && target.status !== "force-fix") {
+      if (key === "f" && open.status !== "force-fix") {
         event.preventDefault();
-        void overrideRef.current(target, "force-fix");
-      } else if (key === "i" && target.status !== "force-ignore") {
+        void override(open, "force-fix");
+      } else if (key === "i" && open.status !== "force-ignore") {
         event.preventDefault();
-        void overrideRef.current(target, "force-ignore");
+        void override(open, "force-ignore");
       }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open]);
+    },
+    !!open && open.status !== "fixed",
+  );
 
   function toggleSeverity(severity: Severity) {
     setSeverities((current) => {
@@ -95,7 +89,7 @@ export function FindingsPanel({ task, findings }: { task: Task; findings: readon
 
   if (findings.length === 0) {
     return (
-      <p className="m-0 px-5 py-4 text-muted-foreground">
+      <p className={panelNote}>
         {task.stage === "code-review" && task.status === "running"
           ? "The code reviewers are reading the diff."
           : "No findings. The code reviewers found nothing to report."}
@@ -171,9 +165,7 @@ export function FindingsPanel({ task, findings }: { task: Task; findings: readon
           </span>
         </div>
         {active.map(row)}
-        {active.length === 0 && (
-          <p className="m-0 px-5 py-4 text-muted-foreground">No open findings match the filter.</p>
-        )}
+        {active.length === 0 && <p className={panelNote}>No open findings match the filter.</p>}
         {fixed.length > 0 && (
           <>
             <button

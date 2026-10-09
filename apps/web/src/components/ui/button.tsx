@@ -17,6 +17,11 @@ const buttonVariants = cva(
           "border-transparent bg-magenta font-semibold text-needs-foreground shadow-glow-needs hover:brightness-108",
         ghost:
           "border-transparent bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground-strong",
+        /** Confirms an irreversible action, such as a delete. */
+        destructive:
+          "border-destructive/50 bg-transparent text-destructive hover:bg-destructive/12",
+        /** A low-key destructive action in a toolbar, such as Remove. */
+        "destructive-ghost": "border-transparent bg-transparent text-destructive hover:bg-muted",
       },
       size: {
         default: "h-7 px-2.5 text-[12.5px]",
@@ -36,5 +41,12 @@ export interface ButtonProps extends ComponentProps<"button">, VariantProps<type
 
 export function Button({ className, variant, size, asChild = false, ...props }: ButtonProps) {
   const Comp = asChild ? Slot.Root : "button";
-  return <Comp className={cn(buttonVariants({ variant, size }), className)} {...props} />;
+  // A plain button never submits a surrounding form unless it asks to with `type="submit"`.
+  return (
+    <Comp
+      type={asChild ? undefined : "button"}
+      className={cn(buttonVariants({ variant, size }), className)}
+      {...props}
+    />
+  );
 }

@@ -12,14 +12,16 @@ import { useWithCredential } from "../../credentials";
 import { missingTokenCopy } from "../../missing-token";
 import { connectionsQuery, queryKeys } from "../../query";
 import { ConfirmDialog } from "../ConfirmDialog";
-import { EyeIcon, EyeOffIcon } from "../icons";
+import { PlusIcon } from "../icons";
 import { MissingTokenModal } from "../MissingTokenModal";
 import { Segmented } from "../Segmented";
 import { StatusBadge } from "../StatusBadge";
 import { Button } from "../ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "../ui/dialog";
+import { ErrorText, Field } from "../ui/field";
 import { Input } from "../ui/input";
 import { Kbd } from "../ui/kbd";
+import { SecretInput } from "../ui/secret-input";
 import {
   connectionDraftHost,
   connectionDraftToInput,
@@ -27,7 +29,7 @@ import {
   errorMessage,
   type ConnectionDraft,
 } from "../../settings-forms";
-import { Empty, ErrorText, SectionHeader, fieldLabel } from "./parts";
+import { Empty, SectionHeader } from "./parts";
 
 type TestState =
   | { state: "idle" }
@@ -119,12 +121,7 @@ function ConnectionRow({ connection }: { connection: ConnectionView }) {
           Forget token
         </Button>
       )}
-      <Button
-        size="sm"
-        variant="ghost"
-        className="text-destructive hover:text-destructive"
-        onClick={() => setDialog("remove")}
-      >
+      <Button size="sm" variant="destructive-ghost" onClick={() => setDialog("remove")}>
         Remove
       </Button>
 
@@ -185,7 +182,6 @@ function AddConnectionDialog({
 }) {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<ConnectionDraft>(() => emptyConnectionDraft());
-  const [reveal, setReveal] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -234,9 +230,7 @@ function AddConnectionDialog({
       <DialogContent>
         <form onSubmit={(event) => void submit(event)}>
           <div className="flex flex-col gap-3.5 px-5 pt-[18px] pb-[18px]">
-            <DialogTitle className="m-0 text-heading font-semibold text-foreground-strong">
-              Add connection
-            </DialogTitle>
+            <DialogTitle>Add connection</DialogTitle>
             <DialogDescription className="m-0 text-pretty">
               Connect a GitHub host or a Jira Cloud site. The token can be set now or later.
             </DialogDescription>
@@ -249,8 +243,10 @@ function AddConnectionDialog({
                 { value: "jira", label: "Jira Cloud" },
               ]}
             />
-            <label className="flex flex-col gap-1.5">
-              <span className={fieldLabel}>Host or URL</span>
+            <Field
+              label="Host or URL"
+              hint="GitHub.com, a GitHub Enterprise host, or a Jira Cloud site."
+            >
               <Input
                 className="mono"
                 autoFocus
@@ -260,21 +256,16 @@ function AddConnectionDialog({
                 value={draft.host}
                 onChange={(event) => update({ host: event.target.value })}
               />
-              <span className="text-meta text-muted-foreground">
-                GitHub.com, a GitHub Enterprise host, or a Jira Cloud site.
-              </span>
-            </label>
-            <label className="flex flex-col gap-1.5">
-              <span className={fieldLabel}>Name</span>
+            </Field>
+            <Field label="Name">
               <Input
                 placeholder="Defaults to the host"
                 value={draft.name}
                 onChange={(event) => update({ name: event.target.value })}
               />
-            </label>
+            </Field>
             {jira && (
-              <label className="flex flex-col gap-1.5">
-                <span className={fieldLabel}>Account email</span>
+              <Field label="Account email">
                 <Input
                   type="email"
                   autoComplete="email"
@@ -282,35 +273,21 @@ function AddConnectionDialog({
                   value={draft.email}
                   onChange={(event) => update({ email: event.target.value })}
                 />
-              </label>
+              </Field>
             )}
-            <label className="flex flex-col gap-1.5">
-              <span className="flex items-center gap-2">
-                <span className={fieldLabel}>{jira ? "API token" : "Personal access token"}</span>
-                <span className="text-meta text-faint">Optional</span>
-              </span>
-              <span className="relative block">
-                <Input
-                  className="mono pr-9"
-                  type={reveal ? "text" : "password"}
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={draft.token}
-                  onChange={(event) => update({ token: event.target.value })}
-                />
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  type="button"
-                  className="absolute top-[3px] right-[3px]"
-                  aria-label={reveal ? "Hide token" : "Show token"}
-                  aria-pressed={reveal}
-                  onClick={() => setReveal((on) => !on)}
-                >
-                  {reveal ? <EyeOffIcon /> : <EyeIcon />}
-                </Button>
-              </span>
-            </label>
+            <Field
+              label={
+                <>
+                  {jira ? "API token" : "Personal access token"}{" "}
+                  <span className="ml-1 font-normal text-faint">Optional</span>
+                </>
+              }
+            >
+              <SecretInput
+                value={draft.token}
+                onChange={(event) => update({ token: event.target.value })}
+              />
+            </Field>
             <div className="flex flex-col gap-1 text-meta text-muted-foreground">
               {copy && (
                 <a href={copy.createLink.href} target="_blank" rel="noreferrer">
@@ -326,8 +303,8 @@ function AddConnectionDialog({
             </div>
             {error && <ErrorText>{error}</ErrorText>}
           </div>
-          <div className="flex items-center justify-end gap-2 border-t border-border bg-card px-5 py-3">
-            <Button variant="ghost" type="button" onClick={onClose}>
+          <DialogFooter>
+            <Button variant="ghost" onClick={onClose}>
               Cancel
             </Button>
             <Button variant="primary" type="submit" disabled={pending || !draft.host.trim()}>
@@ -336,7 +313,7 @@ function AddConnectionDialog({
                 ↵
               </Kbd>
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -352,7 +329,8 @@ export function ConnectionsSection() {
     <div className="flex min-w-0 flex-1 flex-col overflow-auto">
       <SectionHeader title="Connections">
         <Button size="sm" variant="primary" onClick={() => setAdding(true)}>
-          + Add
+          <PlusIcon />
+          Add
         </Button>
       </SectionHeader>
       {message && (

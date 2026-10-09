@@ -3,7 +3,6 @@ import type { ComponentProps } from "react";
 import { cn } from "../../lib/utils";
 
 export const Dialog = DialogPrimitive.Root;
-export const DialogTitle = DialogPrimitive.Title;
 export const DialogDescription = DialogPrimitive.Description;
 export const DialogClose = DialogPrimitive.Close;
 
@@ -26,5 +25,27 @@ export function DialogContent({
         {children}
       </DialogPrimitive.Content>
     </DialogPrimitive.Portal>
+  );
+}
+
+export function DialogTitle({ className, ...props }: ComponentProps<typeof DialogPrimitive.Title>) {
+  return (
+    <DialogPrimitive.Title
+      className={cn("m-0 text-heading font-semibold text-foreground-strong", className)}
+      {...props}
+    />
+  );
+}
+
+/** The dialog's action row, right-aligned on the card background. */
+export function DialogFooter({ className, ...props }: ComponentProps<"div">) {
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-end gap-2 border-t border-border bg-card px-5 py-3",
+        className,
+      )}
+      {...props}
+    />
   );
 }

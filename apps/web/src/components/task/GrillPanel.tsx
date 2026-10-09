@@ -1,16 +1,18 @@
 import type { Agent, GrillQuestion, Task } from "@blackwall/shared";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { answerQuestion } from "../../api";
+import { useAgentLibrary } from "../../hooks";
 import { isModKey, modKeyLabel } from "../../keyboard";
 import { cn } from "../../lib/utils";
-import { agentsQuery, queryKeys } from "../../query";
+import { queryKeys } from "../../query";
 import { errorMessage } from "../../settings-forms";
 import { grillCounts } from "../../task-view";
 import { AgentTile } from "../AgentTile";
-import { ErrorText } from "../settings/parts";
 import { StatusBadge } from "../StatusBadge";
 import { Button } from "../ui/button";
+import { Chip } from "../ui/chip";
+import { ErrorText, fieldLabel } from "../ui/field";
 import { Kbd } from "../ui/kbd";
 import { Textarea } from "../ui/textarea";
 import { PlanPanel } from "./PlanPanel";
@@ -19,17 +21,13 @@ import type { TaskAction } from "./use-task-action";
 function QuestionStatus({ question }: { question: GrillQuestion }) {
   if (question.answer !== null) {
     return (
-      <span className="inline-flex h-5 items-center rounded-sm border border-done/40 px-1.5 text-[11.5px] font-medium text-done">
+      <Chip tone="done">
         {question.answeredBy === "user" ? "Answered by you" : "Answered by planner"}
-      </span>
+      </Chip>
     );
   }
   if (question.needsHuman) return <StatusBadge status="needs-you" label="Needs your decision" />;
-  return (
-    <span className="inline-flex h-5 items-center rounded-sm border border-border-strong px-1.5 text-[11.5px] font-medium text-muted-foreground">
-      Waiting on planner
-    </span>
-  );
+  return <Chip tone="neutral">Waiting on planner</Chip>;
 }
 
 function AnswerForm({ task, question }: { task: Task; question: GrillQuestion }) {
@@ -62,7 +60,7 @@ function AnswerForm({ task, question }: { task: Task; question: GrillQuestion })
         void submit();
       }}
     >
-      <label htmlFor={id} className="text-meta font-medium text-foreground-strong">
+      <label htmlFor={id} className={fieldLabel}>
         Your answer
       </label>
       <Textarea
@@ -163,8 +161,7 @@ export function GrillPanel({
   action: TaskAction;
   draft: string;
 }) {
-  const agents = useQuery(agentsQuery);
-  const agentMap = new Map((agents.data ?? []).map((a) => [a.id, a]));
+  const agentMap = useAgentLibrary();
   const counts = grillCounts(questions);
 
   return (

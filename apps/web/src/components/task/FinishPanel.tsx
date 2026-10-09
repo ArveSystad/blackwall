@@ -6,8 +6,8 @@ import type {
   Task,
 } from "@blackwall/shared";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
-import { isModKey, isTypingTarget, modKeyLabel } from "../../keyboard";
+import { useState } from "react";
+import { isModKey, isTypingTarget, modKeyLabel, useWindowKeydown } from "../../keyboard";
 import { taskDeliveryQuery } from "../../query";
 import { checkPassed, confirmLabel, deliveryActionCopy, isReviewTriage } from "../../task-view";
 import { WallIcon } from "../icons";
@@ -15,6 +15,7 @@ import { Markdown } from "../Markdown";
 import { OutboundAction } from "../OutboundAction";
 import { SeverityChip } from "../SeverityChip";
 import { Button } from "../ui/button";
+import { ErrorText } from "../ui/field";
 import { Kbd } from "../ui/kbd";
 import { answerGate } from "./actions";
 import type { TaskData } from "./use-task-data";
@@ -179,19 +180,11 @@ function Outbound({
     );
   }
 
-  const confirmRef = useRef(confirm);
-  useEffect(() => {
-    confirmRef.current = confirm;
+  useWindowKeydown((event) => {
+    if (event.key !== "Enter" || !isModKey(event) || isTypingTarget(event.target)) return;
+    event.preventDefault();
+    confirm();
   });
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key !== "Enter" || !isModKey(event) || isTypingTarget(event.target)) return;
-      event.preventDefault();
-      confirmRef.current();
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
 
   function toggle(kind: DeliveryTarget, on: boolean) {
     setTicked((current) => {
@@ -351,7 +344,7 @@ export function FinishPanel({
             <p className="m-0 px-[18px] py-3 text-muted-foreground">Working out what to send…</p>
           ) : plan.isError ? (
             <div className="flex flex-col items-start gap-2 px-[18px] py-3">
-              <p className="m-0 text-destructive">{plan.error.message}</p>
+              <ErrorText className="text-body">{plan.error.message}</ErrorText>
               <Button size="sm" onClick={() => void plan.refetch()}>
                 Retry
               </Button>

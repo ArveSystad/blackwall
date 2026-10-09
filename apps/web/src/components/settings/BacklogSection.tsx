@@ -2,10 +2,13 @@ import type { GeneralSettings } from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { updateSettings } from "../../api";
+import { cn } from "../../lib/utils";
 import { queryKeys, settingsQuery } from "../../query";
-import { errorMessage } from "../../settings-forms";
+import { errorMessage, parseCap } from "../../settings-forms";
+import { editorBody, sectionLegend } from "../classes";
+import { fieldLabel } from "../ui/field";
 import { Input } from "../ui/input";
-import { Empty, SaveBar, SectionHeader, fieldLabel } from "./parts";
+import { Empty, SaveBar, SectionHeader } from "./parts";
 
 function BacklogEditor({ saved }: { saved: GeneralSettings }) {
   const queryClient = useQueryClient();
@@ -15,8 +18,7 @@ function BacklogEditor({ saved }: { saved: GeneralSettings }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const capValue = Number(cap);
-  const capValid = Number.isInteger(capValue) && capValue >= 1 && capValue <= 20;
+  const capValue = parseCap(cap);
   const dirty =
     runner !== saved.backlogRunner ||
     capValue !== saved.maxBacklogTasksPerRepo ||
@@ -24,7 +26,7 @@ function BacklogEditor({ saved }: { saved: GeneralSettings }) {
 
   async function save() {
     if (!dirty || saving) return;
-    if (!capValid) {
+    if (capValue === null) {
       setError("Backlog tasks per repo must be a whole number from 1 to 20");
       return;
     }
@@ -47,9 +49,9 @@ function BacklogEditor({ saved }: { saved: GeneralSettings }) {
 
   return (
     <>
-      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-auto px-5 py-[18px]">
+      <div className={cn(editorBody, "gap-6")}>
         <fieldset className="m-0 flex max-w-[720px] flex-col gap-4 border-none p-0">
-          <legend className="label mb-1 p-0 text-muted-foreground">Backlog runner</legend>
+          <legend className={sectionLegend}>Backlog runner</legend>
           <p className="m-0 text-meta text-muted-foreground">
             The runner promotes each repo&apos;s backlog items to tasks when the repo is idle and
             the agents&apos; quotas allow. Each repo&apos;s backlog view can switch it off for that
@@ -58,7 +60,7 @@ function BacklogEditor({ saved }: { saved: GeneralSettings }) {
           <label className="flex cursor-pointer items-start gap-2.5">
             <input
               type="checkbox"
-              className="mt-[3px] accent-primary"
+              className="mt-[3px]"
               checked={runner}
               onChange={(event) => setRunner(event.target.checked)}
             />
@@ -80,11 +82,15 @@ function BacklogEditor({ saved }: { saved: GeneralSettings }) {
                 min={1}
                 max={20}
                 className="mono w-20"
-                aria-invalid={!capValid}
+                aria-invalid={capValue === null}
+                aria-describedby="max-backlog-tasks-per-repo-hint"
                 value={cap}
                 onChange={(event) => setCap(event.target.value)}
               />
-              <span className="text-meta text-muted-foreground">
+              <span
+                id="max-backlog-tasks-per-repo-hint"
+                className="text-meta text-muted-foreground"
+              >
                 Backlog tasks running at once in one repo, within the repo&apos;s task cap.
               </span>
             </div>
@@ -92,7 +98,7 @@ function BacklogEditor({ saved }: { saved: GeneralSettings }) {
           <label className="flex cursor-pointer items-start gap-2.5">
             <input
               type="checkbox"
-              className="mt-[3px] accent-primary"
+              className="mt-[3px]"
               checked={stopOnNeeds}
               onChange={(event) => setStopOnNeeds(event.target.checked)}
             />

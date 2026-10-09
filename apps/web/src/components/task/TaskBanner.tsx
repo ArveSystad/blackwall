@@ -1,9 +1,10 @@
 import type { Task } from "@blackwall/shared";
+import { cn } from "../../lib/utils";
 import { deleteBlockedReason, gateBanner, isStoppedByUser, type TaskTab } from "../../task-view";
 import { FailedIcon, PausedIcon, StopIcon } from "../icons";
 import { NeedsBanner } from "../NeedsBanner";
-import { ErrorText } from "../settings/parts";
 import { Button } from "../ui/button";
+import { ErrorText } from "../ui/field";
 import { Kbd } from "../ui/kbd";
 import { answerGate, resume } from "./actions";
 import type { TaskAction } from "./use-task-action";
@@ -164,13 +165,12 @@ export function TaskBanner({
       <div className="flex flex-col gap-1.5 px-5 pt-3">
         <div
           role="status"
-          className={
-            failed
-              ? "flex flex-wrap items-start gap-3.5 rounded-lg border border-failed/45 bg-sidebar px-4 py-3.5"
-              : "flex flex-wrap items-start gap-3.5 rounded-lg border border-interrupted/40 bg-sidebar px-4 py-3.5"
-          }
+          className={cn(
+            "flex flex-wrap items-start gap-3.5 rounded-lg border bg-sidebar px-4 py-3.5",
+            failed ? "border-failed/45" : "border-interrupted/40",
+          )}
         >
-          <Icon size="lg" className={failed ? "mt-0.5 text-failed" : "mt-0.5 text-interrupted"} />
+          <Icon size="lg" className={cn("mt-0.5", failed ? "text-failed" : "text-interrupted")} />
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
             <span className="font-semibold text-foreground-strong">
               {failed ? "The task failed" : stoppedByUser ? "Stopped" : "Stopped mid-step"}

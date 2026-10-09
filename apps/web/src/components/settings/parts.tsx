@@ -1,21 +1,12 @@
-import { useEffect, useRef, type ReactNode } from "react";
-import { isModKey, modKeyLabel } from "../../keyboard";
+import type { ReactNode } from "react";
+import { isModKey, modKeyLabel, useWindowKeydown } from "../../keyboard";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
+import { ErrorText } from "../ui/field";
 import { Kbd } from "../ui/kbd";
-
-export const fieldLabel = "text-meta font-medium text-foreground-strong";
 
 export function Empty({ children }: { children: ReactNode }) {
   return <p className="m-0 px-4 py-6 text-muted-foreground">{children}</p>;
-}
-
-export function ErrorText({ children }: { children: ReactNode }) {
-  return (
-    <p className="m-0 text-meta text-destructive" role="alert">
-      {children}
-    </p>
-  );
 }
 
 /** A settings section's title row, with its actions on the right. */
@@ -31,20 +22,11 @@ export function SectionHeader({ title, children }: { title: string; children?: R
 
 /** Runs `onSave` on ⌘S / Ctrl S while `enabled`, including from text fields. */
 function useSaveShortcut(enabled: boolean, onSave: () => void): void {
-  const save = useRef(onSave);
-  useEffect(() => {
-    save.current = onSave;
-  });
-  useEffect(() => {
-    if (!enabled) return;
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key.toLowerCase() !== "s" || !isModKey(event)) return;
-      event.preventDefault();
-      save.current();
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [enabled]);
+  useWindowKeydown((event) => {
+    if (event.key.toLowerCase() !== "s" || !isModKey(event)) return;
+    event.preventDefault();
+    onSave();
+  }, enabled);
 }
 
 /** Footer with the unsaved-changes marker, Discard and Save (⌘S). */

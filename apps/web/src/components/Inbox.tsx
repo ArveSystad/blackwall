@@ -1,14 +1,16 @@
 import type { Task } from "@blackwall/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState } from "react";
+import { useAgentLibrary, useNow } from "../hooks";
 import { activeAgentsLabel, groupTasks, matchesFilter, needsYouCount } from "../inbox";
-import { isPlainKey, isTypingTarget } from "../keyboard";
+import { isPlainKey, isTypingTarget, useWindowKeydown } from "../keyboard";
 import { cn } from "../lib/utils";
 import { useLiveStatus } from "../live-status";
-import { activeAgentsQuery, agentsQuery, reposQuery, tasksQuery } from "../query";
+import { activeAgentsQuery, reposQuery, tasksQuery } from "../query";
 import { agentClis } from "../task-view";
-import { GearIcon, PlusIcon, SearchIcon, StatsIcon, WallIcon } from "./icons";
+import { EmptyState } from "./EmptyState";
+import { GearIcon, PlusIcon, SearchIcon, StatsIcon } from "./icons";
 import { NewTaskModal } from "./NewTaskModal";
 import { QuotaChip } from "./QuotaChip";
 import { StatusBadge } from "./StatusBadge";
@@ -25,49 +27,29 @@ const GROUPS = [
   { key: "recent", label: "Recent", tone: "text-muted-foreground" },
 ] as const;
 
-/** Re-renders every minute so relative times stay current. */
-function useNow(): Date {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 60_000);
-    return () => clearInterval(timer);
-  }, []);
-  return now;
-}
-
-function Message({ title, children }: { title: string; children?: ReactNode }) {
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
-      <WallIcon className="size-7 text-faint" />
-      <div className="font-medium text-foreground-strong">{title}</div>
-      {children && <div className="max-w-60 text-meta text-muted-foreground">{children}</div>}
-    </div>
-  );
-}
-
 function TaskList({ tasks, filter }: { tasks: Task[]; filter: string }) {
   const repos = useQuery(reposQuery);
-  const agents = useQuery(agentsQuery);
+  const library = useAgentLibrary();
   const now = useNow();
   const repoNames = useMemo(
     () => new Map((repos.data ?? []).map((repo) => [repo.id, repo.name])),
     [repos.data],
   );
-  const library = useMemo(
-    () => new Map((agents.data ?? []).map((agent) => [agent.id, agent])),
-    [agents.data],
-  );
   const groups = groupTasks(tasks.filter((task) => matchesFilter(task, filter)));
 
   if (tasks.every((task) => task.archivedAt !== null)) {
     return (
-      <Message title="The wall is quiet">
+      <EmptyState key="empty" title="The wall is quiet">
         Tasks you start show up here; archived tasks stay in each repo&apos;s backlog.
-      </Message>
+      </EmptyState>
     );
   }
   if (GROUPS.every((g) => groups[g.key].length === 0)) {
-    return <Message title="No tasks match">Nothing matches “{filter.trim()}”.</Message>;
+    return (
+      <EmptyState key="no-match" title="No tasks match">
+        Nothing matches “{filter.trim()}”.
+      </EmptyState>
+    );
   }
   return (
     <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2">
@@ -135,20 +117,16 @@ export function Inbox() {
   const filterInput = useRef<HTMLInputElement>(null);
   const needs = needsYouCount(tasks.data ?? []);
 
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (!isPlainKey(event) || isTypingTarget(event.target)) return;
-      if (event.key === "/") {
-        event.preventDefault();
-        filterInput.current?.focus();
-      } else if (event.key.toLowerCase() === "n" && !document.querySelector("[role=dialog]")) {
-        event.preventDefault();
-        setCreating(true);
-      }
+  useWindowKeydown((event) => {
+    if (!isPlainKey(event) || isTypingTarget(event.target)) return;
+    if (event.key === "/") {
+      event.preventDefault();
+      filterInput.current?.focus();
+    } else if (event.key.toLowerCase() === "n" && !document.querySelector("[role=dialog]")) {
+      event.preventDefault();
+      setCreating(true);
     }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  });
 
   return (
     <aside
@@ -211,14 +189,16 @@ export function Inbox() {
       </div>
 
       {tasks.isPending ? (
-        <Message title="Loading tasks…" />
+        <EmptyState key="loading" role="status" title="Loading tasks…" />
       ) : tasks.isError ? (
-        <Message title="Could not load tasks">
-          {tasks.error.message}{" "}
-          <Button variant="ghost" size="sm" onClick={() => void tasks.refetch()}>
-            Retry
-          </Button>
-        </Message>
+        <EmptyState
+          key="error"
+          role="alert"
+          title="Could not load tasks"
+          onRetry={() => void tasks.refetch()}
+        >
+          {tasks.error.message}
+        </EmptyState>
       ) : (
         <TaskList tasks={tasks.data} filter={filter} />
       )}

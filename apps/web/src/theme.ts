@@ -1,5 +1,5 @@
-import { useEffect, useSyncExternalStore } from "react";
-import { isPlainKey, isTypingTarget } from "./keyboard";
+import { useSyncExternalStore } from "react";
+import { isPlainKey, isTypingTarget, useWindowKeydown } from "./keyboard";
 
 /**
  * Dark is blackwall's theme; light is opt-in per browser. The OS color-scheme preference is
@@ -62,14 +62,10 @@ export function useTheme(): Theme {
 
 /** The global `T` shortcut. Register once at app level so it works on every route. */
 export function useThemeHotkey(): void {
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.repeat || !isPlainKey(event) || isTypingTarget(event.target)) return;
-      if (event.key.toLowerCase() !== "t") return;
-      event.preventDefault();
-      toggleTheme();
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  useWindowKeydown((event) => {
+    if (event.repeat || !isPlainKey(event) || isTypingTarget(event.target)) return;
+    if (event.key.toLowerCase() !== "t") return;
+    event.preventDefault();
+    toggleTheme();
+  });
 }

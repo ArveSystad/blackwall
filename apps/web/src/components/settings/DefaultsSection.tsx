@@ -1,12 +1,10 @@
 import {
   AGENT_CLIS,
   AGENT_ROLES,
-  PANEL_ROLES,
   type Agent,
   type AgentCli,
   type AgentRole,
   type GeneralSettings,
-  type RoleAgents,
   type RoleDefaultsByCli,
 } from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -14,24 +12,25 @@ import { useState } from "react";
 import { setRoleDefaults, updateSettings } from "../../api";
 import { cn } from "../../lib/utils";
 import { agentsQuery, queryKeys, roleDefaultsQuery, settingsQuery } from "../../query";
-import { CLI_NAMES, ROLE_LABELS, agentsForRole, errorMessage } from "../../settings-forms";
+import {
+  CLI_NAMES,
+  ROLE_LABELS,
+  agentsForRole,
+  errorMessage,
+  isPanelRole,
+  parseCap,
+  roleIds,
+  sameRoles,
+  withRole,
+} from "../../settings-forms";
 import { AgentTile } from "../AgentTile";
+import { editorBody, sectionLegend } from "../classes";
 import { Segmented } from "../Segmented";
+import { CheckChip } from "../ui/check-chip";
+import { fieldLabel } from "../ui/field";
 import { Input } from "../ui/input";
 import { Select } from "../ui/select";
-import { Empty, SaveBar, SectionHeader, fieldLabel } from "./parts";
-
-const isPanel = (role: AgentRole) => (PANEL_ROLES as readonly AgentRole[]).includes(role);
-
-function ids(roles: RoleAgents, role: AgentRole): string[] {
-  const value = roles[role];
-  if (value === undefined) return [];
-  return typeof value === "string" ? [value] : value;
-}
-
-function sameRoles(a: RoleAgents, b: RoleAgents): boolean {
-  return AGENT_ROLES.every((role) => ids(a, role).join() === ids(b, role).join());
-}
+import { Empty, SaveBar, SectionHeader } from "./parts";
 
 function DefaultsEditor({
   agents,
@@ -54,25 +53,18 @@ function DefaultsEditor({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const capValue = Number(cap);
-  const capValid = Number.isInteger(capValue) && capValue >= 1 && capValue <= 20;
+  const capValue = parseCap(cap);
   const rolesDirty = !sameRoles(roles, savedRoles);
   const capDirty = capValue !== savedSettings.maxTasksPerRepo;
   const dirty = rolesDirty || capDirty;
 
-  function setRole(role: AgentRole, value: string[]) {
-    setRoles((current) => {
-      const next: RoleAgents = { ...current };
-      if (isPanel(role)) Object.assign(next, { [role]: value });
-      else if (value[0]) Object.assign(next, { [role]: value[0] });
-      else delete next[role];
-      return next;
-    });
+  function setRole(role: AgentRole, ids: string[]) {
+    setRoles((current) => withRole(current, role, ids));
   }
 
   async function save() {
     if (!dirty || saving) return;
-    if (!capValid) {
+    if (capValue === null) {
       setError("The concurrency cap must be a whole number from 1 to 20");
       return;
     }
@@ -97,9 +89,9 @@ function DefaultsEditor({
 
   return (
     <>
-      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-auto px-5 py-[18px]">
+      <div className={cn(editorBody, "gap-6")}>
         <fieldset className="m-0 flex max-w-[720px] flex-col gap-4 border-none p-0">
-          <legend className="label mb-1 p-0 text-muted-foreground">Agent per role</legend>
+          <legend className={sectionLegend}>Agent per role</legend>
           <div className="grid grid-cols-[140px_minmax(0,1fr)] items-center gap-3">
             <span className={fieldLabel}>Defaults for</span>
             <Segmented
@@ -123,9 +115,9 @@ function DefaultsEditor({
           </p>
           {AGENT_ROLES.map((role) => {
             const eligible = agentsForRole(agents, role);
-            const chosen = ids(roles, role);
+            const chosen = roleIds(roles, role);
             const id = `role-${role}`;
-            if (!isPanel(role)) {
+            if (!isPanelRole(role)) {
               return (
                 <div key={role} className="grid grid-cols-[140px_minmax(0,1fr)] items-center gap-3">
                   <label htmlFor={id} className={fieldLabel}>
@@ -162,34 +154,21 @@ function DefaultsEditor({
                       No agent is eligible for this stage.
                     </span>
                   )}
-                  {eligible.map((agent) => {
-                    const on = chosen.includes(agent.id);
-                    return (
-                      <label
-                        key={agent.id}
-                        className={cn(
-                          "inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-sm border border-input px-2.5 text-[12.5px] font-medium text-muted-foreground has-focus-visible:shadow-ring",
-                          on && "border-primary text-foreground-strong",
-                        )}
-                      >
-                        <input
-                          type="checkbox"
-                          className="accent-primary focus:outline-none"
-                          checked={on}
-                          onChange={(event) =>
-                            setRole(
-                              role,
-                              event.target.checked
-                                ? [...chosen, agent.id]
-                                : chosen.filter((c) => c !== agent.id),
-                            )
-                          }
-                        />
-                        <AgentTile cli={agent.cli} />
-                        {agent.name}
-                      </label>
-                    );
-                  })}
+                  {eligible.map((agent) => (
+                    <CheckChip
+                      key={agent.id}
+                      checked={chosen.includes(agent.id)}
+                      onCheckedChange={(checked) =>
+                        setRole(
+                          role,
+                          checked ? [...chosen, agent.id] : chosen.filter((c) => c !== agent.id),
+                        )
+                      }
+                    >
+                      <AgentTile cli={agent.cli} />
+                      {agent.name}
+                    </CheckChip>
+                  ))}
                 </div>
               </fieldset>
             );
@@ -197,7 +176,7 @@ function DefaultsEditor({
         </fieldset>
 
         <fieldset className="m-0 flex max-w-[720px] flex-col gap-3 border-none p-0">
-          <legend className="label mb-1 p-0 text-muted-foreground">Concurrency</legend>
+          <legend className={sectionLegend}>Concurrency</legend>
           <div className="grid grid-cols-[140px_minmax(0,1fr)] items-center gap-3">
             <label htmlFor="max-tasks-per-repo" className={fieldLabel}>
               Tasks per repo
@@ -209,7 +188,7 @@ function DefaultsEditor({
                 min={1}
                 max={20}
                 className="mono w-20"
-                aria-invalid={!capValid}
+                aria-invalid={capValue === null}
                 value={cap}
                 onChange={(event) => setCap(event.target.value)}
               />

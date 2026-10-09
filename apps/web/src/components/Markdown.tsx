@@ -2,6 +2,7 @@ import { createContext, useContext, type ComponentProps, type ElementType, type 
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "../lib/utils";
+import { codeBlock } from "./classes";
 
 /** True inside a fenced block, so `code` drops its inline chip styling. */
 const InPre = createContext(false);
@@ -36,10 +37,7 @@ const components: Components = {
   ol: styled("ol", "m-0 flex list-decimal flex-col gap-1.5 pl-[18px]"),
   pre: (props) => (
     <InPre.Provider value={true}>
-      <pre
-        {...domProps(props)}
-        className="m-0 overflow-x-auto rounded-md border border-border bg-code px-3 py-2 font-mono text-code text-foreground"
-      />
+      <pre {...domProps(props)} className={codeBlock} />
     </InPre.Provider>
   ),
   code: function Code(props) {

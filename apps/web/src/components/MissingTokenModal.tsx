@@ -1,12 +1,17 @@
 import type { MissingCredential } from "@blackwall/shared";
 import { useState, type FormEvent, type KeyboardEvent } from "react";
 import { saveCredential } from "../api";
+import { isModKey } from "../keyboard";
 import { missingTokenCopy, type CredentialAction } from "../missing-token";
-import { EyeIcon, EyeOffIcon, KeyIcon } from "./icons";
+import { errorMessage } from "../settings-forms";
+import { KeyIcon } from "./icons";
 import { Button } from "./ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
+import { Tag } from "./ui/chip";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "./ui/dialog";
+import { ErrorText, Field } from "./ui/field";
 import { Input } from "./ui/input";
 import { Kbd } from "./ui/kbd";
+import { SecretInput } from "./ui/secret-input";
 
 export interface MissingTokenModalProps {
   missing: MissingCredential;
@@ -14,8 +19,6 @@ export interface MissingTokenModalProps {
   onSaved: () => void;
   onCancel: () => void;
 }
-
-const fieldLabel = "text-meta font-medium text-foreground-strong";
 
 /**
  * Asks for the token an action is missing, stores it (creating the connection
@@ -26,7 +29,6 @@ export function MissingTokenModal({ missing, action, onSaved, onCancel }: Missin
   const copy = missingTokenCopy(missing);
   const [token, setToken] = useState("");
   const [email, setEmail] = useState("");
-  const [reveal, setReveal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,13 +44,13 @@ export function MissingTokenModal({ missing, action, onSaved, onCancel }: Missin
       });
       onSaved();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not save the token");
+      setError(errorMessage(cause));
       setSaving(false);
     }
   }
 
   function onKeyDown(event: KeyboardEvent) {
-    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+    if (event.key === "Enter" && isModKey(event.nativeEvent)) {
       event.preventDefault();
       void submit();
     }
@@ -64,9 +66,7 @@ export function MissingTokenModal({ missing, action, onSaved, onCancel }: Missin
               <span className="inline-flex size-8 flex-none items-center justify-center rounded-lg border border-magenta/40 bg-needs-wash text-magenta">
                 <KeyIcon size="lg" />
               </span>
-              <DialogTitle className="m-0 text-heading font-semibold text-foreground-strong">
-                {copy.title}
-              </DialogTitle>
+              <DialogTitle>{copy.title}</DialogTitle>
             </div>
             <DialogDescription className="m-0 text-pretty">
               Starting <span className="text-foreground-strong">{action.label}</span>
@@ -94,9 +94,7 @@ export function MissingTokenModal({ missing, action, onSaved, onCancel }: Missin
                 <>
                   <dt className="text-muted-foreground">Scopes</dt>
                   <dd className="m-0 flex items-center gap-1">
-                    <span className="mono inline-flex h-[18px] items-center rounded-xs bg-muted px-[5px] text-label text-foreground-strong">
-                      {copy.scope}
-                    </span>
+                    <Tag className="text-foreground-strong">{copy.scope}</Tag>
                     <span className="text-faint">required</span>
                   </dd>
                 </>
@@ -104,8 +102,7 @@ export function MissingTokenModal({ missing, action, onSaved, onCancel }: Missin
             </dl>
 
             {copy.needsEmail && (
-              <label className="flex flex-col gap-1.5">
-                <span className={fieldLabel}>Account email</span>
+              <Field label="Account email">
                 <Input
                   type="email"
                   autoComplete="email"
@@ -114,35 +111,17 @@ export function MissingTokenModal({ missing, action, onSaved, onCancel }: Missin
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
                 />
-              </label>
+              </Field>
             )}
 
-            <label className="flex flex-col gap-1.5">
-              <span className={fieldLabel}>{copy.tokenLabel}</span>
-              <span className="relative block">
-                <Input
-                  className="mono pr-9"
-                  type={reveal ? "text" : "password"}
-                  autoComplete="off"
-                  spellCheck={false}
-                  required
-                  autoFocus={!copy.needsEmail}
-                  value={token}
-                  onChange={(event) => setToken(event.target.value)}
-                />
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  type="button"
-                  className="absolute top-[3px] right-[3px]"
-                  aria-label={reveal ? "Hide token" : "Show token"}
-                  aria-pressed={reveal}
-                  onClick={() => setReveal((on) => !on)}
-                >
-                  {reveal ? <EyeOffIcon /> : <EyeIcon />}
-                </Button>
-              </span>
-            </label>
+            <Field label={copy.tokenLabel}>
+              <SecretInput
+                required
+                autoFocus={!copy.needsEmail}
+                value={token}
+                onChange={(event) => setToken(event.target.value)}
+              />
+            </Field>
 
             <div className="flex flex-col gap-1 text-meta text-muted-foreground">
               <a href={copy.createLink.href} target="_blank" rel="noreferrer">
@@ -154,15 +133,11 @@ export function MissingTokenModal({ missing, action, onSaved, onCancel }: Missin
               </span>
             </div>
 
-            {error && (
-              <p className="m-0 text-meta text-destructive" role="alert">
-                {error}
-              </p>
-            )}
+            {error && <ErrorText>{error}</ErrorText>}
           </div>
 
-          <div className="flex items-center justify-end gap-2 border-t border-border bg-card px-5 py-3">
-            <Button variant="ghost" type="button" onClick={onCancel}>
+          <DialogFooter>
+            <Button variant="ghost" onClick={onCancel}>
               Cancel
             </Button>
             <Button variant="primary" type="submit" disabled={saving || !token.trim()}>
@@ -171,7 +146,7 @@ export function MissingTokenModal({ missing, action, onSaved, onCancel }: Missin
                 ↵
               </Kbd>
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

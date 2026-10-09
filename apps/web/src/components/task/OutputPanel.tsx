@@ -1,12 +1,15 @@
 import type { Agent, Step } from "@blackwall/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { useAgentLibrary } from "../../hooks";
 import { cn } from "../../lib/utils";
-import { agentsQuery, stepEventsQuery } from "../../query";
+import { stepEventsQuery } from "../../query";
 import { STAGE_LABELS, buildTranscript, defaultStepId, type TranscriptItem } from "../../task-view";
 import { AgentTile } from "../AgentTile";
+import { panelNote } from "../classes";
 import { CheckIcon, FailedIcon, PausedIcon } from "../icons";
 import { ToolCall } from "../ToolCall";
+import { ErrorText } from "../ui/field";
 
 function stepName(step: Step, agent: Agent | undefined): string {
   const stage = STAGE_LABELS[step.stage];
@@ -127,7 +130,7 @@ function Transcript({
         {events.isPending ? (
           <p className="m-0 text-muted-foreground">Loading output…</p>
         ) : events.isError ? (
-          <p className="m-0 text-destructive">{events.error.message}</p>
+          <ErrorText className="text-body">{events.error.message}</ErrorText>
         ) : items.length === 0 ? (
           <p className="m-0 text-muted-foreground">
             {live ? "Waiting for the agent's first output…" : "This step produced no output."}
@@ -154,8 +157,7 @@ export function OutputPanel({
   steps: readonly Step[];
   loading: boolean;
 }) {
-  const agents = useQuery(agentsQuery);
-  const agentMap = new Map((agents.data ?? []).map((a) => [a.id, a]));
+  const agentMap = useAgentLibrary();
   const [selected, setSelected] = useState<string | null>(null);
   const [follow, setFollow] = useState(true);
 
@@ -163,12 +165,10 @@ export function OutputPanel({
   const current = follow ? defaultStepId(steps) : (selected ?? defaultStepId(steps));
   const step = steps.find((s) => s.id === current);
 
-  if (loading) return <p className="m-0 px-5 py-4 text-muted-foreground">Loading steps…</p>;
+  if (loading) return <p className={panelNote}>Loading steps…</p>;
   if (steps.length === 0 || !step) {
     return (
-      <p className="m-0 px-5 py-4 text-muted-foreground">
-        No agent has run yet. Output streams here once the task starts.
-      </p>
+      <p className={panelNote}>No agent has run yet. Output streams here once the task starts.</p>
     );
   }
 

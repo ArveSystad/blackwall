@@ -26,28 +26,28 @@ import {
   type BacklogItemState,
   type RunnerStatus,
 } from "../backlog";
+import { paneBody, paneHeader, paneTitle } from "../components/classes";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { EmptyState } from "../components/EmptyState";
 import {
   BacklogIcon,
   FailedIcon,
   GripIcon,
-  JiraIcon,
   PausedIcon,
   PlayIcon,
   PlusIcon,
-  PullRequestIcon,
-  TextIcon,
-  WallIcon,
 } from "../components/icons";
 import { NewTaskModal } from "../components/NewTaskModal";
-import { StatusBadge } from "../components/StatusBadge";
+import { ORIGIN_ICONS } from "../components/origins";
+import { StatusBadge, pill } from "../components/StatusBadge";
 import { Button } from "../components/ui/button";
+import { ErrorText } from "../components/ui/field";
 import { Input } from "../components/ui/input";
 import { Kbd } from "../components/ui/kbd";
+import { useAgentLibrary, useNow } from "../hooks";
 import { originKey } from "../inbox";
 import { cn } from "../lib/utils";
 import {
-  agentsQuery,
   backlogQuery,
   backlogRunnerQuery,
   queryKeys,
@@ -61,22 +61,6 @@ import { setSelectedRepo } from "../selected-repo";
 import { errorMessage } from "../settings-forms";
 import { agentClis } from "../task-view";
 
-const ORIGIN_ICONS = {
-  "jira-issue": JiraIcon,
-  "github-pr": PullRequestIcon,
-  "free-text": TextIcon,
-} as const;
-
-/** Re-renders every `ms` so countdowns stay current. */
-function useNow(ms: number): Date {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), ms);
-    return () => clearInterval(timer);
-  }, [ms]);
-  return now;
-}
-
 /** An item's role agents with the role defaults filled in, as the server resolves them. */
 function resolvedRoles(agents: RoleAgents, defaults: RoleAgents): RoleAgents {
   const roles: RoleAgents = { ...defaults };
@@ -84,16 +68,6 @@ function resolvedRoles(agents: RoleAgents, defaults: RoleAgents): RoleAgents {
     if (agents[role] !== undefined) Object.assign(roles, { [role]: agents[role] });
   }
   return roles;
-}
-
-function Message({ title, children }: { title: string; children?: ReactNode }) {
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
-      <WallIcon className="size-7 text-faint" />
-      <div className="font-medium text-foreground-strong">{title}</div>
-      {children && <div className="max-w-80 text-meta text-muted-foreground">{children}</div>}
-    </div>
-  );
 }
 
 const RUNNER_TONES: Record<RunnerStatus["tone"], { text: string; dot: string }> = {
@@ -173,11 +147,7 @@ function RunnerBar({
       ) : (
         <span className="flex-1 text-foreground">Loading…</span>
       )}
-      {error && (
-        <span className="text-body text-destructive" role="alert">
-          {error}
-        </span>
-      )}
+      {error && <ErrorText className="text-body">{error}</ErrorText>}
       {status?.tone === "halted" && (
         <Button
           variant="primary"
@@ -198,7 +168,7 @@ function RunnerBar({
         >
           <input
             type="checkbox"
-            className="accent-primary focus:outline-none"
+            className="focus:outline-none"
             checked={enabled}
             disabled={pending}
             onChange={(event) => {
@@ -255,11 +225,7 @@ function ArchiveBar({
     >
       <span className="label text-foreground">Archive</span>
       <span className="mono flex-1 text-[12.5px] text-muted-foreground">{archived} archived</span>
-      {error && (
-        <span className="text-body text-destructive" role="alert">
-          {error}
-        </span>
-      )}
+      {error && <ErrorText className="text-body">{error}</ErrorText>}
       <Button size="sm" variant="ghost" aria-expanded={shown} onClick={onToggle}>
         {shown ? "Hide archive" : `Show archive (${archived})`}
       </Button>
@@ -279,7 +245,7 @@ function StateChip({ state }: { state: BacklogItemState }) {
   switch (state.kind) {
     case "next":
       return (
-        <span className="inline-flex h-5 items-center gap-[5px] rounded-full bg-running/12 px-[7px] text-label font-semibold whitespace-nowrap text-running">
+        <span className={cn(pill, "bg-running/12 text-running")}>
           <span className="size-1.5 rounded-full bg-running" aria-hidden="true" />
           Next up
         </span>
@@ -288,7 +254,7 @@ function StateChip({ state }: { state: BacklogItemState }) {
       return <span className="text-label whitespace-nowrap text-muted-foreground">Waiting</span>;
     case "paused":
       return (
-        <span className="inline-flex h-5 items-center gap-1 rounded-full bg-interrupted/12 px-[7px] text-label font-semibold whitespace-nowrap text-interrupted">
+        <span className={cn(pill, "gap-1 bg-interrupted/12 text-interrupted")}>
           <PausedIcon size="sm" />
           Paused
         </span>
@@ -591,7 +557,7 @@ export function Backlog({ repoId }: { repoId: string }) {
   const settings = useQuery(settingsQuery);
   const tasks = useQuery(tasksQuery);
   const quota = useQuery(quotaQuery);
-  const agents = useQuery(agentsQuery);
+  const library = useAgentLibrary();
   const roleDefaults = useQuery(roleDefaultsQuery);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [error, setError] = useState<string | null>(null);
@@ -625,7 +591,6 @@ export function Backlog({ repoId }: { repoId: string }) {
     [items],
   );
   const titles = useMemo(() => new Map(items.map((i) => [i.id, i.title])), [items]);
-  const library = useMemo(() => new Map((agents.data ?? []).map((a) => [a.id, a])), [agents.data]);
   const clisFor = (item: BacklogItemView) =>
     agentClis(
       resolvedRoles(item.agents, roleDefaults.data?.[repo?.defaultCli ?? "claude"] ?? {}),
@@ -701,14 +666,18 @@ export function Backlog({ repoId }: { repoId: string }) {
   }
 
   if (repos.data && !repo) {
-    return <Message title="Repo not found">It may have been removed in Settings.</Message>;
+    return (
+      <EmptyState key="not-found" title="Repo not found">
+        It may have been removed in Settings.
+      </EmptyState>
+    );
   }
 
   return (
     <div className="flex h-full min-w-0 flex-col">
-      <div className="flex min-h-[52px] items-center gap-2.5 border-b border-border px-5 py-3">
+      <div className={paneHeader}>
         <BacklogIcon className="text-muted-foreground" />
-        <h1 className="m-0 text-heading font-semibold text-foreground-strong">Backlog</h1>
+        <h1 className={paneTitle}>Backlog</h1>
         <span className="mono text-meta text-muted-foreground">{repo?.name ?? ""}</span>
         {backlog.data && (
           <span className="mono text-label text-faint">{pendingCount(items)} waiting</span>
@@ -722,41 +691,40 @@ export function Backlog({ repoId }: { repoId: string }) {
         globalOn={settings.data?.backlogRunner ?? true}
       />
 
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 py-4">
+      <div className={paneBody}>
         <QuickAdd repoId={repoId} onError={setError} />
-        {error && (
-          <p className="m-0 text-meta text-destructive" role="alert">
-            {error}
-          </p>
-        )}
+        {error && <ErrorText>{error}</ErrorText>}
 
         {backlog.isPending || tasks.isPending ? (
-          <Message title="Loading backlog…" />
+          <EmptyState key="loading" role="status" title="Loading backlog…" />
         ) : backlog.isError ? (
-          <Message title="Could not load the backlog">
-            {backlog.error.message}{" "}
-            <Button variant="ghost" size="sm" onClick={() => void backlog.refetch()}>
-              Retry
-            </Button>
-          </Message>
+          <EmptyState
+            key="error"
+            role="alert"
+            title="Could not load the backlog"
+            onRetry={() => void backlog.refetch()}
+          >
+            {backlog.error.message}
+          </EmptyState>
         ) : (
           <>
             {tasks.isError && (
-              <Message title="Could not load tasks">
-                {tasks.error.message}{" "}
-                <Button variant="ghost" size="sm" onClick={() => void tasks.refetch()}>
-                  Retry
-                </Button>
-              </Message>
+              <EmptyState
+                role="alert"
+                title="Could not load tasks"
+                onRetry={() => void tasks.refetch()}
+              >
+                {tasks.error.message}
+              </EmptyState>
             )}
             {items.length === 0 &&
               sections.active.length === 0 &&
               sections.earlier.length === 0 &&
               !(showArchive && sections.archived.length > 0) && (
-                <Message title="Nothing waiting">
+                <EmptyState title="Nothing waiting">
                   Park work here and the runner starts it when the repo is idle. Quick add a line
                   above, or use New task for a Jira issue or PR.
-                </Message>
+                </EmptyState>
               )}
             {sections.active.length > 0 && (
               <Section label="In progress" ariaLabel="In progress" count={sections.active.length}>

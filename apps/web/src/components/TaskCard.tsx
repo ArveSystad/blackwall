@@ -5,17 +5,12 @@ import { originKey, relativeTime } from "../inbox";
 import { cn } from "../lib/utils";
 import { deleteBlockedReason, GATE_REASONS } from "../task-view";
 import { AgentTile } from "./AgentTile";
-import { JiraIcon, PullRequestIcon, TextIcon, TrashIcon, WarnIcon } from "./icons";
+import { TrashIcon, WarnIcon } from "./icons";
+import { ORIGIN_ICONS } from "./origins";
 import { StagePips } from "./StagePips";
 import { StatusBadge } from "./StatusBadge";
 import { DeleteTaskDialog } from "./task/DeleteTaskDialog";
 import { Button } from "./ui/button";
-
-const ORIGIN_ICONS = {
-  "jira-issue": JiraIcon,
-  "github-pr": PullRequestIcon,
-  "free-text": TextIcon,
-} as const;
 
 /**
  * Inbox card linking to the task. Needs-you tasks get the magenta rail and
