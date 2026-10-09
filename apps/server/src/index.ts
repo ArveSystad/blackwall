@@ -1,5 +1,6 @@
 import {
   createAgentService,
+  createBacklogRunner,
   createClaudeAdapter,
   createConnectionService,
   createConnectionTokens,
@@ -9,6 +10,7 @@ import {
   createGitService,
   createKeyringSecretStore,
   createPipelineEngine,
+  createQuotaTracker,
   createRepoService,
   createRepositories,
   createSettingsService,
@@ -18,7 +20,8 @@ import {
   openDatabase,
 } from "@blackwall/core";
 import { parseRemoteSlug, testConnection } from "@blackwall/integrations";
-import type { ServerEvent } from "@blackwall/shared";
+import type { ServerEvent, TaskOrigin } from "@blackwall/shared";
+import { promoteBacklogItem } from "./backlog.js";
 import { banner } from "./banner.js";
 import { parseConfig } from "./config.js";
 import { createGitHubOrigin, firstBranchFor, firstOriginContext } from "./github.js";
@@ -64,9 +67,40 @@ try {
   });
 
   let broadcast: (event: ServerEvent) => void = () => undefined;
+  // Engine and quota events also reach the backlog runner.
+  const publish = (event: ServerEvent) => {
+    broadcast(event);
+    backlogRunner.handleEvent(event);
+  };
+  const quota = createQuotaTracker({
+    settings: repositories.settings,
+    onChange: (state) => publish({ type: "quota.changed", payload: { quota: state } }),
+  });
   const jira = createJiraOrigin({ connections });
   const github = createGitHubOrigin({ connections });
   const git = createGitService();
+  const newTask = {
+    repos,
+    resolveRoles: agents.resolveRoles,
+    originTitle: async (origin: TaskOrigin) =>
+      (await jira.titleFor(origin)) ?? (await github.titleFor(origin)),
+  };
+  // Uses the engine only once started, after the engine below exists.
+  const backlogRunner = createBacklogRunner({
+    repositories,
+    createTask: (item) =>
+      promoteBacklogItem(item, {
+        pipeline,
+        newTask,
+        backlogItems: repositories.backlogItems,
+        broadcast: publish,
+      }),
+    resumeTask: (taskId) => void pipeline.resume(taskId),
+    settings,
+    quota,
+    clisFor: (item) => agents.clisFor(item.agents),
+    onHalt: (repoId) => publish({ type: "backlog.changed", payload: { repoId } }),
+  });
   const pipeline = createPipelineEngine({
     repositories,
     invocation: agents.invocation,
@@ -94,10 +128,13 @@ try {
       },
     }),
     maxTasksPerRepo: settings.maxTasksPerRepo,
-    publish: (event) => broadcast(event),
+    quota,
+    publish,
   });
   // Runs before the database closes: kills the agent CLIs and marks their steps interrupted.
   shutdown.onShutdown(() => pipeline.shutdown());
+  // Registered after the engine's hook, so it runs first: no promotions while tasks are aborted.
+  shutdown.onShutdown(() => backlogRunner.stop());
 
   const { launchUrl, broadcast: send } = await startServer({
     port: config.port,
@@ -117,25 +154,24 @@ try {
     },
     pipeline,
     taskServices: {
-      newTask: {
-        repos,
-        resolveRoles: agents.resolveRoles,
-        originTitle: async (origin) =>
-          (await jira.titleFor(origin)) ?? (await github.titleFor(origin)),
-      },
+      newTask,
       diffs: createTaskDiffs({ repositories, git }),
     },
     backlog: {
       backlogItems: repositories.backlogItems,
       repos: repositories.repos,
       tasks: repositories.tasks,
+      runner: settings,
+      onChanged: () => backlogRunner.poke(),
     },
+    quota,
     clis: () => clis,
     shutdown,
   });
   broadcast = send;
   // Steps left running by a previous process become interrupted (resumable); queued tasks start.
   pipeline.recover();
+  backlogRunner.start();
   console.log(`${banner()}\n\nblackwall is running at:\n  ${launchUrl}\n`);
   if (config.open) openBrowser(launchUrl);
 } catch (error) {

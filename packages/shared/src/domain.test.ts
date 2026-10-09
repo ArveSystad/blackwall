@@ -167,7 +167,13 @@ describe("grillQuestionSchema", () => {
 
 describe("settings and inputs", () => {
   it("defaults settings", () => {
-    expect(settingsSchema.parse({})).toEqual({ roleDefaults: {}, maxTasksPerRepo: 3 });
+    expect(settingsSchema.parse({})).toEqual({
+      roleDefaults: {},
+      maxTasksPerRepo: 3,
+      backlogRunner: true,
+      maxBacklogTasksPerRepo: 1,
+      stopBacklogOnNeedsYou: true,
+    });
     expect(settingsSchema.safeParse({ maxTasksPerRepo: 0 }).success).toBe(false);
   });
 

@@ -31,6 +31,12 @@ export type AgentEvent =
   | { type: "tool-call-end"; id: string; output: string; isError: boolean }
   /** Usage of one model call. */
   | { type: "usage"; usage: AgentUsage }
+  /**
+   * The CLI hit its usage limit. `resetsAt` (ISO) when the CLI says when the
+   * quota resets. A run that still succeeds afterwards (e.g. on overage) was
+   * not stopped by it.
+   */
+  | { type: "rate-limit"; resetsAt?: string }
   /** The CLI reported a failure; the run ends without a result. */
   | { type: "error"; message: string }
   | { type: "result"; result: AgentResult };

@@ -10,15 +10,16 @@ import {
   type HealthResponse,
   type ServerEvent,
 } from "@blackwall/shared";
-import type { AgentService, RepoService, SettingsService } from "@blackwall/core";
+import type { AgentService, QuotaTracker, RepoService, SettingsService } from "@blackwall/core";
 import { Hono } from "hono";
 import { agentRoutes } from "./agents.js";
-import { backlogRoutes, type BacklogRouteStores } from "./backlog.js";
+import { backlogRoutes, type BacklogRouteOptions } from "./backlog.js";
 import { cliRoutes } from "./clis.js";
 import { hostGuard, requireToken, tokenExchange } from "./auth.js";
 import { connectionRoutes, type ConnectionRoutesOptions } from "./connections.js";
 import { errorResponse } from "./errors.js";
 import { pullRequestRoutes } from "./github.js";
+import { quotaRoutes } from "./quota.js";
 import { repoRoutes } from "./repos.js";
 import { settingsRoutes, tagRoutes } from "./settings.js";
 import {
@@ -48,8 +49,10 @@ export interface AppOptions {
   pipeline?: TaskPipeline;
   /** Task creation and per-round diffs; omit to leave those routes out. */
   taskServices?: TaskRouteServices;
-  /** Backlog stores; omit to leave the backlog routes out (e.g. in tests). */
-  backlog?: BacklogRouteStores;
+  /** Backlog stores and runner hooks; omit to leave the backlog routes out (e.g. in tests). */
+  backlog?: BacklogRouteOptions;
+  /** Agent CLI usage limits; omit to leave the quota route out (e.g. in tests). */
+  quota?: Pick<QuotaTracker, "state">;
   /** Agent CLI detection, started at launch; omit to leave the CLI route out (e.g. in tests). */
   clis?: () => Promise<CliStatus[]>;
 }
@@ -78,6 +81,7 @@ export function createApp({
   pipeline,
   taskServices,
   backlog,
+  quota,
   clis,
 }: AppOptions): CreatedApp {
   const app = new Hono();
@@ -101,7 +105,11 @@ export function createApp({
     app.route(
       "/api/repos/:repoId/backlog",
       backlogRoutes(backlog, {
-        broadcast,
+        broadcast: (event) => {
+          broadcast(event);
+          if (event.type === "backlog.changed") backlog.onChanged?.(event.payload.repoId);
+        },
+        ...(backlog.runner ? { runner: backlog.runner } : {}),
         ...(pipeline ? { pipeline } : {}),
         ...(taskServices?.newTask ? { newTask: taskServices.newTask } : {}),
       }),
@@ -121,6 +129,7 @@ export function createApp({
   }
   if (tasks) app.route("/api/tasks", taskRoutes(tasks, pipeline, taskServices));
   if (clis) app.route("/api/clis", cliRoutes(clis));
+  if (quota) app.route("/api/quota", quotaRoutes(quota));
 
   app.all("/api/*", (c) => c.json({ error: "not found" }, 404));
 

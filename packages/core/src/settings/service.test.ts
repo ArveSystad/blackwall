@@ -45,21 +45,75 @@ describe("tags", () => {
   });
 });
 
+const DEFAULTS = {
+  maxTasksPerRepo: 3,
+  backlogRunner: true,
+  maxBacklogTasksPerRepo: 1,
+  stopBacklogOnNeedsYou: true,
+};
+
 describe("general settings", () => {
-  it("defaults the concurrency cap to 3", () => {
-    expect(service.general()).toEqual({ maxTasksPerRepo: 3 });
+  it("defaults the concurrency cap to 3 and the backlog runner to on, one task, stop on needs-you", () => {
+    expect(service.general()).toEqual(DEFAULTS);
   });
 
-  it("persists the concurrency cap", () => {
-    expect(service.updateGeneral({ maxTasksPerRepo: 5 })).toEqual({ maxTasksPerRepo: 5 });
+  it("persists the concurrency cap and the backlog runner settings", () => {
+    expect(service.updateGeneral({ maxTasksPerRepo: 5 })).toEqual({
+      ...DEFAULTS,
+      maxTasksPerRepo: 5,
+    });
+    service.updateGeneral({
+      backlogRunner: false,
+      maxBacklogTasksPerRepo: 2,
+      stopBacklogOnNeedsYou: false,
+    });
     const reopened = createSettingsService({ settings: r.settings, tags: r.tags });
     expect(reopened.maxTasksPerRepo()).toBe(5);
+    expect(reopened.general()).toEqual({
+      maxTasksPerRepo: 5,
+      backlogRunner: false,
+      maxBacklogTasksPerRepo: 2,
+      stopBacklogOnNeedsYou: false,
+    });
   });
 
   it("keeps the value when the patch omits it and rejects out-of-range caps", () => {
     service.updateGeneral({ maxTasksPerRepo: 2 });
-    expect(service.updateGeneral({})).toEqual({ maxTasksPerRepo: 2 });
+    expect(service.updateGeneral({})).toEqual({ ...DEFAULTS, maxTasksPerRepo: 2 });
     expect(() => service.updateGeneral({ maxTasksPerRepo: 0 })).toThrow(InvalidSettingsError);
     expect(() => service.updateGeneral({ maxTasksPerRepo: 1.5 })).toThrow(InvalidSettingsError);
+    expect(() => service.updateGeneral({ maxBacklogTasksPerRepo: 0 })).toThrow(
+      InvalidSettingsError,
+    );
+  });
+
+  it("falls back per field when a stored value is invalid", () => {
+    r.settings.set("maxBacklogTasksPerRepo", "lots");
+    r.settings.set("maxTasksPerRepo", 4);
+    expect(service.general()).toEqual({ ...DEFAULTS, maxTasksPerRepo: 4 });
+  });
+});
+
+describe("repo backlog runner", () => {
+  it("is on and not halted by default, and keeps switch and halt per repo", () => {
+    expect(service.repoBacklogRunner("r1")).toEqual({
+      enabled: true,
+      haltedTaskId: null,
+      haltedAt: null,
+    });
+    service.setRepoBacklogRunnerEnabled("r1", false);
+    const at = new Date("2026-10-09T10:00:00Z");
+    service.setRepoBacklogHalt("r1", "t1", at);
+    expect(service.repoBacklogRunner("r1")).toEqual({
+      enabled: false,
+      haltedTaskId: "t1",
+      haltedAt: at,
+    });
+    expect(service.repoBacklogRunner("r2").enabled).toBe(true);
+    expect(service.setRepoBacklogHalt("r1", null)).toEqual({
+      enabled: false,
+      haltedTaskId: null,
+      haltedAt: null,
+    });
   });
 });

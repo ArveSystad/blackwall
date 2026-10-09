@@ -10,6 +10,7 @@ import {
 } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentRunOptions } from "../agents/adapters/types.js";
+import { createQuotaTracker, type QuotaTracker } from "../agents/quota.js";
 import { createAgentService } from "../agents/service.js";
 import { openDatabase, type OpenedDatabase } from "../db/database.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
@@ -106,10 +107,12 @@ function harness(
     stages = createDefaultStages(),
     maxPerRepo = 3,
     deliver = async () => undefined,
+    quota,
   }: {
     stages?: StageHandlers;
     maxPerRepo?: number;
     deliver?: (ctx: DeliveryContext) => Promise<void>;
+    quota?: Pick<QuotaTracker, "report" | "succeeded">;
   } = {},
 ): Harness {
   const agents = createAgentService({ agents: r.agents, settings: r.settings, tags: r.tags });
@@ -147,6 +150,7 @@ function harness(
       },
     },
     maxTasksPerRepo: () => maxPerRepo,
+    ...(quota ? { quota } : {}),
     publish: (event) => events.push(event),
     log: () => undefined,
   });
@@ -540,6 +544,46 @@ describe("pipeline engine", () => {
     const informs = h.calls.filter((c) => c.stage === "inform");
     expect(informs).toHaveLength(2);
     expect(informs[1]!.options.resumeSessionId).toBeUndefined();
+  });
+
+  it("leaves a task stopped by a usage limit interrupted and resumes its session", async () => {
+    const seeded = seedTask();
+    const now = new Date("2026-10-09T12:00:00Z");
+    const quota = createQuotaTracker({ settings: r.settings, clock: () => now });
+    const resetsAt = "2026-10-09T15:00:00.000Z";
+    let limited = true;
+    const h = harness(
+      (stage) =>
+        stage === "inform" && limited ? { sessionId: "inform-1", rateLimit: { resetsAt } } : {},
+      { quota },
+    );
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+
+    expect(task(seeded.id)).toMatchObject({
+      status: "interrupted",
+      error: expect.stringContaining("usage limit"),
+    });
+    expect(lastStep(seeded.id)).toMatchObject({ status: "interrupted", sessionId: "inform-1" });
+    expect(r.runs.listByTask(seeded.id).at(-1)?.status).toBe("interrupted");
+    expect(quota.pausedUntil("claude")).toEqual(new Date(resetsAt));
+
+    // Once the quota resets the released task resumes its CLI session.
+    now.setTime(new Date(resetsAt).getTime() + 1);
+    expect(quota.release()).toEqual([seeded.id]);
+    limited = false;
+    h.engine.resume(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "plan-approval" });
+    expect(h.calls.some((c) => c.options.resumeSessionId === "inform-1")).toBe(true);
+  });
+
+  it("fails the task as before when no quota tracker is set", async () => {
+    const seeded = seedTask();
+    const h = harness((stage) => (stage === "inform" ? { rateLimit: {} } : {}));
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id).status).toBe("failed");
   });
 
   it("respects the per-repo cap and one task per branch, releasing slots at gates", async () => {

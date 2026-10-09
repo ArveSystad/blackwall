@@ -1,11 +1,11 @@
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
-import type { AgentService, RepoService, SettingsService } from "@blackwall/core";
+import type { AgentService, QuotaTracker, RepoService, SettingsService } from "@blackwall/core";
 import { TOKEN_QUERY_PARAM, type CliStatus, type ServerEvent } from "@blackwall/shared";
 import { createApp } from "./app.js";
 import { generateToken } from "./auth.js";
-import type { BacklogRouteStores } from "./backlog.js";
+import type { BacklogRouteOptions } from "./backlog.js";
 import type { ConnectionRoutesOptions } from "./connections.js";
 import type { TaskPipeline, TaskRouteServices, TaskRouteStores } from "./tasks.js";
 import type { Shutdown } from "./shutdown.js";
@@ -28,7 +28,8 @@ export interface StartOptions {
   tasks?: TaskRouteStores;
   pipeline?: TaskPipeline;
   taskServices?: TaskRouteServices;
-  backlog?: BacklogRouteStores;
+  backlog?: BacklogRouteOptions;
+  quota?: Pick<QuotaTracker, "state">;
   clis?: () => Promise<CliStatus[]>;
   shutdown: Shutdown;
 }
@@ -56,6 +57,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     ...(options.pipeline ? { pipeline: options.pipeline } : {}),
     ...(options.taskServices ? { taskServices: options.taskServices } : {}),
     ...(options.backlog ? { backlog: options.backlog } : {}),
+    ...(options.quota ? { quota: options.quota } : {}),
     ...(options.clis ? { clis: options.clis } : {}),
     ...(options.dev ? {} : { webDist: WEB_DIST }),
   });

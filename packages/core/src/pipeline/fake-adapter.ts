@@ -20,6 +20,11 @@ export interface FakeScript {
   hang?: boolean;
   /** Fail with this message instead of producing a result. */
   fail?: string;
+  /**
+   * Hit the usage limit: emit a `rate-limit` event (with this reset time, ISO,
+   * when given), then fail like a CLI that stopped on it.
+   */
+  rateLimit?: { resetsAt?: string };
 }
 
 export interface FakeCall {
@@ -76,7 +81,12 @@ export function createFakeAdapter(
         }
         // Settle on a later tick, like a real process.
         setImmediate(() => {
-          if (plan.fail !== undefined) {
+          if (plan.rateLimit) {
+            const message = "Claude AI usage limit reached";
+            emit({ type: "rate-limit", ...plan.rateLimit });
+            emit({ type: "error", message });
+            reject(new AgentRunError("cli-error", message, "", 1));
+          } else if (plan.fail !== undefined) {
             emit({ type: "error", message: plan.fail });
             reject(new AgentRunError("cli-error", plan.fail, "", 1));
           } else {

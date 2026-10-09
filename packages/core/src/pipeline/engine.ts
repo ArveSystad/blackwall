@@ -20,6 +20,7 @@ import {
 } from "@blackwall/shared";
 import type { AgentInvocation } from "../agents/service.js";
 import type { AgentAdapter, AgentResult } from "../agents/adapters/types.js";
+import type { QuotaTracker } from "../agents/quota.js";
 import type { Repositories } from "../db/repositories.js";
 import {
   DELIVERY_DONE_EVENT,
@@ -91,6 +92,20 @@ class InterruptedError extends Error {
   }
 }
 
+/**
+ * A step stopped by its CLI's usage limit. The step and its task end
+ * `interrupted`, so they resume (`--resume <sessionId>`) once the quota resets.
+ */
+export class RateLimitedError extends Error {
+  constructor(
+    readonly cli: AgentCli,
+    readonly resumesAt: Date,
+  ) {
+    super(`The ${cli} usage limit was reached; resumes after ${resumesAt.toISOString()}`);
+    this.name = "RateLimitedError";
+  }
+}
+
 export interface RunAgentInput {
   agentId: string;
   prompt: string;
@@ -152,6 +167,8 @@ export interface PipelineEngineOptions {
   /** Plans and performs the delivery actions the user confirms at finish (or posts the review). */
   delivery: Deliverer;
   maxTasksPerRepo: () => number;
+  /** Told about usage limits the CLIs hit, so the backlog runner can wait them out. */
+  quota?: Pick<QuotaTracker, "report" | "succeeded">;
   publish?: (event: ServerEvent) => void;
   log?: (message: string) => void;
 }
@@ -182,6 +199,7 @@ export function createPipelineEngine({
   prepareWorkspace,
   delivery,
   maxTasksPerRepo,
+  quota,
   publish = () => undefined,
   log = console.error,
 }: PipelineEngineOptions) {
@@ -342,6 +360,8 @@ export function createPipelineEngine({
       ...(input.maxTurns !== undefined ? { maxTurns: input.maxTurns } : {}),
     });
 
+    /** Set when the CLI reported its usage limit; matters only if the run then fails. */
+    let rateLimit: { resetsAt?: string } | undefined;
     try {
       for await (const event of agentRun) {
         const stored = r.stepEvents.append(step.id, event.type, event);
@@ -349,14 +369,33 @@ export function createPipelineEngine({
         if (event.type === "session" && event.sessionId !== step.sessionId) {
           step = saveStep(step.id, { sessionId: event.sessionId });
         }
+        if (event.type === "rate-limit") {
+          const resetsAt = rateLimit?.resetsAt ?? event.resetsAt;
+          rateLimit = resetsAt ? { resetsAt } : {};
+        }
       }
       const result = await agentRun.result;
       saveStep(step.id, { status: "succeeded", finishedAt: new Date() });
+      quota?.succeeded(inv.agent.cli);
       return result;
     } catch (error) {
       if (signal.aborted) {
         saveStep(step.id, { status: "interrupted", finishedAt: new Date() });
         throw new InterruptedError();
+      }
+      if (rateLimit && quota) {
+        const resetsAt = rateLimit.resetsAt ? new Date(rateLimit.resetsAt) : undefined;
+        const until = quota.report(inv.agent.cli, {
+          taskId: ctx.task.id,
+          ...(resetsAt && !Number.isNaN(resetsAt.getTime()) ? { resetsAt } : {}),
+        });
+        const limited = new RateLimitedError(inv.agent.cli, until);
+        saveStep(step.id, {
+          status: "interrupted",
+          error: limited.message,
+          finishedAt: new Date(),
+        });
+        throw limited;
       }
       saveStep(step.id, { status: "failed", error: errorMessage(error), finishedAt: new Date() });
       throw error;
@@ -482,6 +521,11 @@ export function createPipelineEngine({
     } catch (error) {
       if (signal.aborted || error instanceof InterruptedError) {
         saveTask(taskId, { status: "interrupted" });
+        if (run) saveRun(run.id, "interrupted");
+        return;
+      }
+      if (error instanceof RateLimitedError) {
+        saveTask(taskId, { status: "interrupted", error: error.message });
         if (run) saveRun(run.id, "interrupted");
         return;
       }

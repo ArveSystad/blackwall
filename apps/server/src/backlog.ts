@@ -3,13 +3,16 @@ import {
   sortBacklog,
   unmetDependencies,
   type Repositories,
+  type SettingsService,
 } from "@blackwall/core";
 import {
   newBacklogItemInputSchema,
+  repoBacklogRunnerUpdateSchema,
   reorderBacklogInputSchema,
   updateBacklogItemInputSchema,
   type BacklogItem,
   type BacklogItemView,
+  type RepoBacklogRunner,
   type ServerEvent,
   type Task,
 } from "@blackwall/shared";
@@ -23,12 +26,58 @@ export interface BacklogRouteStores {
   tasks: Pick<Repositories["tasks"], "get">;
 }
 
+/** A repo's backlog runner switch and halt. */
+export type BacklogRunnerSettings = Pick<
+  SettingsService,
+  "repoBacklogRunner" | "setRepoBacklogRunnerEnabled" | "setRepoBacklogHalt"
+>;
+
+/** The backlog routes' stores, plus the backlog runner's hooks. */
+export interface BacklogRouteOptions extends BacklogRouteStores {
+  /** The runner's per-repo state; omit to leave the runner routes out. */
+  runner?: BacklogRunnerSettings;
+  /** Told about every backlog change besides the clients (the backlog runner). */
+  onChanged?: (repoId: string) => void;
+}
+
 export interface BacklogRouteServices {
   /** Sends an event to every connected client. */
   broadcast: (event: ServerEvent) => void;
   /** Promotion ("run now"); omit to leave the run route out. */
   pipeline?: Pick<TaskPipeline, "createTask">;
   newTask?: NewTaskServices;
+  runner?: BacklogRunnerSettings;
+}
+
+export interface BacklogPromotion {
+  pipeline: Pick<TaskPipeline, "createTask">;
+  newTask: NewTaskServices;
+  backlogItems: Pick<Repositories["backlogItems"], "markPromoted">;
+  broadcast: (event: ServerEvent) => void;
+}
+
+/**
+ * Promotes a backlog item: creates a normal queued task from it through the
+ * same path as the new task form, links it and announces the change. Used by
+ * "Run now" and the backlog runner alike.
+ */
+export async function promoteBacklogItem(
+  item: BacklogItem,
+  { pipeline, newTask, backlogItems, broadcast }: BacklogPromotion,
+): Promise<Task> {
+  const { title, origin, mode, repoId, freeText, agents, triageMode } = item;
+  const task = await createTaskFromInput(pipeline, newTask, {
+    title,
+    origin,
+    mode,
+    repoId,
+    freeText,
+    agents,
+    triageMode,
+  });
+  backlogItems.markPromoted(item.id, task.id);
+  broadcast({ type: "backlog.changed", payload: { repoId } });
+  return task;
 }
 
 function badRequest(c: Context, error: { issues: { message: string }[] }) {
@@ -42,7 +91,7 @@ function badRequest(c: Context, error: { issues: { message: string }[] }) {
  */
 export function backlogRoutes(
   { backlogItems, repos, tasks }: BacklogRouteStores,
-  { broadcast, pipeline, newTask }: BacklogRouteServices,
+  { broadcast, pipeline, newTask, runner }: BacklogRouteServices,
 ): Hono {
   const routes = new Hono();
 
@@ -60,6 +109,32 @@ export function backlogRoutes(
     if (!repos.get(repoId)) return c.json({ error: `Repo ${repoId} not found` }, 404);
     await next();
   });
+
+  if (runner) {
+    /** Whether the runner promotes this repo's items, and the failed task that halted it. */
+    routes.get("/runner", (c) =>
+      c.json<RepoBacklogRunner>(runner.repoBacklogRunner(c.req.param("repoId") ?? "")),
+    );
+
+    routes.patch("/runner", async (c) => {
+      const repoId = c.req.param("repoId") ?? "";
+      const input = repoBacklogRunnerUpdateSchema.safeParse(
+        await c.req.json().catch(() => undefined),
+      );
+      if (!input.success) return badRequest(c, input.error);
+      const state = runner.setRepoBacklogRunnerEnabled(repoId, input.data.enabled);
+      changed(repoId);
+      return c.json<RepoBacklogRunner>(state);
+    });
+
+    /** Clears a halt so the runner moves on with the backlog. */
+    routes.post("/runner/resume", (c) => {
+      const repoId = c.req.param("repoId") ?? "";
+      const state = runner.setRepoBacklogHalt(repoId, null);
+      changed(repoId);
+      return c.json<RepoBacklogRunner>(state);
+    });
+  }
 
   /** The repo's items in pick order, each with the dependencies still holding it back. */
   routes.get("/", (c) => {
@@ -149,18 +224,12 @@ export function backlogRoutes(
       if (item.status === "promoted") {
         return c.json({ error: "The item was already promoted to a task" }, 409);
       }
-      const { title, origin, mode, repoId, freeText, agents, triageMode } = item;
-      const task = await createTaskFromInput(pipeline, newTask, {
-        title,
-        origin,
-        mode,
-        repoId,
-        freeText,
-        agents,
-        triageMode,
+      const task = await promoteBacklogItem(item, {
+        pipeline,
+        newTask,
+        backlogItems,
+        broadcast,
       });
-      backlogItems.markPromoted(item.id, task.id);
-      changed(item.repoId);
       return c.json<Task>(task, 201);
     });
   }

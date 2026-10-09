@@ -6,6 +6,7 @@
 //   echo              reads stdin and returns it as the result text, with argv as structured output
 //   hang              spawns a sleeping grandchild, reports its pid as the session id, then hangs
 //   fail              writes to stderr and exits with code 3 without a result
+//   limit             writes a rate-limit error to stderr and exits with code 1 without a result
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 
@@ -57,4 +58,9 @@ if (mode === "replay") {
 } else if (mode === "fail") {
   process.stderr.write("boom: not logged in\n");
   process.exitCode = 3;
+} else if (mode === "limit") {
+  process.stderr.write(
+    "Error: 429 Too Many Requests: rate limit exceeded. Try again in 30 minutes.\n",
+  );
+  process.exitCode = 1;
 }

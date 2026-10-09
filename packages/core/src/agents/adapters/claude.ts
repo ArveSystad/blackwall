@@ -1,4 +1,5 @@
 import { permissionArgs } from "../permissions.js";
+import { claudeRateLimitFromEvent, claudeRateLimitFromText } from "./rate-limit.js";
 import { runAgentProcess, type LineParser } from "./run-process.js";
 import type { AgentAdapter, AgentEvent, AgentRunOptions, AgentUsage } from "./types.js";
 import { emptyUsage } from "./types.js";
@@ -41,14 +42,17 @@ function toolOutput(content: unknown): string {
 }
 
 /**
- * Parses `claude -p --output-format stream-json --verbose` output. Hook,
- * rate-limit and other bookkeeping lines are dropped, as are thinking blocks.
+ * Parses `claude -p --output-format stream-json --verbose` output. Hook and
+ * other bookkeeping lines are dropped, as are thinking blocks and
+ * `rate_limit_event` usage reports; a rejected one (the usage limit is hit)
+ * becomes a `rate-limit` event, as does a usage-limit error result.
  */
-export function createClaudeParser(): LineParser {
+export function createClaudeParser(now: () => Date = () => new Date()): LineParser {
   /** Assistant messages arrive one content block per line, each repeating the usage. */
   const counted = new Set<string>();
   const hidden = new Set<string>();
   let sessionId: string | undefined;
+  let limited = false;
 
   return {
     push(line) {
@@ -62,6 +66,14 @@ export function createClaudeParser(): LineParser {
       const events: AgentEvent[] = [];
 
       switch (parsed.type) {
+        case "rate_limit_event": {
+          const hit = claudeRateLimitFromEvent(parsed);
+          if (hit && !limited) {
+            limited = true;
+            events.push({ type: "rate-limit", ...hit });
+          }
+          break;
+        }
         case "system": {
           const id = str(parsed.session_id);
           if (parsed.subtype === "init" && id) {
@@ -123,6 +135,11 @@ export function createClaudeParser(): LineParser {
               errors.join("; ") ||
               str(parsed.result) ||
               `Claude Code failed (${str(parsed.subtype) ?? "unknown error"})`;
+            const hit = limited ? undefined : claudeRateLimitFromText(message, now());
+            if (hit) {
+              limited = true;
+              events.push({ type: "rate-limit", ...hit });
+            }
             events.push({ type: "error", message });
             break;
           }
@@ -203,6 +220,7 @@ export function createClaudeAdapter({
         input: prompt,
         signal,
         parser: createClaudeParser(),
+        detectRateLimit: (text) => claudeRateLimitFromText(text),
         ...(env ? { env } : {}),
       });
     },

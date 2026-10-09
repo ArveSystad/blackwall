@@ -1,5 +1,7 @@
 import {
+  createQuotaTracker,
   createRepositories,
+  createSettingsService,
   openDatabase,
   type OpenedDatabase,
   type Repositories,
@@ -7,6 +9,8 @@ import {
 import {
   backlogItemSchema,
   backlogItemViewSchema,
+  quotaStateSchema,
+  repoBacklogRunnerSchema,
   taskSchema,
   type NewBacklogItemInput,
   type ServerEvent,
@@ -24,6 +28,7 @@ let app: Hono;
 let events: ServerEvent[];
 let createTask: ReturnType<typeof vi.fn<TaskPipeline["createTask"]>>;
 let repoId: string;
+let settings: ReturnType<typeof createSettingsService>;
 
 beforeEach(() => {
   opened = openDatabase(":memory:");
@@ -31,6 +36,7 @@ beforeEach(() => {
   repoId = repositories.repos.create({ path: "/code/app", name: "app" }).id;
   events = [];
   createTask = vi.fn((values) => repositories.tasks.create({ ...values, status: "queued" }));
+  settings = createSettingsService({ settings: repositories.settings, tags: repositories.tags });
   app = new Hono().route(
     "/api/repos/:repoId/backlog",
     backlogRoutes(
@@ -46,6 +52,7 @@ beforeEach(() => {
           repos: { use: (id) => repositories.repos.get(id)! },
           resolveRoles: (overrides = {}) => ({ planner: "a-default", ...overrides }),
         },
+        runner: settings,
       },
     ),
   );
@@ -219,6 +226,36 @@ describe("backlog routes", () => {
   });
 });
 
+describe("backlog runner routes", () => {
+  const runnerState = async (res: Response) => repoBacklogRunnerSchema.parse(await res.json());
+
+  it("shows the runner on and not halted by default", async () => {
+    expect(await runnerState(await request("/runner"))).toEqual({
+      enabled: true,
+      haltedTaskId: null,
+      haltedAt: null,
+    });
+  });
+
+  it("switches the repo's runner off and announces it", async () => {
+    const res = await request("/runner", { method: "PATCH", body: { enabled: false } });
+    expect(await runnerState(res)).toMatchObject({ enabled: false });
+    expect(settings.repoBacklogRunner(repoId).enabled).toBe(false);
+    expect(events).toEqual([{ type: "backlog.changed", payload: { repoId } }]);
+    expect((await request("/runner", { method: "PATCH", body: { enabled: "no" } })).status).toBe(
+      400,
+    );
+  });
+
+  it("resumes a halted runner", async () => {
+    settings.setRepoBacklogHalt(repoId, "t1");
+    expect(await runnerState(await request("/runner"))).toMatchObject({ haltedTaskId: "t1" });
+    const res = await request("/runner/resume", { method: "POST" });
+    expect(await runnerState(res)).toMatchObject({ haltedTaskId: null, haltedAt: null });
+    expect(events).toEqual([{ type: "backlog.changed", payload: { repoId } }]);
+  });
+});
+
 describe("backlog mount", () => {
   it("is served under /api/repos/:repoId/backlog behind the token", async () => {
     const port = 4711;
@@ -240,5 +277,44 @@ describe("backlog mount", () => {
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual([]);
+  });
+
+  it("tells the runner about backlog changes and serves the quota state", async () => {
+    const port = 4711;
+    const host = `127.0.0.1:${port}`;
+    const onChanged = vi.fn();
+    const quota = createQuotaTracker({ settings: repositories.settings });
+    quota.report("copilot", { resetsAt: new Date(Date.now() + 60_000) });
+    const full = createApp({
+      token: "test-token",
+      getPort: () => port,
+      backlog: {
+        backlogItems: repositories.backlogItems,
+        repos: repositories.repos,
+        tasks: repositories.tasks,
+        onChanged,
+      },
+      quota,
+    }).app;
+    const headers = {
+      host,
+      cookie: `${tokenCookieName(port)}=test-token`,
+      "content-type": "application/json",
+    };
+
+    const created = await full.request(`http://${host}/api/repos/${repoId}/backlog`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ origin: { kind: "free-text" }, title: "A", freeText: "Do A" }),
+    });
+    expect(created.status).toBe(201);
+    expect(onChanged).toHaveBeenCalledWith(repoId);
+
+    const res = await full.request(`http://${host}/api/quota`, { headers });
+    const state = quotaStateSchema.array().parse(await res.json());
+    expect(state.map((s) => [s.cli, s.pausedUntil !== null])).toEqual([
+      ["claude", false],
+      ["copilot", true],
+    ]);
   });
 });

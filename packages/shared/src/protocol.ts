@@ -3,6 +3,7 @@ import {
   connectionKindSchema,
   findingSchema,
   grillQuestionSchema,
+  quotaStateSchema,
   runSchema,
   stepEventSchema,
   stepSchema,
@@ -81,6 +82,8 @@ export const serverEventSchema = z.discriminatedUnion("type", [
   envelope("grill.upserted", z.object({ question: grillQuestionSchema })),
   /** A repo's backlog changed (item added, edited, reordered, promoted or removed); refetch it. */
   envelope("backlog.changed", z.object({ repoId: z.string() })),
+  /** An agent CLI hit or recovered from its usage limit. */
+  envelope("quota.changed", z.object({ quota: z.array(quotaStateSchema) })),
 ]);
 export type ServerEvent = z.infer<typeof serverEventSchema>;
 

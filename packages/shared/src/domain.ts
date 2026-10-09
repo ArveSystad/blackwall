@@ -431,21 +431,31 @@ export const roleAgentsSchema = z.object({
 export type RoleAgents = z.infer<typeof roleAgentsSchema>;
 
 export const DEFAULT_MAX_TASKS_PER_REPO = 3;
+export const DEFAULT_MAX_BACKLOG_TASKS_PER_REPO = 1;
 
 export const settingsSchema = z.object({
   roleDefaults: roleAgentsSchema.default({}),
   maxTasksPerRepo: z.int().min(1).max(20).default(DEFAULT_MAX_TASKS_PER_REPO),
+  /** Whether the backlog runner promotes backlog items on its own (per repo switch on top). */
+  backlogRunner: z.boolean().default(true),
+  /** How many backlog-originated tasks may be queued or running at once in one repo. */
+  maxBacklogTasksPerRepo: z.int().min(1).max(20).default(DEFAULT_MAX_BACKLOG_TASKS_PER_REPO),
+  /** Hold a repo's backlog while one of its backlog tasks waits on the user. */
+  stopBacklogOnNeedsYou: z.boolean().default(true),
 });
 export type Settings = z.infer<typeof settingsSchema>;
 export type SettingsInput = z.input<typeof settingsSchema>;
 
 /** Settings other than the role defaults (which live under `/api/agents/role-defaults`). */
-export const generalSettingsSchema = settingsSchema.pick({ maxTasksPerRepo: true });
+export const generalSettingsSchema = settingsSchema.omit({ roleDefaults: true });
 export type GeneralSettings = z.infer<typeof generalSettingsSchema>;
 
 /** Body for editing the general settings; omitted fields keep their value. */
 export const generalSettingsUpdateSchema = z.object({
   maxTasksPerRepo: settingsSchema.shape.maxTasksPerRepo.unwrap().optional(),
+  backlogRunner: z.boolean().optional(),
+  maxBacklogTasksPerRepo: settingsSchema.shape.maxBacklogTasksPerRepo.unwrap().optional(),
+  stopBacklogOnNeedsYou: z.boolean().optional(),
 });
 export type GeneralSettingsUpdate = z.infer<typeof generalSettingsUpdateSchema>;
 
@@ -645,6 +655,29 @@ export const reorderBacklogInputSchema = z.object({
     .refine((ids) => new Set(ids).size === ids.length, "Each item can be listed only once"),
 });
 export type ReorderBacklogInput = z.infer<typeof reorderBacklogInputSchema>;
+
+/**
+ * A repo's backlog runner: switched on or off for the repo, and halted when
+ * one of its backlog tasks failed (the user resumes it).
+ */
+export const repoBacklogRunnerSchema = z.object({
+  enabled: z.boolean().default(true),
+  /** The failed backlog task that halted the runner; null when not halted. */
+  haltedTaskId: id.nullable().default(null),
+  haltedAt: timestamp.nullable().default(null),
+});
+export type RepoBacklogRunner = z.infer<typeof repoBacklogRunnerSchema>;
+
+/** `PATCH /api/repos/:repoId/backlog/runner` body. */
+export const repoBacklogRunnerUpdateSchema = z.object({ enabled: z.boolean() });
+export type RepoBacklogRunnerUpdate = z.infer<typeof repoBacklogRunnerUpdateSchema>;
+
+/** An agent CLI's usage limit: paused until its quota resets, or null when usable. */
+export const quotaStateSchema = z.object({
+  cli: agentCliSchema,
+  pausedUntil: timestamp.nullable(),
+});
+export type QuotaState = z.infer<typeof quotaStateSchema>;
 
 /** Body for looking up a pasted pull request link on the new task form. */
 export const pullRequestLookupInputSchema = z.object({ url: z.string().trim().min(1) });

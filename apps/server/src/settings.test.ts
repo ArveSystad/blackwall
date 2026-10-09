@@ -60,13 +60,24 @@ describe("tag routes", () => {
 describe("settings routes", () => {
   it("returns the default concurrency cap", async () => {
     const res = await request("/api/settings");
-    expect(generalSettingsSchema.parse(await res.json())).toEqual({ maxTasksPerRepo: 3 });
+    expect(generalSettingsSchema.parse(await res.json())).toEqual({
+      maxTasksPerRepo: 3,
+      backlogRunner: true,
+      maxBacklogTasksPerRepo: 1,
+      stopBacklogOnNeedsYou: true,
+    });
   });
 
   it("updates the concurrency cap", async () => {
-    const res = await request("/api/settings", { method: "PATCH", body: { maxTasksPerRepo: 6 } });
-    expect(await res.json()).toEqual({ maxTasksPerRepo: 6 });
-    expect(await (await request("/api/settings")).json()).toEqual({ maxTasksPerRepo: 6 });
+    const res = await request("/api/settings", {
+      method: "PATCH",
+      body: { maxTasksPerRepo: 6, backlogRunner: false },
+    });
+    expect(await res.json()).toMatchObject({ maxTasksPerRepo: 6, backlogRunner: false });
+    expect(await (await request("/api/settings")).json()).toMatchObject({
+      maxTasksPerRepo: 6,
+      backlogRunner: false,
+    });
   });
 
   it("rejects an out-of-range cap", async () => {

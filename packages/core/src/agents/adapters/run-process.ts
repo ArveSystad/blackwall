@@ -1,5 +1,6 @@
 import { createInterface } from "node:readline";
 import { killTree, spawnTree } from "./process.js";
+import type { RateLimitHit } from "./rate-limit.js";
 import {
   AgentRunError,
   type AgentEvent,
@@ -25,6 +26,11 @@ export interface RunProcessOptions {
   input?: string;
   signal?: AbortSignal | undefined;
   parser: LineParser;
+  /**
+   * Recognises the CLI's usage-limit message in a failed run's error and
+   * stderr; a hit adds a `rate-limit` event unless the parser emitted one.
+   */
+  detectRateLimit?: (text: string) => RateLimitHit | undefined;
 }
 
 /**
@@ -41,6 +47,7 @@ export function runAgentProcess({
   input,
   signal,
   parser,
+  detectRateLimit,
 }: RunProcessOptions): AgentRun {
   const queue: AgentEvent[] = [];
   let finished = false;
@@ -82,6 +89,7 @@ export function runAgentProcess({
     let aborted = false;
     let spawnError: Error | undefined;
     let completed = false;
+    let rateLimited = false;
 
     const onAbort = () => {
       aborted = true;
@@ -109,6 +117,7 @@ export function runAgentProcess({
         for (const event of parser.push(line)) {
           if (event.type === "result") final = event.result;
           if (event.type === "error") cliError = event.message;
+          if (event.type === "rate-limit") rateLimited = true;
           emit(event);
         }
       });
@@ -122,6 +131,11 @@ export function runAgentProcess({
       completed = true;
       signal?.removeEventListener("abort", onAbort);
       const tail = stderr.trim();
+      if (!aborted && !spawnError && !final && !rateLimited && detectRateLimit) {
+        const hit = detectRateLimit(`${cliError ?? ""}
+${stderr}`);
+        if (hit) emit({ type: "rate-limit", ...hit });
+      }
       if (aborted) {
         fail("aborted", "Run aborted", exitCode);
       } else if (spawnError) {

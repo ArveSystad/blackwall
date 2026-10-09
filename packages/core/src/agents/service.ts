@@ -7,6 +7,7 @@ import {
   roleAgentsSchema,
   stagePermissionProfile,
   type Agent,
+  type AgentCli,
   type AgentInput,
   type AgentRole,
   type AgentUpdate,
@@ -139,6 +140,17 @@ export function createAgentService({ agents, settings, tags }: AgentServiceOptio
     settings.set(ROLE_DEFAULTS_KEY, next);
   }
 
+  /**
+   * The agents for a new task: the role defaults with the new-task form's
+   * choices on top. Validated like the defaults.
+   */
+  function resolveRoles(overrides: RoleAgents = {}): RoleAgents {
+    const chosen = Object.fromEntries(
+      Object.entries(checkRoles(overrides)).filter(([, value]) => value !== undefined),
+    );
+    return { ...roleDefaults(), ...chosen };
+  }
+
   return {
     list: (): Agent[] => agents.list(),
 
@@ -182,15 +194,16 @@ export function createAgentService({ agents, settings, tags }: AgentServiceOptio
       return roles;
     },
 
+    resolveRoles,
+
     /**
-     * The agents for a new task: the role defaults with the new-task form's
-     * choices on top. Validated like the defaults.
+     * The CLIs the agents of a new task would run on (role defaults with
+     * `overrides` on top); unknown agents are left out.
      */
-    resolveRoles(overrides: RoleAgents = {}): RoleAgents {
-      const chosen = Object.fromEntries(
-        Object.entries(checkRoles(overrides)).filter(([, value]) => value !== undefined),
-      );
-      return { ...roleDefaults(), ...chosen };
+    clisFor(overrides: RoleAgents = {}): AgentCli[] {
+      const roles = resolveRoles(overrides);
+      const ids = AGENT_ROLES.flatMap((role) => roleIds(roles, role));
+      return [...new Set(ids.flatMap((id) => agents.get(id)?.cli ?? []))];
     },
 
     /**

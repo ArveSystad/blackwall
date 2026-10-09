@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { permissionArgs } from "../permissions.js";
+import { copilotRateLimitFromText } from "./rate-limit.js";
 import { runAgentProcess, type LineParser } from "./run-process.js";
 import { structuredOutputContract, withStructuredOutput } from "./structured-output.js";
 import type { AgentAdapter, AgentEvent, AgentRunOptions } from "./types.js";
@@ -17,6 +18,8 @@ export interface CopilotParserOptions {
   sessionId?: string;
   /** Model requested with `--model`, until the CLI reports the one it uses. */
   model?: string;
+  /** Clock for relative "try again in …" reset times. */
+  now?: () => Date;
 }
 
 /**
@@ -24,12 +27,18 @@ export interface CopilotParserOptions {
  * Ephemeral events (deltas, model-call and MCP bookkeeping, reasoning) are
  * dropped. The final text is the last non-empty `assistant.message`; the
  * closing `result` event carries the session id and exit code. Copilot reports
- * premium requests rather than tokens, so usage stays zero.
+ * premium requests rather than tokens, so usage stays zero. A `session.error`
+ * about a rate limit or exhausted quota also yields a `rate-limit` event.
  */
-export function createCopilotParser({ sessionId, model }: CopilotParserOptions = {}): LineParser {
+export function createCopilotParser({
+  sessionId,
+  model,
+  now = () => new Date(),
+}: CopilotParserOptions = {}): LineParser {
   let announced = false;
   let text = "";
   let sessionError: string | undefined;
+  let limited = false;
 
   return {
     push(line) {
@@ -84,9 +93,16 @@ export function createCopilotParser({ sessionId, model }: CopilotParserOptions =
           });
           break;
         }
-        case "session.error":
+        case "session.error": {
           sessionError = str(data.message) ?? sessionError;
+          const hit =
+            limited || !sessionError ? undefined : copilotRateLimitFromText(sessionError, now());
+          if (hit) {
+            limited = true;
+            events.push({ type: "rate-limit", ...hit });
+          }
           break;
+        }
         case "result": {
           const exitCode = typeof parsed.exitCode === "number" ? parsed.exitCode : 0;
           if (exitCode !== 0) {
@@ -223,6 +239,7 @@ export function createCopilotAdapter({
           input,
           signal,
           parser: createCopilotParser({ sessionId, ...(model ? { model } : {}) }),
+          detectRateLimit: (text) => copilotRateLimitFromText(text),
           ...(runEnv ? { env: runEnv } : {}),
         });
 
