@@ -18,7 +18,10 @@ describe("Markdown", () => {
   });
 
   it("styles inline code as a chip", () => {
-    expect(render("use `x` here")).toMatch(/<code class="[^"]*bg-code[^"]*px-1[^"]*">x<\/code>/);
+    const classes = /<code class="([^"]*)">x<\/code>/.exec(render("use `x` here"))?.[1]?.split(" ");
+    expect(classes).toEqual(
+      expect.arrayContaining(["bg-code-inline", "px-1", "text-code", "text-foreground-strong"]),
+    );
   });
 
   it("renders fenced code as a block without the inline chip", () => {
@@ -28,6 +31,7 @@ describe("Markdown", () => {
       const code = /<code[^>]*>/.exec(html)?.[0] ?? "";
       expect(code).not.toContain("bg-code");
       expect(code).not.toContain("px-1");
+      expect(code).not.toContain("text-foreground-strong");
     }
   });
 

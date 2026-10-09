@@ -49,6 +49,7 @@
   --needs-wash: rgba(255, 61, 207, 0.07);
   --running-wash: rgba(46, 230, 255, 0.06);
   --code-bg: #0c0b1c;
+  --code-inline-bg: var(--bg-3); /* inline code chip in prose */
   --claude: #f0956b;
   --copilot: #8fb3ff;
   --overlay: rgba(5, 4, 16, 0.74);
@@ -115,6 +116,7 @@
   --needs-wash: #fdf0f7;
   --running-wash: #f0f6ff;
   --code-bg: #f6f7f9;
+  --code-inline-bg: var(--bg-3);
   --claude: #b4522b;
   --copilot: #2f5fc4;
   --overlay: rgba(20, 20, 30, 0.38);
@@ -152,6 +154,7 @@
   --color-popover: var(--bg-4);
   --color-modal: var(--bg-modal);
   --color-code: var(--code-bg);
+  --color-code-inline: var(--code-inline-bg);
   --color-border: var(--border);
   --color-input: var(--border-strong);
   --color-border-strong: var(--border-strong);
