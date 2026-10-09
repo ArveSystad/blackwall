@@ -17,6 +17,7 @@ import { createGitService } from "../git/service.js";
 import {
   DeliveryError,
   createDeliverer,
+  type DeliveryContext,
   type DeliveryOutcome,
   type DeliveryPorts,
   type DeliveryStep,
@@ -126,6 +127,8 @@ async function deliver(
   runRow: Run,
   confirmation: DeliveryConfirmationInput,
   completed: DeliveryStep[] = [],
+  resolveConflicts: DeliveryContext["resolveConflicts"] = () =>
+    Promise.reject(new Error("no resolver")),
 ): Promise<DeliveryOutcome[]> {
   const outcomes: DeliveryOutcome[] = [];
   await d.deliver({
@@ -134,6 +137,7 @@ async function deliver(
     confirmation: deliveryConfirmationSchema.parse(confirmation),
     completed,
     record: (o) => outcomes.push(o),
+    resolveConflicts,
   });
   return outcomes;
 }
@@ -162,14 +166,47 @@ describe("free-text tasks", () => {
     expect(subjects(originPath, "main")).toEqual(["initial"]);
   });
 
-  it("stops on a rebase conflict and leaves main alone", async () => {
+  it("resolves a rebase conflict and merges", async () => {
+    const { task, run: runRow } = await seed({ branch: "agent/t1" }, { commits: 1 });
+    commit(repoPath, "f0.txt", "conflict\n", "main edits f0");
+    const { deliverer: d } = deliverer();
+    const resolveConflicts = vi.fn(async () => {
+      writeFileSync(join(task.worktreePath!, "f0.txt"), "conflict\n0\n");
+    });
+
+    const outcomes = await deliver(
+      d,
+      task,
+      runRow,
+      { actions: ["merge-main"] },
+      [],
+      resolveConflicts,
+    );
+
+    expect(resolveConflicts).toHaveBeenCalledWith({
+      branch: "agent/t1",
+      into: "main",
+      files: ["f0.txt"],
+    });
+    const sha = run(repoPath, "rev-parse", "main");
+    expect(outcomes).toEqual([
+      { action: "merge-main", detail: `${sha} (resolved conflicts in f0.txt)` },
+    ]);
+    expect(subjects(repoPath, "main")).toEqual(["edit f0.txt", "main edits f0", "initial"]);
+  });
+
+  it("stops on a rebase conflict the implementer cannot resolve and leaves main alone", async () => {
     const { task, run: runRow } = await seed({ branch: "agent/t1" }, { commits: 1 });
     commit(repoPath, "f0.txt", "conflict\n", "main edits f0");
     const before = run(repoPath, "rev-parse", "main");
     const { deliverer: d } = deliverer();
 
-    await expect(deliver(d, task, runRow, { actions: ["merge-main"] })).rejects.toThrow(
-      /hit conflicts in f0\.txt/,
+    const delivered = deliver(d, task, runRow, { actions: ["merge-main"] }, [], () =>
+      Promise.reject(new Error("The claude usage limit was reached")),
+    );
+    await expect(delivered).rejects.toThrow(DeliveryError);
+    await expect(delivered).rejects.toThrow(
+      /hit conflicts in f0\.txt\. The implementer could not resolve them: The claude usage limit was reached/,
     );
     expect(run(repoPath, "rev-parse", "main")).toBe(before);
   });

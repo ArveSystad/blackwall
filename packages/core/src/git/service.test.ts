@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { branchForTask, worktreePathFor } from "./branches.js";
 import { GitError, ProtectedBranchError, createGitService, type GitService } from "./service.js";
@@ -233,7 +233,11 @@ describe("finishIntoMain", () => {
       branch: "agent/t1",
     });
 
-    expect(result).toEqual({ status: "merged", sha: git(path, "rev-parse", "HEAD") });
+    expect(result).toEqual({
+      status: "merged",
+      sha: git(path, "rev-parse", "HEAD"),
+      resolved: [],
+    });
     expect(git(repo, "rev-parse", "main")).toBe(git(path, "rev-parse", "HEAD"));
     expect(log(repo)).toEqual(["task work", "main moved", "initial"]);
     expect(readFileSync(join(repo, "feature.txt"), "utf8")).toBe("feature\n");
@@ -271,6 +275,198 @@ describe("finishIntoMain", () => {
     expect(git(path, "rev-parse", "HEAD")).toBe(taskHead);
     expect(git(path, "status", "--porcelain")).toBe("");
     expect(git(repo, "rev-parse", "main")).toBe(mainHead);
+  });
+
+  function rebasing(path: string): boolean {
+    return ["rebase-merge", "rebase-apply"].some((dir) =>
+      existsSync(resolve(path, git(path, "rev-parse", "--git-path", dir))),
+    );
+  }
+
+  it("has the resolver resolve a conflict, continues the rebase and fast-forwards main", async () => {
+    const path = await freeTextTask("t4");
+    commit(path, "README.md", "from task\n", "task edit");
+    commit(repo, "README.md", "from main\n", "main edit");
+    const calls: string[][] = [];
+
+    const result = await service.finishIntoMain({
+      repoPath: repo,
+      worktreePath: path,
+      branch: "agent/t4",
+      resolve: async ({ files }) => {
+        calls.push(files);
+        expect(readFileSync(join(path, "README.md"), "utf8")).toContain("<<<<<<< ");
+        write(path, "README.md", "from main\nfrom task\n");
+      },
+    });
+
+    expect(calls).toEqual([["README.md"]]);
+    expect(result).toEqual({
+      status: "merged",
+      sha: git(path, "rev-parse", "HEAD"),
+      resolved: ["README.md"],
+    });
+    expect(git(repo, "rev-parse", "main")).toBe(git(path, "rev-parse", "HEAD"));
+    expect(log(repo)).toEqual(["task edit", "main edit", "initial"]);
+    expect(readFileSync(join(repo, "README.md"), "utf8")).toBe("from main\nfrom task\n");
+    expect(rebasing(path)).toBe(false);
+  });
+
+  it("never opens an editor, even with GIT_EDITOR set", async () => {
+    const path = await freeTextTask("t5");
+    commit(path, "README.md", "from task\n", "task edit");
+    commit(repo, "README.md", "from main\n", "main edit");
+    const saved = process.env.GIT_EDITOR;
+    process.env.GIT_EDITOR = "false";
+    try {
+      const result = await service.finishIntoMain({
+        repoPath: repo,
+        worktreePath: path,
+        branch: "agent/t5",
+        resolve: async () => write(path, "README.md", "both\n"),
+      });
+      expect(result.status).toBe("merged");
+    } finally {
+      if (saved === undefined) delete process.env.GIT_EDITOR;
+      else process.env.GIT_EDITOR = saved;
+    }
+  });
+
+  it("accepts a Markdown setext underline in the resolved content", async () => {
+    const path = await freeTextTask("t6");
+    commit(path, "README.md", "from task\n", "task edit");
+    commit(repo, "README.md", "from main\n", "main edit");
+
+    const result = await service.finishIntoMain({
+      repoPath: repo,
+      worktreePath: path,
+      branch: "agent/t6",
+      resolve: async () => write(path, "README.md", "Title\n=======\n\nbody\n"),
+    });
+
+    expect(result.status).toBe("merged");
+  });
+
+  it("resolves each conflicting commit in turn", async () => {
+    const path = await freeTextTask("t7");
+    commit(path, "README.md", "task one\n", "task one");
+    commit(path, "README.md", "task two\n", "task two");
+    commit(repo, "README.md", "from main\n", "main edit");
+    let calls = 0;
+
+    const result = await service.finishIntoMain({
+      repoPath: repo,
+      worktreePath: path,
+      branch: "agent/t7",
+      resolve: async () => {
+        calls += 1;
+        write(path, "README.md", `resolved ${calls}\n`);
+      },
+    });
+
+    expect(calls).toBe(2);
+    expect(result).toMatchObject({ status: "merged", resolved: ["README.md"] });
+    expect(log(repo)).toEqual(["task two", "task one", "main edit", "initial"]);
+    expect(readFileSync(join(repo, "README.md"), "utf8")).toBe("resolved 2\n");
+  });
+
+  it("lets the resolver delete a file main deleted", async () => {
+    commit(repo, "gone.txt", "base\n", "add gone");
+    const path = await freeTextTask("t8");
+    commit(path, "gone.txt", "task change\n", "task edit");
+    git(repo, "rm", "--quiet", "gone.txt");
+    git(repo, "commit", "--quiet", "-m", "main delete");
+
+    const result = await service.finishIntoMain({
+      repoPath: repo,
+      worktreePath: path,
+      branch: "agent/t8",
+      resolve: async ({ files }) => {
+        expect(files).toEqual(["gone.txt"]);
+        rmSync(join(path, "gone.txt"));
+      },
+    });
+
+    expect(result).toMatchObject({ status: "merged", resolved: ["gone.txt"] });
+    expect(existsSync(join(repo, "gone.txt"))).toBe(false);
+    expect(git(repo, "rev-parse", "main")).toBe(git(path, "rev-parse", "HEAD"));
+  });
+
+  it("lets the resolver keep a file main deleted", async () => {
+    commit(repo, "kept.txt", "base\n", "add kept");
+    const path = await freeTextTask("t9");
+    commit(path, "kept.txt", "task change\n", "task edit");
+    git(repo, "rm", "--quiet", "kept.txt");
+    git(repo, "commit", "--quiet", "-m", "main delete");
+
+    const result = await service.finishIntoMain({
+      repoPath: repo,
+      worktreePath: path,
+      branch: "agent/t9",
+      resolve: async () => write(path, "kept.txt", "task change\n"),
+    });
+
+    expect(result.status).toBe("merged");
+    expect(readFileSync(join(repo, "kept.txt"), "utf8")).toBe("task change\n");
+  });
+
+  it("aborts when the resolver leaves conflict markers", async () => {
+    const path = await freeTextTask("t10");
+    const taskHead = commit(path, "README.md", "from task\n", "task edit");
+    const mainHead = commit(repo, "README.md", "from main\n", "main edit");
+
+    const result = await service.finishIntoMain({
+      repoPath: repo,
+      worktreePath: path,
+      branch: "agent/t10",
+      resolve: async () => undefined,
+    });
+
+    expect(result).toEqual({
+      status: "conflict",
+      files: ["README.md"],
+      unresolved: "conflict markers left in README.md",
+    });
+    expect(git(path, "rev-parse", "HEAD")).toBe(taskHead);
+    expect(git(repo, "rev-parse", "main")).toBe(mainHead);
+    expect(rebasing(path)).toBe(false);
+  });
+
+  it("aborts when the resolver throws", async () => {
+    const path = await freeTextTask("t11");
+    const taskHead = commit(path, "README.md", "from task\n", "task edit");
+    const mainHead = commit(repo, "README.md", "from main\n", "main edit");
+
+    const result = await service.finishIntoMain({
+      repoPath: repo,
+      worktreePath: path,
+      branch: "agent/t11",
+      resolve: () => Promise.reject(new Error("usage limit")),
+    });
+
+    expect(result).toEqual({ status: "conflict", files: ["README.md"], unresolved: "usage limit" });
+    expect(git(path, "rev-parse", "HEAD")).toBe(taskHead);
+    expect(git(path, "status", "--porcelain")).toBe("");
+    expect(git(repo, "rev-parse", "main")).toBe(mainHead);
+    expect(rebasing(path)).toBe(false);
+  });
+
+  it("aborts a rebase a crash left behind before finishing", async () => {
+    const path = await freeTextTask("t12");
+    commit(path, "README.md", "from task\n", "task edit");
+    commit(repo, "README.md", "from main\n", "main edit");
+    expect(() => git(path, "rebase", "--quiet", "main")).toThrow();
+    expect(rebasing(path)).toBe(true);
+
+    const result = await service.finishIntoMain({
+      repoPath: repo,
+      worktreePath: path,
+      branch: "agent/t12",
+      resolve: async () => write(path, "README.md", "both\n"),
+    });
+
+    expect(result).toMatchObject({ status: "merged", resolved: ["README.md"] });
+    expect(readFileSync(join(repo, "README.md"), "utf8")).toBe("both\n");
   });
 
   it("refuses to finish the main branch itself", async () => {

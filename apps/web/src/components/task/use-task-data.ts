@@ -8,13 +8,20 @@ import {
   taskGrillQuery,
   taskRunsQuery,
 } from "../../query";
-import { checkRuns, currentRound, latestStep, visibleFindings } from "../../task-view";
+import {
+  checkRuns,
+  currentRound,
+  deliveryConflicts,
+  latestHarnessStep,
+  latestStep,
+  visibleFindings,
+} from "../../task-view";
 
 /**
  * Everything the task view reads besides the task itself: runs and the latest
- * run's steps, grill questions, findings, per-round diffs and the latest
- * Checks step's commands. Each panel reads the slice it needs; the header,
- * banner and tab counts read the rest.
+ * run's steps, grill questions, findings, per-round diffs, the latest Checks
+ * step's commands and the rebase conflicts of the latest delivery. Each panel
+ * reads the slice it needs; the header, banner and tab counts read the rest.
  */
 export function useTaskData(task: Task) {
   const isReview = task.mode === "review";
@@ -34,6 +41,11 @@ export function useTaskData(task: Task) {
     ...stepEventsQuery(task.id, checksStep?.id ?? ""),
     enabled: checksStep !== undefined,
   });
+  const deliveryStep = latestHarnessStep(stepList, task.stage ?? "summarize");
+  const deliveryEvents = useQuery({
+    ...stepEventsQuery(task.id, deliveryStep?.id ?? ""),
+    enabled: deliveryStep !== undefined,
+  });
 
   return {
     runs,
@@ -48,6 +60,8 @@ export function useTaskData(task: Task) {
     checksStep,
     checks: checksStep ? checkRuns(checkEvents.data ?? []) : [],
     checksQuery: checkEvents,
+    deliveryStep,
+    deliveryConflicts: deliveryStep ? deliveryConflicts(deliveryEvents.data ?? []) : [],
   };
 }
 

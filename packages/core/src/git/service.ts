@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
 
@@ -58,13 +58,23 @@ export interface FinishInput {
   repoPath: string;
   worktreePath: string;
   branch: string;
+  /**
+   * Resolves the conflicts of one rebase stop by editing or deleting the
+   * conflicted files in the worktree; the harness stages them and continues.
+   * Without it, a conflict aborts the rebase.
+   */
+  resolve?: (conflict: { files: string[] }) => Promise<void>;
 }
 
 /** Outcome of finishing a free-text task into local main. */
 export type FinishResult =
-  | { status: "merged"; sha: string }
-  /** The rebase onto main hit conflicts; it was aborted and nothing changed. */
-  | { status: "conflict"; files: string[] }
+  /** `resolved`: every file whose conflicts {@link FinishInput.resolve} resolved. */
+  | { status: "merged"; sha: string; resolved: string[] }
+  /**
+   * The rebase onto main hit conflicts that were not resolved; it was aborted
+   * and nothing changed. `unresolved` says why the resolver did not resolve them.
+   */
+  | { status: "conflict"; files: string[]; unresolved?: string }
   /** Main moved after the rebase, so a fast-forward was impossible; nothing changed. */
   | { status: "not-fast-forward" };
 
@@ -84,13 +94,29 @@ export interface GitServiceOptions {
 
 export type GitService = ReturnType<typeof createGitService>;
 
+/**
+ * Accepts git's default commit message without opening an editor. An
+ * inherited `GIT_EDITOR` wins over `core.editor`, so it is overridden here.
+ */
+const NON_INTERACTIVE_EDITOR: NodeJS.ProcessEnv = { GIT_EDITOR: "true" };
+
+/** Rebase stops on conflicts the resolver is asked about before the finish gives up. */
+const MAX_CONFLICT_ROUNDS = 20;
+
+/** Conflict marker lines git writes into text files; `=======` is left out (Markdown setext). */
+const CONFLICT_MARKER = /^(<<<<<<<|>>>>>>>|\|\|\|\|\|\|\|) /m;
+
 /** Runs git and returns trimmed stdout, throwing {@link GitError} on failure. */
-export async function runGit(cwd: string, args: readonly string[]): Promise<string> {
+export async function runGit(
+  cwd: string,
+  args: readonly string[],
+  env?: NodeJS.ProcessEnv,
+): Promise<string> {
   try {
     const { stdout } = await execFileAsync("git", ["-C", cwd, ...args], {
       windowsHide: true,
       maxBuffer: 64 * 1024 * 1024,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...env },
     });
     return stdout.trimEnd();
   } catch (error) {
@@ -103,13 +129,118 @@ export async function runGit(cwd: string, args: readonly string[]): Promise<stri
   }
 }
 
-async function succeeds(cwd: string, args: readonly string[]): Promise<boolean> {
+async function succeeds(
+  cwd: string,
+  args: readonly string[],
+  env?: NodeJS.ProcessEnv,
+): Promise<boolean> {
   try {
-    await runGit(cwd, args);
+    await runGit(cwd, args, env);
     return true;
   } catch (error) {
     if (error instanceof GitError) return false;
     throw error;
+  }
+}
+
+/** Whether a rebase is stopped in the worktree (merge or apply backend). */
+async function rebaseInProgress(worktree: string): Promise<boolean> {
+  for (const dir of ["rebase-merge", "rebase-apply"]) {
+    const path = await runGit(worktree, ["rev-parse", "--git-path", dir]);
+    if (existsSync(resolve(worktree, path))) return true;
+  }
+  return false;
+}
+
+/** Files with unmerged index entries: the conflicts of the current stop. */
+async function unmergedFiles(worktree: string): Promise<string[]> {
+  const out = await runGit(worktree, ["diff", "--name-only", "--diff-filter=U"]);
+  return out.split("\n").filter(Boolean);
+}
+
+/**
+ * Of `files`, those that still hold conflict markers. Deleted files and
+ * binary files (git writes no markers into those) are trusted as they are.
+ */
+async function leftoverMarkers(worktree: string, files: readonly string[]): Promise<string[]> {
+  const left: string[] = [];
+  for (const file of files) {
+    let content: Buffer;
+    try {
+      content = await readFile(resolve(worktree, file));
+    } catch {
+      continue; // deleted
+    }
+    if (content.includes(0)) continue;
+    if (CONFLICT_MARKER.test(content.toString("utf8"))) left.push(file);
+  }
+  return left;
+}
+
+/**
+ * Runs a rebase command that may stop on the next commit's conflicts.
+ * Returns those conflicted files, or `[]` when the rebase finished.
+ */
+async function advanceRebase(worktree: string, args: readonly string[]): Promise<string[]> {
+  try {
+    await runGit(worktree, args, NON_INTERACTIVE_EDITOR);
+    return [];
+  } catch (error) {
+    if (!(error instanceof GitError)) throw error;
+    const files = await unmergedFiles(worktree);
+    if (files.length > 0) return files;
+    throw error;
+  }
+}
+
+/** Continues a resolved stop; a commit that became empty is skipped. */
+async function continueRebase(worktree: string): Promise<string[]> {
+  try {
+    return await advanceRebase(worktree, ["rebase", "--continue"]);
+  } catch (error) {
+    const empty =
+      (await rebaseInProgress(worktree)) &&
+      (await unmergedFiles(worktree)).length === 0 &&
+      (await succeeds(worktree, ["diff", "--cached", "--quiet", "HEAD"]));
+    if (!empty) throw error;
+    return advanceRebase(worktree, ["rebase", "--skip"]);
+  }
+}
+
+/**
+ * Has `resolveConflict` resolve each stop of the rebase, starting with
+ * `files`, staging and continuing after each. Any failure aborts the rebase.
+ */
+async function resolveRebase(
+  worktree: string,
+  files: string[],
+  resolveConflict: NonNullable<FinishInput["resolve"]>,
+): Promise<{ resolved: string[] } | { files: string[]; unresolved: string }> {
+  const resolved = new Set<string>();
+  let current = files;
+  try {
+    for (let round = 1; current.length > 0; round++) {
+      if (round > MAX_CONFLICT_ROUNDS) throw new Error("too many conflicting commits");
+      for (const file of current) resolved.add(file);
+      await resolveConflict({ files: current });
+      // The agent finished the rebase itself.
+      if (!(await rebaseInProgress(worktree))) break;
+      const markers = await leftoverMarkers(worktree, current);
+      if (markers.length > 0) throw new Error(`conflict markers left in ${markers.join(", ")}`);
+      await runGit(worktree, ["add", "-A"]);
+      const unmerged = await unmergedFiles(worktree);
+      if (unmerged.length > 0) throw new Error(`unmerged files remain: ${unmerged.join(", ")}`);
+      current = await continueRebase(worktree);
+    }
+    return { resolved: [...resolved] };
+  } catch (error) {
+    if (await rebaseInProgress(worktree).catch(() => false)) {
+      await runGit(worktree, ["rebase", "--abort"]).catch(() => undefined);
+    }
+    return {
+      files: current,
+      unresolved: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
@@ -274,24 +405,36 @@ export function createGitService({
     /**
      * Free-text finish: rebases the task branch onto local main, then
      * fast-forwards main to it (`git merge --ff-only` when main is checked out
-     * in the repo folder). On a rebase conflict the rebase is aborted and the
-     * conflicting files are reported; nothing is changed. Never pushes.
+     * in the repo folder). Each rebase stop on conflicts goes to `resolve`,
+     * which edits the files; the harness checks for leftover markers, stages
+     * and continues. Without a resolver, or when it fails, the rebase is
+     * aborted and the conflicting files are reported; nothing is changed. A
+     * rebase a crash left behind is aborted first. Never pushes.
      */
-    async finishIntoMain({ repoPath, worktreePath, branch }: FinishInput): Promise<FinishResult> {
+    async finishIntoMain({
+      repoPath,
+      worktreePath,
+      branch,
+      resolve: resolveConflict,
+    }: FinishInput): Promise<FinishResult> {
       assertUnprotected(branch);
+      if (await rebaseInProgress(worktreePath)) {
+        await runGit(worktreePath, ["rebase", "--abort"]);
+      }
+      let resolved: string[] = [];
       try {
         await runGit(worktreePath, ["rebase", "--quiet", mainBranch]);
       } catch (error) {
         if (!(error instanceof GitError)) throw error;
-        const unmerged = await runGit(worktreePath, [
-          "diff",
-          "--name-only",
-          "--diff-filter=U",
-        ]).catch(() => "");
-        await runGit(worktreePath, ["rebase", "--abort"]).catch(() => undefined);
-        const files = unmerged.split("\n").filter(Boolean);
-        if (files.length === 0) throw error;
-        return { status: "conflict", files };
+        const files = await unmergedFiles(worktreePath).catch(() => []);
+        if (files.length === 0 || !resolveConflict) {
+          await runGit(worktreePath, ["rebase", "--abort"]).catch(() => undefined);
+          if (files.length === 0) throw error;
+          return { status: "conflict", files };
+        }
+        const outcome = await resolveRebase(worktreePath, files, resolveConflict);
+        if ("unresolved" in outcome) return { status: "conflict", ...outcome };
+        resolved = outcome.resolved;
       }
 
       const sha = await headSha(worktreePath);
@@ -305,7 +448,7 @@ export function createGitService({
         const old = await runGit(repoPath, ["rev-parse", `refs/heads/${mainBranch}`]);
         await runGit(repoPath, ["update-ref", `refs/heads/${mainBranch}`, sha, old]);
       }
-      return { status: "merged", sha };
+      return { status: "merged", sha, resolved };
     },
 
     /**

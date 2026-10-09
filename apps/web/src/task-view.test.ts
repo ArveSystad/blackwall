@@ -15,12 +15,14 @@ import {
   defaultStepId,
   defaultTab,
   deliveryActionCopy,
+  deliveryConflicts,
   diffStat,
   findingLocation,
   gateBanner,
   isBlocking,
   isTabEnabled,
   jiraConnectionId,
+  latestHarnessStep,
   latestStep,
   looksLikeDiff,
   openQuestionCount,
@@ -250,6 +252,31 @@ describe("runs and steps", () => {
     expect(latestStep(steps, "summarize")).toBeUndefined();
     expect(defaultStepId(steps)).toBe("c");
     expect(defaultStepId([])).toBeNull();
+  });
+
+  it("finds the latest harness step of a stage, skipping agent steps", () => {
+    const finish = [
+      { id: "s", stage: "summarize" as const, agentId: "summarizer" },
+      { id: "h1", stage: "summarize" as const, agentId: null },
+      { id: "h2", stage: "summarize" as const, agentId: null },
+      { id: "i", stage: "summarize" as const, agentId: "implementer" },
+    ];
+    expect(latestHarnessStep(finish, "summarize")?.id).toBe("h2");
+    expect(latestHarnessStep(finish, "checks")).toBeUndefined();
+  });
+
+  it("extracts the delivery's rebase conflicts and ignores other events", () => {
+    expect(
+      deliveryConflicts([
+        event(1, "delivery.conflict", { branch: "agent/t1", into: "main", files: ["a.ts"] }),
+        event(2, "delivery.done", { action: "squash", detail: "abc" }),
+        event(3, "delivery.conflict", { branch: "agent/t1", into: "main", files: ["b.tsx", 3] }),
+      ]),
+    ).toEqual([
+      { branch: "agent/t1", into: "main", files: ["a.ts"] },
+      { branch: "agent/t1", into: "main", files: ["b.tsx"] },
+    ]);
+    expect(deliveryConflicts([event(1, "message", { text: "hi" })])).toEqual([]);
   });
 
   it("counts the user's open grill questions", () => {

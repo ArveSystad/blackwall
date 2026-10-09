@@ -24,11 +24,14 @@ import type { AgentAdapter, AgentResult } from "../agents/adapters/types.js";
 import type { QuotaTracker } from "../agents/quota.js";
 import type { Repositories } from "../db/repositories.js";
 import {
+  DELIVERY_CONFLICT_EVENT,
   DELIVERY_DONE_EVENT,
   DELIVERY_FAILED_EVENT,
+  conflictResolutionPrompt,
   type Deliverer,
   type DeliveryOutcome,
   type DeliveryStep,
+  type MergeConflict,
 } from "./delivery.js";
 import { blockingFindings } from "./findings.js";
 import { createScheduler } from "./scheduler.js";
@@ -119,6 +122,11 @@ export interface RunAgentInput {
    * The step still belongs to the current stage.
    */
   asStage?: Stage;
+  /**
+   * Always start a new step and session, even when this agent already has a
+   * step in the visit (e.g. one per conflict the implementer resolves).
+   */
+  fresh?: boolean;
 }
 
 /** What a stage handler gets: the task, where it is in the pipeline, and how to run agents. */
@@ -216,6 +224,8 @@ export function createPipelineEngine({
   const pending = new Map<string, Pending>();
   /** Tasks whose delivery is in flight; a second confirmation must not run it twice. */
   const delivering = new Set<string>();
+  /** Aborts the implementer resolving a delivery's conflicts; apart from {@link controllers}. */
+  const deliveryControllers = new Map<string, AbortController>();
   /** Tasks the user stopped; their drive ends `interrupted` with {@link TASK_STOPPED_ERROR}. */
   const stopping = new Set<string>();
   let stopped = false;
@@ -331,10 +341,12 @@ export function createPipelineEngine({
   async function runAgent(ctx: StageContext, input: RunAgentInput): Promise<AgentResult> {
     const { run, stage, round, visit, signal } = ctx;
     if (signal.aborted) throw new InterruptedError();
-    const earlier = r.steps
-      .listByRun(run.id)
-      .filter((s) => s.stage === stage && s.visit === visit && s.agentId === input.agentId)
-      .at(-1);
+    const earlier = input.fresh
+      ? undefined
+      : r.steps
+          .listByRun(run.id)
+          .filter((s) => s.stage === stage && s.visit === visit && s.agentId === input.agentId)
+          .at(-1);
 
     if (earlier?.status === "succeeded") {
       const stored = storedResult(earlier);
@@ -414,13 +426,26 @@ export function createPipelineEngine({
   /**
    * Delivery actions already performed since the run's agents last worked,
    * from the delivery steps' logs. Work done after a delivery (one more fix
-   * round) makes every action due again.
+   * round) makes every action due again; the implementer resolving conflicts
+   * during a delivery does not count as such work.
    */
   function completedDeliveries(run: Run | undefined): DeliveryStep[] {
     if (!run) return [];
     const steps = r.steps.listByRun(run.id);
+    const deliveryVisits = new Set(
+      steps
+        .filter(
+          (s) =>
+            s.agentId === null &&
+            r.stepEvents.list(s.id).some((e) => e.type.startsWith("delivery.")),
+        )
+        .map((s) => `${s.stage}:${s.visit}`),
+    );
+    const worked = steps.findLastIndex(
+      (s) => s.agentId !== null && !deliveryVisits.has(`${s.stage}:${s.visit}`),
+    );
     return steps
-      .slice(steps.findLastIndex((s) => s.agentId !== null) + 1)
+      .slice(worked + 1)
       .flatMap((s) => r.stepEvents.list(s.id))
       .filter((e) => e.type === DELIVERY_DONE_EVENT)
       .map((e) => (e.payload as DeliveryOutcome).action);
@@ -428,8 +453,10 @@ export function createPipelineEngine({
 
   /**
    * Performs the confirmed delivery actions as a harness step of the task's
-   * current stage, logging each one as it completes. A failure leaves the
-   * task at its gate with the error, and a retry skips what was done.
+   * current stage, logging each one as it completes. Rebase conflicts go to
+   * the task's implementer, each as a fresh agent step of the same visit. A
+   * failure leaves the task at its gate with the error, and a retry skips what
+   * was done.
    */
   async function runDelivery(
     task: Task,
@@ -437,6 +464,8 @@ export function createPipelineEngine({
     confirmation: DeliveryConfirmation,
   ): Promise<void> {
     const stage = task.stage ?? "summarize";
+    const controller = new AbortController();
+    deliveryControllers.set(task.id, controller);
     let step: Step | undefined;
     const ensureStep = (): Step => {
       if (step) return step;
@@ -456,6 +485,20 @@ export function createPipelineEngine({
       const event = r.stepEvents.append(ensureStep().id, type, payload);
       publish({ type: "step.event", payload: { event } });
     };
+    const resolveConflicts = async (conflict: MergeConflict): Promise<void> => {
+      // Logged before the agent step exists: completedDeliveries relies on it.
+      log(DELIVERY_CONFLICT_EVENT, conflict);
+      const agentId = task.agents.implementer;
+      if (!agentId) throw new Error("The task has no implementer agent to resolve the conflicts");
+      const { round, visit } = ensureStep();
+      const ctx = stageContext(task, run, stage, round, visit, undefined, controller.signal);
+      await ctx.runAgent({
+        agentId,
+        prompt: conflictResolutionPrompt(task, conflict),
+        asStage: "implement",
+        fresh: true,
+      });
+    };
 
     try {
       await delivery.deliver({
@@ -464,6 +507,7 @@ export function createPipelineEngine({
         confirmation,
         completed: completedDeliveries(run),
         record: (outcome) => log(DELIVERY_DONE_EVENT, outcome),
+        resolveConflicts,
       });
       if (step) saveStep(step.id, { status: "succeeded", finishedAt: new Date() });
     } catch (error) {
@@ -474,6 +518,8 @@ export function createPipelineEngine({
       saveStep(ensureStep().id, { status: "failed", error: message, finishedAt: new Date() });
       saveTask(task.id, { error: message });
       throw error;
+    } finally {
+      deliveryControllers.delete(task.id);
     }
   }
 
@@ -855,6 +901,7 @@ export function createPipelineEngine({
     async shutdown(): Promise<void> {
       stopped = true;
       for (const controller of controllers.values()) controller.abort();
+      for (const controller of deliveryControllers.values()) controller.abort();
       await Promise.all(drives.values());
     },
 

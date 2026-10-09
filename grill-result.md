@@ -68,7 +68,7 @@ Inform ──► Plan review / grill ──► [human plan approval] ──► I
 - **One worktree per task**, created next to the repo (e.g. `../<repo>.worktrees/<task>`):
   - PR: the PR head branch.
   - Jira: a new branch `feature/abc-123-short-summary`, or `fix/…` when the issue type is Bug. The slug comes from the issue title.
-  - Free text: temp branch `agent/<task-id>`. At finish: rebase onto `main`, then `git merge --ff-only` into local `main`. On a conflict, stop and ask the user.
+  - Free text: temp branch `agent/<task-id>`. At finish: rebase onto `main`, then `git merge --ff-only` into local `main`. On a conflict, the implementer resolves it in the worktree and the rebase continues; if it cannot, the rebase is aborted and the user is asked.
 - **The harness commits**, not the agents: one commit after each implement/fix round. The summarizer writes the message, prefixed with the Jira key when there is one. Optional squash-at-finish.
 - **Agents never push.** At finish the user confirms pre-ticked actions, showing exactly what will be sent:
   - PR (work): push to the PR branch, post a summary comment.

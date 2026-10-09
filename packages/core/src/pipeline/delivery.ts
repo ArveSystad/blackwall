@@ -32,6 +32,16 @@ export const DELIVERY_DONE_EVENT = "delivery.done";
 /** Step event logged when a delivery action fails. */
 export const DELIVERY_FAILED_EVENT = "delivery.failed";
 
+/** Step event logged when the rebase onto main stops on conflicts the implementer resolves. */
+export const DELIVERY_CONFLICT_EVENT = "delivery.conflict";
+
+/** Payload of a {@link DELIVERY_CONFLICT_EVENT}: the rebase that stopped and its conflicted files. */
+export interface MergeConflict {
+  branch: string;
+  into: string;
+  files: string[];
+}
+
 /** Payload of a {@link DELIVERY_DONE_EVENT}: the action, and where it went (a link, a sha, a branch). */
 export interface DeliveryOutcome {
   action: DeliveryStep;
@@ -79,6 +89,11 @@ export interface DeliveryContext {
   completed: readonly DeliveryStep[];
   /** Logs one performed action, as soon as it is done. */
   record(outcome: DeliveryOutcome): void;
+  /**
+   * Has the task's implementer resolve one stop of the rebase onto main in
+   * the worktree. Rejects when it could not.
+   */
+  resolveConflicts(conflict: MergeConflict): Promise<void>;
 }
 
 /** Plans and performs the finish actions; the engine calls it at the delivery gate. */
@@ -105,12 +120,32 @@ function prTitle(task: Task): string {
 
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
+/** Prompt for the implementer resolving a stop of the rebase onto main. */
+export function conflictResolutionPrompt(
+  task: Task,
+  { branch, into, files }: MergeConflict,
+): string {
+  const summary = task.summary?.trim();
+  return [
+    `Blackwall is rebasing this task's branch \`${branch}\` onto \`${into}\` to merge it, and the rebase stopped on conflicts in:`,
+    ...files.map((f) => `- ${f}`),
+    "",
+    `The task: ${task.title}`,
+    ...(summary ? ["", summary] : []),
+    "",
+    `Resolve the conflicts in the worktree. Keep the changes from \`${into}\` and reapply this task's intent on top of them. Remove every conflict marker (<<<<<<<, |||||||, =======, >>>>>>>).`,
+    "If a file was deleted on one side and changed on the other, either keep the file with the right content or delete it.",
+    "Only edit or delete the conflicted files as needed. Do not run `git add`, `git commit`, `git rebase` or any other git command that changes the index or history, and make no unrelated changes: blackwall stages your resolution and continues the rebase.",
+  ].join("\n");
+}
+
 /**
  * Delivery at finish (grill-result.md §4). The plan lists each action with
  * its exact target: a PR task pushes its branch and comments on the PR, a
  * Jira task pushes its branch, opens a PR and comments on the issue (no
- * transitions), a free-text task rebases onto local main and fast-forwards
- * it (main is never pushed), and a Review PR task posts the selected findings
+ * transitions), a free-text task rebases onto local main, resolving conflicts
+ * with the implementer, and fast-forwards it (main is never pushed), and a
+ * Review PR task posts the selected findings
  * as a review. Only the actions the user confirmed are performed, in that
  * order, after an optional squash.
  */
@@ -227,7 +262,8 @@ export function createDeliverer({ git, repositories: r, ports }: DelivererOption
     }
   }
 
-  async function deliver({ task, confirmation, completed, record }: DeliveryContext) {
+  async function deliver(ctx: DeliveryContext) {
+    const { task, confirmation, completed, record } = ctx;
     const planned = await plan(task, completed);
     check(planned, confirmation, completed);
     const worktree = task.worktreePath;
@@ -241,15 +277,14 @@ export function createDeliverer({ git, repositories: r, ports }: DelivererOption
 
     for (const action of DELIVERY_TARGETS) {
       if (!confirmation.actions.includes(action) || completed.includes(action)) continue;
-      record({ action, detail: await perform(task, action, target, confirmation) });
+      record({ action, detail: await perform(ctx, action, target) });
     }
   }
 
   async function perform(
-    task: Task,
+    { task, confirmation, resolveConflicts }: DeliveryContext,
     action: DeliveryTarget,
     target: <K extends DeliveryAction["kind"]>(kind: K) => Extract<DeliveryAction, { kind: K }>,
-    confirmation: DeliveryConfirmation,
   ): Promise<string> {
     const worktree = task.worktreePath;
     if (!worktree) throw new DeliveryError("The task has no worktree");
@@ -275,10 +310,14 @@ export function createDeliverer({ git, repositories: r, ports }: DelivererOption
           repoPath: repo.path,
           worktreePath: worktree,
           branch,
+          resolve: ({ files }) => resolveConflicts({ branch, into, files }),
         });
         if (result.status === "conflict") {
+          const why = result.unresolved
+            ? ` The implementer could not resolve them: ${result.unresolved}.`
+            : "";
           throw new DeliveryError(
-            `Rebasing ${branch} onto ${into} hit conflicts in ${result.files.join(", ")}. Nothing was changed: rebase the branch onto ${into} in the worktree (${worktree}), resolve the conflicts, then finish again.`,
+            `Rebasing ${branch} onto ${into} hit conflicts in ${result.files.join(", ")}.${why} Nothing was changed: rebase the branch onto ${into} in the worktree (${worktree}), resolve the conflicts, then finish again.`,
           );
         }
         if (result.status === "not-fast-forward") {
@@ -286,7 +325,9 @@ export function createDeliverer({ git, repositories: r, ports }: DelivererOption
             `${into} moved while ${branch} was rebased onto it; finish again`,
           );
         }
-        return result.sha;
+        return result.resolved.length > 0
+          ? `${result.sha} (resolved conflicts in ${result.resolved.join(", ")})`
+          : result.sha;
       }
       case "pr-review": {
         const findings = confirmation.findingIds.map((id) => {

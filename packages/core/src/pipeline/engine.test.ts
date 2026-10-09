@@ -25,7 +25,12 @@ import {
   type StageHandlers,
 } from "./engine.js";
 import { createFakeAdapter, type FakeScript } from "./fake-adapter.js";
-import { DELIVERY_DONE_EVENT, DeliveryError, type DeliveryContext } from "./delivery.js";
+import {
+  DELIVERY_CONFLICT_EVENT,
+  DELIVERY_DONE_EVENT,
+  DeliveryError,
+  type DeliveryContext,
+} from "./delivery.js";
 import type { CheckOutcome, CheckRunner } from "./checks.js";
 import { InvalidGateResponseError } from "./transitions.js";
 import { commitKey, commitMessage, createDefaultStages } from "./stages.js";
@@ -66,10 +71,11 @@ const highFinding: ReviewFinding = {
  * planner folding the user's answers into the plan (`plan-fold`); Checks runs
  * the summarizer's commit message (`commit`).
  */
-type Call = Stage | "plan-answers" | "plan-fold" | "commit";
+type Call = Stage | "plan-answers" | "plan-fold" | "commit" | "resolve-conflicts";
 
 function stageOf(options: AgentRunOptions): Call {
   if (options.prompt === RESUME_PROMPT) return "implement";
+  if (options.prompt.includes("the rebase stopped on conflicts")) return "resolve-conflicts";
   if (options.prompt.includes("Write the git commit message")) return "commit";
   if (options.prompt.includes("Grill this plan")) return "plan-review";
   if (options.prompt.includes("Reviewers' questions")) return "plan-answers";
@@ -1395,6 +1401,108 @@ describe("summarize and finish", () => {
       error: null,
       deliveryTargets: ["push-branch", "open-pr"],
     });
+  });
+
+  const conflict = { branch: "agent/x", into: "main", files: ["src/login.ts"] };
+
+  it("has the implementer resolve rebase conflicts as fresh steps of the delivery visit", async () => {
+    const h = harness(() => ({}), {
+      deliver: async (ctx) => {
+        await ctx.resolveConflicts(conflict);
+        await ctx.resolveConflicts({ ...conflict, files: ["src/other.ts"] });
+        ctx.record({ action: "merge-main", detail: "abc (resolved conflicts in src/login.ts)" });
+      },
+    });
+    const seeded = await atFinish(h);
+    const before = stepsOf(seeded.id).length;
+    await h.engine.respond(seeded.id, {
+      gate: "finish",
+      decision: "approve",
+      delivery: { actions: ["merge-main"] },
+    });
+
+    const resolvers = h.calls.filter((c) => c.stage === "resolve-conflicts");
+    expect(resolvers).toHaveLength(2);
+    expect(resolvers[0]!.options.prompt).toContain("- src/login.ts");
+    expect(resolvers[0]!.options.prompt).toContain("Fix login");
+    expect(resolvers[1]!.options.prompt).toContain("- src/other.ts");
+    expect(resolvers[1]!.options.resumeSessionId).toBeUndefined();
+
+    const [harnessStep, ...agentSteps] = stepsOf(seeded.id).slice(before);
+    expect(harnessStep).toMatchObject({ stage: "summarize", agentId: null, status: "succeeded" });
+    expect(agentSteps).toHaveLength(2);
+    for (const step of agentSteps) {
+      expect(step).toMatchObject({
+        stage: "summarize",
+        agentId: seeded.agents.implementer,
+        visit: harnessStep!.visit,
+        status: "succeeded",
+      });
+    }
+    expect(r.stepEvents.list(harnessStep!.id).map((e) => e.type)).toEqual([
+      DELIVERY_CONFLICT_EVENT,
+      DELIVERY_CONFLICT_EVENT,
+      DELIVERY_DONE_EVENT,
+    ]);
+    expect(r.stepEvents.list(harnessStep!.id)[0]!.payload).toEqual(conflict);
+    expect(task(seeded.id)).toMatchObject({ status: "done", deliveryTargets: ["merge-main"] });
+  });
+
+  it("keeps the task at finish when the resolver hits a usage limit", async () => {
+    const quota = createQuotaTracker({ settings: r.settings });
+    const h = harness((stage) => (stage === "resolve-conflicts" ? { rateLimit: {} } : {}), {
+      quota,
+      deliver: async (ctx) => {
+        try {
+          await ctx.resolveConflicts(conflict);
+        } catch (error) {
+          throw new DeliveryError(`the implementer could not resolve them: ${String(error)}`);
+        }
+      },
+    });
+    const seeded = await atFinish(h);
+    await expect(
+      h.engine.respond(seeded.id, {
+        gate: "finish",
+        decision: "approve",
+        delivery: { actions: ["merge-main"] },
+      }),
+    ).rejects.toThrow(DeliveryError);
+
+    const resolver = stepsOf(seeded.id).findLast((s) => s.agentId !== null)!;
+    expect(resolver).toMatchObject({
+      status: "interrupted",
+      error: expect.stringContaining("usage limit"),
+    });
+    expect(task(seeded.id)).toMatchObject({
+      status: "needs-you",
+      gate: "finish",
+      error: expect.stringContaining("could not resolve them"),
+    });
+  });
+
+  it("keeps actions done before the resolver ran when a delivery is retried", async () => {
+    let attempt = 0;
+    const h = harness(() => ({}), {
+      deliver: async (ctx) => {
+        attempt += 1;
+        if (attempt === 1) {
+          ctx.record({ action: "squash", detail: "abc" });
+          await ctx.resolveConflicts(conflict);
+          throw new DeliveryError("main moved");
+        }
+      },
+    });
+    const seeded = await atFinish(h);
+    const confirm = () =>
+      h.engine.respond(seeded.id, {
+        gate: "finish",
+        decision: "approve",
+        delivery: { actions: ["merge-main"], squash: true },
+      });
+    await expect(confirm()).rejects.toThrow("main moved");
+    await confirm();
+    expect(h.deliveries[1]!.completed).toEqual(["squash"]);
   });
 
   it("leaves the task untouched when the confirmation does not fit the plan", async () => {

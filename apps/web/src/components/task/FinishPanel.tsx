@@ -35,6 +35,7 @@ function Summary({ task, data }: { task: Task; data: TaskData }) {
   const ignored = findings.filter((f) => f.status === "force-ignore").length;
   const open = findings.filter((f) => f.status === "open" || f.status === "force-fix").length;
   const passed = data.checks.filter(checkPassed).length;
+  const resolved = [...new Set(data.deliveryConflicts.flatMap((c) => c.files))];
   return (
     <section
       aria-label="Summary"
@@ -78,7 +79,15 @@ function Summary({ task, data }: { task: Task; data: TaskData }) {
           ) : (
             <ul className="m-0 flex flex-col gap-1 pl-[18px]">
               {task.deliveryTargets.map((target) => (
-                <li key={target}>{TARGET_LABELS[target]}</li>
+                <li key={target}>
+                  {TARGET_LABELS[target]}
+                  {target === "merge-main" && resolved.length > 0 && (
+                    <span className="text-muted-foreground">
+                      {" "}
+                      (resolved conflicts in <span className="mono">{resolved.join(", ")}</span>)
+                    </span>
+                  )}
+                </li>
               ))}
             </ul>
           )}
@@ -307,6 +316,8 @@ export function FinishPanel({
 }) {
   const atGate = task.status === "needs-you" && (task.gate === "finish" || isReviewTriage(task));
   const plan = useQuery({ ...taskDeliveryQuery(task.id), enabled: atGate });
+  const resolving =
+    data.deliveryStep?.status === "running" ? data.deliveryConflicts.at(-1) : undefined;
 
   return (
     <div className="flex min-h-0 flex-1 flex-wrap">
@@ -325,6 +336,17 @@ export function FinishPanel({
               Nothing leaves this machine until you confirm. Untick anything you want to keep local.
             </span>
           </div>
+          {resolving && (
+            <p
+              role="status"
+              className="m-0 border-b border-magenta/45 bg-needs-wash px-[18px] py-2.5 text-[12.5px] text-needs"
+            >
+              Rebasing <span className="mono">{resolving.branch}</span> onto{" "}
+              <span className="mono">{resolving.into}</span> hit conflicts in{" "}
+              <span className="mono">{resolving.files.join(", ")}</span>. The implementer is
+              resolving them; the merge continues on its own.
+            </p>
+          )}
           {plan.isPending ? (
             <p className="m-0 px-[18px] py-3 text-muted-foreground">Working out what to send…</p>
           ) : plan.isError ? (

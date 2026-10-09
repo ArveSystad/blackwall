@@ -387,6 +387,34 @@ export function checkRuns(events: readonly StepEvent[]): CheckRun[] {
 export const checkPassed = (check: CheckRun) => !check.running && check.exitCode === 0;
 
 // ---------------------------------------------------------------------------
+// Delivery
+// ---------------------------------------------------------------------------
+
+/** A rebase onto main that stopped on conflicts the implementer resolves. */
+export interface DeliveryConflict {
+  branch: string;
+  into: string;
+  files: string[];
+}
+
+/** The rebase conflicts a delivery step handed to the implementer, in order. */
+export function deliveryConflicts(events: readonly StepEvent[]): DeliveryConflict[] {
+  return events.flatMap((event) => {
+    if (event.type !== "delivery.conflict") return [];
+    const payload = record(event.payload);
+    return [
+      {
+        branch: typeof payload.branch === "string" ? payload.branch : "",
+        into: typeof payload.into === "string" ? payload.into : "",
+        files: Array.isArray(payload.files)
+          ? payload.files.filter((f): f is string => typeof f === "string")
+          : [],
+      },
+    ];
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Diffs
 // ---------------------------------------------------------------------------
 
@@ -624,6 +652,14 @@ export function latestStep<S extends Pick<Step, "stage">>(
   stage: Stage,
 ): S | undefined {
   return steps.findLast((s) => s.stage === stage);
+}
+
+/** The most recent harness step (no agent) of a stage, e.g. the delivery at finish. */
+export function latestHarnessStep<S extends Pick<Step, "stage" | "agentId">>(
+  steps: readonly S[],
+  stage: Stage,
+): S | undefined {
+  return steps.findLast((s) => s.stage === stage && s.agentId === null);
 }
 
 /** The step to show first in Agent output: the running one, else the latest. */
