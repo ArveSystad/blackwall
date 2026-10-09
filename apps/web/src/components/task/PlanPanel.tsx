@@ -1,5 +1,6 @@
 import type { Task } from "@blackwall/shared";
 import { cn } from "../../lib/utils";
+import { Markdown } from "../Markdown";
 import { Button } from "../ui/button";
 import { Kbd } from "../ui/kbd";
 import { answerGate, focusInputBar } from "./actions";
@@ -29,9 +30,7 @@ export function PlanPanel({
     <div className={cn("flex min-h-0 flex-col", className)}>
       <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
         {task.plan ? (
-          <div className="max-w-3xl font-sans text-body whitespace-pre-wrap text-foreground">
-            {task.plan}
-          </div>
+          <Markdown className="max-w-3xl">{task.plan}</Markdown>
         ) : (
           <p className="m-0 text-muted-foreground">
             {task.status === "running" && task.stage === "inform"
