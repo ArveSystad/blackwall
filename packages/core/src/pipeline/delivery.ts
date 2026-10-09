@@ -140,7 +140,7 @@ export function conflictResolutionPrompt(
 }
 
 /**
- * Delivery at finish (grill-result.md §4). The plan lists each action with
+ * Delivery at finish (AGENTS.md, Design rules). The plan lists each action with
  * its exact target: a PR task pushes its branch and comments on the PR, a
  * Jira task pushes its branch, opens a PR and comments on the issue (no
  * transitions), a free-text task rebases onto local main, resolving conflicts

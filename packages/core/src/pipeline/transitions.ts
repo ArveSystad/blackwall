@@ -65,7 +65,7 @@ export class InvalidGateResponseError extends Error {
 export const FIRST_STAGE: Stage = "inform";
 
 /**
- * The hardcoded pipeline (grill-result.md §3). Work: Inform → Plan review
+ * The hardcoded pipeline (AGENTS.md, Design rules). Work: Inform → Plan review
  * (grill rounds, pausing at [questions] for answers only a human can give) →
  * [plan approval] → Implement → Checks → Code review → Aggregate, looping back
  * to Implement while blocking findings remain (at most {@link MAX_FIX_ROUNDS}

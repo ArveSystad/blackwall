@@ -37,7 +37,7 @@ export function slugify(title: string, maxLength = MAX_SLUG_LENGTH): string {
   return slug || (words[0]?.slice(0, maxLength) ?? "");
 }
 
-/** The branch a task works on, per the rules in grill-result.md §4. */
+/** The branch a task works on, per the branch rules in AGENTS.md (Design rules). */
 export function branchForTask(source: BranchSource): string {
   switch (source.kind) {
     case "github-pr":
