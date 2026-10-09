@@ -1,5 +1,6 @@
 import type { RepoService } from "@blackwall/core";
 import {
+  reorderReposInputSchema,
   repoInputSchema,
   repoScanInputSchema,
   repoUpdateSchema,
@@ -38,6 +39,13 @@ export function repoRoutes(repos: RepoService): Hono {
     const input = repoScanInputSchema.safeParse(await body(c));
     if (!input.success) return badRequest(c, input.error.issues);
     return c.json<RepoScanResult>(await repos.scan(input.data));
+  });
+
+  /** Sets the manual order; the body lists every repo id exactly once. */
+  routes.post("/reorder", async (c) => {
+    const input = reorderReposInputSchema.safeParse(await body(c));
+    if (!input.success) return badRequest(c, input.error.issues);
+    return c.json<RepoView[]>(repos.reorder(input.data.ids));
   });
 
   routes.get("/:id", (c) => c.json<Repo>(repos.get(c.req.param("id"))));

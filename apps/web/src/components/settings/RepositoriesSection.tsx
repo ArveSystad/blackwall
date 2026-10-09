@@ -1,21 +1,23 @@
 import { AGENT_CLIS, DEFAULT_REPO_SCAN_DEPTH, type RepoView } from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   StaleRepoError,
   addRepo,
   deleteRepo,
   refreshRepo,
+  reorderRepos,
   scanRepos,
   suggestedChecks,
   updateRepo,
 } from "../../api";
 import { cn } from "../../lib/utils";
 import { connectionsQuery, queryKeys, reposQuery } from "../../query";
+import { moveRepo, reorderRepoIds } from "../../repo-order";
 import { CLI_NAMES, errorMessage, parseLines, sameList } from "../../settings-forms";
 import { AgentTile } from "../AgentTile";
 import { ConfirmDialog } from "../ConfirmDialog";
-import { RepoIcon, WarnIcon } from "../icons";
+import { GripIcon, RepoIcon, StarIcon, WarnIcon } from "../icons";
 import { ORIGINS } from "../origins";
 import { Segmented } from "../Segmented";
 import { Button } from "../ui/button";
@@ -397,15 +399,149 @@ function RepoEditor({
   );
 }
 
+/** One repo in the list: drag (or Alt ↑/↓) to reorder within its group, star to pin it on top. */
+function RepoRow({
+  repo,
+  selected,
+  dragging,
+  onSelect,
+  onToggleFavorite,
+  onDragStart,
+  onDragEnd,
+  onDrop,
+  onMove,
+}: {
+  repo: RepoView;
+  selected: boolean;
+  dragging: RepoView | null;
+  onSelect: () => void;
+  onToggleFavorite: () => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+  onDrop: () => void;
+  onMove: (delta: -1 | 1) => void;
+}) {
+  const dropTarget =
+    dragging !== null && dragging.id !== repo.id && dragging.favorite === repo.favorite;
+  return (
+    <li
+      draggable
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = "move";
+        onDragStart();
+      }}
+      onDragEnd={onDragEnd}
+      onDragOver={(event) => {
+        if (dropTarget) event.preventDefault();
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        onDrop();
+      }}
+      className={cn(
+        "flex items-center gap-1 rounded-lg border border-transparent p-1 hover:bg-card",
+        selected && "border-border-strong bg-muted hover:bg-muted",
+        dragging?.id === repo.id && "opacity-50",
+        dropTarget && "border-dashed border-border-strong",
+      )}
+    >
+      <GripIcon className="cursor-grab text-faint" />
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        aria-pressed={repo.favorite}
+        aria-label="Favourite"
+        title={repo.favorite ? "Unpin from the top" : "Pin to the top"}
+        onClick={onToggleFavorite}
+        className={cn(repo.favorite && "text-foreground-strong")}
+      >
+        <StarIcon className={cn(repo.favorite && "fill-current")} />
+      </Button>
+      <button
+        type="button"
+        data-repo-id={repo.id}
+        aria-current={selected ? "true" : undefined}
+        aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+        onClick={onSelect}
+        onKeyDown={(event) => {
+          if (!event.altKey || event.ctrlKey || event.metaKey) return;
+          if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+          event.preventDefault();
+          onMove(event.key === "ArrowUp" ? -1 : 1);
+        }}
+        className="flex min-w-0 flex-1 cursor-pointer flex-col gap-0.5 rounded-md border-0 bg-transparent px-1.5 py-1 text-left text-foreground focus-visible:shadow-ring focus-visible:outline-none"
+      >
+        <span className="flex items-center gap-2">
+          <span className="truncate font-medium text-foreground-strong">{repo.name}</span>
+          <span className="flex-1" />
+          {repo.exists ? (
+            <span className="mono text-label text-faint">
+              {repo.checkCommands.length} {repo.checkCommands.length === 1 ? "check" : "checks"}
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-label text-sev-medium">
+              <WarnIcon size="sm" />
+              Folder missing
+            </span>
+          )}
+        </span>
+        <span className="mono truncate text-label text-muted-foreground">{repo.path}</span>
+      </button>
+    </li>
+  );
+}
+
 /** Repo registry: a list of repos beside the selected repo's editor. */
 export function RepositoriesSection() {
+  const queryClient = useQueryClient();
   const repos = useQuery(reposQuery);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [dragging, setDragging] = useState<RepoView | null>(null);
+  const focusAfter = useRef<string | null>(null);
 
   const list = repos.data ?? [];
   const selected = list.find((r) => r.id === selectedId) ?? list[0];
+
+  // Keeps keyboard focus on a row Alt ↑/↓ just moved.
+  useEffect(() => {
+    const id = focusAfter.current;
+    if (!id) return;
+    focusAfter.current = null;
+    document.querySelector<HTMLElement>(`[data-repo-id="${CSS.escape(id)}"]`)?.focus();
+  }, [repos.data]);
+
+  /** Shows the new list at once, then saves it; a failure is shown and the list re-read. */
+  async function save(optimistic: RepoView[], request: () => Promise<unknown>) {
+    queryClient.setQueryData<RepoView[]>(queryKeys.repos, optimistic);
+    try {
+      await request();
+    } catch (cause) {
+      setMessage(errorMessage(cause));
+    } finally {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.repos });
+    }
+  }
+
+  function reorder(ids: string[] | null, focusId?: string) {
+    if (!ids) return;
+    const byId = new Map(list.map((r) => [r.id, r]));
+    if (focusId) focusAfter.current = focusId;
+    void save(
+      ids.map((id) => byId.get(id)!),
+      () => reorderRepos(ids),
+    );
+  }
+
+  function toggleFavorite(repo: RepoView) {
+    const favorite = !repo.favorite;
+    const updated = list.map((r) => (r.id === repo.id ? { ...r, favorite } : r));
+    // The server's order: favourites first, each group keeping its relative order.
+    void save([...updated.filter((r) => r.favorite), ...updated.filter((r) => !r.favorite)], () =>
+      updateRepo(repo.id, { favorite }),
+    );
+  }
 
   return (
     <>
@@ -418,6 +554,9 @@ export function RepositoriesSection() {
             + Add
           </Button>
         </SectionHeader>
+        <p className="m-0 border-b border-border px-4 py-1.5 text-label text-faint">
+          Drag to reorder · ★ pins to the top
+        </p>
         {message && (
           <p
             className="m-0 border-b border-border px-4 py-2 text-meta text-muted-foreground"
@@ -435,36 +574,21 @@ export function RepositoriesSection() {
         ) : (
           <ul className="m-0 flex min-h-0 flex-1 list-none flex-col gap-0.5 overflow-auto p-1.5">
             {list.map((repo) => (
-              <li key={repo.id}>
-                <button
-                  type="button"
-                  aria-current={repo.id === selected?.id ? "true" : undefined}
-                  onClick={() => setSelectedId(repo.id)}
-                  className={cn(
-                    "flex w-full cursor-pointer flex-col gap-0.5 rounded-lg border border-transparent bg-transparent px-2.5 py-2 text-left text-foreground hover:bg-card focus-visible:shadow-ring focus-visible:outline-none",
-                    repo.id === selected?.id && "border-border-strong bg-muted hover:bg-muted",
-                  )}
-                >
-                  <span className="flex items-center gap-2">
-                    <span className="truncate font-medium text-foreground-strong">{repo.name}</span>
-                    <span className="flex-1" />
-                    {repo.exists ? (
-                      <span className="mono text-label text-faint">
-                        {repo.checkCommands.length}{" "}
-                        {repo.checkCommands.length === 1 ? "check" : "checks"}
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-label text-sev-medium">
-                        <WarnIcon size="sm" />
-                        Folder missing
-                      </span>
-                    )}
-                  </span>
-                  <span className="mono truncate text-label text-muted-foreground">
-                    {repo.path}
-                  </span>
-                </button>
-              </li>
+              <RepoRow
+                key={repo.id}
+                repo={repo}
+                selected={repo.id === selected?.id}
+                dragging={dragging}
+                onSelect={() => setSelectedId(repo.id)}
+                onToggleFavorite={() => toggleFavorite(repo)}
+                onDragStart={() => setDragging(repo)}
+                onDragEnd={() => setDragging(null)}
+                onDrop={() => {
+                  if (dragging) reorder(reorderRepoIds(list, dragging.id, repo.id));
+                  setDragging(null);
+                }}
+                onMove={(delta) => reorder(moveRepo(list, repo.id, delta), repo.id)}
+              />
             ))}
           </ul>
         )}

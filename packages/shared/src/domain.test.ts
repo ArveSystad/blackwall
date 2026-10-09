@@ -16,6 +16,7 @@ import {
   planAnswersOutputSchema,
   planReviewOutputJsonSchema,
   planReviewOutputSchema,
+  reorderReposInputSchema,
   repoInputSchema,
   repoScanInputSchema,
   repoUpdateSchema,
@@ -196,6 +197,16 @@ describe("settings and inputs", () => {
       defaultOrigin: "github-pr",
     });
     expect(repoUpdateSchema.safeParse({ defaultOrigin: "email" }).success).toBe(false);
+  });
+
+  it("accepts a repo's favourite flag", () => {
+    expect(repoUpdateSchema.parse({ favorite: true })).toEqual({ favorite: true });
+    expect(repoUpdateSchema.safeParse({ favorite: "yes" }).success).toBe(false);
+  });
+
+  it("rejects a repo order that lists a repo twice", () => {
+    expect(reorderReposInputSchema.safeParse({ ids: ["a", "b"] }).success).toBe(true);
+    expect(reorderReposInputSchema.safeParse({ ids: ["a", "a"] }).success).toBe(false);
   });
 
   it("defaults the repo scan depth", () => {

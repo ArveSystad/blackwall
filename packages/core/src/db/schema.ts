@@ -82,6 +82,10 @@ export const repos = sqliteTable("repos", {
     .default(sql`'[]'`),
   defaultCli: text("default_cli", { enum: AGENT_CLIS }).notNull().default("claude"),
   defaultOrigin: text("default_origin", { enum: ORIGIN_KINDS }).notNull().default("jira-issue"),
+  /** Listed first, with a star. */
+  favorite: integer("favorite", { mode: "boolean" }).notNull().default(false),
+  /** Manual order among repos in the same favourite group. */
+  position: integer("position").notNull().default(0),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

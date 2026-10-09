@@ -75,6 +75,34 @@ describe("connections and repos", () => {
     expect(r.repos.get(repo.id)?.connectionId).toBeNull();
   });
 
+  it("appends new repos to the manual order and lists favourites first", () => {
+    const c = r.repos.create({ path: "/code/c", name: "c" });
+    const a = r.repos.create({ path: "/code/a", name: "a" });
+    const b = r.repos.create({ path: "/code/b", name: "b" });
+    expect([c, a, b].map((repo) => [repo.favorite, repo.position])).toEqual([
+      [false, 0],
+      [false, 1],
+      [false, 2],
+    ]);
+    expect(r.repos.list().map((repo) => repo.name)).toEqual(["c", "a", "b"]);
+
+    r.repos.reorder([b.id, c.id, a.id]);
+    expect(r.repos.list().map((repo) => [repo.name, repo.position])).toEqual([
+      ["b", 0],
+      ["c", 1],
+      ["a", 2],
+    ]);
+
+    expect(r.repos.update(a.id, { favorite: true }).favorite).toBe(true);
+    expect(r.repos.list().map((repo) => repo.name)).toEqual(["a", "b", "c"]);
+  });
+
+  it("orders repos with equal positions by name", () => {
+    for (const name of ["c", "a", "b"])
+      r.repos.create({ path: `/code/${name}`, name, position: 0 });
+    expect(r.repos.list().map((repo) => repo.name)).toEqual(["a", "b", "c"]);
+  });
+
   it("rejects duplicate repo paths", () => {
     r.repos.create({ path: "/code/app", name: "app" });
     expect(() => r.repos.create({ path: "/code/app", name: "dup" })).toThrow();

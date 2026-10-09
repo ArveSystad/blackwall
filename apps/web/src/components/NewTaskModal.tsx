@@ -42,6 +42,7 @@ import {
   settingsQuery,
   taskQuery,
 } from "../query";
+import { repoOptionLabel } from "../repo-order";
 import { resolveSelectedRepo, useSelectedRepoId } from "../selected-repo";
 import { ROLE_LABELS, agentsForRole, errorMessage } from "../settings-forms";
 import { jiraConnectionId, parseJiraInput } from "../task-view";
@@ -674,7 +675,7 @@ function NewTaskForm({
                 <option value="">Choose a repo</option>
                 {usableRepos.map((repo) => (
                   <option key={repo.id} value={repo.id}>
-                    {repo.name} · {repo.path}
+                    {repoOptionLabel(repo)} · {repo.path}
                   </option>
                 ))}
               </Select>

@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, max, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, max, sql } from "drizzle-orm";
 import type {
   Agent,
   BacklogItem,
@@ -101,8 +101,13 @@ export function createConnectionsRepository(db: Db) {
 
 export function createReposRepository(db: Db) {
   return {
+    /** Favourites first, then the manual order; the name breaks ties. */
     list(): Repo[] {
-      return db.select().from(repos).orderBy(asc(repos.name)).all();
+      return db
+        .select()
+        .from(repos)
+        .orderBy(desc(repos.favorite), asc(repos.position), asc(repos.name))
+        .all();
     },
     get(id: string): Repo | undefined {
       return db.select().from(repos).where(eq(repos.id, id)).get();
@@ -110,14 +115,37 @@ export function createReposRepository(db: Db) {
     getByPath(path: string): Repo | undefined {
       return db.select().from(repos).where(eq(repos.path, path)).get();
     },
+    /** Adds a repo at the end of the manual order unless a position is given. */
     create(values: NewRepo): Repo {
-      return db.insert(repos).values(values).returning().get();
+      return db.transaction((tx) => {
+        let position = values.position;
+        if (position === undefined) {
+          const last = tx
+            .select({ p: max(repos.position) })
+            .from(repos)
+            .get();
+          position = last?.p == null ? 0 : last.p + 1;
+        }
+        return tx
+          .insert(repos)
+          .values({ ...values, position })
+          .returning()
+          .get();
+      });
     },
     update(id: string, patch: Patch<NewRepo>): Repo {
       return required(
         db.update(repos).set(patch).where(eq(repos.id, id)).returning().get(),
         `Repo ${id}`,
       );
+    },
+    /** Sets the manual order: each listed repo gets its index as position. */
+    reorder(orderedIds: readonly string[]): void {
+      db.transaction((tx) => {
+        orderedIds.forEach((id, position) => {
+          tx.update(repos).set({ position }).where(eq(repos.id, id)).run();
+        });
+      });
     },
     /** Whether any task references the repo; such a repo cannot be deleted. */
     hasTasks(id: string): boolean {

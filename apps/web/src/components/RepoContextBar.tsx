@@ -2,6 +2,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { pendingCount, repoStatusLine } from "../backlog";
 import { backlogQuery, backlogRunnerQuery, reposQuery, settingsQuery, tasksQuery } from "../query";
+import { repoOptionLabel } from "../repo-order";
 import { resolveSelectedRepo, setSelectedRepo, useSelectedRepoId } from "../selected-repo";
 import { BacklogIcon } from "./icons";
 import { Button } from "./ui/button";
@@ -54,7 +55,9 @@ export function RepoContextBar() {
           const items = backlogs[i]?.data;
           return (
             <option key={r.id} value={r.id}>
-              {items ? `${r.name} · ${pendingCount(items)} waiting` : r.name}
+              {items
+                ? `${repoOptionLabel(r)} · ${pendingCount(items)} waiting`
+                : repoOptionLabel(r)}
             </option>
           );
         })}

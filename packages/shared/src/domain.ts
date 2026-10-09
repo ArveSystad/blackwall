@@ -282,6 +282,10 @@ export const repoSchema = z.object({
   defaultCli: agentCliSchema,
   /** Origin the new-task and backlog forms open on for this repo. */
   defaultOrigin: originKindSchema,
+  /** Listed first, with a star. */
+  favorite: z.boolean(),
+  /** Manual order among repos in the same favourite group. */
+  position: z.int(),
   createdAt: timestamp,
   updatedAt: timestamp,
 });
@@ -307,8 +311,17 @@ export const repoUpdateSchema = z.object({
   checkCommands: repoSchema.shape.checkCommands.optional(),
   defaultCli: agentCliSchema.optional(),
   defaultOrigin: originKindSchema.optional(),
+  favorite: z.boolean().optional(),
 });
 export type RepoUpdate = z.infer<typeof repoUpdateSchema>;
+
+/** `POST /api/repos/reorder` body: every repo id in the new order. */
+export const reorderReposInputSchema = z.object({
+  ids: z
+    .array(id)
+    .refine((ids) => new Set(ids).size === ids.length, "Each repo can be listed only once"),
+});
+export type ReorderReposInput = z.infer<typeof reorderReposInputSchema>;
 
 export const DEFAULT_REPO_SCAN_DEPTH = 3;
 

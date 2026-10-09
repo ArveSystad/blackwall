@@ -125,6 +125,32 @@ describe("repo service", () => {
     expect(again.skipped).toEqual(paths);
   });
 
+  it("reorders repos when every repo is listed exactly once", async () => {
+    const [a, b, c] = [
+      await service.add({ path: gitRepo(["a"]) }),
+      await service.add({ path: gitRepo(["b"]) }),
+      await service.add({ path: gitRepo(["c"]) }),
+    ];
+    const names = () => service.list().map((repo) => repo.name);
+    expect(names()).toEqual(["a", "b", "c"]);
+
+    expect(service.reorder([c!.id, a!.id, b!.id]).map((repo) => repo.name)).toEqual([
+      "c",
+      "a",
+      "b",
+    ]);
+    expect(names()).toEqual(["c", "a", "b"]);
+
+    expect(() => service.reorder([a!.id, b!.id])).toThrow(InvalidRepoError);
+    expect(() => service.reorder([a!.id, b!.id, c!.id, "other"])).toThrow(InvalidRepoError);
+    expect(() => service.reorder([a!.id, b!.id, "other"])).toThrow(InvalidRepoError);
+    expect(() => service.reorder([a!.id, a!.id, b!.id])).toThrow(InvalidRepoError);
+    expect(names()).toEqual(["c", "a", "b"]);
+
+    service.update(b!.id, { favorite: true });
+    expect(names()).toEqual(["b", "c", "a"]);
+  });
+
   it("warns about and removes a repo whose folder is gone when it is used", async () => {
     const path = gitRepo(["app"]);
     const repo = await service.add({ path });
@@ -174,6 +200,7 @@ describe("repo service", () => {
       defaultOrigin: "github-pr",
     });
     expect(service.get(repo.id).defaultOrigin).toBe("github-pr");
+    expect(service.update(repo.id, { favorite: true })).toMatchObject({ favorite: true });
 
     const connection = r.connections.create({
       name: "github.com",

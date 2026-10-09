@@ -102,6 +102,49 @@ describe("repo routes", () => {
     expect((await request(`/api/repos/${repo.id}`)).status).toBe(404);
   });
 
+  it("reorders repos and lists favourites first", async () => {
+    gitRepo("a");
+    gitRepo("b");
+    gitRepo("c");
+    await request("/api/repos/scan", { method: "POST", body: { root } });
+    const listed = async () =>
+      repoViewSchema
+        .array()
+        .parse(await (await request("/api/repos")).json())
+        .map((r) => r.name);
+    const [a, b, c] = repoViewSchema.array().parse(await (await request("/api/repos")).json());
+
+    const res = await request("/api/repos/reorder", {
+      method: "POST",
+      body: { ids: [c!.id, a!.id, b!.id] },
+    });
+    expect(res.status).toBe(200);
+    expect(
+      repoViewSchema
+        .array()
+        .parse(await res.json())
+        .map((r) => r.name),
+    ).toEqual(["c", "a", "b"]);
+    expect(await listed()).toEqual(["c", "a", "b"]);
+
+    const partial = await request("/api/repos/reorder", {
+      method: "POST",
+      body: { ids: [a!.id, b!.id] },
+    });
+    expect(partial.status).toBe(400);
+    expect(await partial.json()).toEqual({ error: "List every repo exactly once" });
+    expect(
+      (await request("/api/repos/reorder", { method: "POST", body: { ids: "a" } })).status,
+    ).toBe(400);
+
+    const patch = await request(`/api/repos/${b!.id}`, {
+      method: "PATCH",
+      body: { favorite: true },
+    });
+    expect(repoSchema.parse(await patch.json()).favorite).toBe(true);
+    expect(await listed()).toEqual(["b", "c", "a"]);
+  });
+
   it("rejects bad input", async () => {
     expect((await request("/api/repos", { method: "POST", body: {} })).status).toBe(400);
     const plain = join(root, "plain");

@@ -274,6 +274,14 @@ export function updateRepo(id: string, patch: RepoUpdate): Promise<Repo> {
   return request(at("/api/repos", id), repoSchema, { method: "PATCH", body: patch });
 }
 
+/** Sets the manual order; `ids` must list every repo once. */
+export function reorderRepos(ids: string[]): Promise<RepoView[]> {
+  return request("/api/repos/reorder", repoViewSchema.array(), {
+    method: "POST",
+    body: { ids },
+  });
+}
+
 export function deleteRepo(id: string): Promise<void> {
   return requestEmpty(at("/api/repos", id), { method: "DELETE" });
 }

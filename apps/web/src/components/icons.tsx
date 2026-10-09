@@ -179,5 +179,10 @@ export const GripIcon = icon(
   </>,
 );
 
+/** Favourite repo; add `fill-current` to show it on. */
+export const StarIcon = icon(
+  <path d="M8 2.1 9.59 6.22 13.99 6.45 10.57 9.23 11.7 13.5 8 11.1 4.3 13.5 5.43 9.23 2.01 6.45 6.41 6.22Z" />,
+);
+
 /** The backlog: stacked items waiting their turn. */
 export const BacklogIcon = icon(<path d="M3 4h10M3 8h10M3 12h6M12 11v3M10.5 12.5h3" />);

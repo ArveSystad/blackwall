@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute } from "node:path";
 import {
+  reorderReposInputSchema,
   repoInputSchema,
   repoScanInputSchema,
   repoUpdateSchema,
@@ -131,9 +132,12 @@ export function createRepoService({ repos, connections }: RepoServiceOptions) {
     throw new StaleRepoError(repo, removable);
   }
 
+  function list(): RepoView[] {
+    return repos.list().map((repo) => ({ ...repo, exists: existsSync(repo.path) }));
+  }
+
   return {
-    list: (): RepoView[] =>
-      repos.list().map((repo) => ({ ...repo, exists: existsSync(repo.path) })),
+    list,
 
     get: existing,
 
@@ -174,13 +178,26 @@ export function createRepoService({ repos, connections }: RepoServiceOptions) {
       existing(id);
       const parsed = repoUpdateSchema.safeParse(patch);
       if (!parsed.success) throw invalid(parsed.error);
-      const { name, checkCommands, defaultCli, defaultOrigin } = parsed.data;
+      const { name, checkCommands, defaultCli, defaultOrigin, favorite } = parsed.data;
       return repos.update(id, {
         ...(name === undefined ? {} : { name }),
         ...(checkCommands === undefined ? {} : { checkCommands }),
         ...(defaultCli === undefined ? {} : { defaultCli }),
         ...(defaultOrigin === undefined ? {} : { defaultOrigin }),
+        ...(favorite === undefined ? {} : { favorite }),
       });
+    },
+
+    /** Sets the manual order; `ids` must list every registered repo exactly once. */
+    reorder(ids: string[]): RepoView[] {
+      const parsed = reorderReposInputSchema.safeParse({ ids });
+      if (!parsed.success) throw invalid(parsed.error);
+      const known = new Set(repos.list().map((repo) => repo.id));
+      if (ids.length !== known.size || !ids.every((repoId) => known.has(repoId))) {
+        throw new InvalidRepoError("List every repo exactly once");
+      }
+      repos.reorder(ids);
+      return list();
     },
 
     /** Removes a repo from the registry; refused while tasks reference it. */
