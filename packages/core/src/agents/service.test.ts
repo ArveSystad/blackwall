@@ -2,7 +2,7 @@ import { DEFAULT_TAGS, type Agent } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDatabase, type OpenedDatabase } from "../db/database.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
-import { SEED_AGENTS } from "./seeds.js";
+import { LEGACY_SEED_PROMPTS, SEED_AGENTS } from "./seeds.js";
 import {
   AgentNotFoundError,
   InvalidAgentError,
@@ -61,6 +61,31 @@ describe("seeding", () => {
     service.seed();
     expect(service.list().some((a) => a.name === "Performance reviewer")).toBe(false);
     expect(r.tags.names()).toEqual([]);
+  });
+
+  it("upgrades unedited earlier seed prompts and keeps edited ones", () => {
+    service.seed();
+    const planner = byName("Planner");
+    const security = byName("Security reviewer");
+    service.update(planner.id, { prompt: LEGACY_SEED_PROMPTS.Planner![0] });
+    service.update(security.id, { prompt: "My own security persona." });
+    service.seed();
+    expect(byName("Planner").prompt).toBe(SEED_AGENTS[0].prompt);
+    expect(byName("Security reviewer").prompt).toBe("My own security persona.");
+  });
+
+  it("gives every seed a persona that names its output contract", () => {
+    for (const seed of SEED_AGENTS) {
+      if (seed.eligibleStages.some((s) => s === "code-review")) {
+        expect(seed.prompt).toContain("findings output contract");
+      }
+    }
+    const prompt = (name: string) => SEED_AGENTS.find((a) => a.name === name)!.prompt;
+    expect(prompt("Planner")).toContain("plan output contract");
+    expect(prompt("Plan reviewer")).toContain("questions output contract");
+    expect(prompt("Plan reviewer")).toContain("needsHuman");
+    expect(prompt("Implementer")).toMatch(/Do not commit and do not push/);
+    expect(prompt("Summarizer")).toMatch(/commit message/i);
   });
 
   it("keeps an existing agent with a seed name", () => {

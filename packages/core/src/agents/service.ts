@@ -16,7 +16,7 @@ import {
 import type { Repositories } from "../db/repositories.js";
 import { permissionsFor, type AgentPermissions } from "./permissions.js";
 import { buildSystemPrompt } from "./prompts.js";
-import { SEED_AGENTS, SEED_ROLE_DEFAULTS } from "./seeds.js";
+import { LEGACY_SEED_PROMPTS, SEED_AGENTS, SEED_ROLE_DEFAULTS } from "./seeds.js";
 
 /** Rejected agent or role-default input. Safe to show the user. */
 export class InvalidAgentError extends Error {
@@ -75,6 +75,17 @@ export function createAgentService({ agents, settings, tags }: AgentServiceOptio
     const agent = agents.get(id);
     if (!agent) throw new AgentNotFoundError(id);
     return agent;
+  }
+
+  /** Built-in agents still on an earlier seed prompt the user never edited get the current one. */
+  function upgradeSeedPrompts(): void {
+    const legacy: Partial<Record<string, readonly string[]>> = LEGACY_SEED_PROMPTS;
+    for (const seed of SEED_AGENTS) {
+      const agent = agents.list().find((a) => a.name === seed.name);
+      if (agent && legacy[seed.name]?.includes(agent.prompt)) {
+        agents.update(agent.id, { prompt: seed.prompt });
+      }
+    }
   }
 
   function assertUniqueName(name: string, id?: string): void {
@@ -204,6 +215,7 @@ export function createAgentService({ agents, settings, tags }: AgentServiceOptio
      * Each is seeded once, so agents or tags the user deletes stay deleted.
      */
     seed(): void {
+      upgradeSeedPrompts();
       if (settings.get(AGENTS_SEEDED_KEY) !== true) {
         const byName = new Map(agents.list().map((a) => [a.name, a]));
         for (const seed of SEED_AGENTS) {

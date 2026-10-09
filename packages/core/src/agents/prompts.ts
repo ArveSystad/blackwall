@@ -13,6 +13,74 @@ const WORKSPACE_RULES: Record<PermissionProfile, string> = {
   ].join("\n"),
 };
 
+/** The sections every plan has, in order, as `## <section>` headings. */
+export const PLAN_SECTIONS = ["Goal", "Approach", "Changes", "Risks", "Verification"] as const;
+
+/**
+ * The plan output contract, injected for the planner and plan reviewers: the
+ * markdown shape every plan follows, so reviewers and the implementer can find
+ * their way around it.
+ */
+export function planContract(): string {
+  return [
+    "## Plan output contract",
+    "",
+    "A plan is markdown with exactly these second-level headings, in this order:",
+    "",
+    "- `## Goal`: what the change achieves and for whom, in one or two sentences.",
+    "- `## Approach`: the design, the decisions taken and why; name the existing code it builds on.",
+    "- `## Changes`: one bullet per file to add, change or delete: `` `path/to/file` `` and what changes there.",
+    "- `## Risks`: assumptions, edge cases and what could break; write `None known.` when there are none.",
+    "- `## Verification`: the tests to add or update and the commands that prove the change works.",
+    "",
+    "Use repo-relative paths. Keep it concrete enough that another engineer could implement it without asking.",
+    "When you write a plan, reply with the plan only: no preamble and no closing remarks.",
+    "When a JSON reply carries a plan (a `plan` field), that field holds the full plan in this shape.",
+  ].join("\n");
+}
+
+/** The plan sections a plan lacks, by {@link PLAN_SECTIONS} heading. Empty when it follows the contract. */
+export function missingPlanSections(plan: string): string[] {
+  const headings = new Set(
+    [...plan.matchAll(/^##[ \t]+(.+?)[ \t]*#*[ \t]*$/gm)].map(([, h = ""]) => h.toLowerCase()),
+  );
+  return PLAN_SECTIONS.filter((s) => !headings.has(s.toLowerCase()));
+}
+
+/**
+ * The questions output contract, injected for plan review: how reviewers ask
+ * grill questions (and route them to the user with `needsHuman`), and how the
+ * planner answers them.
+ */
+export function questionsContract(): string {
+  return [
+    "## Questions output contract",
+    "",
+    "Plan review is a grill: reviewers ask questions, the planner answers them and revises the plan.",
+    "",
+    "Reviewers reply with one JSON object listing their questions:",
+    "",
+    "```json",
+    '{ "questions": [{ "question": "<one specific question>", "needsHuman": false }] }',
+    "```",
+    "",
+    "- One question per entry, answerable in a few sentences. Quote the part of the plan it is about.",
+    "- Ask only what would change the plan. Never repeat a question already answered.",
+    "- `needsHuman: true` only for decisions the repository cannot settle: product behaviour, scope, priorities, trade-offs the user owns.",
+    "  Anything the code, tests or docs can answer is `needsHuman: false`; the planner answers it.",
+    '- Reply `{ "questions": [] }` when the plan is ready to implement.',
+    "",
+    "The planner replies with one JSON object answering the numbered questions and carrying the revised plan:",
+    "",
+    "```json",
+    '{ "answers": [{ "question": 1, "answer": "<answer, or null>" }], "plan": "<the full revised plan>" }',
+    "```",
+    "",
+    "- Answer from the repository and cite the files you relied on.",
+    "- Answer `null` when only the user can decide. Never guess a product or scope decision.",
+  ].join("\n");
+}
+
 /**
  * The findings output contract, injected into every code reviewer's prompt
  * together with the current tag list.
@@ -23,7 +91,7 @@ export function findingsContract(tags: readonly string[]): string {
     "## Findings output contract",
     "",
     "Review only the changes in this round's diff. Report each problem as one finding.",
-    "Your final answer must be a single JSON object, optionally inside a ```json fence, with nothing else:",
+    "Your final answer is one JSON object of this shape:",
     "",
     "```json",
     "{",
@@ -44,6 +112,7 @@ export function findingsContract(tags: readonly string[]): string {
     "",
     "Severity: `critical` and `high` block the change until fixed; use them only for real defects",
     "(broken behaviour, security holes, data loss). `medium` and `low` are reported in the summary.",
+    "Line numbers refer to the file after the change.",
     'Return `{ "findings": [] }` when you find nothing worth reporting.',
     "",
     `Tags (use only these): ${tagList}`,
@@ -58,13 +127,31 @@ export interface SystemPromptContext {
   tags: readonly string[];
 }
 
+/** The output contracts a stage's agents follow. */
+function contractsFor(stage: Stage, tags: readonly string[]): string[] {
+  switch (stage) {
+    case "inform":
+      return [planContract()];
+    case "plan-review":
+      return [planContract(), questionsContract()];
+    case "code-review":
+      return [findingsContract(tags)];
+    default:
+      return [];
+  }
+}
+
 /**
  * The system prompt for one step: the agent's persona, the workspace rules for
- * its permission profile and, for code reviewers, the tag list and findings
- * output contract.
+ * its permission profile and the output contracts of the stage: the plan
+ * contract for Inform, plan and questions for Plan review, and the tag list and
+ * findings contract for Code review.
  */
 export function buildSystemPrompt({ agent, stage, profile, tags }: SystemPromptContext): string {
-  const parts = [agent.prompt.trim(), `## Workspace rules\n\n${WORKSPACE_RULES[profile]}`];
-  if (stage === "code-review") parts.push(findingsContract(tags));
+  const parts = [
+    agent.prompt.trim(),
+    `## Workspace rules\n\n${WORKSPACE_RULES[profile]}`,
+    ...contractsFor(stage, tags),
+  ];
   return parts.filter((part) => part !== "").join("\n\n");
 }
