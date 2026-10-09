@@ -148,6 +148,14 @@ describe("claudeArgs", () => {
     expect(args).toContain("--disallowedTools");
   });
 
+  it("drops the JSON Schema dialect Claude cannot load", () => {
+    const args = claudeArgs({
+      permissions: readOnly,
+      jsonSchema: { $schema: "https://json-schema.org/draft/2020-12/schema", type: "object" },
+    });
+    expect(args[args.indexOf("--json-schema") + 1]).toBe('{"type":"object"}');
+  });
+
   it("omits optional flags", () => {
     const args = claudeArgs({ permissions: readOnly });
     for (const flag of ["--model", "--resume", "--append-system-prompt", "--json-schema"]) {

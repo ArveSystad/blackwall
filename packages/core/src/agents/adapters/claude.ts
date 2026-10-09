@@ -146,6 +146,16 @@ export function createClaudeParser(): LineParser {
 }
 
 /**
+ * The schema without its `$schema` dialect: Claude's validator rejects the
+ * draft 2020-12 URI that zod writes, and the keywords we use need no dialect.
+ */
+function withoutDialect(schema: Record<string, unknown>): Record<string, unknown> {
+  const rest = { ...schema };
+  delete rest.$schema;
+  return rest;
+}
+
+/**
  * Arguments for a headless Claude Code run. The prompt goes to stdin: it can
  * outgrow the Windows command line, and Claude's list flags (`--tools …`)
  * would swallow a trailing positional prompt.
@@ -163,7 +173,7 @@ export function claudeArgs(options: Omit<AgentRunOptions, "cwd" | "prompt" | "si
     ...(model ? ["--model", model] : []),
     ...(resumeSessionId ? ["--resume", resumeSessionId] : []),
     ...(systemPrompt ? ["--append-system-prompt", systemPrompt] : []),
-    ...(jsonSchema ? ["--json-schema", JSON.stringify(jsonSchema)] : []),
+    ...(jsonSchema ? ["--json-schema", JSON.stringify(withoutDialect(jsonSchema))] : []),
     ...(maxTurns !== undefined ? ["--max-turns", String(maxTurns)] : []),
     ...permissionArgs(permissions),
   ];
