@@ -163,6 +163,39 @@ describe("applyServerEvent", () => {
     expect(stale(queryKeys.taskRuns("t2"))).toBe(false);
   });
 
+  it("refetches a repo's backlog and runner on backlog.changed, and stores quota", () => {
+    for (const key of [
+      queryKeys.backlog("r1"),
+      queryKeys.backlogRunner("r1"),
+      queryKeys.backlog("r2"),
+    ]) {
+      client.setQueryData(key, []);
+    }
+    const stale = (key: readonly unknown[]) => client.getQueryState(key)?.isInvalidated;
+    applyServerEvent(client, { type: "backlog.changed", payload: { repoId: "r1" } });
+    expect(stale(queryKeys.backlog("r1"))).toBe(true);
+    expect(stale(queryKeys.backlogRunner("r1"))).toBe(true);
+    expect(stale(queryKeys.backlog("r2"))).toBe(false);
+
+    const quota = [{ cli: "claude" as const, pausedUntil: new Date("2026-10-08T12:00:00Z") }];
+    applyServerEvent(client, { type: "quota.changed", payload: { quota } });
+    expect(client.getQueryData(queryKeys.quota)).toEqual(quota);
+  });
+
+  it("refetches the repo's backlog when one of its tasks is done", () => {
+    client.setQueryData(queryKeys.backlog("r1"), []);
+    applyServerEvent(client, {
+      type: "task.upserted",
+      payload: { task: makeTask({ repoId: "r1", status: "running" }) },
+    });
+    expect(client.getQueryState(queryKeys.backlog("r1"))?.isInvalidated).toBe(false);
+    applyServerEvent(client, {
+      type: "task.upserted",
+      payload: { task: makeTask({ repoId: "r1", status: "done" }) },
+    });
+    expect(client.getQueryState(queryKeys.backlog("r1"))?.isInvalidated).toBe(true);
+  });
+
   it("appends streamed step output to a loaded log", () => {
     const entry = { stepId: "s1", seq: 1 } as unknown as StepEvent;
     applyServerEvent(client, { type: "step.event", payload: { event: entry } });

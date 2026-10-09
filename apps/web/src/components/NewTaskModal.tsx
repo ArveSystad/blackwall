@@ -1,8 +1,12 @@
 import {
   AGENT_ROLES,
+  BACKLOG_PRIORITIES,
+  MAX_TITLE_CHARS,
   PANEL_ROLES,
   type Agent,
   type AgentRole,
+  type BacklogItemView,
+  type BacklogPriority,
   type NewTaskInput,
   type OriginKind,
   type PrMode,
@@ -15,7 +19,14 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { MissingCredentialError, createTask, lookupPullRequest } from "../api";
+import {
+  MissingCredentialError,
+  createBacklogItem,
+  createTask,
+  lookupPullRequest,
+  updateBacklogItem,
+} from "../api";
+import { PRIORITY_LABELS, defaultBacklogTitle } from "../backlog";
 import { useWithCredential } from "../credentials";
 import { originKey } from "../inbox";
 import { isModKey, isPlainKey, isTypingTarget, modKeyLabel } from "../keyboard";
@@ -202,7 +213,82 @@ const TRIAGE_OPTIONS: { value: TriageMode; title: string; detail: string }[] = [
   },
 ];
 
-function NewTaskForm({ defaults, onClose }: { defaults: RoleAgents; onClose: () => void }) {
+/** Add-to-backlog mode: the repo is fixed; `item` switches to editing that item. */
+export interface BacklogTarget {
+  repoId: string;
+  /** The repo's backlog, for the depends-on choices. */
+  items: readonly BacklogItemView[];
+  item?: BacklogItemView;
+}
+
+function DependsOnField({
+  items,
+  selfId,
+  value,
+  onChange,
+}: {
+  items: readonly BacklogItemView[];
+  selfId: string | undefined;
+  value: string[];
+  onChange: (value: string[]) => void;
+}) {
+  // Other items still waiting (or paused), plus any already chosen.
+  const choices = items.filter(
+    (i) => i.id !== selfId && (i.status !== "promoted" || value.includes(i.id)),
+  );
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className={fieldLabel} id="backlog-depends-label">
+        Depends on <span className="font-normal text-faint">optional</span>
+      </span>
+      <div role="group" aria-labelledby="backlog-depends-label" className="flex flex-wrap gap-1">
+        {choices.length === 0 && (
+          <span className="text-meta text-faint">No other items in this backlog.</span>
+        )}
+        {choices.map((choice) => {
+          const on = value.includes(choice.id);
+          return (
+            <label
+              key={choice.id}
+              className={cn(
+                "inline-flex h-6 max-w-72 cursor-pointer items-center gap-1.5 rounded-sm border border-input px-2 text-meta text-muted-foreground has-focus-visible:shadow-ring",
+                on && "border-primary text-foreground-strong",
+              )}
+            >
+              <input
+                type="checkbox"
+                className="focus:outline-none"
+                checked={on}
+                onChange={(event) =>
+                  onChange(
+                    event.target.checked
+                      ? [...value, choice.id]
+                      : value.filter((id) => id !== choice.id),
+                  )
+                }
+              />
+              <span className="truncate">{choice.title}</span>
+            </label>
+          );
+        })}
+      </div>
+      <span className="text-[11.5px] text-muted-foreground">
+        The runner starts this item only once these are done.
+      </span>
+    </div>
+  );
+}
+
+function NewTaskForm({
+  defaults,
+  backlog,
+  onClose,
+}: {
+  defaults: RoleAgents;
+  backlog: BacklogTarget | undefined;
+  onClose: () => void;
+}) {
+  const item = backlog?.item;
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const withCredential = useWithCredential();
@@ -210,14 +296,18 @@ function NewTaskForm({ defaults, onClose }: { defaults: RoleAgents; onClose: () 
   const agents = useQuery(agentsQuery);
   const connections = useQuery(connectionsQuery);
 
-  const [kind, setKind] = useState<OriginKind>("jira-issue");
+  const [kind, setKind] = useState<OriginKind>(item?.origin.kind ?? "jira-issue");
   const [jiraText, setJiraText] = useState("");
   const [prUrl, setPrUrl] = useState("");
-  const [mode, setMode] = useState<PrMode>("work");
-  const [chosenRepo, setChosenRepo] = useState<string | null>(null);
-  const [freeText, setFreeText] = useState("");
-  const [roles, setRoles] = useState<RoleAgents>(defaults);
-  const [triageMode, setTriageMode] = useState<TriageMode>("intervene");
+  const [mode, setMode] = useState<PrMode>(item?.mode ?? "work");
+  const [chosenRepo, setChosenRepo] = useState<string | null>(backlog?.repoId ?? null);
+  const [freeText, setFreeText] = useState(item?.freeText ?? "");
+  const [roles, setRoles] = useState<RoleAgents>(item ? { ...defaults, ...item.agents } : defaults);
+  // Backlog items run unattended, so they default to "Run and let me intervene" too.
+  const [triageMode, setTriageMode] = useState<TriageMode>(item?.triageMode ?? "intervene");
+  const [title, setTitle] = useState(item?.title ?? "");
+  const [priority, setPriority] = useState<BacklogPriority>(item?.priority ?? "normal");
+  const [dependsOn, setDependsOn] = useState<string[]>(item?.dependsOn ?? []);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -248,8 +338,47 @@ function NewTaskForm({ defaults, onClose }: { defaults: RoleAgents; onClose: () 
     }
   }
 
+  async function submitBacklog(target: BacklogTarget) {
+    const resolved = item ? item.origin : origin();
+    if (typeof resolved === "string") return setError(resolved);
+    if (kind === "free-text" && !freeText.trim()) return setError("Describe the task");
+    const name = title.trim() || defaultBacklogTitle(resolved, freeText);
+    if (!name) return setError("Give the item a title");
+    setSubmitting(true);
+    setError(null);
+    try {
+      if (item) {
+        await updateBacklogItem(target.repoId, item.id, {
+          title: name,
+          freeText,
+          priority,
+          dependsOn,
+          agents: roles,
+          triageMode,
+        });
+      } else {
+        await createBacklogItem(target.repoId, {
+          origin: resolved,
+          mode: kind === "github-pr" ? mode : null,
+          title: name,
+          freeText,
+          agents: roles,
+          triageMode,
+          priority,
+          dependsOn,
+        });
+      }
+      await queryClient.invalidateQueries({ queryKey: queryKeys.backlog(target.repoId) });
+      onClose();
+    } catch (cause) {
+      setError(errorMessage(cause));
+      setSubmitting(false);
+    }
+  }
+
   async function submit() {
     if (submitting) return;
+    if (backlog) return submitBacklog(backlog);
     const resolved = origin();
     if (typeof resolved === "string") return setError(resolved);
     if (!repoId) return setError("Pick the repository to work in");
@@ -284,7 +413,9 @@ function NewTaskForm({ defaults, onClose }: { defaults: RoleAgents; onClose: () 
   }
 
   // 1 / 2 / 3 pick the origin while no text field has focus.
+  const editing = item !== undefined;
   useEffect(() => {
+    if (editing) return;
     function onKeyDown(event: KeyboardEvent) {
       if (!isPlainKey(event) || isTypingTarget(event.target)) return;
       const index = ["1", "2", "3"].indexOf(event.key);
@@ -294,7 +425,10 @@ function NewTaskForm({ defaults, onClose }: { defaults: RoleAgents; onClose: () 
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [editing]);
+
+  const heading = item ? "Edit backlog item" : backlog ? "Add to backlog" : "New task";
+  const backlogRepo = backlog && (repos.data ?? []).find((r) => r.id === backlog.repoId);
 
   const repoHint =
     kind === "github-pr" && lookup.state === "ok"
@@ -319,10 +453,12 @@ function NewTaskForm({ defaults, onClose }: { defaults: RoleAgents; onClose: () 
     >
       <div className="flex items-center gap-2.5 border-b border-border px-[18px] py-3.5">
         <DialogTitle className="m-0 text-heading font-semibold text-foreground-strong">
-          New task
+          {heading}
         </DialogTitle>
         <DialogDescription className="sr-only">
-          Start a task from a Jira issue, a pull request or a description.
+          {backlog
+            ? "Park work in the repo's backlog; the backlog runner starts it when the repo is idle."
+            : "Start a task from a Jira issue, a pull request or a description."}
         </DialogDescription>
         <span className="flex-1" />
         <Kbd aria-hidden="true">Esc</Kbd>
@@ -332,106 +468,162 @@ function NewTaskForm({ defaults, onClose }: { defaults: RoleAgents; onClose: () 
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto px-[18px] py-4">
-        <div className="flex flex-col gap-2">
-          <span className={fieldLabel}>Origin</span>
-          <Segmented
-            label="Origin"
-            value={kind}
-            onChange={(value) => {
-              setKind(value);
-              setError(null);
-            }}
-            options={ORIGINS.map(({ value, label, icon: Icon }, i) => ({
-              value,
-              label: (
-                <>
-                  <Icon size="sm" />
-                  {label}
-                  <Kbd aria-hidden="true">{i + 1}</Kbd>
-                </>
-              ),
-            }))}
-          />
-          {kind === "jira-issue" && (
-            <>
-              <label className="flex flex-col gap-1.5">
-                <span className="sr-only">Jira key or issue link</span>
-                <Input
-                  autoFocus
-                  className="mono text-[12.5px]"
-                  placeholder="ABC-123 or https://acme.atlassian.net/browse/ABC-123"
-                  value={jiraText}
-                  onChange={(event) => setJiraText(event.target.value)}
-                />
-              </label>
-              {jiraText.trim() && !jira && (
-                <span className="text-meta text-muted-foreground">
-                  Expected a Jira key like ABC-123, or an issue link.
-                </span>
-              )}
-              {jira && (
-                <span className="flex items-center gap-1.5 text-meta text-muted-foreground">
-                  <CheckIcon size="sm" className="text-done" />
-                  <span className="mono">{jira.key}</span>
-                  <span>The title and description are read from Jira.</span>
-                </span>
-              )}
-            </>
-          )}
-          {kind === "github-pr" && (
-            <>
-              <label className="flex flex-col gap-1.5">
-                <span className="sr-only">Pull request URL</span>
-                <Input
-                  autoFocus
-                  type="url"
-                  className="mono text-[12.5px]"
-                  placeholder="https://github.com/owner/repo/pull/123"
-                  value={prUrl}
-                  onChange={(event) => setPrUrl(event.target.value)}
-                />
-              </label>
-              {lookup.state === "loading" && (
-                <span className="text-meta text-muted-foreground">
-                  Looking up the pull request…
-                </span>
-              )}
-              {lookup.state === "error" && (
-                <span className="flex items-center gap-1.5 text-meta text-failed">
-                  <WarnIcon size="sm" />
-                  {lookup.message}
-                </span>
-              )}
-              {lookup.state === "ok" && (
-                <span className="flex items-center gap-1.5 text-meta text-muted-foreground">
-                  <CheckIcon size="sm" className="text-done" />
-                  <span className="mono">
-                    {lookup.result.origin.owner}/{lookup.result.origin.repo}#
-                    {lookup.result.origin.number}
+        {item && (
+          <div className="flex flex-col gap-1.5">
+            <span className={fieldLabel}>Origin</span>
+            <span className="mono text-[12.5px] text-muted-foreground">
+              {originKey(item)}
+              {item.mode && ` · ${item.mode === "work" ? "Work on PR" : "Review PR"}`}
+            </span>
+          </div>
+        )}
+        {item && kind === "free-text" && (
+          <label className="flex flex-col gap-1.5">
+            <span className={fieldLabel}>Description</span>
+            <Textarea
+              rows={4}
+              value={freeText}
+              onChange={(event) => setFreeText(event.target.value)}
+            />
+          </label>
+        )}
+        {!item && (
+          <div className="flex flex-col gap-2">
+            <span className={fieldLabel}>Origin</span>
+            <Segmented
+              label="Origin"
+              value={kind}
+              onChange={(value) => {
+                setKind(value);
+                setError(null);
+              }}
+              options={ORIGINS.map(({ value, label, icon: Icon }, i) => ({
+                value,
+                label: (
+                  <>
+                    <Icon size="sm" />
+                    {label}
+                    <Kbd aria-hidden="true">{i + 1}</Kbd>
+                  </>
+                ),
+              }))}
+            />
+            {kind === "jira-issue" && (
+              <>
+                <label className="flex flex-col gap-1.5">
+                  <span className="sr-only">Jira key or issue link</span>
+                  <Input
+                    autoFocus
+                    className="mono text-[12.5px]"
+                    placeholder="ABC-123 or https://acme.atlassian.net/browse/ABC-123"
+                    value={jiraText}
+                    onChange={(event) => setJiraText(event.target.value)}
+                  />
+                </label>
+                {jiraText.trim() && !jira && (
+                  <span className="text-meta text-muted-foreground">
+                    Expected a Jira key like ABC-123, or an issue link.
                   </span>
-                  {lookup.result.origin.connectionId === null && (
-                    <span className="text-faint">· no connection for this host yet</span>
-                  )}
-                </span>
-              )}
-            </>
-          )}
-          {kind === "free-text" && (
+                )}
+                {jira && (
+                  <span className="flex items-center gap-1.5 text-meta text-muted-foreground">
+                    <CheckIcon size="sm" className="text-done" />
+                    <span className="mono">{jira.key}</span>
+                    <span>The title and description are read from Jira.</span>
+                  </span>
+                )}
+              </>
+            )}
+            {kind === "github-pr" && (
+              <>
+                <label className="flex flex-col gap-1.5">
+                  <span className="sr-only">Pull request URL</span>
+                  <Input
+                    autoFocus
+                    type="url"
+                    className="mono text-[12.5px]"
+                    placeholder="https://github.com/owner/repo/pull/123"
+                    value={prUrl}
+                    onChange={(event) => setPrUrl(event.target.value)}
+                  />
+                </label>
+                {lookup.state === "loading" && (
+                  <span className="text-meta text-muted-foreground">
+                    Looking up the pull request…
+                  </span>
+                )}
+                {lookup.state === "error" && (
+                  <span className="flex items-center gap-1.5 text-meta text-failed">
+                    <WarnIcon size="sm" />
+                    {lookup.message}
+                  </span>
+                )}
+                {lookup.state === "ok" && (
+                  <span className="flex items-center gap-1.5 text-meta text-muted-foreground">
+                    <CheckIcon size="sm" className="text-done" />
+                    <span className="mono">
+                      {lookup.result.origin.owner}/{lookup.result.origin.repo}#
+                      {lookup.result.origin.number}
+                    </span>
+                    {lookup.result.origin.connectionId === null && (
+                      <span className="text-faint">· no connection for this host yet</span>
+                    )}
+                  </span>
+                )}
+              </>
+            )}
+            {kind === "free-text" && (
+              <label className="flex flex-col gap-1.5">
+                <span className="sr-only">Task description</span>
+                <Textarea
+                  autoFocus
+                  rows={4}
+                  placeholder="What should the agents do? The first line becomes the title."
+                  value={freeText}
+                  onChange={(event) => setFreeText(event.target.value)}
+                />
+              </label>
+            )}
+          </div>
+        )}
+
+        {backlog && (
+          <>
             <label className="flex flex-col gap-1.5">
-              <span className="sr-only">Task description</span>
-              <Textarea
-                autoFocus
-                rows={4}
-                placeholder="What should the agents do? The first line becomes the title."
-                value={freeText}
-                onChange={(event) => setFreeText(event.target.value)}
+              <span className={fieldLabel}>
+                Title{" "}
+                {!item && (
+                  <span className="font-normal text-faint">
+                    optional, defaults to {kind === "free-text" ? "the first line" : "the origin"}
+                  </span>
+                )}
+              </span>
+              <Input
+                maxLength={MAX_TITLE_CHARS}
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
               />
             </label>
-          )}
-        </div>
+            <div className="flex flex-col gap-1.5">
+              <span className={fieldLabel}>Priority</span>
+              <Segmented
+                label="Priority"
+                value={priority}
+                onChange={setPriority}
+                options={BACKLOG_PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABELS[p] }))}
+              />
+            </div>
+            <DependsOnField
+              items={backlog.items}
+              selfId={item?.id}
+              value={dependsOn}
+              onChange={setDependsOn}
+            />
+          </>
+        )}
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {kind === "github-pr" && (
+          {kind === "github-pr" && !item && (
             <div className="flex flex-col gap-1.5">
               <span className={fieldLabel}>Mode</span>
               <Segmented
@@ -450,36 +642,45 @@ function NewTaskForm({ defaults, onClose }: { defaults: RoleAgents; onClose: () 
               </span>
             </div>
           )}
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="new-task-repo" className={fieldLabel}>
-              Repository
-            </label>
-            <Select
-              id="new-task-repo"
-              value={repoId ?? ""}
-              onChange={(event) => setChosenRepo(event.target.value || null)}
-            >
-              <option value="">Choose a repo</option>
-              {usableRepos.map((repo) => (
-                <option key={repo.id} value={repo.id}>
-                  {repo.name} · {repo.path}
-                </option>
-              ))}
-            </Select>
-            {repoHint && <span className="text-[11.5px] text-muted-foreground">{repoHint}</span>}
-            {repos.data && usableRepos.length === 0 && (
-              <span className="text-[11.5px] text-muted-foreground">
-                No repos registered.{" "}
-                <Link
-                  to="/settings/$section"
-                  params={{ section: "repositories" }}
-                  onClick={onClose}
-                >
-                  Add one in Settings
-                </Link>
+          {backlog ? (
+            <div className="flex flex-col gap-1.5">
+              <span className={fieldLabel}>Repository</span>
+              <span className="mono text-[12.5px] text-muted-foreground">
+                {backlogRepo?.name ?? backlog.repoId}
               </span>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="new-task-repo" className={fieldLabel}>
+                Repository
+              </label>
+              <Select
+                id="new-task-repo"
+                value={repoId ?? ""}
+                onChange={(event) => setChosenRepo(event.target.value || null)}
+              >
+                <option value="">Choose a repo</option>
+                {usableRepos.map((repo) => (
+                  <option key={repo.id} value={repo.id}>
+                    {repo.name} · {repo.path}
+                  </option>
+                ))}
+              </Select>
+              {repoHint && <span className="text-[11.5px] text-muted-foreground">{repoHint}</span>}
+              {repos.data && usableRepos.length === 0 && (
+                <span className="text-[11.5px] text-muted-foreground">
+                  No repos registered.{" "}
+                  <Link
+                    to="/settings/$section"
+                    params={{ section: "repositories" }}
+                    onClick={onClose}
+                  >
+                    Add one in Settings
+                  </Link>
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {kind !== "free-text" && (
@@ -540,7 +741,9 @@ function NewTaskForm({ defaults, onClose }: { defaults: RoleAgents; onClose: () 
           <ErrorText>{error}</ErrorText>
         ) : (
           <span className="text-[11.5px] text-faint">
-            The worktree and branch are created when the task starts.
+            {backlog
+              ? "Waits in the backlog until you run it or the runner picks it."
+              : "The worktree and branch are created when the task starts."}
           </span>
         )}
         <span className="flex-1" />
@@ -548,7 +751,7 @@ function NewTaskForm({ defaults, onClose }: { defaults: RoleAgents; onClose: () 
           Cancel
         </Button>
         <Button variant="primary" type="submit" disabled={submitting}>
-          {submitting ? "Creating…" : "Create task"}
+          {submitting ? "Saving…" : item ? "Save item" : backlog ? "Add to backlog" : "Create task"}
           <Kbd onFill aria-hidden="true">
             {modKeyLabel("↵")}
           </Kbd>
@@ -558,18 +761,29 @@ function NewTaskForm({ defaults, onClose }: { defaults: RoleAgents; onClose: () 
   );
 }
 
-/** The new task form, over the dimmed shell. Esc closes; ⌘↵ creates the task. */
-export function NewTaskModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+/**
+ * The new task form, over the dimmed shell. Esc closes; ⌘↵ creates the task.
+ * With `backlog` it adds an item to (or edits one in) a repo's backlog instead.
+ */
+export function NewTaskModal({
+  open,
+  onClose,
+  backlog,
+}: {
+  open: boolean;
+  onClose: () => void;
+  backlog?: BacklogTarget | undefined;
+}) {
   const defaults = useQuery({ ...roleDefaultsQuery, enabled: open });
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="max-w-[680px]">
         {defaults.data ? (
-          <NewTaskForm defaults={defaults.data} onClose={onClose} />
+          <NewTaskForm defaults={defaults.data} backlog={backlog} onClose={onClose} />
         ) : (
           <div className="flex flex-col gap-2 px-5 py-6">
             <DialogTitle className="m-0 text-heading font-semibold text-foreground-strong">
-              New task
+              {backlog?.item ? "Edit backlog item" : backlog ? "Add to backlog" : "New task"}
             </DialogTitle>
             <DialogDescription className="m-0 text-muted-foreground">
               {defaults.isError ? defaults.error.message : "Loading…"}

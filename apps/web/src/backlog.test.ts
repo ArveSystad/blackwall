@@ -1,0 +1,210 @@
+import type { QuotaState, RepoBacklogRunner } from "@blackwall/shared";
+import { describe, expect, it } from "vitest";
+import {
+  countdown,
+  defaultBacklogTitle,
+  groupBacklog,
+  itemState,
+  moveInBucket,
+  nextBacklogItem,
+  pendingCount,
+  reorderIds,
+  runnerStatus,
+  type RunnerStatusInput,
+} from "./backlog";
+import { makeBacklogItem, makeTask } from "./test-fixtures";
+
+describe("groupBacklog", () => {
+  it("buckets by priority, high first, keeping pick order and dropping empty buckets", () => {
+    const a = makeBacklogItem({ priority: "low" });
+    const b = makeBacklogItem({ priority: "high" });
+    const c = makeBacklogItem({ priority: "low" });
+    const groups = groupBacklog([b, a, c]);
+    expect(groups.map((g) => g.priority)).toEqual(["high", "low"]);
+    expect(groups[1]!.items).toEqual([a, c]);
+  });
+
+  it("counts items not yet promoted", () => {
+    expect(
+      pendingCount([
+        makeBacklogItem(),
+        makeBacklogItem({ status: "paused" }),
+        makeBacklogItem({ status: "promoted", taskId: "t1" }),
+      ]),
+    ).toBe(2);
+  });
+});
+
+describe("moveInBucket and reorderIds", () => {
+  const high = makeBacklogItem({ priority: "high" });
+  const n1 = makeBacklogItem();
+  const n2 = makeBacklogItem();
+  const n3 = makeBacklogItem();
+  const items = [high, n1, n2, n3];
+
+  it("moves inside the bucket and lists every item once", () => {
+    expect(moveInBucket(items, n2.id, -1)).toEqual([high.id, n2.id, n1.id, n3.id]);
+    expect(moveInBucket(items, n2.id, 1)).toEqual([high.id, n1.id, n3.id, n2.id]);
+  });
+
+  it("stops at the bucket's edges", () => {
+    expect(moveInBucket(items, n1.id, -1)).toBeNull();
+    expect(moveInBucket(items, n3.id, 1)).toBeNull();
+    expect(moveInBucket(items, high.id, 1)).toBeNull();
+  });
+
+  it("drops onto another item of the same bucket only", () => {
+    expect(reorderIds(items, n3.id, n1.id)).toEqual([high.id, n3.id, n1.id, n2.id]);
+    expect(reorderIds(items, n1.id, n3.id)).toEqual([high.id, n2.id, n3.id, n1.id]);
+    expect(reorderIds(items, n1.id, high.id)).toBeNull();
+    expect(reorderIds(items, n1.id, n1.id)).toBeNull();
+  });
+});
+
+describe("nextBacklogItem", () => {
+  it("takes the first waiting item, skipping paused and promoted ones", () => {
+    const paused = makeBacklogItem({ status: "paused" });
+    const promoted = makeBacklogItem({ status: "promoted", taskId: "t1" });
+    const waiting = makeBacklogItem();
+    expect(nextBacklogItem([paused, promoted, waiting])).toBe(waiting);
+  });
+
+  it("runs an unmet dependency before the item that needs it", () => {
+    const dep = makeBacklogItem({ priority: "low" });
+    const item = makeBacklogItem({
+      priority: "high",
+      dependsOn: [dep.id],
+      blocked: true,
+      blockedBy: [dep.id],
+    });
+    expect(nextBacklogItem([item, dep])).toBe(dep);
+  });
+
+  it("leaves out skipped items and is blocked by a missing dependency", () => {
+    const a = makeBacklogItem();
+    const b = makeBacklogItem({ blocked: true, blockedBy: ["gone"] });
+    expect(nextBacklogItem([a, b], new Set([a.id]))).toBeUndefined();
+  });
+});
+
+describe("itemState", () => {
+  const dep = makeBacklogItem({ title: "Schema first" });
+  const titles = new Map([[dep.id, dep.title]]);
+  const task = makeTask({ status: "running" });
+  const tasks = new Map([[task.id, task]]);
+
+  it("says next up, paused, blocked by title, or promoted with its task", () => {
+    const blocked = makeBacklogItem({ blocked: true, blockedBy: [dep.id, "gone"] });
+    const ctx = { nextId: dep.id, titles, tasks };
+    expect(itemState(dep, ctx)).toEqual({ kind: "next" });
+    expect(itemState(makeBacklogItem({ status: "paused" }), ctx)).toEqual({ kind: "paused" });
+    expect(itemState(blocked, ctx)).toEqual({
+      kind: "blocked",
+      by: ["Schema first", "a deleted item"],
+    });
+    expect(itemState(makeBacklogItem({ status: "promoted", taskId: task.id }), ctx)).toEqual({
+      kind: "promoted",
+      task,
+    });
+    expect(itemState(makeBacklogItem(), ctx)).toEqual({ kind: "waiting" });
+  });
+});
+
+describe("runnerStatus", () => {
+  const now = new Date("2026-10-08T12:00:00Z");
+  const runner: RepoBacklogRunner = { enabled: true, haltedTaskId: null, haltedAt: null };
+  const settings = {
+    backlogRunner: true,
+    maxTasksPerRepo: 3,
+    maxBacklogTasksPerRepo: 1,
+    stopBacklogOnNeedsYou: true,
+  };
+  const status = (overrides: Partial<RunnerStatusInput> = {}) =>
+    runnerStatus({
+      settings,
+      runner,
+      items: [makeBacklogItem({ title: "Add login" })],
+      tasks: [],
+      quota: [],
+      clisFor: () => ["claude"],
+      now,
+      ...overrides,
+    });
+
+  it("names the next item when idle", () => {
+    expect(status()).toMatchObject({ tone: "ready", label: "Idle", detail: "Next: Add login" });
+  });
+
+  it("is off globally or per repo", () => {
+    expect(status({ settings: { ...settings, backlogRunner: false } }).tone).toBe("off");
+    expect(status({ runner: { ...runner, enabled: false } }).detail).toMatch(/this repo/);
+  });
+
+  it("is halted by a failed backlog task", () => {
+    const failed = makeTask({ status: "failed", title: "Broken" });
+    const result = status({
+      runner: { ...runner, haltedTaskId: failed.id },
+      tasks: [failed],
+    });
+    expect(result).toMatchObject({ tone: "halted", haltedTaskId: failed.id });
+    expect(result.detail).toContain("Broken");
+  });
+
+  it("waits for queued tasks, full slots, backlog tasks and needs-you", () => {
+    expect(status({ tasks: [makeTask({ status: "queued" })] }).detail).toBe(
+      "1 queued task goes first.",
+    );
+    const running = [1, 2, 3].map(() => makeTask({ status: "running" }));
+    expect(status({ tasks: running }).detail).toBe("3 tasks running.");
+
+    const task = makeTask({ status: "running" });
+    const promoted = makeBacklogItem({ status: "promoted", taskId: task.id });
+    expect(status({ items: [promoted, makeBacklogItem()], tasks: [task] }).detail).toBe(
+      "1 backlog task running.",
+    );
+
+    const waiting = makeTask({ status: "needs-you", title: "Review me" });
+    const link = makeBacklogItem({ status: "promoted", taskId: waiting.id });
+    const items = [link, makeBacklogItem()];
+    expect(status({ items, tasks: [waiting] }).detail).toBe("Backlog task “Review me” needs you.");
+    expect(
+      status({ items, tasks: [waiting], settings: { ...settings, stopBacklogOnNeedsYou: false } })
+        .tone,
+    ).toBe("ready");
+  });
+
+  it("is paused while the next item's CLI is on a usage limit", () => {
+    const quota: QuotaState[] = [{ cli: "claude", pausedUntil: new Date("2026-10-08T12:12:00Z") }];
+    const result = status({ quota });
+    expect(result.tone).toBe("paused");
+    expect(result.detail).toMatch(/^Claude Code quota resets .+ \(in 12m\)$/);
+    // An item on another CLI still runs.
+    expect(status({ quota, clisFor: () => ["copilot"] }).tone).toBe("ready");
+  });
+
+  it("explains an empty or stuck backlog", () => {
+    expect(status({ items: [] }).detail).toBe("The backlog is empty.");
+    expect(status({ items: [makeBacklogItem({ status: "paused" })] }).detail).toMatch(
+      /paused or blocked/,
+    );
+  });
+});
+
+describe("countdown and defaultBacklogTitle", () => {
+  it("formats seconds, minutes and hours", () => {
+    const now = new Date("2026-10-08T12:00:00Z");
+    expect(countdown(new Date("2026-10-08T12:00:45Z"), now)).toBe("45s");
+    expect(countdown(new Date("2026-10-08T12:12:00Z"), now)).toBe("12m");
+    expect(countdown(new Date("2026-10-08T14:05:00Z"), now)).toBe("2h 05m");
+    expect(countdown(new Date("2026-10-08T11:00:00Z"), now)).toBe("0s");
+  });
+
+  it("titles an item from its origin", () => {
+    expect(defaultBacklogTitle({ kind: "jira-issue", key: "ABC-1", connectionId: null }, "")).toBe(
+      "ABC-1",
+    );
+    expect(defaultBacklogTitle({ kind: "free-text" }, "\n  Fix the login\nmore")).toBe(
+      "Fix the login",
+    );
+  });
+});

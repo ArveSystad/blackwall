@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-router";
 import { Inbox } from "./components/Inbox";
 import { NotFound } from "./components/NotFound";
+import { Backlog } from "./routes/Backlog";
 import { Home } from "./routes/Home";
 import { Settings } from "./routes/Settings";
 import { TaskView } from "./routes/TaskView";
@@ -57,6 +58,15 @@ const taskRoute = createRoute({
   },
 });
 
+const backlogRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: "/repos/$repoId/backlog",
+  component: function BacklogRoute() {
+    const { repoId } = backlogRoute.useParams();
+    return <Backlog key={repoId} repoId={repoId} />;
+  },
+});
+
 const settingsIndexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
@@ -78,7 +88,7 @@ const settingsRoute = createRoute({
 });
 
 const routeTree = rootRoute.addChildren([
-  shellRoute.addChildren([homeRoute, taskRoute]),
+  shellRoute.addChildren([homeRoute, taskRoute, backlogRoute]),
   settingsIndexRoute,
   settingsRoute,
 ]);

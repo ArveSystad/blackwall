@@ -1,6 +1,8 @@
 import { QueryClient, queryOptions } from "@tanstack/react-query";
 import {
   ApiError,
+  getBacklogRunner,
+  getQuota,
   getRoleDefaults,
   getSettings,
   getDeliveryPlan,
@@ -13,6 +15,7 @@ import {
   listStepEvents,
   listSteps,
   listAgents,
+  listBacklog,
   listConnections,
   listRepos,
   listTags,
@@ -40,6 +43,11 @@ export const queryKeys = {
   tags: ["tags"] as const,
   settings: ["settings"] as const,
   clis: ["clis"] as const,
+  /** Every repo's backlog; `backlog.changed` invalidates one repo's by prefix. */
+  backlogs: ["backlog"] as const,
+  backlog: (repoId: string) => ["backlog", repoId] as const,
+  backlogRunner: (repoId: string) => ["backlog", repoId, "runner"] as const,
+  quota: ["quota"] as const,
 };
 
 export const tasksQuery = queryOptions({ queryKey: queryKeys.tasks, queryFn: listTasks });
@@ -100,6 +108,18 @@ export const clisQuery = queryOptions({
 export const tagsQuery = queryOptions({ queryKey: queryKeys.tags, queryFn: listTags });
 
 export const settingsQuery = queryOptions({ queryKey: queryKeys.settings, queryFn: getSettings });
+
+export const backlogQuery = (repoId: string) =>
+  queryOptions({ queryKey: queryKeys.backlog(repoId), queryFn: () => listBacklog(repoId) });
+
+export const backlogRunnerQuery = (repoId: string) =>
+  queryOptions({
+    queryKey: queryKeys.backlogRunner(repoId),
+    queryFn: () => getBacklogRunner(repoId),
+  });
+
+/** Written in place by `quota.changed`. */
+export const quotaQuery = queryOptions({ queryKey: queryKeys.quota, queryFn: getQuota });
 
 export function createQueryClient(): QueryClient {
   return new QueryClient({

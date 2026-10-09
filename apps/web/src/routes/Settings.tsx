@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { BackIcon } from "../components/icons";
+import { BacklogSection } from "../components/settings/BacklogSection";
 import { AgentLibrary } from "../components/settings/AgentLibrary";
 import { ConnectionsSection } from "../components/settings/ConnectionsSection";
 import { DefaultsSection } from "../components/settings/DefaultsSection";
@@ -58,6 +59,8 @@ function SectionBody({ section }: { section: SettingsSection }) {
       return <TagsSection />;
     case "defaults":
       return <DefaultsSection />;
+    case "backlog":
+      return <BacklogSection />;
   }
 }
 

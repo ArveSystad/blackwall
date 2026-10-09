@@ -1,6 +1,7 @@
 import {
   parseServerEvent,
   type ClientEvent,
+  type QuotaState,
   type ServerEvent,
   type StepEvent,
   type Task,
@@ -122,6 +123,10 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       // A stage or gate change can mean new commits or a new delivery plan.
       void client.invalidateQueries({ queryKey: queryKeys.taskDiffs(task.id) });
       void client.invalidateQueries({ queryKey: queryKeys.taskDelivery(task.id) });
+      // A finished task can unblock the backlog items that depend on it.
+      if (task.status === "done") {
+        void client.invalidateQueries({ queryKey: queryKeys.backlog(task.repoId) });
+      }
       break;
     }
     case "task.removed": {
@@ -156,7 +161,11 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       });
       break;
     case "backlog.changed":
-      // No backlog view yet (task-029).
+      // The prefix covers the repo's runner state too.
+      void client.invalidateQueries({ queryKey: queryKeys.backlog(event.payload.repoId) });
+      break;
+    case "quota.changed":
+      client.setQueryData<QuotaState[]>(queryKeys.quota, event.payload.quota);
       break;
     case "pong":
     case "error":

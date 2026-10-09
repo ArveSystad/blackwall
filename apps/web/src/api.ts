@@ -4,6 +4,8 @@ import {
   STALE_REPO_STATUS,
   WS_PATH,
   agentSchema,
+  backlogItemSchema,
+  backlogItemViewSchema,
   cliStatusSchema,
   connectionTestResultSchema,
   connectionViewSchema,
@@ -15,6 +17,8 @@ import {
   healthResponseSchema,
   missingCredentialSchema,
   pullRequestLookupSchema,
+  quotaStateSchema,
+  repoBacklogRunnerSchema,
   repoScanResultSchema,
   repoSchema,
   repoViewSchema,
@@ -29,6 +33,8 @@ import {
   type Agent,
   type AgentInput,
   type AgentUpdate,
+  type BacklogItem,
+  type BacklogItemView,
   type CliStatus,
   type ConnectionTestResult,
   type ConnectionView,
@@ -42,8 +48,11 @@ import {
   type GrillQuestion,
   type HealthResponse,
   type MissingCredential,
+  type NewBacklogItemInput,
   type NewTaskInput,
   type PullRequestLookup,
+  type QuotaState,
+  type RepoBacklogRunner,
   type ResolveConnectionInput,
   type Repo,
   type RepoInput,
@@ -58,6 +67,7 @@ import {
   type StepEvent,
   type Task,
   type TaskDiff,
+  type UpdateBacklogItemInput,
 } from "@blackwall/shared";
 
 export async function fetchHealth(signal?: AbortSignal): Promise<HealthResponse> {
@@ -259,6 +269,69 @@ export function refreshRepo(id: string): Promise<Repo> {
 /** Check commands suggested from the repo's build files; a missing folder is a `StaleRepoError`. */
 export function suggestedChecks(id: string): Promise<string[]> {
   return request(`${at("/api/repos", id)}/suggested-checks`, repoSchema.shape.checkCommands);
+}
+
+const backlogPath = (repoId: string) => `${at("/api/repos", repoId)}/backlog`;
+
+/** The repo's backlog in pick order, each item with the dependencies still holding it back. */
+export function listBacklog(repoId: string): Promise<BacklogItemView[]> {
+  return request(backlogPath(repoId), backlogItemViewSchema.array());
+}
+
+export function createBacklogItem(
+  repoId: string,
+  input: NewBacklogItemInput,
+): Promise<BacklogItem> {
+  return request(backlogPath(repoId), backlogItemSchema, { method: "POST", body: input });
+}
+
+/** Edits a waiting or paused item; a promoted item answers 409. */
+export function updateBacklogItem(
+  repoId: string,
+  id: string,
+  patch: UpdateBacklogItemInput,
+): Promise<BacklogItem> {
+  return request(at(backlogPath(repoId), id), backlogItemSchema, { method: "PATCH", body: patch });
+}
+
+export function deleteBacklogItem(repoId: string, id: string): Promise<void> {
+  return requestEmpty(at(backlogPath(repoId), id), { method: "DELETE" });
+}
+
+/** Promotes the item now: the server creates a normal queued task from it. */
+export function runBacklogItem(repoId: string, id: string): Promise<Task> {
+  return request(`${at(backlogPath(repoId), id)}/run`, taskSchema, { method: "POST" });
+}
+
+/** Sets the manual order; `ids` must list every item of the repo once. */
+export function reorderBacklog(repoId: string, ids: string[]): Promise<BacklogItem[]> {
+  return request(`${backlogPath(repoId)}/reorder`, backlogItemSchema.array(), {
+    method: "POST",
+    body: { ids },
+  });
+}
+
+export function getBacklogRunner(repoId: string): Promise<RepoBacklogRunner> {
+  return request(`${backlogPath(repoId)}/runner`, repoBacklogRunnerSchema);
+}
+
+export function setBacklogRunner(repoId: string, enabled: boolean): Promise<RepoBacklogRunner> {
+  return request(`${backlogPath(repoId)}/runner`, repoBacklogRunnerSchema, {
+    method: "PATCH",
+    body: { enabled },
+  });
+}
+
+/** Clears a halt so the runner moves on with the backlog. */
+export function resumeBacklogRunner(repoId: string): Promise<RepoBacklogRunner> {
+  return request(`${backlogPath(repoId)}/runner/resume`, repoBacklogRunnerSchema, {
+    method: "POST",
+  });
+}
+
+/** Usage-limit state per agent CLI. */
+export function getQuota(): Promise<QuotaState[]> {
+  return request("/api/quota", quotaStateSchema.array());
 }
 
 export function listAgents(): Promise<Agent[]> {

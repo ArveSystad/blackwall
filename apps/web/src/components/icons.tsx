@@ -151,3 +151,20 @@ export const FailedIcon = icon(
     <path d="m6 6 4 4M10 6l-4 4" />
   </>,
 );
+
+export const PlayIcon = icon(<path d="M5 3.5v9l7-4.5-7-4.5Z" />);
+
+/** Drag handle for reorderable rows. */
+export const GripIcon = icon(
+  <>
+    <circle cx="6" cy="4" r=".6" />
+    <circle cx="10" cy="4" r=".6" />
+    <circle cx="6" cy="8" r=".6" />
+    <circle cx="10" cy="8" r=".6" />
+    <circle cx="6" cy="12" r=".6" />
+    <circle cx="10" cy="12" r=".6" />
+  </>,
+);
+
+/** The backlog: stacked items waiting their turn. */
+export const BacklogIcon = icon(<path d="M3 4h10M3 8h10M3 12h6M12 11v3M10.5 12.5h3" />);

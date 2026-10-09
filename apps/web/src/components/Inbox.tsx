@@ -8,8 +8,10 @@ import { cn } from "../lib/utils";
 import { useLiveStatus } from "../live-status";
 import { agentsQuery, reposQuery, tasksQuery } from "../query";
 import { agentClis } from "../task-view";
+import { BacklogNav } from "./BacklogNav";
 import { GearIcon, PlusIcon, SearchIcon, WallIcon } from "./icons";
 import { NewTaskModal } from "./NewTaskModal";
+import { QuotaChip } from "./QuotaChip";
 import { StatusBadge } from "./StatusBadge";
 import { TaskCard } from "./TaskCard";
 import { ThemeToggle } from "./ThemeToggle";
@@ -147,6 +149,7 @@ export function Inbox() {
           {needs > 0 && (
             <StatusBadge status="needs-you" label={`${needs} need you`} className="ml-1" />
           )}
+          <QuotaChip />
           <span className="flex-1" />
           <ThemeToggle />
           <Button variant="ghost" size="icon" asChild>
@@ -199,6 +202,8 @@ export function Inbox() {
       ) : (
         <TaskList tasks={tasks.data} filter={filter} />
       )}
+
+      <BacklogNav />
 
       <div className="flex items-center gap-2.5 border-t border-border px-3.5 py-2 text-label text-muted-foreground">
         <LiveIndicator />
