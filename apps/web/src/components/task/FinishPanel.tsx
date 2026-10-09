@@ -11,6 +11,7 @@ import { isModKey, isTypingTarget, modKeyLabel } from "../../keyboard";
 import { taskDeliveryQuery } from "../../query";
 import { checkPassed, confirmLabel, deliveryActionCopy, isReviewTriage } from "../../task-view";
 import { WallIcon } from "../icons";
+import { Markdown } from "../Markdown";
 import { OutboundAction } from "../OutboundAction";
 import { SeverityChip } from "../SeverityChip";
 import { Button } from "../ui/button";
@@ -60,7 +61,7 @@ function Summary({ task, data }: { task: Task; data: TaskData }) {
       <div className="flex flex-col gap-2">
         <span className="label text-muted-foreground">Summary</span>
         {task.summary ? (
-          <div className="max-w-[680px] whitespace-pre-wrap text-foreground">{task.summary}</div>
+          <Markdown className="max-w-[680px]">{task.summary}</Markdown>
         ) : (
           <p className="m-0 text-muted-foreground">
             {task.mode === "review"
