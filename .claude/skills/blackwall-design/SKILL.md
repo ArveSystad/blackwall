@@ -39,6 +39,9 @@ conflict instead of silently picking one.
    arbitrary color values in components.** If a value is missing, add a token to BOTH themes, map it in
    `@theme inline`, and record it in the token table below.
 4. Build both themes. Dark is the primary target; light must use the same layout and semantics.
+   Dark is always the default. Light is opt-in only, via the theme toggle or `T`, which sets
+   `data-theme="light"` on `<html>` (stored per browser in `localStorage`). Never follow the OS
+   `prefers-color-scheme`.
 5. Cover every state the screen can be in: loading, empty, needs you, running, interrupted, failed, done.
 6. Make it work from the keyboard (see Keyboard) with visible focus rings.
 7. Check: `pnpm typecheck`, `pnpm lint`, then compare against the mockup in the browser in both themes.
@@ -121,7 +124,7 @@ diff + Force fix / Force ignore), `DiffView`, `ToolCall` (collapsible: verb + mo
 
 J/K move · Enter open · G N next needs-you · N new task · / search · ⌘↵ confirm/send · F force fix ·
 I force ignore · O open in editor · A approve plan · R request changes (Grill) / resume (interrupted) ·
-P pause · Esc close · ? shortcut sheet. Show `Kbd` hints next to the actions they trigger. Never
+P pause · T toggle theme · Esc close · ? shortcut sheet. Show `Kbd` hints next to the actions they trigger. Never
 bind a global shortcut while focus is in a text field.
 
 ## Copy

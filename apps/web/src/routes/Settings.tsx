@@ -8,6 +8,7 @@ import { DefaultsSection } from "../components/settings/DefaultsSection";
 import { RepositoriesSection } from "../components/settings/RepositoriesSection";
 import { TagsSection } from "../components/settings/TagsSection";
 import { StatusBadge } from "../components/StatusBadge";
+import { ThemeToggle } from "../components/ThemeToggle";
 import { Button } from "../components/ui/button";
 import { Kbd } from "../components/ui/kbd";
 import { Wordmark } from "../components/Wordmark";
@@ -80,8 +81,10 @@ export function Settings({ section }: { section: SettingsSection }) {
         aria-label="Settings"
         className="flex h-full w-[232px] shrink-0 flex-col gap-0.5 border-r border-border bg-sidebar px-2.5 py-3"
       >
-        <div className="mb-2.5 flex h-7 items-center px-1.5">
+        <div className="mb-2.5 flex h-7 items-center gap-2 pl-1.5">
           <Wordmark />
+          <span className="flex-1" />
+          <ThemeToggle />
         </div>
         <Button variant="ghost" size="sm" className="mb-2 justify-start" asChild>
           <Link to="/">

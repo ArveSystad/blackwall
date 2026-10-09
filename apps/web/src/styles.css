@@ -1,7 +1,8 @@
 /*
  * blackwall design tokens. Values come from the Claude Design export
  * (docs/design/bw.css); this file is now the source of truth in code.
- * Dark is the primary theme; light applies when the OS prefers it.
+ * Dark is the default; light applies only when the user picks it
+ * (`data-theme="light"` on <html>, see src/theme.ts). The OS setting is ignored.
  * Components style with the Tailwind utilities mapped in `@theme inline`
  * below, never raw colors.
  */
@@ -75,67 +76,65 @@
 }
 
 /* ---------- light ---------- */
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg-0: #f3f3f6;
-    --bg-1: #ffffff;
-    --bg-2: #fafafc;
-    --bg-3: #eff0f4;
-    --bg-4: #ffffff;
-    --bg-modal: #ffffff;
-    --border: #e3e3ea;
-    --border-strong: #cdcdd8;
-    --fg: #2b2b35;
-    --fg-strong: #111118;
-    --fg-muted: #5d5d6c;
-    --fg-faint: #9a9aa8;
-    --primary: #5a45e0;
-    --primary-fg: #ffffff;
-    --cyan: #1d6fe0;
-    --magenta: #c4167c;
-    --needs-fg: #ffffff;
-    --st-running: #1d6fe0;
-    --st-needs: #c4167c;
-    --st-interrupted: #6b6b7b;
-    --st-failed: #cf2236;
-    --st-done: #1a7f37;
-    --sev-critical: #cf2236;
-    --sev-high: #c2530a;
-    --sev-medium: #9a6d00;
-    --sev-low: #5a6880;
-    --diff-add-bg: #e9fbee;
-    --diff-add-hl: #b8efc6;
-    --diff-add-fg: #1a7f37;
-    --diff-del-bg: #fff0ef;
-    --diff-del-hl: #ffcdc8;
-    --diff-del-fg: #b3202c;
-    --needs-wash: #fdf0f7;
-    --running-wash: #f0f6ff;
-    --code-bg: #f6f7f9;
-    --claude: #b4522b;
-    --copilot: #2f5fc4;
-    --overlay: rgba(20, 20, 30, 0.38);
-    --shadow-pop: 0 16px 48px rgba(20, 20, 40, 0.18), 0 0 0 1px #d6d6df;
-    --kbd-on-fill-bg: rgba(255, 255, 255, 0.18);
-    --kbd-on-fill-border: rgba(255, 255, 255, 0.3);
-    --seg-on-bg: var(--bg-1);
-    --seg-on-ring: var(--border-strong);
+:root[data-theme="light"] {
+  --bg-0: #f3f3f6;
+  --bg-1: #ffffff;
+  --bg-2: #fafafc;
+  --bg-3: #eff0f4;
+  --bg-4: #ffffff;
+  --bg-modal: #ffffff;
+  --border: #e3e3ea;
+  --border-strong: #cdcdd8;
+  --fg: #2b2b35;
+  --fg-strong: #111118;
+  --fg-muted: #5d5d6c;
+  --fg-faint: #9a9aa8;
+  --primary: #5a45e0;
+  --primary-fg: #ffffff;
+  --cyan: #1d6fe0;
+  --magenta: #c4167c;
+  --needs-fg: #ffffff;
+  --st-running: #1d6fe0;
+  --st-needs: #c4167c;
+  --st-interrupted: #6b6b7b;
+  --st-failed: #cf2236;
+  --st-done: #1a7f37;
+  --sev-critical: #cf2236;
+  --sev-high: #c2530a;
+  --sev-medium: #9a6d00;
+  --sev-low: #5a6880;
+  --diff-add-bg: #e9fbee;
+  --diff-add-hl: #b8efc6;
+  --diff-add-fg: #1a7f37;
+  --diff-del-bg: #fff0ef;
+  --diff-del-hl: #ffcdc8;
+  --diff-del-fg: #b3202c;
+  --needs-wash: #fdf0f7;
+  --running-wash: #f0f6ff;
+  --code-bg: #f6f7f9;
+  --claude: #b4522b;
+  --copilot: #2f5fc4;
+  --overlay: rgba(20, 20, 30, 0.38);
+  --shadow-pop: 0 16px 48px rgba(20, 20, 40, 0.18), 0 0 0 1px #d6d6df;
+  --kbd-on-fill-bg: rgba(255, 255, 255, 0.18);
+  --kbd-on-fill-border: rgba(255, 255, 255, 0.3);
+  --seg-on-bg: var(--bg-1);
+  --seg-on-ring: var(--border-strong);
 
-    --glow-cyan: 0 0 0 1px #1d6fe0, 0 0 0 3px rgba(29, 111, 224, 0.18);
-    --glow-magenta: 0 0 0 1px #c4167c, 0 0 0 3px rgba(196, 22, 124, 0.14);
-    --glow-violet: 0 0 0 1px #5a45e0, 0 0 0 3px rgba(90, 69, 224, 0.18);
-    --glow-primary-btn: none;
-    --glow-text-magenta: none;
-    --glow-text-cyan: none;
-    --glow-status-needs: none;
-    --glow-rail: none;
-    --glow-pip: none;
-    --glow-tab: none;
-    --ring: var(--glow-violet);
-    --wordmark-accent: var(--primary);
+  --glow-cyan: 0 0 0 1px #1d6fe0, 0 0 0 3px rgba(29, 111, 224, 0.18);
+  --glow-magenta: 0 0 0 1px #c4167c, 0 0 0 3px rgba(196, 22, 124, 0.14);
+  --glow-violet: 0 0 0 1px #5a45e0, 0 0 0 3px rgba(90, 69, 224, 0.18);
+  --glow-primary-btn: none;
+  --glow-text-magenta: none;
+  --glow-text-cyan: none;
+  --glow-status-needs: none;
+  --glow-rail: none;
+  --glow-pip: none;
+  --glow-tab: none;
+  --ring: var(--glow-violet);
+  --wordmark-accent: var(--primary);
 
-    color-scheme: light;
-  }
+  color-scheme: light;
 }
 
 /* ---------- Tailwind mapping (shadcn/ui slots + blackwall tokens) ---------- */

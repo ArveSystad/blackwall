@@ -12,6 +12,7 @@ import { GearIcon, PlusIcon, SearchIcon, WallIcon } from "./icons";
 import { NewTaskModal } from "./NewTaskModal";
 import { StatusBadge } from "./StatusBadge";
 import { TaskCard } from "./TaskCard";
+import { ThemeToggle } from "./ThemeToggle";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Kbd } from "./ui/kbd";
@@ -147,6 +148,7 @@ export function Inbox() {
             <StatusBadge status="needs-you" label={`${needs} need you`} className="ml-1" />
           )}
           <span className="flex-1" />
+          <ThemeToggle />
           <Button variant="ghost" size="icon" asChild>
             <Link to="/settings" aria-label="Settings">
               <GearIcon />

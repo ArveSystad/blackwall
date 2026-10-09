@@ -23,6 +23,7 @@ Exported from the Claude Design canvas. These are reference mockups, not product
 - Severity is Critical (red), High (orange), Medium (amber) or Low (slate). Critical and High gate the review loop and show a lock icon.
 - Diffs use plain green and red. Never put neon or glow on diffs, text blocks or table rows.
 - Glow is dark-theme only. Light theme replaces it with a 3px tinted ring.
+- In the app, dark is always the default; light is opt-in via the header toggle or `T` (never the OS setting).
 - The UI is keyboard-first: J/K to move, G N for the next task needing you, ⌘↵ to confirm, F/I to force fix or ignore a finding.
 - The "CC" and "CP" tiles are placeholders for the real Claude Code and Copilot CLI icons.
 - Fonts: Geist (UI), Geist Mono (code, paths, branches, hashes), Chakra Petch (wordmark only).

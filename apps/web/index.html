@@ -4,6 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>blackwall</title>
+    <script>
+      // Apply a chosen light theme before first paint. Dark is the default (see src/theme.ts).
+      try {
+        if (localStorage.getItem("blackwall.theme") === "light") {
+          document.documentElement.setAttribute("data-theme", "light");
+        }
+      } catch {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

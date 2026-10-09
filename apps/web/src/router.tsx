@@ -12,13 +12,18 @@ import { Home } from "./routes/Home";
 import { Settings } from "./routes/Settings";
 import { TaskView } from "./routes/TaskView";
 import { isSettingsSection } from "./settings-sections";
+import { useThemeHotkey } from "./theme";
 
 const rootRoute = createRootRoute({
-  component: () => (
-    <div className="h-full min-h-0 bg-background">
-      <Outlet />
-    </div>
-  ),
+  component: function Root() {
+    // App-wide shortcuts that must work on every route, Settings included.
+    useThemeHotkey();
+    return (
+      <div className="h-full min-h-0 bg-background">
+        <Outlet />
+      </div>
+    );
+  },
   notFoundComponent: NotFound,
 });
 
