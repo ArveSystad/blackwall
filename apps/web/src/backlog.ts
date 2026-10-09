@@ -332,6 +332,30 @@ export function runnerStatus({
   };
 }
 
+/**
+ * The status bar's line for a repo: "3 tasks running · auto-start enabled".
+ * `tasks` are the repo's. Auto-start is disabled when the runner is off in
+ * Settings or for the repo, and halted while a failed task holds it.
+ */
+export function repoStatusLine({
+  settings,
+  runner,
+  tasks,
+}: {
+  settings: Pick<GeneralSettings, "backlogRunner">;
+  runner: Pick<RepoBacklogRunner, "enabled" | "haltedTaskId">;
+  tasks: readonly Pick<Task, "status">[];
+}): string {
+  const running = tasks.filter((t) => t.status === "running").length;
+  const autoStart =
+    !settings.backlogRunner || !runner.enabled
+      ? "disabled"
+      : runner.haltedTaskId !== null
+        ? "halted"
+        : "enabled";
+  return `${plural(running, "task")} running · auto-start ${autoStart}`;
+}
+
 /** A title for an item added from an origin: the Jira key, the PR, or the first line of the text. */
 export function defaultBacklogTitle(origin: TaskOrigin, freeText: string): string {
   switch (origin.kind) {

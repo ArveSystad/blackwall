@@ -1,8 +1,9 @@
 import { useSyncExternalStore } from "react";
 
 /**
- * The repo the user is working in, picked by opening its backlog. It frames the main pane: the
- * status bar shows it, New task starts on it and Escape from a task returns to its backlog.
+ * The repo the user is working in, picked from the status bar or by opening its backlog. It frames
+ * the main pane: the status bar shows it, New task starts on it and Escape from a task returns to
+ * its backlog.
  * Remembered per browser; an id whose repo is gone acts like no selection.
  */
 export const SELECTED_REPO_STORAGE_KEY = "blackwall.repo";

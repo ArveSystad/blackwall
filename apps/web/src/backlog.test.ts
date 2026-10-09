@@ -10,6 +10,7 @@ import {
   nextBacklogItem,
   pendingCount,
   reorderIds,
+  repoStatusLine,
   rowAction,
   runnerStatus,
   type RunnerStatusInput,
@@ -321,6 +322,49 @@ describe("countdown and defaultBacklogTitle", () => {
     );
     expect(defaultBacklogTitle({ kind: "free-text" }, "\n  Fix the login\nmore")).toBe(
       "Fix the login",
+    );
+  });
+});
+
+describe("repoStatusLine", () => {
+  const on = { enabled: true, haltedTaskId: null };
+  const line = (overrides: Partial<Parameters<typeof repoStatusLine>[0]> = {}): string =>
+    repoStatusLine({ settings: { backlogRunner: true }, runner: on, tasks: [], ...overrides });
+
+  it("counts no running tasks with auto-start enabled", () => {
+    expect(line()).toBe("0 tasks running · auto-start enabled");
+  });
+
+  it("says task in the singular", () => {
+    expect(line({ tasks: [makeTask({ status: "running" })] })).toBe(
+      "1 task running · auto-start enabled",
+    );
+  });
+
+  it("counts only running tasks", () => {
+    const tasks = [
+      makeTask({ status: "running" }),
+      makeTask({ status: "running" }),
+      makeTask({ status: "running" }),
+      makeTask({ status: "queued" }),
+      makeTask({ status: "needs-you" }),
+      makeTask({ status: "done" }),
+    ];
+    expect(line({ tasks })).toBe("3 tasks running · auto-start enabled");
+  });
+
+  it("is disabled when the runner is off globally or for the repo", () => {
+    expect(line({ settings: { backlogRunner: false } })).toBe(
+      "0 tasks running · auto-start disabled",
+    );
+    expect(line({ runner: { enabled: false, haltedTaskId: null } })).toBe(
+      "0 tasks running · auto-start disabled",
+    );
+  });
+
+  it("is halted while a failed task holds the runner", () => {
+    expect(line({ runner: { enabled: true, haltedTaskId: "t1" } })).toBe(
+      "0 tasks running · auto-start halted",
     );
   });
 });
