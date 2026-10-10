@@ -354,8 +354,16 @@
 /* ---------- first-run grid backdrop (GridBackdrop.tsx) ----------
  * A perspective floor drifting toward the viewer plus a slow scanline.
  * Only transform/opacity/background-position animate; reduced motion stops
- * both via the base rule below. Masks keep lines away from the card column.
+ * both via the base rule below. The mask fades lines under the centre column
+ * unless `.bw-grid-full` (the agents view); `--grid-fade` eases the change.
+ * `.bw-grid-spot` follows the pointer (`--mx`/`--my`, set from JS).
  */
+@property --grid-fade {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0.18;
+}
+
 @keyframes bw-grid-drift {
   from {
     background-position: 0 0;
@@ -390,16 +398,42 @@
     overflow: hidden;
     pointer-events: none;
     z-index: 0;
-    /* Lines fade out under the centered card column (~600px). */
+    /* Lines fade out under the centered card column (~600px), to `--grid-fade`. */
     mask-image: linear-gradient(
       to right,
       #000 0,
       #000 calc(50% - 400px),
-      rgb(0 0 0 / 0.18) calc(50% - 260px),
-      rgb(0 0 0 / 0.18) calc(50% + 260px),
+      rgb(0 0 0 / var(--grid-fade)) calc(50% - 260px),
+      rgb(0 0 0 / var(--grid-fade)) calc(50% + 260px),
       #000 calc(50% + 400px),
       #000 100%
     );
+    transition: --grid-fade 600ms ease-out;
+  }
+
+  /* Full width (agents view). Keep the mask: it makes `.bw-grid` the backdrop
+   * root, so the spotlight filters only the grid, never the pane behind it. */
+  .bw-grid-full {
+    --grid-fade: 1;
+  }
+
+  /* Pointer spotlight: filters the lines already drawn, so the space between
+   * them stays clear. Weaker under the faded column, by design. */
+  .bw-grid-spot {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity 300ms ease-out;
+    backdrop-filter: brightness(2.2) saturate(1.4);
+    mask-image: radial-gradient(
+      circle 220px at var(--mx, -999px) var(--my, -999px),
+      #000,
+      transparent 70%
+    );
+  }
+
+  .bw-grid[data-hover] .bw-grid-spot {
+    opacity: 1;
   }
 
   .bw-grid-glow {
@@ -474,9 +508,14 @@
     animation: bw-grid-scan 12s ease-in-out infinite;
   }
 
-  /* Glow is dark only: light keeps the static-feeling floor and drops the sweep. */
+  /* Glow is dark only: light keeps the static-feeling floor and drops the sweep;
+   * its pointer spotlight darkens the lines instead of glowing. */
   :root[data-theme="light"] .bw-grid-scan {
     display: none;
+  }
+
+  :root[data-theme="light"] .bw-grid-spot {
+    backdrop-filter: brightness(0.55) contrast(1.4);
   }
 
   /* ---------- running stream sweep (TaskHeader.tsx) ----------

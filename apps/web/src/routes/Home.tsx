@@ -178,11 +178,13 @@ export function Home() {
   const tasksFailed = tasks.isError && !tasks.data;
   const activeFailed = active.isError && !active.data;
   const loaded = !!tasks.data && !!active.data;
+  // The agents view has no centred text, so the grid runs full width behind it.
+  const showAgents = !firstRun && !tasksFailed && !activeFailed && loaded && dots.length > 0;
   const create = () => setCreating(true);
 
   return (
     <div className="relative isolate flex h-full items-center justify-center overflow-auto px-6 py-10">
-      <GridBackdrop />
+      <GridBackdrop fade={!showAgents} />
       {firstRun ? (
         <FirstRun />
       ) : tasksFailed || activeFailed ? (
