@@ -30,6 +30,7 @@ import {
   DELIVERY_DONE_EVENT,
   DeliveryError,
   ISSUE_COMMENT_EVENT,
+  createDeliverer,
   type DeliveryContext,
 } from "./delivery.js";
 import type { CheckOutcome, CheckRunner } from "./checks.js";
@@ -1492,6 +1493,113 @@ describe("summarize and finish", () => {
     expect(squashMessage).toBe("ABC-1 Fix login");
   });
 
+  describe("follow-ups", () => {
+    const followUp = (n: number) => ({ title: `Task ${n}`, description: `Do ${n}`, repoId: null });
+    const summarizing = (followUps: unknown) => (stage: Call) =>
+      stage === "summarize"
+        ? { structured: { summary: "Analysed it.", commitMessage: "Plan the work", followUps } }
+        : {};
+
+    it("stores the proposed follow-ups, and lists the repos and rules in the prompts", async () => {
+      const h = harness(summarizing([followUp(1)]));
+      const seeded = await atFinish(h);
+      expect(task(seeded.id).followUps).toEqual([followUp(1)]);
+      for (const stage of ["inform", "summarize"] as const) {
+        const prompt = h.calls.find((c) => c.stage === stage)!.options.prompt;
+        expect(prompt).toContain(`\`${seeded.repoId}\`: app (this task's repo)`);
+        expect(prompt).toContain("Each follow-up must be independent");
+        expect(prompt).toContain("Do not split a sequence into separate follow-ups");
+      }
+      const inform = h.calls.find((c) => c.stage === "inform")!.options.prompt;
+      expect(inform).toContain("Follow-up tasks are a valid deliverable");
+      const implement = h.calls.find((c) => c.stage === "implement")!.options.prompt;
+      expect(implement).toContain(
+        "If the approved plan calls for no code changes, change nothing.",
+      );
+    });
+
+    it("drops invalid follow-ups and keeps five, without losing the summary", async () => {
+      const proposed = [1, 2, 3, 4, 5, 6, 7].map(followUp);
+      proposed[1] = { title: "", description: "No title", repoId: null };
+      const h = harness(summarizing(proposed));
+      const seeded = await atFinish(h);
+      expect(task(seeded.id)).toMatchObject({
+        summary: "Analysed it.",
+        squashMessage: "Plan the work",
+        followUps: [1, 3, 4, 5, 6].map(followUp),
+      });
+    });
+
+    it("stores none when the follow-ups are not a list", async () => {
+      const h = harness(summarizing("oops"));
+      const seeded = await atFinish(h);
+      expect(task(seeded.id)).toMatchObject({ summary: "Analysed it.", followUps: [] });
+    });
+
+    it("creates the confirmed follow-ups as waiting items, and none when kept local", async () => {
+      const unused = async () => {
+        throw new Error("Not expected");
+      };
+      const deliverer = createDeliverer({
+        git: {
+          mainBranch: "main",
+          mergeBase: unused,
+          commitsSince: unused,
+          squash: unused,
+          push: unused,
+          finishIntoMain: unused,
+        },
+        repositories: r,
+        ports: {
+          parseRemote: () => undefined,
+          openPullRequest: unused,
+          commentOnPullRequest: unused,
+          commentOnJiraIssue: unused,
+          commentOnGitHubIssue: unused,
+          reviewPullRequest: unused,
+        },
+      });
+      const h = harness(summarizing([followUp(1), followUp(2)]), {
+        deliver: (ctx) => deliverer.deliver(ctx),
+      });
+
+      const kept = await atFinish(h);
+      await h.engine.respond(kept.id, { gate: "finish", decision: "approve" });
+      expect(task(kept.id)).toMatchObject({ status: "done", deliveryTargets: [] });
+      expect(r.backlogItems.list()).toEqual([]);
+
+      const seeded = await atFinish(h);
+      await h.engine.respond(seeded.id, {
+        gate: "finish",
+        decision: "approve",
+        delivery: { actions: ["create-tasks"], followUpIndexes: [1] },
+      });
+      expect(task(seeded.id)).toMatchObject({ status: "done", deliveryTargets: ["create-tasks"] });
+      expect(r.backlogItems.list()).toMatchObject([
+        { title: "Task 2", freeText: "Do 2", status: "waiting", sourceTaskId: seeded.id },
+      ]);
+    });
+
+    it("reaches the finish gate when the task changes no code", async () => {
+      const git = {
+        stagedDiff: vi.fn(async () => ""),
+        commitAll: vi.fn(async () => undefined),
+      };
+      const reviewGit = {
+        mainBranch: "main",
+        mergeBase: vi.fn(async () => "base"),
+        headSha: vi.fn(async () => "base"),
+        diff: vi.fn(async () => ""),
+      };
+      const h = harness(summarizing([followUp(1)]), {
+        stages: createDefaultStages({ git, reviewGit }),
+      });
+      const seeded = await atFinish(h);
+      expect(git.commitAll).not.toHaveBeenCalled();
+      expect(task(seeded.id).followUps).toEqual([followUp(1)]);
+    });
+  });
+
   it("takes the summarizer's text when it misses the output contract", async () => {
     const h = harness((stage) => (stage === "summarize" ? { text: "Plain summary" } : {}));
     const seeded = await atFinish(h);
@@ -1515,6 +1623,7 @@ describe("summarize and finish", () => {
       actions: ["merge-main"],
       squash: false,
       findingIds: [],
+      followUpIndexes: [],
     });
     expect(task(seeded.id)).toMatchObject({
       status: "done",

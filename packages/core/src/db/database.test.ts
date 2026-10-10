@@ -114,6 +114,7 @@ describe("openDatabase", () => {
       origin: { kind: "jira-issue", key: "ABC-1", connectionId: null },
       status: "queued",
       stage: null,
+      followUps: [],
     });
     expect(r.runs.listByTask("t1")).toHaveLength(1);
   });

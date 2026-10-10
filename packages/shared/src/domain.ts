@@ -98,7 +98,10 @@ export const GRILL_ANSWERERS = ["agent", "user"] as const;
  * perform these themselves; the harness does, and only the ones the user
  * confirmed. `merge-main` is the free-text finish (rebase onto local main,
  * then fast-forward it); it never leaves the machine and main is never pushed.
- * `issue-comment` comments on a GitHub issue task's issue.
+ * `issue-comment` comments on a GitHub issue task's issue. `create-tasks`
+ * creates the selected follow-up tasks as independent waiting backlog items;
+ * local only. It runs last, so follow-ups branch from a main that already has
+ * this task's merge.
  */
 export const DELIVERY_TARGETS = [
   "push-branch",
@@ -108,6 +111,7 @@ export const DELIVERY_TARGETS = [
   "issue-comment",
   "merge-main",
   "pr-review",
+  "create-tasks",
 ] as const;
 /** Seed list for the editable finding tags. */
 export const DEFAULT_TAGS = [
@@ -187,6 +191,45 @@ const name = z.string().trim().min(1);
 export const MAX_TITLE_CHARS = 120;
 
 export const JIRA_KEY_PATTERN = /^[A-Z][A-Z0-9_]*-\d+$/;
+
+// ---------------------------------------------------------------------------
+// Follow-ups
+// ---------------------------------------------------------------------------
+
+/** Most follow-up tasks kept from one summary. */
+export const MAX_FOLLOW_UPS = 5;
+
+/** A follow-up as the summarizer sends it; no length caps, so the CLI never rejects the reply for one. */
+export const followUpWireSchema = z.object({
+  title: z.string(),
+  description: z.string(),
+  /** Registered repo id it belongs in; null for the task's own repo. */
+  repoId: z.string().nullable(),
+});
+
+/** A follow-up task the summarizer proposed, created at finish only if the user confirms it. */
+export const followUpSchema = z.object({
+  title: name.max(MAX_TITLE_CHARS),
+  description: z.string().trim().min(1),
+  /** Registered repo id it belongs in; null for the task's own repo. */
+  repoId: z.string().trim().min(1).nullable(),
+});
+export type FollowUp = z.infer<typeof followUpSchema>;
+
+/**
+ * The valid follow-ups of a summarizer's reply: anything but an array gives
+ * none, invalid entries are dropped, unknown keys stripped, and at most
+ * {@link MAX_FOLLOW_UPS} kept.
+ */
+export function parseFollowUps(raw: unknown): FollowUp[] {
+  if (!Array.isArray(raw)) return [];
+  const valid: FollowUp[] = [];
+  for (const entry of raw) {
+    const parsed = followUpSchema.safeParse(entry);
+    if (parsed.success) valid.push(parsed.data);
+  }
+  return valid.slice(0, MAX_FOLLOW_UPS);
+}
 
 // ---------------------------------------------------------------------------
 // Connections, repos, agents, tags, settings
@@ -579,6 +622,8 @@ export const taskSchema = z
     summary: z.string().nullable(),
     /** Commit message for the optional squash at finish, written with the summary. */
     squashMessage: z.string().nullable(),
+    /** Follow-up tasks the summarizer proposed; offered at finish as `create-tasks`. */
+    followUps: z.array(followUpSchema),
     /** Set when the user archives a done task; hidden from the Inbox and the backlog view's lists. */
     archivedAt: timestamp.nullable(),
     createdAt: timestamp,
@@ -673,6 +718,8 @@ export const backlogItemSchema = z
     status: backlogStatusSchema,
     /** The task it was promoted to; null until promoted (or once that task is deleted). */
     taskId: id.nullable(),
+    /** The task that proposed it as a follow-up; null otherwise (or once that task is deleted). */
+    sourceTaskId: id.nullable(),
     createdAt: timestamp,
     updatedAt: timestamp,
   })
@@ -848,6 +895,16 @@ export const deliveryActionSchema = z.discriminatedUnion("kind", [
     /** The findings offered for posting; the user picks which ones go. */
     findingIds: z.array(id),
   }),
+  /**
+   * Create the selected follow-up tasks as waiting free-text backlog items in
+   * each item's repo. Local only; the user picks which ones are created.
+   */
+  z.object({
+    kind: z.literal("create-tasks"),
+    items: z.array(
+      z.object({ title: z.string(), description: z.string(), repoId: id, repoName: z.string() }),
+    ),
+  }),
 ]);
 export type DeliveryAction = z.infer<typeof deliveryActionSchema>;
 
@@ -887,6 +944,11 @@ export const deliveryConfirmationSchema = z.object({
   squash: z.boolean().default(false),
   /** Review PR tasks: the findings to post as inline review comments. */
   findingIds: z.array(id).default([]),
+  /** Indexes into the `create-tasks` items (the task's follow-ups) to create. */
+  followUpIndexes: z
+    .array(z.int().nonnegative())
+    .refine((a) => new Set(a).size === a.length, "Each follow-up can be picked only once")
+    .default([]),
 });
 export type DeliveryConfirmation = z.infer<typeof deliveryConfirmationSchema>;
 export type DeliveryConfirmationInput = z.input<typeof deliveryConfirmationSchema>;
@@ -1114,11 +1176,22 @@ export function planAnswersOutputJsonSchema(): Record<string, unknown> {
 }
 
 /**
- * The summarizer's final answer: the task summary in markdown, and a commit
- * message for squashing the task's commits into one.
+ * The summary and squash message of the summarizer's answer. Not strict, so a
+ * bad `followUps` value never discards them.
  */
-export const summaryOutputSchema = z
-  .object({ summary: z.string().trim().min(1), commitMessage: z.string().trim().min(1) })
+export const summaryCoreSchema = z.object({
+  summary: z.string().trim().min(1),
+  commitMessage: z.string().trim().min(1),
+});
+
+/**
+ * The summarizer's final answer: the task summary in markdown, a commit
+ * message for squashing the task's commits into one, and optional follow-up
+ * tasks. The follow-ups are only checked for shape here (the CLI enforces this
+ * schema); {@link parseFollowUps} drops the invalid ones.
+ */
+export const summaryOutputSchema = summaryCoreSchema
+  .extend({ followUps: z.array(followUpWireSchema).optional() })
   .strict();
 export type SummaryOutput = z.infer<typeof summaryOutputSchema>;
 

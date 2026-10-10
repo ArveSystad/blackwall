@@ -24,6 +24,7 @@ import {
   TASK_STATUSES,
   TRIAGE_MODES,
   type DeliveryTarget,
+  type FollowUp,
   type PermissionOverrides,
   type RoleAgents,
   type Stage,
@@ -152,6 +153,11 @@ export const tasks = sqliteTable(
     summary: text("summary"),
     /** Commit message for the optional squash at finish. */
     squashMessage: text("squash_message"),
+    /** Follow-up tasks the summarizer proposed, offered at finish. */
+    followUps: text("follow_ups", { mode: "json" })
+      .$type<FollowUp[]>()
+      .notNull()
+      .default(sql`'[]'`),
     /** When the user archived the done task; null while it is listed. */
     archivedAt: timestamp("archived_at"),
     createdAt: createdAt(),
@@ -189,6 +195,8 @@ export const backlogItems = sqliteTable(
     status: text("status", { enum: BACKLOG_STATUSES }).notNull().default("waiting"),
     /** Set when promoted. */
     taskId: text("task_id").references(() => tasks.id, { onDelete: "set null" }),
+    /** The task that proposed it as a follow-up. */
+    sourceTaskId: text("source_task_id").references(() => tasks.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

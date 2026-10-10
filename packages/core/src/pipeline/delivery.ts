@@ -12,6 +12,7 @@ import {
 import { MissingCredentialError } from "../connections/service.js";
 import type { Repositories } from "../db/repositories.js";
 import type { GitService } from "../git/service.js";
+import { createFollowUpTasks, resolveFollowUps } from "./follow-ups.js";
 import { commitKey } from "./stages.js";
 import { InvalidGateResponseError, pipelineKind } from "./transitions.js";
 
@@ -123,9 +124,14 @@ export interface Deliverer {
 
 export interface DelivererOptions {
   git: DeliveryGit;
-  repositories: Pick<Repositories, "repos" | "findings">;
+  repositories: Pick<Repositories, "repos" | "findings" | "backlogItems">;
   ports: DeliveryPorts;
+  /** Called once per repo that `create-tasks` added backlog items to. */
+  onBacklogChanged?(repoId: string): void;
 }
+
+/** Actions that send or merge the branch's code; dropped when the branch has no commits. */
+const CODE_ACTIONS: readonly DeliveryTarget[] = ["push-branch", "open-pr", "merge-main"];
 
 /** Findings a Review PR task offers for posting: everything still active, ignored ones excepted. */
 export function postableFindings(findings: readonly Finding[]): Finding[] {
@@ -166,10 +172,18 @@ export function conflictResolutionPrompt(
  * `Closes owner/repo#n`, a free-text task rebases onto local main, resolving conflicts
  * with the implementer, and fast-forwards it (main is never pushed), and a
  * Review PR task posts the selected findings
- * as a review. Only the actions the user confirmed are performed, in that
- * order, after an optional squash.
+ * as a review. Any task with follow-ups the summarizer proposed also offers
+ * `create-tasks`, last, which adds the picked ones to their repos' backlogs
+ * as waiting items; it needs no worktree. A branch with no commits of its own
+ * (an analysis-only task) offers no push, PR or merge. Only the actions the
+ * user confirmed are performed, in that order, after an optional squash.
  */
-export function createDeliverer({ git, repositories: r, ports }: DelivererOptions): Deliverer {
+export function createDeliverer({
+  git,
+  repositories: r,
+  ports,
+  onBacklogChanged,
+}: DelivererOptions): Deliverer {
   /** Where the task's own commits start: the PR head on the remote, or the fork point from main. */
   async function squashBase(task: Task, worktree: string): Promise<string | undefined> {
     const refs =
@@ -251,10 +265,31 @@ export function createDeliverer({ git, repositories: r, ports }: DelivererOption
     }
   }
 
+  /**
+   * Whether the branch has commits since its fork point from main. Unknown
+   * (no worktree, no merge base) counts as yes, so the code actions stay.
+   */
+  async function hasCommits(task: Task): Promise<boolean> {
+    const worktree = task.worktreePath;
+    if (!worktree) return true;
+    const base = await squashBase(task, worktree);
+    if (!base) return true;
+    return (await git.commitsSince(worktree, base)) > 0;
+  }
+
   async function plan(task: Task, completed: readonly DeliveryStep[]): Promise<DeliveryPlan> {
     const review = pipelineKind(task.mode) === "review";
+    let offered = actions(task);
+    const codeStarted = CODE_ACTIONS.some((a) => completed.includes(a));
+    if (!review && task.origin.kind !== "github-pr" && !codeStarted && !(await hasCommits(task))) {
+      offered = offered.filter((a) => !CODE_ACTIONS.includes(a.kind));
+    }
+    if (!review && task.followUps.length > 0) {
+      const items = resolveFollowUps(task, task.followUps, r.repos.list());
+      offered = [...offered, { kind: "create-tasks", items }];
+    }
     return {
-      actions: actions(task),
+      actions: offered,
       squash: review ? null : await squashPlan(task, completed),
       completed: completed.filter((c): c is DeliveryTarget => c !== "squash"),
     };
@@ -289,6 +324,25 @@ export function createDeliverer({ git, repositories: r, ports }: DelivererOption
         throw new InvalidGateResponseError(`Finding ${id} cannot be posted`);
       }
     }
+    const createTasks = offered.find((a) => a.kind === "create-tasks");
+    const creating = confirmation.actions.includes("create-tasks");
+    if (confirmation.followUpIndexes.length > 0 && !creating) {
+      throw new InvalidGateResponseError(
+        "Follow-ups are created only with the create-tasks action",
+      );
+    }
+    for (const index of confirmation.followUpIndexes) {
+      if (!createTasks || index >= createTasks.items.length) {
+        throw new InvalidGateResponseError(`Follow-up ${index} is not offered`);
+      }
+    }
+    if (
+      creating &&
+      !completed.includes("create-tasks") &&
+      confirmation.followUpIndexes.length === 0
+    ) {
+      throw new InvalidGateResponseError("Pick at least one follow-up to create");
+    }
   }
 
   async function deliver(ctx: DeliveryContext) {
@@ -315,6 +369,18 @@ export function createDeliverer({ git, repositories: r, ports }: DelivererOption
     action: DeliveryTarget,
     target: <K extends DeliveryAction["kind"]>(kind: K) => Extract<DeliveryAction, { kind: K }>,
   ): Promise<string> {
+    // Only touches the database, so it needs no worktree.
+    if (action === "create-tasks") {
+      const { items } = target("create-tasks");
+      const picked = confirmation.followUpIndexes.map((i) => items[i]!);
+      const created = createFollowUpTasks({ task, items: picked, backlogItems: r.backlogItems });
+      for (const repoId of new Set(created.map((item) => item.repoId))) {
+        onBacklogChanged?.(repoId);
+      }
+      const names = new Map(picked.map((item) => [item.repoId, item.repoName]));
+      const list = created.map((item) => `${names.get(item.repoId)}: ${item.title}`).join("; ");
+      return `${created.length} ${created.length === 1 ? "task" : "tasks"}: ${list}`;
+    }
     const worktree = task.worktreePath;
     if (!worktree) throw new DeliveryError("The task has no worktree");
     switch (action) {

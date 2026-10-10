@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   deliveryConfirmationSchema,
   gateResponseInputSchema,
+  summaryCoreSchema,
   summaryOutputJsonSchema,
   summaryOutputSchema,
+  MAX_FOLLOW_UPS,
   ROLE_STAGES,
   agentUpdateSchema,
   connectionInputSchema,
@@ -13,6 +15,7 @@ import {
   grillQuestionSchema,
   isGatingSeverity,
   newTaskInputSchema,
+  parseFollowUps,
   planAnswersOutputJsonSchema,
   planAnswersOutputSchema,
   planReviewOutputJsonSchema,
@@ -49,6 +52,7 @@ const task = {
   plan: null,
   summary: null,
   squashMessage: null,
+  followUps: [],
   archivedAt: null,
   createdAt: now,
   updatedAt: now,
@@ -381,17 +385,33 @@ describe("delivery", () => {
       actions: [],
       squash: false,
       findingIds: [],
+      followUpIndexes: [],
     });
     expect(
       deliveryConfirmationSchema.safeParse({ actions: ["push-branch", "push-branch"] }).success,
     ).toBe(false);
+    expect(deliveryConfirmationSchema.safeParse({ followUpIndexes: [1, 1] }).success).toBe(false);
+    expect(deliveryConfirmationSchema.safeParse({ followUpIndexes: [-1] }).success).toBe(false);
     expect(deliveryConfirmationSchema.safeParse({ actions: ["push-main"] }).success).toBe(false);
     const gate = gateResponseInputSchema.parse({
       gate: "finish",
       decision: "approve",
       delivery: { actions: ["merge-main"], squash: true },
     });
-    expect(gate.delivery).toEqual({ actions: ["merge-main"], squash: true, findingIds: [] });
+    expect(gate.delivery).toEqual({
+      actions: ["merge-main"],
+      squash: true,
+      findingIds: [],
+      followUpIndexes: [],
+    });
+  });
+
+  it("parses a create-tasks action", () => {
+    const action = {
+      kind: "create-tasks",
+      items: [{ title: "Add tests", description: "Cover login", repoId: "r1", repoName: "app" }],
+    };
+    expect(deliveryActionSchema.parse(action)).toEqual(action);
   });
 
   it("parses an issue comment action and a plan approval's issue comment", () => {
@@ -421,5 +441,53 @@ describe("delivery", () => {
     expect(summaryOutputSchema.parse(output)).toEqual(output);
     expect(summaryOutputSchema.safeParse({ summary: "Did it" }).success).toBe(false);
     expect(summaryOutputJsonSchema().required).toEqual(["summary", "commitMessage"]);
+  });
+
+  it("takes optional follow-ups in the summarizer's output", () => {
+    const followUps = [{ title: "Add tests", description: "Cover login", repoId: null }];
+    const output = { summary: "Did it", commitMessage: "Do it", followUps };
+    expect(summaryOutputSchema.parse(output)).toEqual(output);
+    expect(summaryOutputSchema.safeParse({ ...output, followUps: "oops" }).success).toBe(false);
+    expect(summaryOutputSchema.safeParse({ ...output, extra: 1 }).success).toBe(false);
+  });
+
+  it("puts no caps or dependencies on follow-ups in the JSON Schema", () => {
+    const json = summaryOutputJsonSchema() as {
+      properties: { followUps: { maxItems?: number; items: Record<string, unknown> } };
+    };
+    const followUps = json.properties.followUps;
+    expect(followUps.maxItems).toBeUndefined();
+    const text = JSON.stringify(followUps);
+    expect(text).not.toMatch(/minLength|maxLength|maxItems|dependsOn/);
+    expect(followUps.items).toMatchObject({ required: ["title", "description", "repoId"] });
+  });
+
+  it("keeps the summary when the follow-ups are invalid", () => {
+    const output = { summary: "Did it", commitMessage: "Do it", followUps: "oops" };
+    expect(summaryCoreSchema.parse(output)).toEqual({ summary: "Did it", commitMessage: "Do it" });
+  });
+});
+
+describe("parseFollowUps", () => {
+  const valid = (n: number) => ({ title: `Task ${n}`, description: "Do it", repoId: null });
+
+  it("gives none for anything but an array", () => {
+    expect(parseFollowUps(undefined)).toEqual([]);
+    expect(parseFollowUps("oops")).toEqual([]);
+    expect(parseFollowUps({ title: "x" })).toEqual([]);
+  });
+
+  it("drops invalid entries, trims, strips unknown keys and keeps at most five", () => {
+    const parsed = parseFollowUps([
+      { title: "  Add tests  ", description: " Cover login ", repoId: " r2 ", dependsOn: [0] },
+      { title: "", description: "No title", repoId: null },
+      { title: "No description", description: "  ", repoId: null },
+      { title: "x".repeat(121), description: "Too long", repoId: null },
+      "oops",
+      ...[1, 2, 3, 4, 5].map(valid),
+    ]);
+    expect(parsed).toHaveLength(MAX_FOLLOW_UPS);
+    expect(parsed[0]).toEqual({ title: "Add tests", description: "Cover login", repoId: "r2" });
+    expect(parsed.slice(1).map((f) => f.title)).toEqual(["Task 1", "Task 2", "Task 3", "Task 4"]);
   });
 });

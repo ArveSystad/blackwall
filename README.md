@@ -26,6 +26,7 @@ Inform ──► Plan review / grill ──► [human plan approval] ──► I
 - Critical and High findings loop back to the implementer, for at most 3 fix rounds before escalating to you.
 - Reviewers are read-only. Implementers can edit and use the shell but cannot reach remotes.
 - A per-repo backlog with an auto-runner that respects concurrency caps and CLI usage limits.
+- A task can propose follow-up tasks, in its own repo or another registered one. You pick which to create at finish; they land in the backlog as waiting items. An analysis-only task can deliver just these follow-ups.
 - Interrupted steps resume the same CLI session.
 
 ## Features

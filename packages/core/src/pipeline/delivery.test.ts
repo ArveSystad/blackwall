@@ -120,8 +120,16 @@ async function seed(
   return { task, run: r.runs.create(task.id) };
 }
 
-function deliverer(ports = fakePorts()) {
-  return { ports, deliverer: createDeliverer({ git, repositories: r, ports }) };
+function deliverer(ports = fakePorts(), onBacklogChanged?: (repoId: string) => void) {
+  return {
+    ports,
+    deliverer: createDeliverer({
+      git,
+      repositories: r,
+      ports,
+      ...(onBacklogChanged ? { onBacklogChanged } : {}),
+    }),
+  };
 }
 
 async function deliver(
@@ -539,7 +547,9 @@ describe("pull request tasks", () => {
     r.findings.setStatus(ignored!.id, "force-ignore");
     const { deliverer: d, ports } = deliverer();
 
-    const plan = await d.plan(task, []);
+    // Review PR tasks never propose follow-ups; stray ones are not offered.
+    r.tasks.update(task.id, { followUps: [{ title: "A", description: "Do A", repoId: null }] });
+    const plan = await d.plan(r.tasks.get(task.id)!, []);
     expect(plan).toEqual({
       actions: [{ kind: "pr-review", url: pr.url, findingIds: [kept!.id, dropped!.id] }],
       squash: null,
@@ -553,5 +563,130 @@ describe("pull request tasks", () => {
     expect(ports.reviewPullRequest).toHaveBeenCalledWith(task, [
       expect.objectContaining({ id: kept!.id }),
     ]);
+  });
+});
+
+describe("follow-up tasks", () => {
+  let apiId: string;
+  const followUp = (title: string, repoId: string | null = null) => ({
+    title,
+    description: `Do ${title}`,
+    repoId,
+  });
+
+  beforeEach(() => {
+    apiId = r.repos.create({ path: join(root, "api"), name: "api" }).id;
+  });
+
+  it("offers create-tasks only with follow-ups, after the merge", async () => {
+    const { task } = await seed({ branch: "agent/t1", followUps: [followUp("A"), followUp("B")] });
+    const { deliverer: d } = deliverer();
+    expect((await d.plan(task, [])).actions).toEqual([
+      { kind: "merge-main", branch: "agent/t1", into: "main" },
+      {
+        kind: "create-tasks",
+        items: [
+          { title: "A", description: "Do A", repoId: task.repoId, repoName: "app" },
+          { title: "B", description: "Do B", repoId: task.repoId, repoName: "app" },
+        ],
+      },
+    ]);
+    const plain = await seed({ branch: "agent/t2" });
+    expect((await d.plan(plain.task, [])).actions.map((a) => a.kind)).toEqual(["merge-main"]);
+  });
+
+  it("merges first, then creates only the picked follow-ups as waiting items", async () => {
+    const { task, run: runRow } = await seed({
+      branch: "agent/t1",
+      followUps: [followUp("A"), followUp("B", apiId), followUp("C"), followUp("D")],
+    });
+    const changed = vi.fn();
+    const { deliverer: d } = deliverer(fakePorts(), changed);
+
+    const outcomes = await deliver(d, task, runRow, {
+      actions: ["create-tasks", "merge-main"],
+      followUpIndexes: [0, 1, 3],
+    });
+
+    expect(outcomes.map((o) => o.action)).toEqual(["merge-main", "create-tasks"]);
+    expect(outcomes[1]!.detail).toBe("3 tasks: app: A; api: B; app: D");
+    expect(r.backlogItems.list(task.repoId)).toMatchObject([
+      { title: "A", status: "waiting", dependsOn: [], sourceTaskId: task.id },
+      { title: "D", status: "waiting", dependsOn: [], sourceTaskId: task.id },
+    ]);
+    expect(r.backlogItems.list(apiId)).toMatchObject([{ title: "B", freeText: "Do B" }]);
+    expect(changed.mock.calls).toEqual([[task.repoId], [apiId]]);
+  });
+
+  it("refuses follow-up picks that do not fit the plan", async () => {
+    const { task, run: runRow } = await seed({ branch: "agent/t1", followUps: [followUp("A")] });
+    const { deliverer: d } = deliverer();
+    for (const confirmation of [
+      { actions: ["merge-main" as const], followUpIndexes: [0] },
+      { actions: ["create-tasks" as const], followUpIndexes: [1] },
+      { actions: ["create-tasks" as const] },
+    ]) {
+      await expect(deliver(d, task, runRow, confirmation)).rejects.toThrow(
+        InvalidGateResponseError,
+      );
+    }
+    expect(r.backlogItems.list()).toEqual([]);
+  });
+
+  it("offers no push, PR or merge for a branch without commits", async () => {
+    const { deliverer: d } = deliverer();
+    const local = await seed({ branch: "agent/t1", followUps: [followUp("A")] }, { commits: 0 });
+    const plan = await d.plan(local.task, []);
+    expect(plan.actions.map((a) => a.kind)).toEqual(["create-tasks"]);
+    expect(plan.squash).toBeNull();
+
+    const jira = await seed(
+      {
+        branch: "feature/abc-1-fix-login",
+        origin: { kind: "jira-issue", key: "ABC-1", connectionId: null },
+        followUps: [followUp("A")],
+      },
+      { commits: 0 },
+    );
+    expect((await d.plan(jira.task, [])).actions.map((a) => a.kind)).toEqual([
+      "jira-comment",
+      "create-tasks",
+    ]);
+  });
+
+  it("keeps a completed merge in the plan on retry", async () => {
+    const { task, run: runRow } = await seed({ branch: "agent/t1", followUps: [followUp("A")] });
+    const { deliverer: d } = deliverer();
+    await deliver(d, task, runRow, { actions: ["merge-main"] });
+    // The branch is now in main, so it has no commits of its own.
+    const plan = await d.plan(task, ["merge-main"]);
+    expect(plan.actions.map((a) => a.kind)).toEqual(["merge-main", "create-tasks"]);
+    expect(plan.completed).toEqual(["merge-main"]);
+    const outcomes = await deliver(
+      d,
+      task,
+      runRow,
+      { actions: ["merge-main", "create-tasks"], followUpIndexes: [0] },
+      ["merge-main"],
+    );
+    expect(outcomes.map((o) => o.action)).toEqual(["create-tasks"]);
+  });
+
+  it("creates follow-ups for a task without a worktree", async () => {
+    const repo = r.repos.create({ path: repoPath, name: "app", remoteUrl: originPath });
+    const task = r.tasks.create({
+      title: "Plan the work",
+      origin: { kind: "free-text" },
+      repoId: repo.id,
+      branch: "agent/t1",
+      followUps: [followUp("A"), followUp("B")],
+    });
+    const { deliverer: d } = deliverer();
+    const outcomes = await deliver(d, task, r.runs.create(task.id), {
+      actions: ["create-tasks"],
+      followUpIndexes: [1],
+    });
+    expect(outcomes).toEqual([{ action: "create-tasks", detail: "1 task: app: B" }]);
+    expect(r.backlogItems.list(repo.id)).toMatchObject([{ title: "B", status: "waiting" }]);
   });
 });

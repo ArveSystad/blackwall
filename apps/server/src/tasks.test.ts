@@ -368,13 +368,22 @@ describe("pipeline task routes", () => {
 
     const done = await request(`/api/tasks/${task.id}/gate`, {
       method: "POST",
-      body: { gate: "finish", decision: "approve", delivery: { actions: ["merge-main"] } },
+      body: {
+        gate: "finish",
+        decision: "approve",
+        delivery: { actions: ["merge-main", "create-tasks"], followUpIndexes: [0, 2] },
+      },
     });
     expect(done.status).toBe(200);
     expect(pipeline.respond).toHaveBeenCalledWith(task.id, {
       gate: "finish",
       decision: "approve",
-      delivery: { actions: ["merge-main"], squash: false, findingIds: [] },
+      delivery: {
+        actions: ["merge-main", "create-tasks"],
+        squash: false,
+        findingIds: [],
+        followUpIndexes: [0, 2],
+      },
     });
 
     const unknown = await request(`/api/tasks/${task.id}/gate`, {

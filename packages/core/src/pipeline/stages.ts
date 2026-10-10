@@ -7,8 +7,9 @@ import {
   planReviewOutputSchema,
   reviewOutputJsonSchema,
   reviewOutputSchema,
+  parseFollowUps,
+  summaryCoreSchema,
   summaryOutputJsonSchema,
-  summaryOutputSchema,
   SEVERITIES,
   type AgentRole,
   type Finding,
@@ -20,6 +21,7 @@ import type { AgentResult } from "../agents/adapters/types.js";
 import type { GitService } from "../git/service.js";
 import { runCheckCommand, type CheckOutcome, type CheckRunner } from "./checks.js";
 import { blockingFindings, planMerges } from "./findings.js";
+import { followUpsPromptSection } from "./follow-ups.js";
 import type { RunAgentInput, StageContext, StageHandlers } from "./engine.js";
 import type { StageResults } from "./transitions.js";
 
@@ -694,9 +696,11 @@ export function finalSummary(text: string, findings: readonly Finding[]): string
 
 /**
  * Summarize: the summarizer writes the final summary (changes, decisions,
- * ignored findings) and a commit message for the optional squash at finish.
- * The harness appends the findings left open. A reply that misses the output
- * contract still counts: its text becomes the summary.
+ * ignored findings), a commit message for the optional squash at finish and
+ * any follow-up tasks, offered at finish as `create-tasks`. The harness
+ * appends the findings left open. A reply that misses the output contract
+ * still counts: its text becomes the summary. Invalid follow-ups are dropped
+ * without losing the summary, and each visit replaces the stored ones.
  */
 async function summarize(ctx: StageContext): Promise<void> {
   const { task } = ctx;
@@ -712,24 +716,29 @@ async function summarize(ctx: StageContext): Promise<void> {
       section("Plan", task.plan),
       section("Findings left open", leftovers.map(describeFinding).join("\n")),
       section("Findings the user chose to ignore", ignored.map(describeFinding).join("\n")),
+      followUpsPromptSection(ctx.repositories.repos.list(), task),
       [
         "Summarize the changes on this branch for the people reviewing it: what changed, the decisions made and why, and any findings the user chose to ignore.",
         "Read the branch's commits (`git log`, `git diff`) as needed. Do not list the findings left open; the harness appends them.",
+        "If the branch has no changes (the task asked for analysis or a task breakdown), summarize the analysis instead and put the work it found into `followUps`.",
+        "Propose follow-up tasks only for work the plan or the analysis calls for, following the rules above; otherwise leave `followUps` empty.",
         "Also write one commit message for squashing the branch into a single commit: a summary line of at most 72 characters in the imperative mood, a blank line, then a short body.",
         key ? `Do not mention ${key} in the commit summary line; the harness prefixes it.` : "",
-        'Reply with a JSON object `{ "summary": "<markdown>", "commitMessage": "<message>" }`.',
+        'Reply with a JSON object `{ "summary": "<markdown>", "commitMessage": "<message>", "followUps": [{ "title": "<short title>", "description": "<what to do and why>", "repoId": null }] }`.',
       ]
         .filter(Boolean)
         .join("\n"),
     ),
     jsonSchema: summaryOutputJsonSchema(),
   });
-  const parsed = summaryOutputSchema.safeParse(result.structured);
+  const parsed = summaryCoreSchema.safeParse(result.structured);
   const text = parsed.success ? parsed.data.summary : result.text;
   const squash = parsed.success ? parsed.data.commitMessage : task.title;
+  const structured = result.structured as { followUps?: unknown } | null | undefined;
   ctx.updateTask({
     summary: finalSummary(text, findings),
     squashMessage: commitMessage(squash, key),
+    followUps: parseFollowUps(structured?.followUps),
   });
 }
 
@@ -780,7 +789,11 @@ export function createDefaultStages({
           section("Details", task.freeText),
           section("Current plan", task.plan),
           section("Requested changes to the plan", ctx.instructions),
-          "Read the repository and write a concrete implementation plan in markdown.",
+          followUpsPromptSection(ctx.repositories.repos.list(), task),
+          [
+            "Read the repository and write a concrete implementation plan in markdown.",
+            "Follow-up tasks are a valid deliverable. When the task asks for analysis or a task breakdown, the plan may call for no code changes; it then lists the tasks to create (title, target repo id, description), following the rules above.",
+          ].join("\n"),
         ),
       });
       ctx.updateTask({ plan: result.text });
@@ -807,7 +820,7 @@ export function createDefaultStages({
             ? "Your changes fail the check above. Fix the cause in the worktree; do not weaken or skip the check."
             : toFix.length > 0
               ? "Fix the findings above in the worktree."
-              : "Implement the plan in the worktree.",
+              : "Implement the plan in the worktree. If the approved plan calls for no code changes, change nothing.",
         ),
       });
       for (const finding of toFix) {

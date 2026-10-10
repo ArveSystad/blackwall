@@ -236,6 +236,26 @@ export type BacklogItemPatch = {
     BacklogItem[K] | undefined;
 };
 
+type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+/** Inserts an item at the end of its repo's manual order unless a position is given. */
+function insertAtEnd(tx: Tx, values: NewBacklogItem): BacklogItem {
+  let position = values.position;
+  if (position === undefined) {
+    const last = tx
+      .select({ p: max(backlogItems.position) })
+      .from(backlogItems)
+      .where(eq(backlogItems.repoId, values.repoId))
+      .get();
+    position = last?.p == null ? 0 : last.p + 1;
+  }
+  return tx
+    .insert(backlogItems)
+    .values({ ...values, position })
+    .returning()
+    .get();
+}
+
 export function createBacklogItemsRepository(db: Db) {
   return {
     /** Items of one repo (or all), in insertion order; pick order is `sortBacklog`'s job. */
@@ -250,22 +270,11 @@ export function createBacklogItemsRepository(db: Db) {
     },
     /** Adds an item at the end of the repo's manual order unless a position is given. */
     insert(values: NewBacklogItem): BacklogItem {
-      return db.transaction((tx) => {
-        let position = values.position;
-        if (position === undefined) {
-          const last = tx
-            .select({ p: max(backlogItems.position) })
-            .from(backlogItems)
-            .where(eq(backlogItems.repoId, values.repoId))
-            .get();
-          position = last?.p == null ? 0 : last.p + 1;
-        }
-        return tx
-          .insert(backlogItems)
-          .values({ ...values, position })
-          .returning()
-          .get();
-      });
+      return db.transaction((tx) => insertAtEnd(tx, values));
+    },
+    /** Adds several items, each as {@link insert} would, all or none. */
+    insertMany(values: readonly NewBacklogItem[]): BacklogItem[] {
+      return db.transaction((tx) => values.map((v) => insertAtEnd(tx, v)));
     },
     update(id: string, patch: BacklogItemPatch): BacklogItem {
       return required(

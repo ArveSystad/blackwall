@@ -29,6 +29,7 @@ const TARGET_LABELS: Record<DeliveryTarget, string> = {
   "issue-comment": "Commented on the issue",
   "merge-main": "Merged into local main",
   "pr-review": "Posted the review",
+  "create-tasks": "Created follow-up tasks",
 };
 
 function Summary({ task, data }: { task: Task; data: TaskData }) {
@@ -138,6 +139,44 @@ function ReviewFindings({
   );
 }
 
+type FollowUpItem = Extract<DeliveryAction, { kind: "create-tasks" }>["items"][number];
+
+function FollowUpPicks({
+  items,
+  selected,
+  onChange,
+}: {
+  items: readonly FollowUpItem[];
+  selected: ReadonlySet<number>;
+  onChange: (next: Set<number>) => void;
+}) {
+  return (
+    <ul className="m-0 flex list-none flex-col gap-1 p-0">
+      {items.map((item, index) => (
+        <li key={index}>
+          <label className="flex min-w-0 cursor-pointer items-start gap-2 text-meta">
+            <input
+              type="checkbox"
+              className="mt-0.5 flex-none"
+              checked={selected.has(index)}
+              onChange={(event) => {
+                const next = new Set(selected);
+                if (event.target.checked) next.add(index);
+                else next.delete(index);
+                onChange(next);
+              }}
+            />
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate text-foreground">{item.title}</span>
+              <span className="mono truncate text-muted-foreground">{item.repoName}</span>
+            </span>
+          </label>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function Outbound({
   task,
   plan,
@@ -160,8 +199,18 @@ function Outbound({
     (a): a is Extract<DeliveryAction, { kind: "pr-review" }> => a.kind === "pr-review",
   );
   const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set(review?.findingIds));
+  const createTasks = plan.actions.find(
+    (a): a is Extract<DeliveryAction, { kind: "create-tasks" }> => a.kind === "create-tasks",
+  );
+  const [followUps, setFollowUps] = useState<ReadonlySet<number>>(
+    () => new Set(createTasks?.items.map((_, index) => index)),
+  );
 
-  const chosen = plan.actions.map((a) => a.kind).filter((k) => ticked.has(k) && !done.has(k));
+  // Creating no follow-ups is not creating them at all.
+  const chosen = plan.actions
+    .map((a) => a.kind)
+    .filter((k) => ticked.has(k) && !done.has(k))
+    .filter((k) => k !== "create-tasks" || followUps.size > 0);
   const reviewing = isReviewTriage(task);
 
   function confirm() {
@@ -175,6 +224,9 @@ function Outbound({
           actions: chosen,
           squash: squash && plan.squash !== null,
           findingIds: chosen.includes("pr-review") ? [...picked] : [],
+          followUpIndexes: chosen.includes("create-tasks")
+            ? [...followUps].sort((a, b) => a - b)
+            : [],
         },
       },
       reviewing ? "Post review" : "Finish",
@@ -216,7 +268,10 @@ function Outbound({
           />
         )}
         {plan.actions.map((a) => {
-          const copy = deliveryActionCopy(a, picked.size);
+          const copy = deliveryActionCopy(
+            a,
+            a.kind === "create-tasks" ? followUps.size : picked.size,
+          );
           return (
             <OutboundAction
               key={a.kind}
@@ -234,6 +289,9 @@ function Outbound({
                   selected={picked}
                   onChange={setPicked}
                 />
+              )}
+              {a.kind === "create-tasks" && !done.has(a.kind) && (
+                <FollowUpPicks items={a.items} selected={followUps} onChange={setFollowUps} />
               )}
             </OutboundAction>
           );

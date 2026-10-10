@@ -132,6 +132,8 @@ try {
         commentOnGitHubIssue: github.commentOnIssue,
         reviewPullRequest: github.reviewPullRequest,
       },
+      // The backlog runner picks up the follow-ups `create-tasks` adds.
+      onBacklogChanged: (repoId) => publish({ type: "backlog.changed", payload: { repoId } }),
     }),
     maxTasksPerRepo: settings.maxTasksPerRepo,
     quota,

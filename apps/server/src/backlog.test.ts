@@ -159,6 +159,25 @@ describe("backlog routes", () => {
     expect(low.position).toBe(0);
   });
 
+  it("lists the task a follow-up came from", async () => {
+    const source = repositories.tasks.create({
+      title: "Plan the work",
+      origin: { kind: "free-text" },
+      repoId,
+    });
+    repositories.backlogItems.insert({
+      repoId,
+      title: "Follow-up",
+      origin: { kind: "free-text" },
+      freeText: "Do it",
+      sourceTaskId: source.id,
+    });
+    const plain = await create({ title: "Plain" });
+    const items = await list();
+    expect(items.find((i) => i.title === "Follow-up")?.sourceTaskId).toBe(source.id);
+    expect(items.find((i) => i.id === plain.id)?.sourceTaskId).toBeNull();
+  });
+
   it("edits, pauses and rejects dependency cycles", async () => {
     const a = await create({ title: "A" });
     const b = await create({ title: "B", dependsOn: [a.id] });

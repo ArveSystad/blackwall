@@ -22,6 +22,7 @@ import {
   findingLocation,
   gateBanner,
   isBlocking,
+  isOutbound,
   isTabEnabled,
   jiraConnectionId,
   latestHarnessStep,
@@ -439,6 +440,29 @@ describe("finish", () => {
     expect(
       deliveryActionCopy({ kind: "issue-comment", url: "https://x/issues/7", body: "Done" }, 0),
     ).toEqual({ title: "Comment on the issue", target: "https://x/issues/7", body: "Done" });
+  });
+
+  it("names the follow-ups to create and their repos, and keeps them local", () => {
+    const item = (title: string, repoName: string) => ({
+      title,
+      description: "d",
+      repoId: repoName,
+      repoName,
+    });
+    const action = {
+      kind: "create-tasks" as const,
+      items: [item("A", "app"), item("B", "api"), item("C", "app")],
+    };
+    expect(deliveryActionCopy(action, 2)).toEqual({
+      title: "Create 2 follow-up tasks",
+      target: "waiting in the backlog of app, api",
+    });
+    expect(deliveryActionCopy(action, 1).title).toBe("Create 1 follow-up task");
+    expect(isOutbound(action)).toBe(false);
+    expect(isOutbound({ kind: "merge-main", branch: "agent/x", into: "main" })).toBe(false);
+    expect(isOutbound({ kind: "issue-comment", url: "https://x/issues/7", body: "Done" })).toBe(
+      true,
+    );
   });
 
   it("states how many actions the confirm sends", () => {

@@ -596,8 +596,11 @@ export interface ActionCopy {
   body?: string;
 }
 
-/** Names a delivery action exactly: what is sent, and where. */
-export function deliveryActionCopy(action: DeliveryAction, findings: number): ActionCopy {
+/**
+ * Names a delivery action exactly: what is sent, and where. `picked` counts
+ * the findings (`pr-review`) or follow-ups (`create-tasks`) the user picked.
+ */
+export function deliveryActionCopy(action: DeliveryAction, picked: number): ActionCopy {
   switch (action.kind) {
     case "push-branch":
       return { title: "Push branch", target: `${action.branch} → ${action.remote}` };
@@ -624,9 +627,16 @@ export function deliveryActionCopy(action: DeliveryAction, findings: number): Ac
       };
     case "pr-review":
       return {
-        title: `Post review with ${findings} ${findings === 1 ? "comment" : "comments"}`,
+        title: `Post review with ${picked} ${picked === 1 ? "comment" : "comments"}`,
         target: action.url,
       };
+    case "create-tasks": {
+      const repos = [...new Set(action.items.map((item) => item.repoName))];
+      return {
+        title: `Create ${picked} follow-up ${picked === 1 ? "task" : "tasks"}`,
+        target: `waiting in the backlog of ${repos.join(", ")}`,
+      };
+    }
   }
 }
 
@@ -646,8 +656,9 @@ export function planApprovalComment(task: Pick<Task, "branch" | "plan">): string
   ].join("\n\n");
 }
 
-/** `merge-main` never leaves the machine; every other action does. */
-export const isOutbound = (action: DeliveryAction) => action.kind !== "merge-main";
+/** `merge-main` and `create-tasks` never leave the machine; every other action does. */
+export const isOutbound = (action: DeliveryAction) =>
+  action.kind !== "merge-main" && action.kind !== "create-tasks";
 
 // ---------------------------------------------------------------------------
 // New task form

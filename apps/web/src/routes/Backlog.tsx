@@ -396,6 +396,16 @@ function BacklogRow({
         <span className="flex min-w-0 items-center gap-2 text-label text-faint">
           <span className="mono truncate">{originKey(item)}</span>
           {dependsOn.length > 0 && <span className="truncate">after {dependsOn.join(", ")}</span>}
+          {item.sourceTaskId && (
+            <Link
+              to="/tasks/$taskId"
+              params={{ taskId: item.sourceTaskId }}
+              className="whitespace-nowrap text-muted-foreground"
+              title="The task that proposed this follow-up"
+            >
+              From task
+            </Link>
+          )}
         </span>
       </span>
       <StateChip state={state} />

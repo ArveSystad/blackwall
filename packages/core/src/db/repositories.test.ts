@@ -180,6 +180,43 @@ describe("backlog items", () => {
     expect(r.backlogItems.get(item.id)?.taskId).toBeNull();
   });
 
+  it("inserts several items at the end of each repo, all or none", () => {
+    const repo = r.repos.create({ path: "/code/app", name: "app" });
+    const other = r.repos.create({ path: "/code/other", name: "other" });
+    r.backlogItems.insert({ repoId: repo.id, title: "A", origin: { kind: "free-text" } });
+    const items = r.backlogItems.insertMany([
+      { repoId: repo.id, title: "B", origin: { kind: "free-text" } },
+      { repoId: other.id, title: "C", origin: { kind: "free-text" } },
+      { repoId: repo.id, title: "D", origin: { kind: "free-text" } },
+    ]);
+    expect(items.map((i) => [i.title, i.position])).toEqual([
+      ["B", 1],
+      ["C", 0],
+      ["D", 2],
+    ]);
+
+    expect(() =>
+      r.backlogItems.insertMany([
+        { repoId: repo.id, title: "E", origin: { kind: "free-text" } },
+        { repoId: "missing", title: "F", origin: { kind: "free-text" } },
+      ]),
+    ).toThrow();
+    expect(r.backlogItems.list(repo.id).map((i) => i.title)).toEqual(["A", "B", "D"]);
+  });
+
+  it("links the task that proposed it and unlinks it when the task goes", () => {
+    const task = seedTask();
+    const item = r.backlogItems.insert({
+      repoId: task.repoId,
+      title: "Add tests",
+      origin: { kind: "free-text" },
+      sourceTaskId: task.id,
+    });
+    expect(backlogItemSchema.parse(item).sourceTaskId).toBe(task.id);
+    r.tasks.delete(task.id);
+    expect(r.backlogItems.get(item.id)?.sourceTaskId).toBeNull();
+  });
+
   it("is removed with its repo", () => {
     const repo = r.repos.create({ path: "/code/app", name: "app" });
     const item = r.backlogItems.insert({
@@ -224,7 +261,10 @@ describe("tasks, runs and steps", () => {
       stage: null,
       triageMode: "intervene",
       agents: {},
+      followUps: [],
     });
+    const followUps = [{ title: "Add tests", description: "Cover login", repoId: null }];
+    expect(r.tasks.update(task.id, { followUps }).followUps).toEqual(followUps);
 
     const run1 = r.runs.create(task.id);
     const run2 = r.runs.create(task.id);
