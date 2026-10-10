@@ -6,6 +6,7 @@ import type {
   GitHubReviewJson,
   PullRequestCoordinates,
 } from "./client.js";
+import { author, byCreated, day, demote, fence, sectionOf } from "./markdown.js";
 
 /** An inline review comment, grouped into its thread. */
 export interface PullRequestReviewComment {
@@ -60,12 +61,6 @@ export interface PullRequestPayloads {
   reviewComments: readonly GitHubReviewCommentJson[];
   issueComments: readonly GitHubIssueCommentJson[];
   reviews: readonly GitHubReviewJson[];
-}
-
-const author = (user: { login: string } | null | undefined) => user?.login ?? "unknown";
-
-function byCreated<T extends { created: string | null }>(a: T, b: T): number {
-  return (a.created ?? "").localeCompare(b.created ?? "");
 }
 
 /** Builds the context from the recorded REST payloads (pure, so it is fixture-testable). */
@@ -178,31 +173,6 @@ export function findJiraKey(branch: string, title: string): string | undefined {
 
 /** Diffs beyond this many characters are cut in the prompt; the agent can run `git diff`. */
 export const MAX_PROMPT_DIFF_CHARS = 200_000;
-
-function demote(markdown: string, level: number): string {
-  // Keep the PR's own headings below the section they appear in.
-  const prefix = "#".repeat(level - 1);
-  let fenced = false;
-  return markdown
-    .split("\n")
-    .map((line) => {
-      if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
-      return !fenced && /^#{1,6}\s/.test(line) ? `${prefix}${line}` : line;
-    })
-    .join("\n");
-}
-
-function fence(text: string, lang = ""): string {
-  const longest = Math.max(2, ...[...text.matchAll(/`+/g)].map((m) => m[0].length));
-  const ticks = "`".repeat(longest + 1);
-  return `${ticks}${lang}\n${text.replace(/\n$/, "")}\n${ticks}`;
-}
-
-function sectionOf(title: string, body: string): string {
-  return body.trim() ? `### ${title}\n\n${body}` : "";
-}
-
-const day = (iso: string | null) => (iso ? ` (${iso.slice(0, 10)})` : "");
 
 export interface RenderPullRequestOptions {
   maxDiffChars?: number;

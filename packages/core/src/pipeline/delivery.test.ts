@@ -85,6 +85,9 @@ function fakePorts(overrides: Partial<DeliveryPorts> = {}) {
     openPullRequest: vi.fn(async () => ({ url: "https://github.com/acme/app/pull/8" })),
     commentOnPullRequest: vi.fn(async () => ({ url: "https://github.com/acme/app/pull/7#c1" })),
     commentOnJiraIssue: vi.fn(async () => ({ url: "https://acme.atlassian.net/browse/ABC-1" })),
+    commentOnGitHubIssue: vi.fn(async () => ({
+      url: "https://github.com/acme/app/issues/7#issuecomment-1",
+    })),
     reviewPullRequest: vi.fn(async () => ({ url: "https://github.com/acme/app/pull/7#r1" })),
     ...overrides,
   } satisfies DeliveryPorts;
@@ -354,6 +357,130 @@ describe("Jira tasks", () => {
     await expect(
       deliver(missing.deliverer, task, runRow, { actions: ["jira-comment"] }),
     ).rejects.toThrow(MissingCredentialError);
+  });
+});
+
+describe("GitHub issue tasks", () => {
+  const issue = {
+    branch: "feature/7-fix-login",
+    origin: {
+      kind: "github-issue" as const,
+      url: "https://github.com/acme/app/issues/7",
+      owner: "acme",
+      repo: "app",
+      number: 7,
+      connectionId: null,
+    },
+  };
+
+  it("offers push, a PR that closes the issue and an issue comment", async () => {
+    const { task } = await seed(issue, { remoteUrl: "https://github.com/acme/app.git" });
+    const { deliverer: d } = deliverer();
+    expect((await d.plan(task, [])).actions).toEqual([
+      {
+        kind: "push-branch",
+        branch: "feature/7-fix-login",
+        remote: "https://github.com/acme/app.git",
+      },
+      {
+        kind: "open-pr",
+        host: "github.com",
+        owner: "acme",
+        repo: "app",
+        head: "feature/7-fix-login",
+        base: "main",
+        title: "Fix login",
+        body: "Compared passwords strictly.\n\nCloses acme/app#7",
+      },
+      {
+        kind: "issue-comment",
+        url: "https://github.com/acme/app/issues/7",
+        body: "Compared passwords strictly.",
+      },
+    ]);
+  });
+
+  it("pushes the branch, then opens the PR and comments on the issue", async () => {
+    const { task, run: runRow } = await seed(issue, {
+      remoteUrl: "https://github.com/acme/app.git",
+    });
+    const ports = fakePorts({
+      commentOnGitHubIssue: vi.fn(async () => ({
+        url: "https://github.com/acme/app/issues/7#issuecomment-2",
+      })),
+    });
+    const { deliverer: d } = deliverer(ports);
+
+    const outcomes = await deliver(d, task, runRow, {
+      actions: ["issue-comment", "open-pr", "push-branch"],
+    });
+
+    expect(outcomes).toEqual([
+      { action: "push-branch", detail: "https://github.com/acme/app.git feature/7-fix-login" },
+      { action: "open-pr", detail: "https://github.com/acme/app/pull/8" },
+      {
+        action: "issue-comment",
+        detail: "https://github.com/acme/app/issues/7#issuecomment-2",
+      },
+    ]);
+    expect(ports.openPullRequest).toHaveBeenCalledWith(
+      task,
+      expect.objectContaining({ body: "Compared passwords strictly.\n\nCloses acme/app#7" }),
+    );
+    expect(ports.commentOnGitHubIssue).toHaveBeenCalledWith(task, "Compared passwords strictly.");
+  });
+
+  it("comments on the issue alone when only that is confirmed", async () => {
+    const { task, run: runRow } = await seed(issue);
+    const { deliverer: d, ports } = deliverer();
+    await deliver(d, task, runRow, { actions: ["issue-comment"] });
+    expect(ports.commentOnGitHubIssue).toHaveBeenCalledOnce();
+    expect(ports.openPullRequest).not.toHaveBeenCalled();
+    expect(() => run(originPath, "rev-parse", "--verify", "feature/7-fix-login")).toThrow();
+  });
+
+  it("lets a missing token through and wraps other failures", async () => {
+    const { task, run: runRow } = await seed(issue);
+    const { deliverer: d } = deliverer(
+      fakePorts({
+        commentOnGitHubIssue: vi.fn(async () => {
+          throw new MissingCredentialError("github", "github.com", null);
+        }),
+      }),
+    );
+    await expect(deliver(d, task, runRow, { actions: ["issue-comment"] })).rejects.toThrow(
+      MissingCredentialError,
+    );
+    await expect(d.commentOnIssue(task, "Plan approved.")).rejects.toThrow(MissingCredentialError);
+
+    const failing = deliverer(
+      fakePorts({
+        commentOnGitHubIssue: vi.fn(async () => {
+          throw new Error("github.com: access denied");
+        }),
+      }),
+    );
+    const posted = failing.deliverer.commentOnIssue(task, "Plan approved.");
+    await expect(posted).rejects.toThrow(DeliveryError);
+    await expect(posted).rejects.toThrow("github.com: access denied");
+  });
+
+  it("comments on the issue during the run, and refuses other tasks", async () => {
+    const { task } = await seed(issue);
+    const { deliverer: d, ports } = deliverer();
+    await expect(d.commentOnIssue(task, "Plan approved.")).resolves.toEqual({
+      url: "https://github.com/acme/app/issues/7#issuecomment-1",
+    });
+    expect(ports.commentOnGitHubIssue).toHaveBeenCalledWith(task, "Plan approved.");
+
+    const { task: jiraTask } = await seed({
+      branch: "feature/abc-1-x",
+      origin: { kind: "jira-issue", key: "ABC-1", connectionId: null },
+    });
+    await expect(d.commentOnIssue(jiraTask, "Plan approved.")).rejects.toThrow(
+      InvalidGateResponseError,
+    );
+    expect(ports.commentOnGitHubIssue).toHaveBeenCalledOnce();
   });
 });
 

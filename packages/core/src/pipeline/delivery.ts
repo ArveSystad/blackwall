@@ -48,6 +48,18 @@ export interface DeliveryOutcome {
   detail: string;
 }
 
+/**
+ * Step event logged when a GitHub issue task comments on its issue during the
+ * run (at plan approval), on the step the task waited on.
+ */
+export const ISSUE_COMMENT_EVENT = "issue.commented";
+
+/** Payload of an {@link ISSUE_COMMENT_EVENT}: the comment's link and when it was posted. */
+export interface IssueCommentOutcome {
+  url: string;
+  at: "plan-approval";
+}
+
 /** Host and `owner/repo` of a GitHub/GHE remote. */
 export interface RemoteSlug {
   host: string;
@@ -71,6 +83,8 @@ export interface DeliveryPorts {
   commentOnPullRequest(task: Task, body: string): Promise<{ url: string }>;
   /** Posts `body` as a comment on the task's Jira issue. Never transitions it. */
   commentOnJiraIssue(task: Task, body: string): Promise<{ url: string | null }>;
+  /** Posts `body` as a comment on the task's GitHub issue. */
+  commentOnGitHubIssue(task: Task, body: string): Promise<{ url: string }>;
   /** Submits a review on the task's pull request with `findings` as inline comments. */
   reviewPullRequest(task: Task, findings: readonly Finding[]): Promise<{ url: string }>;
 }
@@ -100,6 +114,11 @@ export interface DeliveryContext {
 export interface Deliverer {
   plan(task: Task, completed: readonly DeliveryStep[]): Promise<DeliveryPlan>;
   deliver(ctx: DeliveryContext): Promise<void>;
+  /**
+   * Posts a comment the user confirmed on a GitHub issue task's issue during
+   * the run. Refuses any other task.
+   */
+  commentOnIssue(task: Task, body: string): Promise<{ url: string }>;
 }
 
 export interface DelivererOptions {
@@ -143,7 +162,8 @@ export function conflictResolutionPrompt(
  * Delivery at finish (AGENTS.md, Design rules). The plan lists each action with
  * its exact target: a PR task pushes its branch and comments on the PR, a
  * Jira task pushes its branch, opens a PR and comments on the issue (no
- * transitions), a free-text task rebases onto local main, resolving conflicts
+ * transitions), a GitHub issue task does the same with a PR body that ends
+ * `Closes owner/repo#n`, a free-text task rebases onto local main, resolving conflicts
  * with the implementer, and fast-forwards it (main is never pushed), and a
  * Review PR task posts the selected findings
  * as a review. Only the actions the user confirmed are performed, in that
@@ -193,32 +213,41 @@ export function createDeliverer({ git, repositories: r, ports }: DelivererOption
     const push: DeliveryAction[] = remoteUrl
       ? [{ kind: "push-branch", branch, remote: remoteUrl }]
       : [];
+    /** Opening a PR from the branch, when the remote is a GitHub/GHE repo. */
+    const openPr = (prBody: string): DeliveryAction[] => {
+      const slug = remoteUrl ? ports.parseRemote(remoteUrl) : undefined;
+      return slug
+        ? [
+            {
+              kind: "open-pr",
+              ...slug,
+              head: branch,
+              base: git.mainBranch,
+              title: prTitle(task),
+              body: prBody,
+            },
+          ]
+        : [];
+    };
 
     switch (origin.kind) {
       case "free-text":
         return [{ kind: "merge-main", branch, into: git.mainBranch }];
       case "github-pr":
         return [...push, { kind: "pr-comment", url: origin.url, body }];
-      case "jira-issue": {
-        const slug = remoteUrl ? ports.parseRemote(remoteUrl) : undefined;
-        const openPr: DeliveryAction[] = slug
-          ? [
-              {
-                kind: "open-pr",
-                ...slug,
-                head: branch,
-                base: git.mainBranch,
-                title: prTitle(task),
-                body,
-              },
-            ]
-          : [];
+      case "jira-issue":
         return [
           ...push,
-          ...openPr,
+          ...openPr(body),
           { kind: "jira-comment", key: origin.key, url: ports.jiraIssueUrl?.(task) ?? null, body },
         ];
-      }
+      case "github-issue":
+        // The full reference links (and on merge closes) the issue even from another repo.
+        return [
+          ...push,
+          ...openPr(`${body}\n\nCloses ${origin.owner}/${origin.repo}#${origin.number}`),
+          { kind: "issue-comment", url: origin.url, body },
+        ];
     }
   }
 
@@ -302,6 +331,8 @@ export function createDeliverer({ git, repositories: r, ports }: DelivererOption
         const { key, body } = target("jira-comment");
         return (await ports.commentOnJiraIssue(task, body)).url ?? key;
       }
+      case "issue-comment":
+        return (await ports.commentOnGitHubIssue(task, target("issue-comment").body)).url;
       case "merge-main": {
         const { branch, into } = target("merge-main");
         const repo = r.repos.get(task.repoId);
@@ -354,6 +385,18 @@ export function createDeliverer({ git, repositories: r, ports }: DelivererOption
         ) {
           throw error;
         }
+        throw new DeliveryError(errorMessage(error));
+      }
+    },
+    async commentOnIssue(task, body) {
+      if (task.origin.kind !== "github-issue") {
+        throw new InvalidGateResponseError("Only GitHub issue tasks comment on their issue");
+      }
+      try {
+        return await ports.commentOnGitHubIssue(task, body);
+      } catch (error) {
+        // A missing token opens the token modal; anything else is the host's own message.
+        if (error instanceof MissingCredentialError) throw error;
         throw new DeliveryError(errorMessage(error));
       }
     },

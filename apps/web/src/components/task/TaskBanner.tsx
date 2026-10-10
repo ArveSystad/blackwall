@@ -6,7 +6,7 @@ import { NeedsBanner } from "../NeedsBanner";
 import { Button } from "../ui/button";
 import { ErrorText } from "../ui/field";
 import { Kbd } from "../ui/kbd";
-import { answerGate, resume } from "./actions";
+import { answerGate, approvePlan, resume, type PlanComment } from "./actions";
 import type { TaskAction } from "./use-task-action";
 
 export interface BannerCounts {
@@ -20,6 +20,7 @@ function NeedsActions({
   action,
   counts,
   draft,
+  planComment,
   tab,
   onTab,
 }: {
@@ -27,6 +28,7 @@ function NeedsActions({
   action: TaskAction;
   counts: BannerCounts;
   draft: string;
+  planComment: PlanComment;
   tab: TaskTab;
   onTab: (tab: TaskTab) => void;
 }) {
@@ -48,7 +50,7 @@ function NeedsActions({
           <Button
             variant="needs"
             disabled={action.pending}
-            onClick={() => void answerGate(action, task, { decision: "approve" }, "Approve plan")}
+            onClick={() => void approvePlan(action, task, planComment)}
           >
             Approve plan
             <Kbd onFill>A</Kbd>
@@ -119,6 +121,7 @@ export function TaskBanner({
   action,
   counts,
   draft,
+  planComment,
   tab,
   onTab,
   onDelete,
@@ -127,6 +130,8 @@ export function TaskBanner({
   action: TaskAction;
   counts: BannerCounts;
   draft: string;
+  /** The plan approval's issue comment, shared with the Plan tab's Approve plan. */
+  planComment: PlanComment;
   tab: TaskTab;
   onTab: (tab: TaskTab) => void;
   onDelete: () => void;
@@ -145,6 +150,7 @@ export function TaskBanner({
               action={action}
               counts={counts}
               draft={draft}
+              planComment={planComment}
               tab={tab}
               onTab={onTab}
             />

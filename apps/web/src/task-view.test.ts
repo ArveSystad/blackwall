@@ -28,7 +28,9 @@ import {
   looksLikeDiff,
   openQuestionCount,
   parseDiff,
+  originUrl,
   parseJiraInput,
+  planApprovalComment,
   sortFindings,
   stepModel,
   toolTarget,
@@ -379,12 +381,57 @@ describe("finish", () => {
     expect(
       deliveryActionCopy({ kind: "pr-review", url: "https://x/pull/1", findingIds: [] }, 1).title,
     ).toBe("Post review with 1 comment");
+    expect(
+      deliveryActionCopy({ kind: "issue-comment", url: "https://x/issues/7", body: "Done" }, 0),
+    ).toEqual({ title: "Comment on the issue", target: "https://x/issues/7", body: "Done" });
   });
 
   it("states how many actions the confirm sends", () => {
     expect(confirmLabel(0)).toBe("Keep local, mark done");
     expect(confirmLabel(1)).toBe("Confirm and send 1 action");
     expect(confirmLabel(3)).toBe("Confirm and send 3 actions");
+  });
+});
+
+describe("GitHub issue tasks", () => {
+  const origin = {
+    kind: "github-issue" as const,
+    url: "https://github.com/acme/web/issues/7",
+    owner: "acme",
+    repo: "web",
+    number: 7,
+    connectionId: null,
+  };
+
+  it("links the issue", () => {
+    expect(originUrl(makeTask({ origin }), [])).toBe("https://github.com/acme/web/issues/7");
+  });
+
+  it("drafts the plan approval comment with the branch and the plan folded away", () => {
+    expect(planApprovalComment({ branch: "feature/7-export", plan: "1. Fix it\n" })).toBe(
+      "The plan is approved. Implementation is starting on branch `feature/7-export`.\n\n" +
+        "<details>\n<summary>Plan</summary>\n\n1. Fix it\n\n</details>",
+    );
+    expect(planApprovalComment({ branch: null, plan: null })).toBe(
+      "The plan is approved. Implementation is starting.",
+    );
+  });
+
+  it("shows the plan approval comment as a note in the transcript", () => {
+    expect(
+      buildTranscript([
+        event(1, "issue.commented", {
+          url: "https://github.com/acme/web/issues/7#c1",
+          at: "plan-approval",
+        }),
+      ]),
+    ).toEqual([
+      {
+        kind: "note",
+        key: "s1:1",
+        text: "Commented on the issue: https://github.com/acme/web/issues/7#c1",
+      },
+    ]);
   });
 });
 

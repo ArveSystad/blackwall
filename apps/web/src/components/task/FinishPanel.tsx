@@ -26,6 +26,7 @@ const TARGET_LABELS: Record<DeliveryTarget, string> = {
   "open-pr": "Opened a pull request",
   "pr-comment": "Commented on the pull request",
   "jira-comment": "Commented on the Jira issue",
+  "issue-comment": "Commented on the issue",
   "merge-main": "Merged into local main",
   "pr-review": "Posted the review",
 };

@@ -81,7 +81,9 @@ export function TaskHeader({
         ? task.mode
           ? PR_MODE_LABELS[task.mode]
           : "Pull request"
-        : "Free text";
+        : task.origin.kind === "github-issue"
+          ? "GitHub issue"
+          : "Free text";
   const inReview = task.stage === "code-review" || task.stage === "aggregate";
 
   async function setArchived(archived: boolean) {

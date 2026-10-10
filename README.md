@@ -1,6 +1,6 @@
 # blackwall
 
-A local, single-user, browser-based control room for coding agents. blackwall runs Claude Code and GitHub Copilot CLI as headless subprocesses against your own git repos. Tasks come from Jira Cloud issues, GitHub/GHE pull requests (Work on PR or Review PR) or free text.
+A local, single-user, browser-based control room for coding agents. blackwall runs Claude Code and GitHub Copilot CLI as headless subprocesses against your own git repos. Tasks come from Jira Cloud issues, GitHub/GHE pull requests (Work on PR or Review PR), GitHub/GHE issues or free text.
 
 Agents from different vendors plan, grill, implement and review each other's work. You approve the plan, answer the questions only you can answer, triage the findings and confirm every outbound action.
 
@@ -20,6 +20,7 @@ Inform ──► Plan review / grill ──► [human plan approval] ──► I
 ```
 
 - Review PR mode runs Inform → review panel → triage → inline PR review comments.
+- GitHub issue tasks work on a new `feature/<n>-…` branch and finish by pushing it, opening a PR that closes the issue and commenting on the issue. You can also opt in to a comment on the issue when work starts and when you approve the plan; you see and edit each one first.
 - Each task gets its own git worktree at `../<repo>.worktrees/<task>`.
 - The harness commits after each implement or fix round. Agents never push, and `main` is never pushed.
 - Critical and High findings loop back to the implementer, for at most 3 fix rounds before escalating to you.

@@ -331,6 +331,71 @@ describe("starting new backlog items", () => {
     expect(events).toEqual([]);
   });
 
+  describe("GitHub issue start comments", () => {
+    const origin = {
+      kind: "github-issue",
+      url: "https://github.com/acme/app/issues/7",
+      owner: "acme",
+      repo: "app",
+      number: 7,
+      connectionId: null,
+    } as const;
+    const startComment = { body: "Work has started." };
+    let commentOnIssue: ReturnType<typeof vi.fn<NonNullable<NewTaskServices["commentOnIssue"]>>>;
+
+    beforeEach(() => {
+      commentOnIssue = vi.fn(async () => ({ url: "https://github.com/acme/app/issues/7#c1" }));
+      newTask.commentOnIssue = commentOnIssue;
+      mount();
+    });
+
+    it("posts the comment before a task that starts now is created", async () => {
+      const order: string[] = [];
+      commentOnIssue.mockImplementation(async () => {
+        order.push("comment");
+        return { url: "x" };
+      });
+      createTask.mockImplementation((values) => {
+        order.push("create");
+        return repositories.tasks.create({ ...values, status: "queued" });
+      });
+      const item = await create({ title: "Export", origin, start: true, startComment });
+      expect(item.status).toBe("promoted");
+      expect(commentOnIssue).toHaveBeenCalledWith(origin, "Work has started.");
+      expect(order).toEqual(["comment", "create"]);
+    });
+
+    it("posts nothing for an item that waits, or without a start comment", async () => {
+      settings.setRepoBacklogRunnerEnabled(repoId, false);
+      expect((await create({ title: "Later", origin, start: true, startComment })).status).toBe(
+        "waiting",
+      );
+      settings.setRepoBacklogRunnerEnabled(repoId, true);
+      await create({ title: "Now", origin, start: true });
+      expect(commentOnIssue).not.toHaveBeenCalled();
+    });
+
+    it("adds nothing when the comment fails", async () => {
+      commentOnIssue.mockRejectedValueOnce(new Error("github.com: access denied"));
+      const res = await request("", {
+        method: "POST",
+        body: { origin, title: "Export", start: true, startComment },
+      });
+      expect(res.status).toBe(500);
+      expect(await list()).toEqual([]);
+      expect(createTask).not.toHaveBeenCalled();
+      expect(events).toEqual([]);
+    });
+
+    it("refuses a start comment on other origins", async () => {
+      const res = await request("", {
+        method: "POST",
+        body: { origin: { kind: "free-text" }, freeText: "Do it", start: true, startComment },
+      });
+      expect(res.status).toBe(400);
+    });
+  });
+
   it("never promotes an item twice", async () => {
     const item = await create({ title: "Once" });
     const services = {

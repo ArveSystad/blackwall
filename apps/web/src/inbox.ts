@@ -37,6 +37,7 @@ export function originKey(task: Pick<Task, "origin">): string {
     case "jira-issue":
       return origin.key;
     case "github-pr":
+    case "github-issue":
       return `${origin.owner}/${origin.repo}#${origin.number}`;
     case "free-text":
       return "free text";

@@ -17,6 +17,7 @@ import {
   grillQuestionSchema,
   healthResponseSchema,
   missingCredentialSchema,
+  issueLookupSchema,
   pullRequestLookupSchema,
   quotaStateSchema,
   repoBacklogRunnerSchema,
@@ -54,6 +55,7 @@ import {
   type HealthResponse,
   type MissingCredential,
   type NewBacklogItemInput,
+  type IssueLookup,
   type PullRequestLookup,
   type QuotaState,
   type RepoBacklogRunner,
@@ -171,6 +173,10 @@ export function lookupPullRequest(url: string): Promise<PullRequestLookup> {
     method: "POST",
     body: { url },
   });
+}
+
+export function lookupIssue(url: string): Promise<IssueLookup> {
+  return request("/api/issues/lookup", issueLookupSchema, { method: "POST", body: { url } });
 }
 
 const taskPath = (id: string) => at("/api/tasks", id);

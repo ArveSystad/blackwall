@@ -15,6 +15,7 @@ import { Chip } from "../ui/chip";
 import { ErrorText, fieldLabel } from "../ui/field";
 import { Kbd } from "../ui/kbd";
 import { Textarea } from "../ui/textarea";
+import type { PlanComment } from "./actions";
 import { PlanPanel } from "./PlanPanel";
 import type { TaskAction } from "./use-task-action";
 
@@ -155,11 +156,15 @@ export function GrillPanel({
   questions,
   action,
   draft,
+  planComment,
+  onPlanComment,
 }: {
   task: Task;
   questions: readonly GrillQuestion[];
   action: TaskAction;
   draft: string;
+  planComment: PlanComment;
+  onPlanComment: (comment: PlanComment) => void;
 }) {
   const agentMap = useAgentLibrary();
   const counts = grillCounts(questions);
@@ -224,6 +229,8 @@ export function GrillPanel({
           action={action}
           draft={draft}
           openQuestions={counts.open}
+          comment={planComment}
+          onComment={onPlanComment}
           className="min-h-0 flex-1"
         />
       </aside>

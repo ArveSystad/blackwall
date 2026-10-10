@@ -3,8 +3,10 @@ import type { ReviewFinding } from "@blackwall/shared";
 import { describe, expect, it, vi } from "vitest";
 import { createGitHubClient, GitHubError } from "./client.js";
 import { informFromPullRequest } from "./inform.js";
+import { assembleIssue, informFromIssue, renderIssue } from "./issue.js";
 import {
   findRepoForPullRequest,
+  parseIssueUrl,
   parsePullRequestUrl,
   parseRemoteSlug,
   type PullRequestRef,
@@ -21,6 +23,7 @@ const jiraFixtureText = (name: string) =>
 const TOKEN = "ghp_secret_token";
 const GHE = { baseUrl: "https://jbf.ghe.com", token: TOKEN };
 const PR = { owner: "acme", repo: "shop", number: 42 };
+const ISSUE = { owner: "acme", repo: "shop", number: 7 };
 const DIFF = fixtureText("pr-42.diff");
 
 const json = (body: string, status = 200) =>
@@ -43,6 +46,12 @@ function recordedGitHub() {
       return Promise.resolve(json(fixtureText("review-comments-42.json")));
     if (path === "/repos/acme/shop/issues/42/comments")
       return Promise.resolve(json(fixtureText("issue-comments-42.json")));
+    if (path === "/repos/acme/shop/issues/42")
+      return Promise.resolve(json(fixtureText("issue-is-pr.json")));
+    if (path === "/repos/acme/shop/issues/7")
+      return Promise.resolve(json(fixtureText("issue.json")));
+    if (path === "/repos/acme/shop/issues/7/comments")
+      return Promise.resolve(json(fixtureText("issue-comments.json")));
     if (path === "/repos/acme/shop/pulls/42/reviews")
       return Promise.resolve(json(fixtureText("reviews-42.json")));
     if (path === "/rest/api/3/issue/ABC-123")
@@ -86,6 +95,37 @@ describe("parsePullRequestUrl", () => {
   });
 });
 
+describe("parseIssueUrl", () => {
+  it("parses github.com and GHE issue links, with a trailing slash or anchor", () => {
+    expect(parseIssueUrl(" https://github.com/acme/shop/issues/7/ ")).toEqual({
+      baseUrl: "https://github.com",
+      host: "github.com",
+      owner: "acme",
+      repo: "shop",
+      number: 7,
+      url: "https://github.com/acme/shop/issues/7",
+    });
+    expect(parseIssueUrl("https://JBF.ghe.com/team/api/issues/12#issuecomment-1")).toEqual({
+      baseUrl: "https://jbf.ghe.com",
+      host: "jbf.ghe.com",
+      owner: "team",
+      repo: "api",
+      number: 12,
+      url: "https://jbf.ghe.com/team/api/issues/12",
+    });
+    expect(parseIssueUrl("https://www.github.com/acme/shop/issues/3")?.url).toBe(
+      "https://github.com/acme/shop/issues/3",
+    );
+  });
+
+  it("rejects pull request and other links", () => {
+    expect(parseIssueUrl("https://github.com/acme/shop/pull/7")).toBeUndefined();
+    expect(parseIssueUrl("https://github.com/acme/shop/issues")).toBeUndefined();
+    expect(parseIssueUrl("https://github.com/acme/shop/issues/0")).toBeUndefined();
+    expect(parseIssueUrl("acme/shop#7")).toBeUndefined();
+  });
+});
+
 describe("repo matching", () => {
   const ref = parsePullRequestUrl("https://github.com/Acme/Shop/pull/42") as PullRequestRef;
 
@@ -114,6 +154,8 @@ describe("repo matching", () => {
     ];
     expect(findRepoForPullRequest(repos, ref)?.id).toBe("r4");
     expect(findRepoForPullRequest(repos.slice(0, 3), ref)).toBeUndefined();
+    const issue = parseIssueUrl("https://jbf.ghe.com/ACME/shop/issues/7");
+    expect(issue && findRepoForPullRequest(repos, issue)?.id).toBe("r3");
   });
 });
 
@@ -221,6 +263,62 @@ describe("informFromPullRequest", () => {
     });
     expect(result.markdown).toContain(`The diff is cut at 100 of ${DIFF.length} characters.`);
     expect(result.markdown).toContain("git diff main...HEAD");
+  });
+});
+
+describe("GitHub issues", () => {
+  const context = assembleIssue(ISSUE, {
+    issue: JSON.parse(fixtureText("issue.json")),
+    comments: JSON.parse(fixtureText("issue-comments.json")),
+  });
+
+  it("flattens the issue and skips empty comments", () => {
+    expect(context).toEqual({
+      owner: "acme",
+      repo: "shop",
+      number: 7,
+      url: "https://jbf.ghe.com/acme/shop/issues/7",
+      title: "Invoice export drops the last row",
+      description:
+        "The CSV export misses the final invoice line.\n\n## Steps\n\n1. Export March\n2. Count rows",
+      state: "open",
+      author: "grace",
+      labels: ["Bug", "billing"],
+      conversation: [
+        {
+          author: "ada",
+          body: "Seen it too, only for months with 31 days.",
+          created: "2026-10-02T09:00:00Z",
+        },
+      ],
+    });
+  });
+
+  it("renders the issue as agent context", () => {
+    expect(renderIssue(context)).toBe(
+      [
+        "## Issue acme/shop#7: Invoice export drops the last row",
+        "State: open · Author: grace · Labels: Bug, billing\nhttps://jbf.ghe.com/acme/shop/issues/7",
+        "### Description\n\nThe CSV export misses the final invoice line.\n\n##### Steps\n\n1. Export March\n2. Count rows",
+        "### Conversation\n\n**ada** (2026-10-02):\n\nSeen it too, only for months with 31 days.",
+      ].join("\n\n"),
+    );
+  });
+
+  it("fetches the issue and its comments", async () => {
+    const fetchImpl = recordedGitHub();
+    const result = await informFromIssue(GHE, ISSUE, { fetch: fetchImpl });
+    expect(result.markdown).toBe(renderIssue(context));
+    expect(fetchImpl.mock.calls.map(([url]) => new URL(String(url)).pathname).sort()).toEqual([
+      "/repos/acme/shop/issues/7",
+      "/repos/acme/shop/issues/7/comments",
+    ]);
+  });
+
+  it("refuses an issue link that is really a pull request", async () => {
+    await expect(informFromIssue(GHE, PR, { fetch: recordedGitHub() })).rejects.toThrow(
+      "acme/shop#42 is a pull request; use the GitHub PR origin",
+    );
   });
 });
 

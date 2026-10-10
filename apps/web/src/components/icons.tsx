@@ -82,6 +82,13 @@ export const PullRequestIcon = icon(
   </>,
 );
 
+export const IssueIcon = icon(
+  <>
+    <circle cx="8" cy="8" r="5.5" />
+    <circle cx="8" cy="8" r="1" />
+  </>,
+);
+
 export const TextIcon = icon(<path d="M3 4h10M3 8h10M3 12h6" />);
 
 export const StatsIcon = icon(<path d="M3 13V9M8 13V3M13 13V6" />);

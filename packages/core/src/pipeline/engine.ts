@@ -27,10 +27,12 @@ import {
   DELIVERY_CONFLICT_EVENT,
   DELIVERY_DONE_EVENT,
   DELIVERY_FAILED_EVENT,
+  ISSUE_COMMENT_EVENT,
   conflictResolutionPrompt,
   type Deliverer,
   type DeliveryOutcome,
   type DeliveryStep,
+  type IssueCommentOutcome,
   type MergeConflict,
 } from "./delivery.js";
 import { blockingFindings } from "./findings.js";
@@ -48,6 +50,9 @@ import {
 } from "./transitions.js";
 
 type TaskPatch = Parameters<Repositories["tasks"]["update"]>[1];
+
+/** A gate answer as {@link gateResponseInputSchema} parsed it. */
+type GateResponse = ReturnType<typeof gateResponseInputSchema.parse>;
 
 /** A new task as the new task form describes it, with its role agents resolved. */
 export type NewTaskValues = Pick<
@@ -224,6 +229,11 @@ export function createPipelineEngine({
   const pending = new Map<string, Pending>();
   /** Tasks whose delivery is in flight; a second confirmation must not run it twice. */
   const delivering = new Set<string>();
+  /**
+   * Tasks posting a plan-approval issue comment; other gate answers and delete
+   * are refused until it settles.
+   */
+  const commenting = new Set<string>();
   /** Aborts the implementer resolving a delivery's conflicts; apart from {@link controllers}. */
   const deliveryControllers = new Map<string, AbortController>();
   /** Tasks the user stopped; their drive ends `interrupted` with {@link TASK_STOPPED_ERROR}. */
@@ -615,19 +625,46 @@ export function createPipelineEngine({
   }
 
   /**
+   * Posts the plan-approval comment the user confirmed on a GitHub issue
+   * task's issue and logs it on the step the task waited on (the latest
+   * Plan review step), without starting a new step or visit. Resolves with
+   * the task as it is after the post, which must still wait on plan approval.
+   * A failed post leaves the task at its gate for a retry.
+   */
+  async function commentAtPlanApproval(task: Task, body: string): Promise<Task> {
+    const run = latestRun(task.id);
+    const step = run && r.steps.listByRun(run.id).findLast((s) => s.stage === task.stage);
+    if (!step) throw new TaskStateError(`Task ${task.id} has no step to log its issue comment on`);
+    const { url } = await delivery.commentOnIssue(task, body);
+    const payload: IssueCommentOutcome = { url, at: "plan-approval" };
+    const event = r.stepEvents.append(step.id, ISSUE_COMMENT_EVENT, payload);
+    publish({ type: "step.event", payload: { event } });
+    const fresh = getTask(task.id);
+    if (fresh.status !== "needs-you" || fresh.gate !== "plan-approval") {
+      throw new TaskStateError(`Task ${task.id} changed while commenting on its issue`);
+    }
+    return fresh;
+  }
+
+  /**
    * Answers the gate a `needs-you` task waits on. The task re-enters the
    * queue at the stage the answer leads to, or delivers and finishes. The
-   * questions gate opens only once every open question is answered.
+   * questions gate opens only once every open question is answered. Approving
+   * a GitHub issue task's plan with `issueComment` posts that comment first;
+   * other answers (and delete) are refused while it posts.
    */
   async function respond(taskId: string, input: GateResponseInput): Promise<Task> {
     const parsed = gateResponseInputSchema.safeParse(input);
     if (!parsed.success) {
       throw new InvalidGateResponseError(parsed.error.issues.map((i) => i.message).join("; "));
     }
-    const { gate, decision, message } = parsed.data;
+    const { gate, decision, issueComment } = parsed.data;
     const task = getTask(taskId);
     if (task.status !== "needs-you" || task.gate !== gate) {
       throw new TaskStateError(`Task ${taskId} is not waiting on ${gate}`);
+    }
+    if (commenting.has(taskId)) {
+      throw new TaskStateError(`Task ${taskId} is already answering its gate`);
     }
     if (gate === "questions" && openQuestions(taskId) > 0) {
       throw new TaskStateError(`Task ${taskId} still has open questions`);
@@ -640,6 +677,26 @@ export function createPipelineEngine({
         );
       }
     }
+    if (!issueComment) return answerGate(task, parsed.data);
+    if (gate !== "plan-approval" || decision !== "approve" || task.origin.kind !== "github-issue") {
+      throw new InvalidGateResponseError(
+        "Only approving a GitHub issue task's plan can comment on the issue",
+      );
+    }
+    commenting.add(taskId);
+    try {
+      return await answerGate(await commentAtPlanApproval(task, issueComment.body), parsed.data);
+    } finally {
+      commenting.delete(taskId);
+    }
+  }
+
+  /** Moves a task past the gate it waits on, per an answer {@link respond} accepted. */
+  async function answerGate(
+    task: Task,
+    { gate, decision, message, delivery: confirmed }: GateResponse,
+  ): Promise<Task> {
+    const taskId = task.id;
     const run = latestRun(taskId);
     const next = afterGate(gate, decision, {
       ...position(task, currentRound(run)),
@@ -650,7 +707,7 @@ export function createPipelineEngine({
       if (!run) throw new TaskStateError(`Task ${taskId} has no run to deliver`);
       if (delivering.has(taskId)) throw new TaskStateError(`Task ${taskId} is already delivering`);
       // Nothing leaves the machine unless the user confirmed that action.
-      const confirmation = parsed.data.delivery ?? deliveryConfirmationSchema.parse({});
+      const confirmation = confirmed ?? deliveryConfirmationSchema.parse({});
       delivering.add(taskId);
       try {
         await runDelivery(task, run, confirmation);
@@ -849,13 +906,19 @@ export function createPipelineEngine({
     /**
      * Deletes a task with its worktree, its local branch (kept for PR tasks,
      * which work on an existing branch) and its history. A queued or running
-     * task is stopped first. Refused while delivery runs or once anything was
-     * delivered. Backlog items that promoted it keep `taskId: null`.
+     * task is stopped first. Refused while delivery runs, while a plan-approval
+     * issue comment posts, or once anything was delivered (progress comments
+     * on an issue don't count). Backlog items that promoted it keep `taskId: null`.
      */
     async delete(taskId: string): Promise<void> {
       const task = getTask(taskId);
       if (delivering.has(taskId)) {
         throw new TaskStateError(`Task ${taskId} is delivering; it cannot be deleted now`);
+      }
+      if (commenting.has(taskId)) {
+        throw new TaskStateError(
+          `Task ${taskId} is commenting on its issue; it cannot be deleted now`,
+        );
       }
       if (hasDelivered(task)) {
         throw new TaskStateError(

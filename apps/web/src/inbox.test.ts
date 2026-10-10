@@ -64,6 +64,17 @@ describe("originKey and matchesFilter", () => {
     expect(originKey(jira)).toBe("ABC-482");
     expect(originKey(pr)).toBe("acme/web#911");
     expect(originKey(makeTask())).toBe("free text");
+    const issue = makeTask({
+      origin: {
+        kind: "github-issue",
+        url: "https://github.com/acme/web/issues/7",
+        owner: "acme",
+        repo: "web",
+        number: 7,
+        connectionId: null,
+      },
+    });
+    expect(originKey(issue)).toBe("acme/web#7");
 
     expect(matchesFilter(jira, " abc-4 ")).toBe(true);
     expect(matchesFilter(jira, "LOGIN")).toBe(true);

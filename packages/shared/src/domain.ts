@@ -12,7 +12,7 @@ import { z } from "zod";
 
 export const CONNECTION_KINDS = ["github", "jira"] as const;
 export const AGENT_CLIS = ["claude", "copilot"] as const;
-export const ORIGIN_KINDS = ["jira-issue", "github-pr", "free-text"] as const;
+export const ORIGIN_KINDS = ["jira-issue", "github-pr", "github-issue", "free-text"] as const;
 /** How a GitHub PR task treats the PR: work on it, or only review it. */
 export const PR_MODES = ["work", "review"] as const;
 /** `intervene`: run and let the user intervene. `pause`: pause before each fix round. */
@@ -98,12 +98,14 @@ export const GRILL_ANSWERERS = ["agent", "user"] as const;
  * perform these themselves; the harness does, and only the ones the user
  * confirmed. `merge-main` is the free-text finish (rebase onto local main,
  * then fast-forward it); it never leaves the machine and main is never pushed.
+ * `issue-comment` comments on a GitHub issue task's issue.
  */
 export const DELIVERY_TARGETS = [
   "push-branch",
   "open-pr",
   "pr-comment",
   "jira-comment",
+  "issue-comment",
   "merge-main",
   "pr-review",
 ] as const;
@@ -509,11 +511,22 @@ export const githubPrOriginSchema = z.object({
   connectionId: id.nullable(),
 });
 
+/** A GitHub/GHE issue: worked on a new branch like a Jira issue, delivered as a PR that closes it. */
+export const githubIssueOriginSchema = z.object({
+  kind: z.literal("github-issue"),
+  url: z.url(),
+  owner: name,
+  repo: name,
+  number: z.int().positive(),
+  connectionId: id.nullable(),
+});
+
 export const freeTextOriginSchema = z.object({ kind: z.literal("free-text") });
 
 export const taskOriginSchema = z.discriminatedUnion("kind", [
   jiraIssueOriginSchema,
   githubPrOriginSchema,
+  githubIssueOriginSchema,
   freeTextOriginSchema,
 ]);
 export type TaskOrigin = z.infer<typeof taskOriginSchema>;
@@ -574,6 +587,24 @@ export const taskSchema = z
   .superRefine(checkMode);
 export type Task = z.infer<typeof taskSchema>;
 
+/** A comment the user wrote (or kept) for a GitHub issue task's issue. */
+export const issueCommentInputSchema = z.object({ body: z.string().trim().min(1) });
+export type IssueCommentInput = z.infer<typeof issueCommentInputSchema>;
+
+/** Only GitHub issue tasks comment on their issue when work starts. */
+function checkStartComment(
+  value: { origin: TaskOrigin; startComment?: IssueCommentInput | undefined },
+  ctx: z.RefinementCtx,
+): void {
+  if (value.startComment && value.origin.kind !== "github-issue") {
+    ctx.addIssue({
+      code: "custom",
+      path: ["startComment"],
+      message: "Only GitHub issue tasks comment when work starts",
+    });
+  }
+}
+
 /** New task form / `POST /api/tasks` body. */
 export const newTaskInputSchema = z
   .object({
@@ -585,12 +616,18 @@ export const newTaskInputSchema = z
     freeText: z.string().default(""),
     agents: roleAgentsSchema.default({}),
     triageMode: triageModeSchema.default("intervene"),
+    /**
+     * GitHub issue tasks only: a comment the user confirmed, posted on the
+     * issue when the task is created. Omitted: nothing is posted.
+     */
+    startComment: issueCommentInputSchema.optional(),
   })
   .superRefine((value, ctx) => {
     checkMode(value, ctx);
     if (value.origin.kind === "free-text" && value.freeText.trim() === "") {
       ctx.addIssue({ code: "custom", path: ["freeText"], message: "Describe the task" });
     }
+    checkStartComment(value, ctx);
   });
 export type NewTaskInput = z.input<typeof newTaskInputSchema>;
 
@@ -655,7 +692,7 @@ export type BacklogItemView = z.infer<typeof backlogItemViewSchema>;
 
 /**
  * `POST /api/repos/:repoId/backlog` body. Backlog items run unattended, hence `intervene`.
- * Without a title the server uses the Jira summary, PR title or a fallback. With
+ * Without a title the server uses the Jira summary, PR or issue title, or a fallback. With
  * `start` the item is promoted at once when the repo's backlog runner is on and
  * its dependencies are done.
  */
@@ -671,10 +708,16 @@ export const newBacklogItemInputSchema = z
     dependsOn: backlogDependsOn.default([]),
     /** Not stored: whether to promote the item at once when the runner would. */
     start: z.boolean().default(false),
+    /**
+     * Not stored, GitHub issue items only: a comment the user confirmed,
+     * posted on the issue only when the item is promoted at once (`start`).
+     */
+    startComment: issueCommentInputSchema.optional(),
   })
   .superRefine((value, ctx) => {
     checkMode(value, ctx);
     checkBacklogText(value, ctx);
+    checkStartComment(value, ctx);
   });
 export type NewBacklogItemInput = z.input<typeof newBacklogItemInputSchema>;
 
@@ -735,6 +778,19 @@ export const pullRequestLookupSchema = z.object({
 });
 export type PullRequestLookup = z.infer<typeof pullRequestLookupSchema>;
 
+/** Body for looking up a pasted GitHub issue link on the new task form. */
+export const issueLookupInputSchema = z.object({ url: z.string().trim().min(1) });
+export type IssueLookupInput = z.infer<typeof issueLookupInputSchema>;
+
+/** A GitHub issue link resolved against the GitHub connections and the repo registry. */
+export const issueLookupSchema = z.object({
+  /** The task origin for the issue; `connectionId` is null when no connection exists for its host. */
+  origin: githubIssueOriginSchema,
+  /** The registered repo whose `origin` remote is the issue's repo; null: the user picks one. */
+  repoId: id.nullable(),
+});
+export type IssueLookup = z.infer<typeof issueLookupSchema>;
+
 /**
  * One round's changes on the task branch: the range Code review reviewed in
  * that round, or (`reviewed: false`) commits made since the last review.
@@ -781,6 +837,8 @@ export const deliveryActionSchema = z.discriminatedUnion("kind", [
     url: z.string().nullable(),
     body: z.string(),
   }),
+  /** Post `body` as a comment on the GitHub issue at `url`. */
+  z.object({ kind: z.literal("issue-comment"), url: z.string(), body: z.string() }),
   /** Rebase `branch` onto local `into`, then fast-forward `into` to it. Local only. */
   z.object({ kind: z.literal("merge-main"), branch: z.string(), into: z.string() }),
   /** Submit a review on the pull request at `url` with the selected findings as inline comments. */
@@ -845,6 +903,12 @@ export const gateResponseInputSchema = z.object({
    * Review PR task's triage). Omitted: nothing leaves the machine.
    */
   delivery: deliveryConfirmationSchema.optional(),
+  /**
+   * Only when approving the plan of a GitHub issue task: a comment the user
+   * confirmed, posted on the issue before the task moves on. Omitted: nothing
+   * is posted.
+   */
+  issueComment: issueCommentInputSchema.optional(),
 });
 export type GateResponseInput = z.input<typeof gateResponseInputSchema>;
 

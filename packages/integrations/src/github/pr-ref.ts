@@ -11,6 +11,19 @@ export interface PullRequestRef {
   url: string;
 }
 
+/** An issue as the user pasted it: `https://<host>/<owner>/<repo>/issues/<n>`. */
+export interface IssueRef {
+  /** Web origin of the GitHub host, e.g. `https://github.com` or `https://jbf.ghe.com`. */
+  baseUrl: string;
+  /** Lower-case host (with a non-default port), for matching connections and remotes. */
+  host: string;
+  owner: string;
+  repo: string;
+  number: number;
+  /** Canonical issue link, without trailing sub-pages or anchors. */
+  url: string;
+}
+
 /** `owner/repo` on a host, as parsed from a git remote. */
 export interface RepoSlug {
   host: string;
@@ -19,12 +32,14 @@ export interface RepoSlug {
 }
 
 const PR_PATH = /^\/([^/]+)\/([^/]+)\/pulls?\/(\d+)(?:\/.*)?$/;
+const ISSUE_PATH = /^\/([^/]+)\/([^/]+)\/issues\/(\d+)(?:\/.*)?$/;
 
-/**
- * Parses a GitHub or GHE pull request URL. Accepts sub-pages (`/files`,
- * `/commits`) and the `/pulls/` spelling. Returns undefined for anything else.
- */
-export function parsePullRequestUrl(input: string): PullRequestRef | undefined {
+/** A numbered GitHub link (`/<owner>/<repo>/<kind>/<n>`) whose path matches `pattern`. */
+function parseNumberedUrl(
+  input: string,
+  pattern: RegExp,
+  kind: string,
+): PullRequestRef | IssueRef | undefined {
   let url: URL;
   try {
     url = new URL(input.trim());
@@ -32,7 +47,7 @@ export function parsePullRequestUrl(input: string): PullRequestRef | undefined {
     return undefined;
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") return undefined;
-  const match = PR_PATH.exec(url.pathname);
+  const match = pattern.exec(url.pathname);
   if (!match) return undefined;
   const [, owner, rawRepo, num] = match;
   const number = Number(num);
@@ -46,8 +61,24 @@ export function parsePullRequestUrl(input: string): PullRequestRef | undefined {
     owner,
     repo,
     number,
-    url: `${baseUrl}/${owner}/${repo}/pull/${number}`,
+    url: `${baseUrl}/${owner}/${repo}/${kind}/${number}`,
   };
+}
+
+/**
+ * Parses a GitHub or GHE pull request URL. Accepts sub-pages (`/files`,
+ * `/commits`) and the `/pulls/` spelling. Returns undefined for anything else.
+ */
+export function parsePullRequestUrl(input: string): PullRequestRef | undefined {
+  return parseNumberedUrl(input, PR_PATH, "pull");
+}
+
+/**
+ * Parses a GitHub or GHE issue URL, with or without a trailing slash or
+ * anchor. Returns undefined for anything else, pull request links included.
+ */
+export function parseIssueUrl(input: string): IssueRef | undefined {
+  return parseNumberedUrl(input, ISSUE_PATH, "issues");
 }
 
 /** scp-like syntax: `[user@]host:owner/repo(.git)`. */
@@ -89,8 +120,8 @@ export function parseRemoteSlug(remote: string): RepoSlug | undefined {
   };
 }
 
-/** Whether a remote points at the PR's repository (host, owner and repo; case-insensitive). */
-export function remoteMatchesPullRequest(remote: string, ref: PullRequestRef): boolean {
+/** Whether a remote points at the PR's (or issue's) repository (host, owner and repo; case-insensitive). */
+export function remoteMatchesPullRequest(remote: string, ref: RepoSlug): boolean {
   const slug = parseRemoteSlug(remote);
   return (
     !!slug &&
@@ -101,12 +132,13 @@ export function remoteMatchesPullRequest(remote: string, ref: PullRequestRef): b
 }
 
 /**
- * The registry repo whose `origin` remote is the PR's repository. Undefined
- * means the repo is not registered yet: the UI asks the user to add it.
+ * The registry repo whose `origin` remote is the PR's (or issue's)
+ * repository. Undefined means the repo is not registered yet: the UI asks the
+ * user to add it (or, for an issue, to pick one).
  */
 export function findRepoForPullRequest<R extends { remoteUrl: string | null }>(
   repos: readonly R[],
-  ref: PullRequestRef,
+  ref: RepoSlug,
 ): R | undefined {
   return repos.find((r) => r.remoteUrl !== null && remoteMatchesPullRequest(r.remoteUrl, ref));
 }

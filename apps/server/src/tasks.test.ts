@@ -546,6 +546,96 @@ describe("new tasks", () => {
     expect(await missing.json()).toMatchObject({ error: "MissingCredential" });
   });
 
+  describe("GitHub issue start comments", () => {
+    const issueOrigin = {
+      kind: "github-issue",
+      url: "https://github.com/acme/web/issues/7",
+      owner: "acme",
+      repo: "web",
+      number: 7,
+      connectionId: null,
+    } as const;
+    let commentOnIssue: ReturnType<
+      typeof vi.fn<(origin: unknown, body: string) => Promise<{ url: string }>>
+    >;
+    let order: string[];
+
+    beforeEach(() => {
+      order = [];
+      commentOnIssue = vi.fn(async () => {
+        order.push("comment");
+        return { url: "https://github.com/acme/web/issues/7#issuecomment-1" };
+      });
+      vi.mocked(pipeline.createTask).mockImplementation((values) => {
+        order.push("create");
+        return repositories.tasks.create({ ...values, status: "queued" });
+      });
+      app = createApp({
+        token: launchToken,
+        getPort: () => port,
+        tasks: stores(),
+        pipeline,
+        taskServices: {
+          newTask: {
+            repos: { use: (id) => repositories.repos.get(id)! },
+            resolveRoles: (overrides = {}) => ({ ...overrides }),
+            originTitle,
+            commentOnIssue,
+          },
+        },
+      }).app;
+    });
+
+    it("posts the confirmed comment before creating the task", async () => {
+      const res = await request("/api/tasks", {
+        method: "POST",
+        body: { origin: issueOrigin, repoId, startComment: { body: "Work has started." } },
+      });
+      expect(res.status).toBe(201);
+      expect(commentOnIssue).toHaveBeenCalledWith(issueOrigin, "Work has started.");
+      expect(order).toEqual(["comment", "create"]);
+      expect(vi.mocked(pipeline.createTask).mock.calls[0]![0]).not.toHaveProperty("startComment");
+    });
+
+    it("creates no task when the comment fails, and surfaces a missing token", async () => {
+      commentOnIssue.mockRejectedValueOnce(new Error("github.com: access denied"));
+      const failed = await request("/api/tasks", {
+        method: "POST",
+        body: { origin: issueOrigin, repoId, startComment: { body: "Started." } },
+      });
+      expect(failed.status).toBe(502);
+      expect(await failed.json()).toEqual({ error: "github.com: access denied" });
+
+      commentOnIssue.mockRejectedValueOnce(
+        new MissingCredentialError("github", "github.com", null),
+      );
+      const missing = await request("/api/tasks", {
+        method: "POST",
+        body: { origin: issueOrigin, repoId, startComment: { body: "Started." } },
+      });
+      expect(missing.status).toBe(409);
+      expect(await missing.json()).toMatchObject({ error: "MissingCredential" });
+      expect(pipeline.createTask).not.toHaveBeenCalled();
+      expect(repositories.tasks.list()).toEqual([]);
+    });
+
+    it("posts nothing without a start comment, and refuses one on other origins", async () => {
+      const res = await request("/api/tasks", {
+        method: "POST",
+        body: { origin: issueOrigin, repoId },
+      });
+      expect(res.status).toBe(201);
+      expect(commentOnIssue).not.toHaveBeenCalled();
+
+      const pr = await request("/api/tasks", {
+        method: "POST",
+        body: { origin: prOrigin, mode: "work", repoId, startComment: { body: "Started." } },
+      });
+      expect(pr.status).toBe(400);
+      expect(commentOnIssue).not.toHaveBeenCalled();
+    });
+  });
+
   it("returns a task's per-round diffs", async () => {
     const task = repositories.tasks.create({ title: "T", origin: { kind: "free-text" }, repoId });
     const res = await request(`/api/tasks/${task.id}/diffs`);
@@ -568,6 +658,9 @@ describe("fallbackTitle", () => {
       "ABC-1",
     );
     expect(fallbackTitle(prOriginFor(7), "")).toBe("acme/web#7");
+    expect(
+      fallbackTitle({ ...prOriginFor(8), kind: "github-issue", url: "https://x/issues/8" }, ""),
+    ).toBe("acme/web#8");
   });
 });
 

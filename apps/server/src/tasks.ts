@@ -1,4 +1,6 @@
 import {
+  DeliveryError,
+  InvalidGateResponseError,
   MissingCredentialError,
   type NewTaskValues,
   type PipelineEngine,
@@ -59,9 +61,13 @@ export interface NewTaskServices {
   repos: Pick<RepoService, "use">;
   /** The role defaults of `cli` with the form's choices on top. */
   resolveRoles: (overrides?: RoleAgents, cli?: AgentCli) => RoleAgents;
-  /** The Jira issue's summary or the PR's title; undefined when the origin has none. */
+  /** The Jira issue's summary or the PR's or GitHub issue's title; undefined when the origin has none. */
   originTitle?: (origin: TaskOrigin) => Promise<string | undefined>;
+  /** Posts a comment the user confirmed on a GitHub issue, for the start comment. */
+  commentOnIssue?: (origin: GitHubIssueOrigin, body: string) => Promise<{ url: string }>;
 }
+
+type GitHubIssueOrigin = Extract<TaskOrigin, { kind: "github-issue" }>;
 
 export interface TaskRouteServices {
   newTask?: NewTaskServices;
@@ -71,7 +77,8 @@ export interface TaskRouteServices {
 
 /**
  * Title for a task the form gave none and the origin could not name: a free
- * text task's first line, otherwise the Jira key or `owner/repo#number`.
+ * text task's first line, otherwise the Jira key or `owner/repo#number` of the
+ * PR or GitHub issue.
  */
 export function fallbackTitle(origin: TaskOrigin, freeText: string): string {
   if (origin.kind === "free-text") {
@@ -84,8 +91,8 @@ export function fallbackTitle(origin: TaskOrigin, freeText: string): string {
 }
 
 /**
- * A task's title from its origin: the Jira issue's summary or the PR's title,
- * otherwise {@link fallbackTitle}. A missing token still throws.
+ * A task's title from its origin: the Jira issue's summary or the PR's or
+ * GitHub issue's title, otherwise {@link fallbackTitle}. A missing token still throws.
  */
 export async function titleFor(
   origin: TaskOrigin,
@@ -105,22 +112,51 @@ export async function titleFor(
 }
 
 /** A parsed new task form: what `POST /api/tasks` and backlog promotion both start from. */
-export type ParsedNewTaskInput = Omit<NewTaskValues, "title"> & { title?: string | undefined };
+export type ParsedNewTaskInput = Omit<NewTaskValues, "title"> & {
+  title?: string | undefined;
+  /** GitHub issue tasks: a comment the user confirmed, posted when the task is created. */
+  startComment?: { body: string } | undefined;
+};
 
 /**
  * Creates and queues a task: checks the repo is usable, puts the form's
  * agents on top of the repo's CLI's role defaults and, without a title, uses the Jira
- * issue's summary, the PR's title or a fallback.
+ * issue's summary, the PR's or GitHub issue's title, or a fallback. A GitHub
+ * issue task's confirmed start comment is posted before the task exists, so
+ * a failed post creates nothing and a retry leaves no duplicate task.
  */
 export async function createTaskFromInput(
   pipeline: Pick<TaskPipeline, "createTask">,
   newTask: NewTaskServices,
   input: ParsedNewTaskInput,
 ): Promise<Task> {
-  const { origin, freeText } = input;
+  const { origin, freeText, startComment } = input;
   newTask.repos.use(input.repoId);
   const title = input.title ?? (await titleFor(origin, freeText, newTask.originTitle));
+  if (startComment) await postStartComment(newTask, origin, startComment);
   return queueTask(pipeline, newTask, { ...input, title });
+}
+
+/**
+ * Posts the start comment the user confirmed on a GitHub issue task's issue.
+ * A missing token surfaces as is (the token modal asks for one); other
+ * failures carry the host's own message.
+ */
+export async function postStartComment(
+  newTask: Pick<NewTaskServices, "commentOnIssue">,
+  origin: TaskOrigin,
+  { body }: { body: string },
+): Promise<void> {
+  if (origin.kind !== "github-issue") {
+    throw new InvalidGateResponseError("Only GitHub issue tasks comment when work starts");
+  }
+  if (!newTask.commentOnIssue) throw new Error("Commenting on GitHub issues is not set up");
+  try {
+    await newTask.commentOnIssue(origin, body);
+  } catch (error) {
+    if (error instanceof MissingCredentialError) throw error;
+    throw new DeliveryError(error instanceof Error ? error.message : String(error));
+  }
 }
 
 /**

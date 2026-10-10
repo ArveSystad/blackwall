@@ -1,14 +1,19 @@
-import type {
-  ConnectionService,
-  OpenPullRequestAction,
-  OriginContextProvider,
-  RepoService,
+import {
+  branchForTask,
+  type ConnectionService,
+  type OpenPullRequestAction,
+  type OriginContextProvider,
+  type RepoService,
 } from "@blackwall/core";
 import {
+  assertNotPullRequest,
   buildReviewPayload,
   createGitHubClient,
   findRepoForPullRequest,
+  informFromIssue,
   informFromPullRequest,
+  issueLabels,
+  parseIssueUrl,
   parsePullRequestUrl,
   signComment,
   type Fetch,
@@ -17,14 +22,17 @@ import {
 } from "@blackwall/integrations";
 import {
   JIRA_EMAIL_META,
+  issueLookupInputSchema,
   pullRequestLookupInputSchema,
   type Finding,
+  type IssueLookup,
   type PullRequestLookup,
   type Task,
 } from "@blackwall/shared";
 import { Hono } from "hono";
 
 type PrOrigin = Extract<Task["origin"], { kind: "github-pr" }>;
+type IssueOrigin = Extract<Task["origin"], { kind: "github-issue" }>;
 
 export interface GitHubOriginOptions {
   connections: Pick<ConnectionService, "list" | "credentialById" | "requireCredential">;
@@ -32,14 +40,15 @@ export interface GitHubOriginOptions {
 }
 
 /**
- * PR tasks' origin hooks for the pipeline: the PR head branch for the
- * worktree, and the PR (description, diff, review comments, plus the linked
- * Jira issue when one is named and a single Jira site is set up) as Inform
- * context, and the delivery calls that post to GitHub/GHE. Without a stored
- * connection id the connection comes from the PR link's host.
+ * PR and issue tasks' origin hooks for the pipeline: the PR head branch (or,
+ * for an issue, a new `feature/<n>-<slug>` branch) for the worktree, the PR
+ * (description, diff, review comments, plus the linked Jira issue when one is
+ * named and a single Jira site is set up) or the issue as Inform context, and
+ * the calls that post to GitHub/GHE. Without a stored connection id the
+ * connection comes from the link's host.
  */
 export function createGitHubOrigin({ connections, fetch: fetchImpl }: GitHubOriginOptions) {
-  async function credentials(origin: PrOrigin): Promise<GitHubCredentials> {
+  async function credentials(origin: PrOrigin | IssueOrigin): Promise<GitHubCredentials> {
     const { connection, token } = origin.connectionId
       ? await connections.credentialById(origin.connectionId)
       : await connections.requireCredential({ kind: "github", remote: origin.url });
@@ -64,13 +73,37 @@ export function createGitHubOrigin({ connections, fetch: fetchImpl }: GitHubOrig
     return origin;
   }
 
-  async function prClient(origin: PrOrigin) {
+  const issueOrigin = (task: Task): IssueOrigin | undefined =>
+    task.origin.kind === "github-issue" ? task.origin : undefined;
+
+  async function prClient(origin: PrOrigin | IssueOrigin) {
     return createGitHubClient(await credentials(origin), fetchImpl);
   }
 
+  /** The issue's metadata; refuses a link that is really a pull request. */
+  async function getIssue(origin: IssueOrigin) {
+    const issue = await (await prClient(origin)).getIssue(origin);
+    assertNotPullRequest(issue, origin);
+    return issue;
+  }
+
   return {
-    /** The PR's head branch; PRs from forks have no branch on `origin` to check out. */
+    /**
+     * The PR's head branch (PRs from forks have no branch on `origin` to check
+     * out), or an issue's new branch: `fix/<n>-<slug>` with a `bug` label,
+     * `feature/<n>-<slug>` otherwise.
+     */
     async branchFor(task: Task): Promise<string | undefined> {
+      const issue = issueOrigin(task);
+      if (issue) {
+        const json = await getIssue(issue);
+        return branchForTask({
+          kind: "github-issue",
+          number: issue.number,
+          title: json.title || task.title,
+          bug: issueLabels(json).some((l) => l.trim().toLowerCase() === "bug"),
+        });
+      }
       const origin = prOrigin(task);
       if (!origin) return undefined;
       const client = createGitHubClient(await credentials(origin), fetchImpl);
@@ -84,13 +117,22 @@ export function createGitHubOrigin({ connections, fetch: fetchImpl }: GitHubOrig
       return pr.head.ref;
     },
 
-    /** The pull request's title, as a new task's title. */
+    /** The pull request's or issue's title, as a new task's title. */
     async titleFor(origin: Task["origin"]): Promise<string | undefined> {
+      if (origin.kind === "github-issue") return (await getIssue(origin)).title;
       if (origin.kind !== "github-pr") return undefined;
       return (await (await prClient(origin)).getPullRequest(origin)).title;
     },
 
     originContext: (async (task, signal) => {
+      const issue = issueOrigin(task);
+      if (issue) {
+        const result = await informFromIssue(await credentials(issue), issue, {
+          signal,
+          ...(fetchImpl ? { fetch: fetchImpl } : {}),
+        });
+        return result.markdown;
+      }
       const origin = prOrigin(task);
       if (!origin) return undefined;
       const jira = await jiraCredentials();
@@ -124,6 +166,17 @@ export function createGitHubOrigin({ connections, fetch: fetchImpl }: GitHubOrig
     /** Posts a conversation comment on the task's pull request, signed as blackwall's. */
     async commentOnPullRequest(task: Task, body: string): Promise<{ url: string }> {
       const origin = requirePr(task);
+      const { url } = await (await prClient(origin)).addComment(origin, signComment(body));
+      return { url };
+    },
+
+    /**
+     * Posts a comment on a GitHub issue task's issue (given the task, or the
+     * origin of one not created yet), signed as blackwall's.
+     */
+    async commentOnIssue(target: Task | IssueOrigin, body: string): Promise<{ url: string }> {
+      const origin = "kind" in target ? target : issueOrigin(target);
+      if (!origin) throw new Error("The task has no GitHub issue");
       const { url } = await (await prClient(origin)).addComment(origin, signComment(body));
       return { url };
     },
@@ -203,6 +256,49 @@ export function pullRequestRoutes({ connections, repos }: PullRequestRoutesOptio
     return c.json<PullRequestLookup>({
       origin: {
         kind: "github-pr",
+        url: ref.url,
+        owner: ref.owner,
+        repo: ref.repo,
+        number: ref.number,
+        connectionId: connection?.id ?? null,
+      },
+      repoId: repo?.id ?? null,
+    });
+  });
+
+  return routes;
+}
+
+export interface IssueRoutesOptions {
+  connections: Pick<ConnectionService, "resolve">;
+  repos: Pick<RepoService, "list">;
+}
+
+/**
+ * `POST /lookup`: resolves a pasted GitHub issue link to a task origin (with
+ * the host's connection) and the registered repo of the issue's repository.
+ * A null `repoId` leaves the repo to the user, since an issue can be worked
+ * on in another repo.
+ */
+export function issueRoutes({ connections, repos }: IssueRoutesOptions): Hono {
+  const routes = new Hono();
+
+  routes.post("/lookup", async (c) => {
+    const input = issueLookupInputSchema.safeParse(await c.req.json().catch(() => undefined));
+    if (!input.success) {
+      return c.json({ error: input.error.issues.map((i) => i.message).join("; ") }, 400);
+    }
+    const ref = parseIssueUrl(input.data.url);
+    if (!ref)
+      return c.json(
+        { error: "Expected an issue link like https://github.com/owner/repo/issues/1" },
+        400,
+      );
+    const connection = connections.resolve({ kind: "github", remote: ref.url });
+    const repo = findRepoForPullRequest(repos.list(), ref);
+    return c.json<IssueLookup>({
+      origin: {
+        kind: "github-issue",
         url: ref.url,
         owner: ref.owner,
         repo: ref.repo,

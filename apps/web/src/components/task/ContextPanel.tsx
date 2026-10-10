@@ -30,7 +30,12 @@ export function ContextPanel({ task }: { task: Task }) {
         ) : (
           <p className="m-0 text-muted-foreground">
             No extra context. The planner works from the{" "}
-            {task.origin.kind === "jira-issue" ? "Jira issue" : "pull request"}.
+            {task.origin.kind === "jira-issue"
+              ? "Jira issue"
+              : task.origin.kind === "github-issue"
+                ? "GitHub issue"
+                : "pull request"}
+            .
           </p>
         )}
       </section>

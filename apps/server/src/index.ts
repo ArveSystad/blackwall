@@ -87,6 +87,7 @@ try {
     resolveRoles: agents.resolveRoles,
     originTitle: async (origin: TaskOrigin) =>
       (await jira.titleFor(origin)) ?? (await github.titleFor(origin)),
+    commentOnIssue: github.commentOnIssue,
   };
   // Uses the engine only once started, after the engine below exists.
   const backlogRunner = createBacklogRunner({
@@ -128,6 +129,7 @@ try {
         openPullRequest: (_task, action) => github.openPullRequest(action),
         commentOnPullRequest: github.commentOnPullRequest,
         commentOnJiraIssue: jira.commentOnIssue,
+        commentOnGitHubIssue: github.commentOnIssue,
         reviewPullRequest: github.reviewPullRequest,
       },
     }),

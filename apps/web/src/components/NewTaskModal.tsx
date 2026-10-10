@@ -6,6 +6,7 @@ import {
   type AgentCli,
   type BacklogItemView,
   type BacklogPriority,
+  type IssueLookup,
   type OriginKind,
   type PrMode,
   type PullRequestLookup,
@@ -21,6 +22,7 @@ import { useEffect, useState } from "react";
 import {
   MissingCredentialError,
   createBacklogItem,
+  lookupIssue,
   lookupPullRequest,
   updateBacklogItem,
 } from "../api";
@@ -50,7 +52,7 @@ import {
   roleIds,
   withRole,
 } from "../settings-forms";
-import { jiraConnectionId, parseJiraInput } from "../task-view";
+import { START_COMMENT_DRAFT, jiraConnectionId, parseJiraInput } from "../task-view";
 import { AgentTile } from "./AgentTile";
 import { CheckIcon, CloseIcon, WarnIcon } from "./icons";
 import { ORIGINS, PR_MODE_LABELS } from "./origins";
@@ -66,20 +68,21 @@ import { Select } from "./ui/select";
 import { SelectMenu, SelectMenuContent, SelectMenuTrigger } from "./ui/select-menu";
 import { Textarea } from "./ui/textarea";
 
-type Lookup =
+type Lookup<T> =
   | { state: "idle" }
   | { state: "loading" }
-  | { state: "ok"; result: PullRequestLookup }
+  | { state: "ok"; result: T }
   | { state: "error"; message: string };
 
-function usePullRequestLookup(url: string): Lookup {
+/** Looks up a pasted PR or issue link, once typing pauses. */
+function useOriginLookup<T>(url: string, lookupUrl: (url: string) => Promise<T>): Lookup<T> {
   const value = url.trim();
-  const [settled, setSettled] = useState<{ url: string; lookup: Lookup } | null>(null);
+  const [settled, setSettled] = useState<{ url: string; lookup: Lookup<T> } | null>(null);
   useEffect(() => {
     if (!value) return;
     let cancelled = false;
     const timer = setTimeout(() => {
-      lookupPullRequest(value).then(
+      lookupUrl(value).then(
         (result) => !cancelled && setSettled({ url: value, lookup: { state: "ok", result } }),
         (cause: unknown) =>
           !cancelled &&
@@ -90,7 +93,7 @@ function usePullRequestLookup(url: string): Lookup {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [value]);
+  }, [value, lookupUrl]);
   if (!value) return { state: "idle" };
   return settled?.url === value ? settled.lookup : { state: "loading" };
 }
@@ -259,6 +262,10 @@ function NewTaskForm({
   const [kindChoice, setKindChoice] = useState<OriginKind | null>(null);
   const [jiraText, setJiraText] = useState("");
   const [prUrl, setPrUrl] = useState("");
+  const [issueUrl, setIssueUrl] = useState("");
+  // The "work started" comment is opt-in: unticked until the user ticks it.
+  const [startCommentOn, setStartCommentOn] = useState(false);
+  const [startComment, setStartComment] = useState(START_COMMENT_DRAFT);
   const [mode, setMode] = useState<PrMode>(item?.mode ?? "work");
   const [chosenRepo, setChosenRepo] = useState<string | null>(item?.repoId ?? null);
   const [freeText, setFreeText] = useState(item?.freeText ?? "");
@@ -287,13 +294,21 @@ function NewTaskForm({
         (chosenRepo ?? selectedRepo ?? (usableRepos.length === 1 ? usableRepos[0]!.id : null)),
     )?.defaultOrigin ?? "jira-issue";
   const kind = item?.origin.kind ?? kindChoice ?? defaultKind;
-  const lookup = usePullRequestLookup(kind === "github-pr" ? prUrl : "");
+  const prLookup = useOriginLookup<PullRequestLookup>(
+    kind === "github-pr" ? prUrl : "",
+    lookupPullRequest,
+  );
+  const issueLookup = useOriginLookup<IssueLookup>(
+    kind === "github-issue" ? issueUrl : "",
+    lookupIssue,
+  );
+  const lookup = kind === "github-issue" ? issueLookup : prLookup;
   const jira = parseJiraInput(jiraText);
   const lookedUpRepo = lookup.state === "ok" ? lookup.result.repoId : null;
-  // A pick wins, then the PR's own repo, then the globally selected one.
+  // A pick wins, then the PR's or issue's own repo, then the globally selected one.
   const repoId =
     chosenRepo ??
-    (kind === "github-pr" ? lookedUpRepo : null) ??
+    (kind === "github-pr" || kind === "github-issue" ? lookedUpRepo : null) ??
     selectedRepo ??
     (usableRepos.length === 1 ? usableRepos[0]!.id : null);
   const cli = (repos.data ?? []).find((r) => r.id === repoId)?.defaultCli ?? "claude";
@@ -332,9 +347,13 @@ function NewTaskForm({
           connectionId: jiraConnectionId(jira.url, connections.data ?? []),
         };
       case "github-pr":
-        if (lookup.state === "ok") return lookup.result.origin;
-        if (lookup.state === "error") return lookup.message;
+        if (prLookup.state === "ok") return prLookup.result.origin;
+        if (prLookup.state === "error") return prLookup.message;
         return "Paste the pull request link";
+      case "github-issue":
+        if (issueLookup.state === "ok") return issueLookup.result.origin;
+        if (issueLookup.state === "error") return issueLookup.message;
+        return "Paste the issue link";
       case "free-text":
         return { kind };
     }
@@ -371,6 +390,10 @@ function NewTaskForm({
     if (typeof resolved === "string") return setError(resolved);
     if (!repoId) return setError("Pick the repository to work in");
     if (kind === "free-text" && !freeText.trim()) return setError("Describe the task");
+    const comment = kind === "github-issue" && startCommentOn ? startComment.trim() : "";
+    if (kind === "github-issue" && startCommentOn && !comment) {
+      return setError("Write the comment, or untick it");
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -387,6 +410,7 @@ function NewTaskForm({
             priority,
             dependsOn: chosenDeps,
             start: true,
+            ...(comment ? { startComment: { body: comment } } : {}),
           }),
       );
       void queryClient.invalidateQueries({ queryKey: queryKeys.backlog(repoId) });
@@ -410,11 +434,11 @@ function NewTaskForm({
     }
   }
 
-  // 1 / 2 / 3 pick the origin while no text field has focus.
+  // 1 / 2 / 3 / 4 pick the origin while no text field has focus.
   const editing = item !== undefined;
   useWindowKeydown((event) => {
     if (!isPlainKey(event) || isTypingTarget(event.target)) return;
-    const index = ["1", "2", "3"].indexOf(event.key);
+    const index = ["1", "2", "3", "4"].indexOf(event.key);
     if (index === -1) return;
     event.preventDefault();
     setKindChoice(ORIGINS[index]!.value);
@@ -424,11 +448,15 @@ function NewTaskForm({
   const itemRepo = item && (repos.data ?? []).find((r) => r.id === item.repoId);
 
   const repoHint =
-    kind === "github-pr" && lookup.state === "ok"
-      ? lookup.result.repoId
+    kind === "github-pr" && prLookup.state === "ok"
+      ? prLookup.result.repoId
         ? "Matched from the PR remote."
-        : `No registered repo has ${lookup.result.origin.owner}/${lookup.result.origin.repo} as its origin remote.`
-      : null;
+        : `No registered repo has ${prLookup.result.origin.owner}/${prLookup.result.origin.repo} as its origin remote.`
+      : kind === "github-issue" && issueLookup.state === "ok"
+        ? issueLookup.result.repoId
+          ? "Matched from the issue's repo."
+          : `No registered repo has ${issueLookup.result.origin.owner}/${issueLookup.result.origin.repo} as its origin remote; pick the repo to work in.`
+        : null;
 
   return (
     <form
@@ -449,7 +477,7 @@ function NewTaskForm({
         <DialogDescription className="sr-only">
           {item
             ? "Edit a backlog item; the backlog runner starts it when the repo is idle."
-            : "Create a task from a Jira issue, a pull request or a description. It starts now when the repo's backlog runs; otherwise it waits in the backlog."}
+            : "Create a task from a Jira issue, a pull request, a GitHub issue or a description. It starts now when the repo's backlog runs; otherwise it waits in the backlog."}
         </DialogDescription>
         <span className="flex-1" />
         <Kbd aria-hidden="true">Esc</Kbd>
@@ -561,6 +589,43 @@ function NewTaskForm({
                       {lookup.result.origin.number}
                     </span>
                     {lookup.result.origin.connectionId === null && (
+                      <span className="text-faint">· no connection for this host yet</span>
+                    )}
+                  </span>
+                )}
+              </>
+            )}
+            {kind === "github-issue" && (
+              <>
+                <label className="flex flex-col gap-1.5">
+                  <span className="sr-only">Issue URL</span>
+                  <Input
+                    autoFocus
+                    type="url"
+                    className="mono text-[12.5px]"
+                    placeholder="https://github.com/owner/repo/issues/123"
+                    value={issueUrl}
+                    onChange={(event) => {
+                      setKindChoice(kind);
+                      setIssueUrl(event.target.value);
+                    }}
+                  />
+                </label>
+                {issueLookup.state === "loading" && (
+                  <span className="text-meta text-muted-foreground">Looking up the issue…</span>
+                )}
+                {issueLookup.state === "error" && (
+                  <span className="flex items-center gap-1.5 text-meta text-failed">
+                    <WarnIcon size="sm" />
+                    {issueLookup.message}
+                  </span>
+                )}
+                {issueLookup.state === "ok" && (
+                  <span className="flex items-center gap-1.5 text-meta text-muted-foreground">
+                    <CheckIcon size="sm" className="text-done" />
+                    <span className="mono">{originKey(issueLookup.result)}</span>
+                    <span>The title and description are read from the issue.</span>
+                    {issueLookup.result.origin.connectionId === null && (
                       <span className="text-faint">· no connection for this host yet</span>
                     )}
                   </span>
@@ -708,6 +773,33 @@ function NewTaskForm({
               }}
             />
           </Field>
+        )}
+
+        {kind === "github-issue" && !item && (
+          <div className="flex flex-col gap-1.5">
+            <label className="flex cursor-pointer items-center gap-2 text-foreground-strong">
+              <input
+                type="checkbox"
+                className="focus:outline-none"
+                checked={startCommentOn}
+                onChange={(event) => setStartCommentOn(event.target.checked)}
+              />
+              <span className={fieldLabel}>Comment on the issue when work starts</span>
+            </label>
+            {startCommentOn && (
+              <>
+                <Textarea
+                  rows={2}
+                  aria-label="Start comment"
+                  value={startComment}
+                  onChange={(event) => setStartComment(event.target.value)}
+                />
+                <span className="text-[11.5px] text-muted-foreground">
+                  Posted on the issue, signed as blackwall's, only if the task starts now.
+                </span>
+              </>
+            )}
+          </div>
         )}
 
         {agents.data && (

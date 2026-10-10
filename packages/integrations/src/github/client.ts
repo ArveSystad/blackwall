@@ -43,6 +43,19 @@ export interface GitHubPullRequestJson {
   changed_files?: number;
 }
 
+/** `GET /repos/{owner}/{repo}/issues/{n}`, the fields Inform and branch naming read. */
+export interface GitHubIssueJson {
+  number: number;
+  html_url: string;
+  title: string;
+  body?: string | null;
+  state: string;
+  user?: GitHubUserJson | null;
+  labels?: (string | { name?: string })[];
+  /** Set when the "issue" is a pull request; the issues API returns those too. */
+  pull_request?: unknown;
+}
+
 /** An inline review comment (`GET /pulls/{n}/comments`). */
 export interface GitHubReviewCommentJson {
   id: number;
@@ -58,7 +71,7 @@ export interface GitHubReviewCommentJson {
   diff_hunk?: string;
 }
 
-/** A conversation comment on the PR (`GET /issues/{n}/comments`). */
+/** A conversation comment on a PR or issue (`GET /issues/{n}/comments`). */
 export interface GitHubIssueCommentJson {
   id: number;
   body?: string | null;
@@ -168,8 +181,7 @@ export function createGitHubClient(credentials: GitHubCredentials, fetchImpl: Fe
     }
   }
 
-  const prName = ({ owner, repo, number }: PullRequestCoordinates) =>
-    `Pull request ${owner}/${repo}#${number}`;
+  const prName = ({ owner, repo, number }: PullRequestCoordinates) => `${owner}/${repo}#${number}`;
 
   return {
     apiUrl,
@@ -184,6 +196,19 @@ export function createGitHubClient(credentials: GitHubCredentials, fetchImpl: Fe
           request: requestOptions(signal),
         });
         return res.data as unknown as GitHubPullRequestJson;
+      });
+    },
+
+    /** The issue's metadata; a pull request also answers here, with `pull_request` set. */
+    getIssue(issue: PullRequestCoordinates, signal?: AbortSignal) {
+      return call(prName(issue), signal, async () => {
+        const res = await octokit.rest.issues.get({
+          owner: issue.owner,
+          repo: issue.repo,
+          issue_number: issue.number,
+          request: requestOptions(signal),
+        });
+        return res.data as unknown as GitHubIssueJson;
       });
     },
 
@@ -264,7 +289,7 @@ export function createGitHubClient(credentials: GitHubCredentials, fetchImpl: Fe
       );
     },
 
-    /** Posts a conversation comment on the pull request. */
+    /** Posts a conversation comment on the pull request or issue. */
     addComment(pr: PullRequestCoordinates, body: string) {
       return call(prName(pr), undefined, async () => {
         const res = await octokit.rest.issues.createComment({

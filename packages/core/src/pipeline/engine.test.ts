@@ -29,6 +29,7 @@ import {
   DELIVERY_CONFLICT_EVENT,
   DELIVERY_DONE_EVENT,
   DeliveryError,
+  ISSUE_COMMENT_EVENT,
   type DeliveryContext,
 } from "./delivery.js";
 import type { CheckOutcome, CheckRunner } from "./checks.js";
@@ -100,6 +101,8 @@ function withPlanDefaults(stage: Call, script: FakeScript): FakeScript {
   return script;
 }
 
+const ISSUE_COMMENT_URL = "https://github.com/acme/app/issues/7#issuecomment-1";
+
 interface Harness {
   engine: ReturnType<typeof createPipelineEngine>;
   calls: { stage: Call; options: AgentRunOptions }[];
@@ -117,12 +120,14 @@ function harness(
     deliver = async () => undefined,
     quota,
     removeWorkspace,
+    commentOnIssue = async () => ({ url: ISSUE_COMMENT_URL }),
   }: {
     stages?: StageHandlers;
     maxPerRepo?: number;
     deliver?: (ctx: DeliveryContext) => Promise<void>;
     quota?: Pick<QuotaTracker, "report" | "succeeded">;
     removeWorkspace?: (task: Task) => Promise<void>;
+    commentOnIssue?: (task: Task, body: string) => Promise<{ url: string }>;
   } = {},
 ): Harness {
   const agents = createAgentService({
@@ -164,6 +169,7 @@ function harness(
         await deliver(ctx);
         delivered.push(ctx.task.id);
       },
+      commentOnIssue: (t, body) => commentOnIssue(t, body),
     },
     maxTasksPerRepo: () => maxPerRepo,
     ...(quota ? { quota } : {}),
@@ -807,6 +813,175 @@ describe("stop and delete", () => {
     // A squash alone never left the machine.
     await h.engine.delete(squashed.id);
     expect(r.tasks.get(squashed.id)).toBeUndefined();
+  });
+});
+
+describe("issue comments at plan approval", () => {
+  const issueOrigin = {
+    kind: "github-issue" as const,
+    url: "https://github.com/acme/app/issues/7",
+    owner: "acme",
+    repo: "app",
+    number: 7,
+    connectionId: null,
+  };
+  const approve = (body = "Plan approved.") => ({
+    gate: "plan-approval" as const,
+    decision: "approve" as const,
+    issueComment: { body },
+  });
+  /** Implement waits until the engine shuts down, so an approved task stays there. */
+  const stages: StageHandlers = {
+    ...createDefaultStages(),
+    implement: (ctx) =>
+      new Promise((_, reject) =>
+        ctx.signal.addEventListener("abort", () => reject(new Error("aborted"))),
+      ),
+  };
+  const deferred = () => {
+    let release!: (value: { url: string }) => void;
+    const promise = new Promise<{ url: string }>((resolve) => (release = resolve));
+    return { promise, release };
+  };
+  const commentEvents = (taskId: string) =>
+    stepsOf(taskId).flatMap((s) =>
+      r.stepEvents.list(s.id).filter((e) => e.type === ISSUE_COMMENT_EVENT),
+    );
+
+  async function atPlanApproval(
+    commentOnIssue: (task: Task, body: string) => Promise<{ url: string }>,
+  ) {
+    const seeded = seedTask({ origin: issueOrigin });
+    const h = harness(() => ({}), { stages, commentOnIssue });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "plan-approval" });
+    return { h, id: seeded.id };
+  }
+
+  it("posts the comment, logs it on the plan review step and moves on without a new step", async () => {
+    const commentOnIssue = vi.fn(async () => ({ url: ISSUE_COMMENT_URL }));
+    const { h, id } = await atPlanApproval(commentOnIssue);
+    const shape = () => stepsOf(id).map((s) => [s.id, s.stage, s.visit]);
+    const before = shape();
+    const review = stepsOf(id).findLast((s) => s.stage === "plan-review")!;
+
+    const queued = await h.engine.respond(id, approve());
+
+    expect(queued).toMatchObject({ status: "queued", gate: null, stage: "implement" });
+    expect(commentOnIssue).toHaveBeenCalledOnce();
+    expect(commentOnIssue).toHaveBeenCalledWith(expect.objectContaining({ id }), "Plan approved.");
+    expect(shape()).toEqual(before);
+    const logged = r.stepEvents.list(review.id).filter((e) => e.type === ISSUE_COMMENT_EVENT);
+    expect(logged.map((e) => e.payload)).toEqual([{ url: ISSUE_COMMENT_URL, at: "plan-approval" }]);
+    expect(commentEvents(id)).toHaveLength(1);
+    expect(h.events).toContainEqual({ type: "step.event", payload: { event: logged[0] } });
+    await vi.waitFor(() =>
+      expect(task(id)).toMatchObject({ status: "running", stage: "implement" }),
+    );
+    await h.engine.shutdown();
+  });
+
+  it("leaves the task at its gate when the post fails, and a retry goes through", async () => {
+    const commentOnIssue = vi
+      .fn<(task: Task, body: string) => Promise<{ url: string }>>()
+      .mockRejectedValueOnce(new Error("github.com: access denied"))
+      .mockResolvedValue({ url: ISSUE_COMMENT_URL });
+    const { h, id } = await atPlanApproval(commentOnIssue);
+
+    await expect(h.engine.respond(id, approve())).rejects.toThrow("access denied");
+    expect(task(id)).toMatchObject({
+      status: "needs-you",
+      gate: "plan-approval",
+      stage: "plan-review",
+    });
+    expect(commentEvents(id)).toEqual([]);
+    expect(h.engine.queuedTaskIds()).toEqual([]);
+    expect(h.engine.activeTaskIds()).toEqual([]);
+
+    await expect(h.engine.respond(id, approve())).resolves.toMatchObject({
+      status: "queued",
+      stage: "implement",
+    });
+    expect(commentOnIssue).toHaveBeenCalledTimes(2);
+    expect(commentEvents(id)).toHaveLength(1);
+    await h.engine.shutdown();
+  });
+
+  it("posts once when the plan is approved twice at the same time", async () => {
+    const post = deferred();
+    const commentOnIssue = vi.fn(() => post.promise);
+    const { h, id } = await atPlanApproval(commentOnIssue);
+
+    const first = h.engine.respond(id, approve());
+    await expect(h.engine.respond(id, approve())).rejects.toThrow(TaskStateError);
+    await expect(
+      h.engine.respond(id, { gate: "plan-approval", decision: "approve" }),
+    ).rejects.toThrow(TaskStateError);
+    post.release({ url: ISSUE_COMMENT_URL });
+
+    await expect(first).resolves.toMatchObject({ status: "queued", stage: "implement" });
+    expect(commentOnIssue).toHaveBeenCalledOnce();
+    expect(commentEvents(id)).toHaveLength(1);
+    await h.engine.shutdown();
+  });
+
+  it("refuses delete while the comment posts, and allows it once settled", async () => {
+    const post = deferred();
+    const { h, id } = await atPlanApproval(() => post.promise);
+
+    const answered = h.engine.respond(id, approve());
+    await expect(h.engine.delete(id)).rejects.toThrow(TaskStateError);
+    post.release({ url: ISSUE_COMMENT_URL });
+
+    await expect(answered).resolves.toMatchObject({ status: "queued", stage: "implement" });
+    expect(task(id)).toMatchObject({ stage: "implement" });
+    await h.engine.delete(id);
+    expect(r.tasks.get(id)).toBeUndefined();
+  });
+
+  it("leaves a task that is posting its comment alone on stop", async () => {
+    const post = deferred();
+    const { h, id } = await atPlanApproval(() => post.promise);
+
+    const answered = h.engine.respond(id, approve());
+    expect(await h.engine.stop(id)).toMatchObject({ status: "needs-you", gate: "plan-approval" });
+    post.release({ url: ISSUE_COMMENT_URL });
+
+    await expect(answered).resolves.toMatchObject({ status: "queued", stage: "implement" });
+    await h.engine.shutdown();
+  });
+
+  it("refuses an issue comment anywhere but a GitHub issue task's plan approval", async () => {
+    const commentOnIssue = vi.fn(async () => ({ url: ISSUE_COMMENT_URL }));
+    const h = harness(() => ({}), { commentOnIssue });
+    const atGate = {
+      status: "needs-you" as const,
+      gate: "plan-approval" as const,
+      stage: "plan-review" as const,
+    };
+    const freeText = seedTask(atGate);
+    const issue = seedTask({ ...atGate, origin: issueOrigin });
+    const finishing = seedTask({
+      status: "needs-you",
+      gate: "finish",
+      stage: "summarize",
+      origin: issueOrigin,
+    });
+
+    await expect(h.engine.respond(freeText.id, approve())).rejects.toThrow(
+      InvalidGateResponseError,
+    );
+    await expect(h.engine.respond(issue.id, { ...approve(), decision: "revise" })).rejects.toThrow(
+      InvalidGateResponseError,
+    );
+    await expect(h.engine.respond(finishing.id, { ...approve(), gate: "finish" })).rejects.toThrow(
+      InvalidGateResponseError,
+    );
+    // No step to log it on: nothing is posted.
+    await expect(h.engine.respond(issue.id, approve())).rejects.toThrow(TaskStateError);
+    expect(commentOnIssue).not.toHaveBeenCalled();
+    expect(task(issue.id)).toMatchObject({ status: "needs-you", gate: "plan-approval" });
   });
 });
 

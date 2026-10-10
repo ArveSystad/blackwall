@@ -351,6 +351,13 @@ export function buildTranscript(events: readonly StepEvent[]): TranscriptItem[] 
       case "review.diff":
         items.push({ kind: "note", key, text: "Recorded the commit range for this review round" });
         break;
+      case "issue.commented":
+        items.push({
+          kind: "note",
+          key,
+          text: `Commented on the issue: ${typeof payload.url === "string" ? payload.url : ""}`,
+        });
+        break;
     }
   }
   return items;
@@ -568,6 +575,8 @@ export function deliveryActionCopy(action: DeliveryAction, findings: number): Ac
         target: action.url ?? action.key,
         body: action.body,
       };
+    case "issue-comment":
+      return { title: "Comment on the issue", target: action.url, body: action.body };
     case "merge-main":
       return {
         title: `Merge into local ${action.into}`,
@@ -579,6 +588,22 @@ export function deliveryActionCopy(action: DeliveryAction, findings: number): Ac
         target: action.url,
       };
   }
+}
+
+/** The draft a new GitHub issue task offers to post on the issue when work starts. */
+export const START_COMMENT_DRAFT = "Work on this issue has started in blackwall.";
+
+/**
+ * The draft plan-approval comment for a GitHub issue task: the branch work
+ * goes on and the approved plan, folded away.
+ */
+export function planApprovalComment(task: Pick<Task, "branch" | "plan">): string {
+  const branch = task.branch ? ` on branch \`${task.branch}\`` : "";
+  const plan = task.plan?.trim();
+  return [
+    `The plan is approved. Implementation is starting${branch}.`,
+    ...(plan ? [`<details>\n<summary>Plan</summary>\n\n${plan}\n\n</details>`] : []),
+  ].join("\n\n");
 }
 
 /** `merge-main` never leaves the machine; every other action does. */
@@ -629,13 +654,13 @@ export const SEVERITY_LABELS: Record<Severity, string> = {
   low: "Low",
 };
 
-/** Web link for the task's origin: the PR, or the Jira issue when its site is known. */
+/** Web link for the task's origin: the PR or GitHub issue, or the Jira issue when its site is known. */
 export function originUrl(
   task: Pick<Task, "origin">,
   connections: readonly ConnectionView[],
 ): string | null {
   const { origin } = task;
-  if (origin.kind === "github-pr") return origin.url;
+  if (origin.kind === "github-pr" || origin.kind === "github-issue") return origin.url;
   if (origin.kind !== "jira-issue") return null;
   const jira = connections.filter((c) => c.kind === "jira");
   const site = origin.connectionId

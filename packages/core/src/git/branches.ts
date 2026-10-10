@@ -9,6 +9,8 @@ export type BranchSource =
   | { kind: "github-pr"; headBranch: string }
   /** Jira: `feature/<key>-<slug>`, or `fix/…` when the issue type is Bug. */
   | { kind: "jira-issue"; key: string; title: string; issueType: string }
+  /** GitHub issue: `feature/<number>-<slug>`, or `fix/…` when it has a `bug` label. */
+  | { kind: "github-issue"; number: number; title: string; bug: boolean }
   /** Free text: a temp branch `agent/<task-id>`. */
   | { kind: "free-text"; taskId: string };
 
@@ -47,6 +49,10 @@ export function branchForTask(source: BranchSource): string {
       const slug = slugify(source.title);
       const key = source.key.toLowerCase();
       return `${prefix}/${slug ? `${key}-${slug}` : key}`;
+    }
+    case "github-issue": {
+      const slug = slugify(source.title);
+      return `${source.bug ? "fix" : "feature"}/${slug ? `${source.number}-${slug}` : source.number}`;
     }
     case "free-text":
       return `agent/${source.taskId}`;

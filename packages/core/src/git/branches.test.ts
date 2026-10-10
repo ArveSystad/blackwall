@@ -30,6 +30,13 @@ describe("branchForTask", () => {
     expect(branchForTask({ ...issue, title: "???", issueType: "Task" })).toBe("feature/abc-123");
   });
 
+  it("names GitHub issue branches feature/ or fix/ by the bug label", () => {
+    const issue = { kind: "github-issue", number: 7, title: "Export drops a row" } as const;
+    expect(branchForTask({ ...issue, bug: false })).toBe("feature/7-export-drops-a-row");
+    expect(branchForTask({ ...issue, bug: true })).toBe("fix/7-export-drops-a-row");
+    expect(branchForTask({ ...issue, title: "!!!", bug: false })).toBe("feature/7");
+  });
+
   it("uses agent/<task-id> for free-text tasks", () => {
     expect(branchForTask({ kind: "free-text", taskId: "t_42" })).toBe("agent/t_42");
   });

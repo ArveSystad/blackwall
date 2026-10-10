@@ -8,6 +8,7 @@ import {
   agentUpdateSchema,
   connectionInputSchema,
   connectionViewSchema,
+  deliveryActionSchema,
   findingSchema,
   grillQuestionSchema,
   isGatingSeverity,
@@ -83,6 +84,19 @@ describe("taskSchema", () => {
     expect(taskSchema.safeParse({ ...task, origin: pr, mode: null }).success).toBe(false);
     expect(taskSchema.safeParse({ ...task, mode: "work" }).success).toBe(false);
   });
+
+  it("parses a GitHub issue origin, without a mode", () => {
+    const issue = {
+      kind: "github-issue",
+      url: "https://github.com/acme/web/issues/7",
+      owner: "acme",
+      repo: "web",
+      number: 7,
+      connectionId: "c2",
+    };
+    expect(taskSchema.parse({ ...task, origin: issue }).origin).toEqual(issue);
+    expect(taskSchema.safeParse({ ...task, origin: issue, mode: "work" }).success).toBe(false);
+  });
 });
 
 describe("newTaskInputSchema", () => {
@@ -107,6 +121,32 @@ describe("newTaskInputSchema", () => {
     const result = newTaskInputSchema.safeParse({ origin: { kind: "free-text" }, repoId: "r1" });
     expect(result.success).toBe(false);
     expect(result.error?.issues[0]?.path).toEqual(["freeText"]);
+  });
+
+  it("takes a start comment for GitHub issue tasks only", () => {
+    const issue = {
+      kind: "github-issue",
+      url: "https://github.com/acme/web/issues/7",
+      owner: "acme",
+      repo: "web",
+      number: 7,
+      connectionId: null,
+    };
+    const startComment = { body: " Work has started. " };
+    expect(
+      newTaskInputSchema.parse({ origin: issue, repoId: "r1", startComment }).startComment,
+    ).toEqual({ body: "Work has started." });
+    const jira = newTaskInputSchema.safeParse({
+      origin: { kind: "jira-issue", key: "ABC-1", connectionId: null },
+      repoId: "r1",
+      startComment,
+    });
+    expect(jira.success).toBe(false);
+    expect(jira.error?.issues[0]?.path).toEqual(["startComment"]);
+    expect(
+      newTaskInputSchema.safeParse({ origin: issue, repoId: "r1", startComment: { body: " " } })
+        .success,
+    ).toBe(false);
   });
 });
 
@@ -352,6 +392,28 @@ describe("delivery", () => {
       delivery: { actions: ["merge-main"], squash: true },
     });
     expect(gate.delivery).toEqual({ actions: ["merge-main"], squash: true, findingIds: [] });
+  });
+
+  it("parses an issue comment action and a plan approval's issue comment", () => {
+    const action = { kind: "issue-comment", url: "https://github.com/a/b/issues/7", body: "Done" };
+    expect(deliveryActionSchema.parse(action)).toEqual(action);
+    expect(deliveryConfirmationSchema.parse({ actions: ["issue-comment"] }).actions).toEqual([
+      "issue-comment",
+    ]);
+    expect(
+      gateResponseInputSchema.parse({
+        gate: "plan-approval",
+        decision: "approve",
+        issueComment: { body: "Plan approved." },
+      }).issueComment,
+    ).toEqual({ body: "Plan approved." });
+    expect(
+      gateResponseInputSchema.safeParse({
+        gate: "plan-approval",
+        decision: "approve",
+        issueComment: { body: "" },
+      }).success,
+    ).toBe(false);
   });
 
   it("validates the summarizer's output", () => {

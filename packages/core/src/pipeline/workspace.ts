@@ -9,15 +9,16 @@ export interface WorkspacePreparerOptions {
   repos: Pick<Repositories["repos"], "get">;
   /**
    * Derives the branch of a task created without one, e.g. a Jira task's
-   * `feature/<key>-<slug>` from the issue's summary and type.
+   * `feature/<key>-<slug>` from the issue's summary and type, or a GitHub
+   * issue task's `feature/<number>-<slug>` from its title and labels.
    */
   branchFor?: (task: Task) => Promise<string | undefined>;
 }
 
 /**
  * Creates a task's worktree next to its repo. Free-text tasks get
- * `agent/<task-id>`; Jira and PR tasks use the branch set from their origin
- * (a new branch for Jira, the PR head branch for PRs), asking `branchFor`
+ * `agent/<task-id>`; Jira, GitHub issue and PR tasks use the branch set from
+ * their origin (a new branch for issues, the PR head branch for PRs), asking `branchFor`
  * when the task has none yet. Idempotent, so a
  * resumed task finds its worktree where it left it.
  */

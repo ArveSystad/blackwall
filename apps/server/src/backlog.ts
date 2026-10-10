@@ -17,7 +17,13 @@ import {
   type Task,
 } from "@blackwall/shared";
 import { Hono, type Context } from "hono";
-import { queueTask, titleFor, type NewTaskServices, type TaskPipeline } from "./tasks.js";
+import {
+  postStartComment,
+  queueTask,
+  titleFor,
+  type NewTaskServices,
+  type TaskPipeline,
+} from "./tasks.js";
 
 export interface BacklogRouteStores {
   backlogItems: Repositories["backlogItems"];
@@ -118,13 +124,14 @@ export function backlogRoutes(
    * runner is on and the item's dependencies are done. A halt does not count;
    * it only stops the runner from picking other waiting items.
    */
-  function shouldStart(repoId: string, item: BacklogItem): boolean {
+  function shouldStart(repoId: string, dependsOn: string[]): boolean {
     if (!runner || !pipeline || !newTask) return false;
     const byId = new Map(backlogItems.list(repoId).map((i) => [i.id, i]));
     return (
       runner.general().backlogRunner &&
       runner.repoBacklogRunner(repoId).enabled &&
-      unmetDependencies(item, byId, isDone).length === 0
+      // Only the dependencies are read, so the item need not exist yet.
+      unmetDependencies({ dependsOn } as BacklogItem, byId, isDone).length === 0
     );
   }
 
@@ -180,13 +187,19 @@ export function backlogRoutes(
     if (foreign.length > 0) {
       return c.json({ error: `Unknown dependencies in this repo: ${foreign.join(", ")}` }, 400);
     }
-    const { start, ...values } = input.data;
+    const { start, startComment, ...values } = input.data;
     // Everything that can fail runs before the insert, so retries add no duplicates.
     if (newTask && (start || values.title === undefined)) newTask.repos.use(repoId);
     const title =
       values.title ?? (await titleFor(values.origin, values.freeText, newTask?.originTitle));
+    const startsNow = start && shouldStart(repoId, values.dependsOn);
+    // The confirmed start comment goes out only with a task that starts now,
+    // never later when the runner promotes the item on its own.
+    if (startComment && startsNow && newTask) {
+      await postStartComment(newTask, values.origin, startComment);
+    }
     let item = backlogItems.insert({ ...values, title, repoId });
-    if (start && pipeline && newTask && shouldStart(repoId, item)) {
+    if (startsNow && pipeline && newTask) {
       try {
         // Announces the change itself.
         promoteBacklogItem(item, { pipeline, newTask, backlogItems, broadcast });

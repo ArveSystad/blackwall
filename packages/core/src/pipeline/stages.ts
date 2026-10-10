@@ -71,6 +71,8 @@ function describeOrigin(task: Task): string {
       return `Jira issue ${origin.key}: ${task.title}`;
     case "github-pr":
       return `Pull request ${origin.owner}/${origin.repo}#${origin.number}: ${task.title}`;
+    case "github-issue":
+      return `GitHub issue ${origin.owner}/${origin.repo}#${origin.number}: ${task.title}`;
     case "free-text":
       return task.title;
   }

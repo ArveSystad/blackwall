@@ -1,0 +1,15 @@
+{
+  "url": "https://jbf.ghe.com/api/v3/repos/acme/shop/issues/42",
+  "id": 1900000042,
+  "number": 42,
+  "html_url": "https://jbf.ghe.com/acme/shop/pull/42",
+  "state": "open",
+  "title": "Round invoice totals once",
+  "body": "Fixes double rounding in the invoice export.",
+  "user": { "login": "ada" },
+  "labels": [],
+  "pull_request": {
+    "url": "https://jbf.ghe.com/api/v3/repos/acme/shop/pulls/42",
+    "html_url": "https://jbf.ghe.com/acme/shop/pull/42"
+  }
+}

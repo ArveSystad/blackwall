@@ -14,7 +14,13 @@ import { FinishPanel } from "../components/task/FinishPanel";
 import { GrillPanel } from "../components/task/GrillPanel";
 import { InputBar } from "../components/task/InputBar";
 import { OutputPanel } from "../components/task/OutputPanel";
-import { answerGate, focusInputBar, resume, stop } from "../components/task/actions";
+import {
+  approvePlan,
+  focusInputBar,
+  resume,
+  stop,
+  type PlanComment,
+} from "../components/task/actions";
 import { DeleteTaskDialog } from "../components/task/DeleteTaskDialog";
 import { PlanPanel } from "../components/task/PlanPanel";
 import { TaskBanner } from "../components/task/TaskBanner";
@@ -37,6 +43,7 @@ import {
   isTabEnabled,
   openQuestionCount,
   parseDiff,
+  planApprovalComment,
   type TaskTab,
 } from "../task-view";
 
@@ -121,6 +128,9 @@ function TaskScreen({ task }: { task: Task }) {
   const [draft, setDraft] = useState("");
   const [tab, setTab] = useState<TaskTab>(() => defaultTab(task));
   const [deleting, setDeleting] = useState(false);
+  // Opt-in, so it starts unticked each time the task reaches plan approval.
+  const freshPlanComment = (): PlanComment => ({ enabled: false, body: planApprovalComment(task) });
+  const [planComment, setPlanComment] = useState<PlanComment>(freshPlanComment);
 
   // A new gate or status opens the tab where the user is needed (or the work is).
   const signal = `${task.status}:${task.gate}`;
@@ -128,6 +138,7 @@ function TaskScreen({ task }: { task: Task }) {
   if (seenSignal !== signal) {
     setSeenSignal(signal);
     setTab(defaultTab(task));
+    setPlanComment(freshPlanComment());
   }
   const current = isTabEnabled(task, tab) ? tab : defaultTab(task);
 
@@ -142,7 +153,7 @@ function TaskScreen({ task }: { task: Task }) {
     if (action.pending) return;
     const atApproval = task.status === "needs-you" && task.gate === "plan-approval";
     if (key === "a" && atApproval) {
-      void answerGate(action, task, { decision: "approve" }, "Approve plan");
+      void approvePlan(action, task, planComment);
     } else if (key === "r" && atApproval) {
       setTab("plan");
       focusInputBar();
@@ -168,6 +179,8 @@ function TaskScreen({ task }: { task: Task }) {
             action={action}
             draft={draft}
             openQuestions={openQuestions}
+            comment={planComment}
+            onComment={setPlanComment}
             className="flex-1"
           />
         );
@@ -178,6 +191,8 @@ function TaskScreen({ task }: { task: Task }) {
             questions={data.questions.data ?? []}
             action={action}
             draft={draft}
+            planComment={planComment}
+            onPlanComment={setPlanComment}
           />
         );
       case "output":
@@ -220,6 +235,7 @@ function TaskScreen({ task }: { task: Task }) {
         action={action}
         counts={counts}
         draft={draft}
+        planComment={planComment}
         tab={current}
         onTab={setTab}
         onDelete={() => setDeleting(true)}

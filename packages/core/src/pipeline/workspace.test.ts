@@ -69,6 +69,33 @@ describe("createWorkspacePreparer", () => {
       expect.objectContaining({ branch: "feature/abc-1-export", checkout: { kind: "new" } }),
     );
   });
+
+  it("asks branchFor for a GitHub issue task's new branch", async () => {
+    const createWorktree = vi.fn(async (input: CreateWorktreeInput) => ({
+      path: input.worktreePath,
+      branch: input.branch,
+      baseSha: "abc",
+    }));
+    const branchFor = vi.fn(async () => "fix/7-export-drops-a-row");
+    const prepare = createWorkspacePreparer({
+      git: { createWorktree },
+      repos: { get: () => repo },
+      branchFor,
+    });
+    const origin = {
+      kind: "github-issue" as const,
+      url: "https://github.com/acme/app/issues/7",
+      owner: "acme",
+      repo: "app",
+      number: 7,
+      connectionId: null,
+    };
+    const ws = await prepare(task({ origin }));
+    expect(ws.branch).toBe("fix/7-export-drops-a-row");
+    expect(createWorktree).toHaveBeenCalledWith(
+      expect.objectContaining({ branch: "fix/7-export-drops-a-row", checkout: { kind: "new" } }),
+    );
+  });
 });
 
 describe("createWorkspaceRemover", () => {

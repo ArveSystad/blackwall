@@ -14,6 +14,25 @@ export function answerGate(
   return action.run(label, () => respondToGate(task.id, { gate, ...input }));
 }
 
+/** The optional comment on a GitHub issue task's issue when its plan is approved. */
+export interface PlanComment {
+  /** Unticked by default: nothing is posted unless the user opts in. */
+  enabled: boolean;
+  body: string;
+}
+
+/** Approves the plan, posting the plan comment first when the user ticked it. */
+export function approvePlan(action: TaskAction, task: Task, comment: PlanComment) {
+  const body = comment.body.trim();
+  const post = comment.enabled && body && task.origin.kind === "github-issue";
+  return answerGate(
+    action,
+    task,
+    { decision: "approve", ...(post ? { issueComment: { body } } : {}) },
+    "Approve plan",
+  );
+}
+
 export function resume(action: TaskAction, task: Task) {
   return action.run("Resume", () => resumeTask(task.id));
 }
