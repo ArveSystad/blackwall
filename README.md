@@ -29,6 +29,8 @@ Inform ──► Plan review / grill ──► [human plan approval] ──► I
 - A task can propose follow-up tasks, in its own repo or another registered one. You pick which to create at finish; they land in the backlog as waiting items. An analysis-only task can deliver just these follow-ups.
 - Interrupted steps resume the same CLI session.
 
+Implementers may save screenshots (PNG, JPEG, GIF or WebP) to `.blackwall/artifacts/` in the worktree. They show in the task's Artifacts tab, updating while the task runs. The `.blackwall/` scratch folder, also used for Jira attachments, is ignored by its own `.gitignore` and never committed.
+
 ## Features
 
 - Agent library with role defaults per stage. Agents are not tied to a CLI: each repo picks the CLI its tasks run on, and a task can run single agents on the other one.

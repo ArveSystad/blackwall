@@ -6,6 +6,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { ApiError } from "../api";
 import { EmptyState } from "../components/EmptyState";
 import { CheckIcon } from "../components/icons";
+import { ArtifactsPanel } from "../components/task/ArtifactsPanel";
 import { ChecksPanel } from "../components/task/ChecksPanel";
 import { ContextPanel } from "../components/task/ContextPanel";
 import { DiffPanel, DiffStat } from "../components/task/DiffPanel";
@@ -86,6 +87,10 @@ function TabDecoration({ tab, task, data }: { tab: TaskTab; task: Task; data: Ta
       const diffs = data.diffs.data ?? [];
       if (diffs.length === 0) return null;
       return <DiffStat {...diffStat(diffs.flatMap((d) => parseDiff(d.diff)))} />;
+    }
+    case "artifacts": {
+      const n = data.artifacts.data?.length ?? 0;
+      return n > 0 ? <Count>{n}</Count> : null;
     }
     case "checks": {
       if (data.checks.length === 0) return null;
@@ -209,6 +214,8 @@ function TaskScreen({ task }: { task: Task }) {
         return <FindingsPanel task={task} findings={data.visibleFindings} steps={data.steps} />;
       case "diff":
         return <DiffPanel diffs={data.diffs.data ?? []} loading={data.diffs.isPending} />;
+      case "artifacts":
+        return <ArtifactsPanel task={task} />;
       case "checks":
         return (
           <ChecksPanel

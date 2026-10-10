@@ -134,6 +134,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       client.setQueryData<Task>(queryKeys.task(task.id), task);
       // A stage or gate change can mean new commits or a new delivery plan.
       void client.invalidateQueries({ queryKey: queryKeys.taskDiffs(task.id) });
+      void client.invalidateQueries({ queryKey: queryKeys.taskArtifacts(task.id) });
       void client.invalidateQueries({ queryKey: queryKeys.taskDelivery(task.id) });
       // A finished task can unblock the backlog items that depend on it, and
       // its delivery run's finish time is when it was resolved.
@@ -154,6 +155,10 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     case "step.upserted":
       void client.invalidateQueries({ queryKey: queryKeys.runSteps(event.payload.step.runId) });
       void client.invalidateQueries({ queryKey: queryKeys.activeAgents });
+      // A step can write screenshots, and the step carries no task id.
+      void client.invalidateQueries({
+        predicate: (query) => query.queryKey[0] === "tasks" && query.queryKey[2] === "artifacts",
+      });
       break;
     case "step.event": {
       const { event: entry } = event.payload;

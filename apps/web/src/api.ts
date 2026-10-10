@@ -31,6 +31,7 @@ import {
   stepEventSchema,
   stepSchema,
   tagListInputSchema,
+  taskArtifactSchema,
   taskDiffSchema,
   taskDoneTimeSchema,
   taskSchema,
@@ -73,6 +74,7 @@ import {
   type Step,
   type StepEvent,
   type Task,
+  type TaskArtifact,
   type TaskDiff,
   type TaskDoneTime,
   type UpdateBacklogItemInput,
@@ -275,6 +277,17 @@ export function listStepEvents(taskId: string, stepId: string): Promise<StepEven
 /** The task branch's changes per fix round. */
 export function listDiffs(taskId: string): Promise<TaskDiff[]> {
   return request(`${taskPath(taskId)}/diffs`, taskDiffSchema.array());
+}
+
+/** The images an implementer saved to `.blackwall/artifacts/`, newest first. */
+export function listArtifacts(taskId: string): Promise<TaskArtifact[]> {
+  return request(`${taskPath(taskId)}/artifacts`, taskArtifactSchema.array());
+}
+
+/** An artifact's image URL; `?v=` changes when the file does, so a re-taken screenshot isn't cached. */
+export function artifactUrl(taskId: string, artifact: Pick<TaskArtifact, "path" | "modifiedAt">) {
+  const path = artifact.path.split("/").map(encodeURIComponent).join("/");
+  return `${taskPath(taskId)}/artifacts/${path}?v=${artifact.modifiedAt.getTime()}`;
 }
 
 export function listRepos(): Promise<RepoView[]> {

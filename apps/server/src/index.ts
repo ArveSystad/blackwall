@@ -14,6 +14,7 @@ import {
   createRepoService,
   createRepositories,
   createSettingsService,
+  createTaskArtifacts,
   createTaskDiffs,
   createWorkspacePreparer,
   createWorkspaceRemover,
@@ -176,6 +177,7 @@ try {
     taskServices: {
       newTask,
       diffs: createTaskDiffs({ repositories, git }),
+      artifacts: createTaskArtifacts(),
     },
     backlog: {
       backlogItems: repositories.backlogItems,

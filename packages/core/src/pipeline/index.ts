@@ -1,3 +1,4 @@
+export * from "./artifacts.js";
 export * from "./backlog.js";
 export * from "./backlog-runner.js";
 export * from "./checks.js";

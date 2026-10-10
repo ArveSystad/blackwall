@@ -31,6 +31,7 @@ export const TASK_TABS = [
   "output",
   "findings",
   "diff",
+  "artifacts",
   "checks",
   "finish",
 ] as const;
@@ -43,6 +44,7 @@ export const TAB_LABELS: Record<TaskTab, string> = {
   output: "Agent output",
   findings: "Findings",
   diff: "Diff",
+  artifacts: "Artifacts",
   checks: "Checks",
   finish: "Finish",
 };
@@ -75,6 +77,8 @@ export function isTabEnabled(task: Task, tab: TaskTab): boolean {
       return task.mode !== "review" && stage >= 3;
     case "diff":
       return task.worktreePath !== null;
+    case "artifacts":
+      return task.mode !== "review" && task.worktreePath !== null;
     case "finish":
       return hasFinish(task);
     default:

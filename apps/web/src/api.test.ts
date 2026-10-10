@@ -1,6 +1,6 @@
 import type { StaleRepo } from "@blackwall/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, StaleRepoError, listConnections, socketUrl } from "./api";
+import { ApiError, StaleRepoError, artifactUrl, listConnections, socketUrl } from "./api";
 
 describe("socketUrl", () => {
   it("uses ws: on http", () => {
@@ -9,6 +9,15 @@ describe("socketUrl", () => {
 
   it("uses wss: on https", () => {
     expect(socketUrl({ protocol: "https:", host: "localhost:1" })).toBe("wss://localhost:1/ws");
+  });
+});
+
+describe("artifactUrl", () => {
+  it("encodes each path segment, keeps the slashes and versions by modified time", () => {
+    const modifiedAt = new Date(1_700_000_000_000);
+    expect(artifactUrl("t1", { path: "ui/home page#1.png", modifiedAt })).toBe(
+      "/api/tasks/t1/artifacts/ui/home%20page%231.png?v=1700000000000",
+    );
   });
 });
 

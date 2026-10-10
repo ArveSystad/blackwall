@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -14,8 +15,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentRunOptions } from "../agents/adapters/types.js";
 import { createQuotaTracker, type QuotaTracker } from "../agents/quota.js";
 import { createAgentService } from "../agents/service.js";
-import { openDatabase, type OpenedDatabase } from "../db/database.js";
+import { DB_FILENAME, openDatabase, type OpenedDatabase } from "../db/database.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
+import { createGitService } from "../git/service.js";
+import { ARTIFACTS_DIR } from "./artifacts.js";
 import {
   FindingNotFoundError,
   GrillQuestionNotFoundError,
@@ -1227,6 +1230,40 @@ describe("implement and checks", () => {
       (s) => s.stage === "checks" && s.agentId === seeded.agents.summarizer,
     );
     expect(commitStep).toMatchObject({ status: "succeeded", round: 0 });
+  });
+
+  it("never commits artifacts, even when the scratch .gitignore was deleted", async () => {
+    const run = (...args: string[]) =>
+      execFileSync("git", args, {
+        cwd: dir,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+    run("init", "--quiet", "-b", "main");
+    run("config", "user.name", "Test");
+    run("config", "user.email", "test@example.com");
+    run("config", "commit.gpgsign", "false");
+    writeFileSync(join(dir, ".gitignore"), `${DB_FILENAME}*\n`);
+    run("add", "-A");
+    run("commit", "--quiet", "-m", "initial");
+
+    const h = harness(
+      (stage) => {
+        if (stage === "implement") {
+          mkdirSync(join(dir, ARTIFACTS_DIR), { recursive: true });
+          writeFileSync(join(dir, ARTIFACTS_DIR, "home.png"), "png");
+          rmSync(join(dir, ".blackwall", ".gitignore"), { force: true });
+          writeFileSync(join(dir, "login.ts"), "export {};\n");
+        }
+        return noFindings(stage);
+      },
+      { stages: createDefaultStages({ git: createGitService() }) },
+    );
+    await approved(h, []);
+
+    const committed = run("show", "--name-only", "--format=", "HEAD").trim().split("\n");
+    expect(committed).toEqual(["login.ts"]);
+    expect(run("ls-files")).not.toContain(".blackwall");
   });
 });
 

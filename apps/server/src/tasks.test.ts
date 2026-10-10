@@ -18,6 +18,7 @@ import {
   runSchema,
   stepEventSchema,
   stepSchema,
+  taskArtifactSchema,
   taskDiffSchema,
   taskDoneTimeSchema,
   taskSchema,
@@ -479,6 +480,15 @@ describe("new tasks", () => {
         diffs: async (task) => [
           { round: 0, from: "abc", to: "def", reviewed: true, diff: `diff for ${task.id}` },
         ],
+        artifacts: {
+          list: async () => [
+            { path: "ui/home.png", size: 3, modifiedAt: new Date("2026-01-02T03:04:05Z") },
+          ],
+          read: async (_task, path) =>
+            path === "ui/home.png"
+              ? { body: Buffer.from([1, 2, 3]), contentType: "image/png" }
+              : null,
+        },
       },
     }).app;
   });
@@ -673,6 +683,26 @@ describe("new tasks", () => {
       { round: 0, from: "abc", to: "def", reviewed: true, diff: `diff for ${task.id}` },
     ]);
     expect((await request("/api/tasks/nope/diffs")).status).toBe(404);
+  });
+
+  it("lists a task's artifacts", async () => {
+    const task = repositories.tasks.create({ title: "T", origin: { kind: "free-text" }, repoId });
+    const res = await request(`/api/tasks/${task.id}/artifacts`);
+    expect(taskArtifactSchema.array().parse(await res.json())).toEqual([
+      { path: "ui/home.png", size: 3, modifiedAt: new Date("2026-01-02T03:04:05Z") },
+    ]);
+    expect((await request("/api/tasks/nope/artifacts")).status).toBe(404);
+  });
+
+  it("serves an artifact as an image with nosniff, 404 when missing", async () => {
+    const task = repositories.tasks.create({ title: "T", origin: { kind: "free-text" }, repoId });
+    const res = await request(`/api/tasks/${task.id}/artifacts/ui/home.png?v=1`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/png");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect([...new Uint8Array(await res.arrayBuffer())]).toEqual([1, 2, 3]);
+    expect((await request(`/api/tasks/${task.id}/artifacts/ui/other.png`)).status).toBe(404);
+    expect((await request("/api/tasks/nope/artifacts/ui/home.png")).status).toBe(404);
   });
 });
 

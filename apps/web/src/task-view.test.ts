@@ -39,6 +39,7 @@ import {
   planApprovalComment,
   sortFindings,
   stepModel,
+  TASK_TABS,
   toolTarget,
   visibleFindings,
 } from "./task-view";
@@ -339,6 +340,25 @@ describe("tabs and banner", () => {
     expect(isTabEnabled(task, "findings")).toBe(false);
     expect(isTabEnabled(task, "diff")).toBe(false);
     expect(isTabEnabled(makeTask({ stage: "code-review" }), "findings")).toBe(true);
+  });
+
+  it("enables Artifacts with a worktree, except on Review PR tasks", () => {
+    expect(TASK_TABS.indexOf("artifacts")).toBe(TASK_TABS.indexOf("diff") + 1);
+    expect(isTabEnabled(makeTask({ worktreePath: null }), "artifacts")).toBe(false);
+    expect(isTabEnabled(makeTask({ worktreePath: "/wt" }), "artifacts")).toBe(true);
+    const review = makeTask({
+      worktreePath: "/wt",
+      mode: "review",
+      origin: {
+        kind: "github-pr",
+        url: "https://github.com/acme/web/pull/1",
+        owner: "acme",
+        repo: "web",
+        number: 1,
+        connectionId: null,
+      },
+    });
+    expect(isTabEnabled(review, "artifacts")).toBe(false);
   });
 
   it("says why the task waits", () => {

@@ -10,6 +10,7 @@ import {
   getTask,
   listActiveAgents,
   listClis,
+  listArtifacts,
   listDiffs,
   listDoneTimes,
   listFindings,
@@ -36,6 +37,7 @@ export const queryKeys = {
   taskFindings: (taskId: string) => ["tasks", taskId, "findings"] as const,
   taskGrill: (taskId: string) => ["tasks", taskId, "grill"] as const,
   taskDiffs: (taskId: string) => ["tasks", taskId, "diffs"] as const,
+  taskArtifacts: (taskId: string) => ["tasks", taskId, "artifacts"] as const,
   taskDelivery: (taskId: string) => ["tasks", taskId, "delivery"] as const,
   runSteps: (runId: string) => ["runs", runId, "steps"] as const,
   stepEvents: (stepId: string) => ["steps", stepId, "events"] as const,
@@ -99,6 +101,12 @@ export const taskGrillQuery = (taskId: string) =>
 
 export const taskDiffsQuery = (taskId: string) =>
   queryOptions({ queryKey: queryKeys.taskDiffs(taskId), queryFn: () => listDiffs(taskId) });
+
+export const taskArtifactsQuery = (taskId: string) =>
+  queryOptions({
+    queryKey: queryKeys.taskArtifacts(taskId),
+    queryFn: () => listArtifacts(taskId),
+  });
 
 export const taskDeliveryQuery = (taskId: string) =>
   queryOptions({

@@ -28,6 +28,17 @@ describe("buildSystemPrompt", () => {
     expect(prompt).not.toContain("Findings output contract");
     expect(prompt).not.toContain("Plan output contract");
     expect(prompt).toContain("Do not commit, push");
+    expect(prompt).toContain("`.blackwall/artifacts/`");
+  });
+
+  it("tells only implementers about screenshots", () => {
+    const prompt = buildSystemPrompt({
+      agent,
+      stage: "code-review",
+      profile: "read-only",
+      tags: [],
+    });
+    expect(prompt).not.toContain(".blackwall/artifacts/");
   });
 
   it("injects the plan contract for the planner", () => {

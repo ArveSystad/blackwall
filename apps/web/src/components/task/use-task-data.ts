@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   runStepsQuery,
   stepEventsQuery,
+  taskArtifactsQuery,
   taskDiffsQuery,
   taskFindingsQuery,
   taskGrillQuery,
@@ -19,7 +20,7 @@ import {
 
 /**
  * Everything the task view reads besides the task itself: runs and the latest
- * run's steps, grill questions, findings, per-round diffs, the latest Checks
+ * run's steps, grill questions, findings, per-round diffs, the artifacts, the latest Checks
  * step's commands and the rebase conflicts of the latest delivery. Each panel
  * reads the slice it needs; the header, banner and tab counts read the rest.
  */
@@ -34,6 +35,10 @@ export function useTaskData(task: Task) {
   const questions = useQuery({ ...taskGrillQuery(task.id), enabled: !isReview });
   const findings = useQuery(taskFindingsQuery(task.id));
   const diffs = useQuery({ ...taskDiffsQuery(task.id), enabled: task.worktreePath !== null });
+  const artifacts = useQuery({
+    ...taskArtifactsQuery(task.id),
+    enabled: !isReview && task.worktreePath !== null,
+  });
 
   const stepList = latestRun ? (steps.data ?? []) : [];
   const checksStep = latestStep(stepList, "checks");
@@ -57,6 +62,7 @@ export function useTaskData(task: Task) {
     findings,
     visibleFindings: visibleFindings(findings.data ?? []),
     diffs,
+    artifacts,
     checksStep,
     checks: checksStep ? checkRuns(checkEvents.data ?? []) : [],
     checksQuery: checkEvents,

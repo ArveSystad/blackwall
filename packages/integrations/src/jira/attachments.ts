@@ -1,10 +1,8 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { SCRATCH_DIR } from "@blackwall/shared";
 import type { JiraClient } from "./client.js";
 import type { AttachmentOutcome, JiraAttachment } from "./issue.js";
-
-/** Scratch folder in a task's worktree; ignored by its own `.gitignore`. */
-export const SCRATCH_DIR = ".blackwall";
 
 export interface AttachmentLimits {
   /** Largest single file downloaded. */

@@ -10,6 +10,7 @@ const WORKSPACE_RULES: Record<PermissionProfile, string> = {
     "You work in a git worktree: the current directory. Stay inside it.",
     "You may edit files and run shell commands such as builds and tests.",
     "Do not commit, push, fetch or touch git remotes, and do not use `gh`: the harness commits and delivers your work.",
+    "When the task changes something visual and you can render it with the repo's own tooling, you may save PNG, JPEG, GIF or WebP screenshots to `.blackwall/artifacts/`: they show in the task's Artifacts tab and are never committed.",
   ].join("\n"),
 };
 

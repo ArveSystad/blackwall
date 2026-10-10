@@ -889,6 +889,18 @@ export const taskDiffSchema = z.object({
 });
 export type TaskDiff = z.infer<typeof taskDiffSchema>;
 
+/** Scratch folder in a task's worktree; ignored by its own `.gitignore`. */
+export const SCRATCH_DIR = ".blackwall";
+
+/** An image an implementer saved to `.blackwall/artifacts/` in the task's worktree. */
+export const taskArtifactSchema = z.object({
+  /** Relative to the artifacts folder, `/`-separated. */
+  path: z.string(),
+  size: z.int().nonnegative(),
+  modifiedAt: timestamp,
+});
+export type TaskArtifact = z.infer<typeof taskArtifactSchema>;
+
 // ---------------------------------------------------------------------------
 // Delivery
 // ---------------------------------------------------------------------------

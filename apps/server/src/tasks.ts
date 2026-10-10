@@ -6,6 +6,7 @@ import {
   type PipelineEngine,
   type RepoService,
   type Repositories,
+  type TaskArtifacts,
   type TaskDiffs,
 } from "@blackwall/core";
 import {
@@ -26,6 +27,7 @@ import {
   type Step,
   type StepEvent,
   type Task,
+  type TaskArtifact,
   type TaskDiff,
   type TaskDoneTime,
   type TaskOrigin,
@@ -76,6 +78,8 @@ export interface TaskRouteServices {
   newTask?: NewTaskServices;
   /** Per-round diffs of a task's branch. */
   diffs?: TaskDiffs;
+  /** Images implementers saved to a task's worktree. */
+  artifacts?: TaskArtifacts;
 }
 
 /**
@@ -202,12 +206,13 @@ export function queueTask(
  * findings force-fixed or force-ignored, and its delivery plan shown before
  * the user confirms the finish actions. `/active-agents` lists the running
  * agent steps across all tasks, and `/done-times` when each done task was
- * resolved.
+ * resolved. With the services, `/diffs` shows the branch's changes per fix
+ * round and `/artifacts` lists and serves the images an implementer saved.
  */
 export function taskRoutes(
   { tasks, grillQuestions, findings, runs, steps, stepEvents }: TaskRouteStores,
   pipeline?: TaskPipeline,
-  { newTask, diffs }: TaskRouteServices = {},
+  { newTask, diffs, artifacts }: TaskRouteServices = {},
 ): Hono {
   const routes = new Hono();
 
@@ -293,6 +298,31 @@ export function taskRoutes(
       const task = tasks.get(id);
       if (!task) return c.json({ error: `Task ${id} not found` }, 404);
       return c.json<TaskDiff[]>(await diffs(task));
+    });
+  }
+
+  if (artifacts) {
+    /** The images saved to `.blackwall/artifacts/` in the task's worktree, newest first. */
+    routes.get("/:id/artifacts", async (c) => {
+      const id = c.req.param("id");
+      const task = tasks.get(id);
+      if (!task) return c.json({ error: `Task ${id} not found` }, 404);
+      return c.json<TaskArtifact[]>(await artifacts.list(task));
+    });
+
+    /** One artifact's bytes; untrusted, so with a fixed image type and `nosniff`. */
+    routes.get("/:id/artifacts/:path{.+}", async (c) => {
+      const id = c.req.param("id");
+      const task = tasks.get(id);
+      if (!task) return c.json({ error: `Task ${id} not found` }, 404);
+      const path = c.req.param("path");
+      const file = await artifacts.read(task, path);
+      if (!file) return c.json({ error: `Artifact ${path} not found` }, 404);
+      return c.body(new Uint8Array(file.body), 200, {
+        "Content-Type": file.contentType,
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "no-cache",
+      });
     });
   }
 

@@ -19,6 +19,7 @@ import {
 } from "@blackwall/shared";
 import type { AgentResult } from "../agents/adapters/types.js";
 import type { GitService } from "../git/service.js";
+import { ensureScratchDir } from "./artifacts.js";
 import { runCheckCommand, type CheckOutcome, type CheckRunner } from "./checks.js";
 import { blockingFindings, planMerges } from "./findings.js";
 import { followUpsPromptSection } from "./follow-ups.js";
@@ -313,6 +314,8 @@ async function commitRound(
   const { task, round } = ctx;
   const worktree = task.worktreePath;
   if (!worktree) throw new Error("The task has no worktree");
+  // Rewritten every round, before staging, so artifacts are never committed.
+  await ensureScratchDir(worktree);
   const diff = await git.stagedDiff(worktree);
   if (diff.trim() === "") return;
 

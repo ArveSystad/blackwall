@@ -187,6 +187,29 @@ describe("applyServerEvent", () => {
     expect(stale()).toBe(true);
   });
 
+  it("refetches a task's artifacts when it changes, and every task's when a step changes", () => {
+    const stale = (key: readonly unknown[]) => client.getQueryState(key)?.isInvalidated;
+    const task = makeTask();
+    client.setQueryData(queryKeys.taskArtifacts(task.id), []);
+    applyServerEvent(client, { type: "task.upserted", payload: { task } });
+    expect(stale(queryKeys.taskArtifacts(task.id))).toBe(true);
+
+    for (const key of [
+      queryKeys.taskArtifacts("t1"),
+      queryKeys.taskArtifacts("t2"),
+      queryKeys.taskDiffs("t1"),
+    ]) {
+      client.setQueryData(key, []);
+    }
+    applyServerEvent(client, {
+      type: "step.upserted",
+      payload: { step: { runId: "r1" } as never },
+    });
+    expect(stale(queryKeys.taskArtifacts("t1"))).toBe(true);
+    expect(stale(queryKeys.taskArtifacts("t2"))).toBe(true);
+    expect(stale(queryKeys.taskDiffs("t1"))).toBe(false);
+  });
+
   it("refetches a repo's backlog and runner on backlog.changed, and stores quota", () => {
     for (const key of [
       queryKeys.backlog("r1"),
