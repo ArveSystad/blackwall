@@ -12,6 +12,7 @@ import {
   repoStatusLine,
   rowAction,
   runnerStatus,
+  syncControl,
   type RunnerStatusInput,
 } from "./backlog";
 import { makeBacklogItem, makeTask } from "./test-fixtures";
@@ -356,5 +357,32 @@ describe("repoStatusLine", () => {
     expect(line({ runner: { enabled: true, haltedTaskId: "t1" } })).toBe(
       "0 tasks running · auto-start halted",
     );
+  });
+});
+
+describe("syncControl", () => {
+  const sync = (ahead: number, behind: number) => ({ branch: "main", ahead, behind });
+
+  it("shows nothing without a status or with nothing to push", () => {
+    expect(syncControl(undefined)).toBeNull();
+    expect(syncControl(null)).toBeNull();
+    expect(syncControl(sync(0, 0))).toBeNull();
+    expect(syncControl(sync(0, 2))).toBeNull();
+  });
+
+  it("offers a push with the commit count", () => {
+    expect(syncControl(sync(1, 0))).toEqual({
+      kind: "push",
+      label: "Push 1 commit to main",
+      title: "Not yet on origin/main",
+    });
+    expect(syncControl(sync(3, 0))).toMatchObject({ label: "Push 3 commits to main" });
+  });
+
+  it("asks for a pull when main has diverged", () => {
+    expect(syncControl(sync(2, 1))).toEqual({
+      kind: "diverged",
+      text: "main diverged from origin/main; pull first",
+    });
   });
 });

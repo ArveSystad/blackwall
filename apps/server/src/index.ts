@@ -54,7 +54,12 @@ try {
     connections: repositories.connections,
     tokens: connectionTokens,
   });
-  const repos = createRepoService({ repos: repositories.repos, connections });
+  const git = createGitService();
+  const repos = createRepoService({
+    repos: repositories.repos,
+    connections,
+    mainBranch: git.mainBranch,
+  });
   const agents = createAgentService({
     agents: repositories.agents,
     settings: repositories.settings,
@@ -83,7 +88,6 @@ try {
   });
   const jira = createJiraOrigin({ connections });
   const github = createGitHubOrigin({ connections });
-  const git = createGitService();
   const newTask = {
     repos,
     resolveRoles: agents.resolveRoles,

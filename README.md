@@ -22,10 +22,10 @@ Inform ──► Plan review / grill ──► [human plan approval] ──► I
 - Review PR mode runs Inform → review panel → triage → inline PR review comments.
 - GitHub issue tasks work on a new `feature/<n>-…` branch and finish by pushing it, opening a PR that closes the issue and commenting on the issue. You can also opt in to a comment on the issue when work starts and when you approve the plan; you see and edit each one first.
 - Each task gets its own git worktree at `../<repo>.worktrees/<task>`.
-- The harness commits after each implement or fix round. Agents never push, and `main` is never pushed.
+- The harness commits after each implement or fix round. Agents never push. `main` is pushed only when you click Push on a repo's Backlog and confirm it; the pipeline never pushes it.
 - Critical and High findings loop back to the implementer, for at most 3 fix rounds before escalating to you.
 - Reviewers are read-only. Implementers can edit and use the shell but cannot reach remotes.
-- A per-repo backlog with an auto-runner that respects concurrency caps and CLI usage limits.
+- A per-repo backlog with an auto-runner that respects concurrency caps and CLI usage limits. When local `main` has commits `origin/main` doesn't (for example after free-text tasks merge into it), the Backlog header offers a confirmed "Push N commits to main". It never fetches or forces.
 - A task can propose follow-up tasks, in its own repo or another registered one. You pick which to create at finish; they land in the backlog as waiting items. An analysis-only task can deliver just these follow-ups.
 - Interrupted steps resume the same CLI session.
 

@@ -2,6 +2,8 @@ import { execFile } from "node:child_process";
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import type { RepoSync } from "@blackwall/shared";
+import { GitError, runGit } from "../git/service.js";
 
 const run = promisify(execFile);
 
@@ -41,4 +43,41 @@ export async function readOriginRemote(path: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+async function refExists(path: string, ref: string): Promise<boolean> {
+  try {
+    await runGit(path, ["rev-parse", "--verify", "--quiet", ref]);
+    return true;
+  } catch (error) {
+    if (error instanceof GitError) return false;
+    throw error;
+  }
+}
+
+/**
+ * How the local `branch` compares with `origin/<branch>`, whatever is checked
+ * out. Reads the remote-tracking ref as of the last fetch; never fetches.
+ * `null` when either ref is missing.
+ */
+export async function readBranchSync(path: string, branch: string): Promise<RepoSync | null> {
+  const local = `refs/heads/${branch}`;
+  const remote = `refs/remotes/origin/${branch}`;
+  if (!(await refExists(path, local)) || !(await refExists(path, remote))) return null;
+  const counts = await runGit(path, [
+    "rev-list",
+    "--left-right",
+    "--count",
+    `${remote}...${local}`,
+  ]);
+  const [behind, ahead] = counts.split(/\s+/).map(Number);
+  return { branch, ahead: ahead ?? 0, behind: behind ?? 0 };
+}
+
+/**
+ * Pushes the local `branch` to `origin/<branch>`. User-initiated from the
+ * Backlog only; pushes the main branch; never forces.
+ */
+export async function pushBranch(path: string, branch: string): Promise<void> {
+  await runGit(path, ["push", "--quiet", "origin", `refs/heads/${branch}:refs/heads/${branch}`]);
 }

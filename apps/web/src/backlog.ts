@@ -6,6 +6,7 @@ import {
   type GeneralSettings,
   type QuotaState,
   type RepoBacklogRunner,
+  type RepoSync,
   type Task,
 } from "@blackwall/shared";
 import { groupTasks } from "./inbox";
@@ -242,7 +243,7 @@ export interface RunnerStatusInput {
   now: Date;
 }
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /**
  * Why the runner is or isn't promoting something in this repo, checked in
@@ -352,4 +353,26 @@ export function repoStatusLine({
         ? "halted"
         : "enabled";
   return `${plural(running, "task")} running · auto-start ${autoStart}`;
+}
+
+/** How long the Backlog header shows "Pushed to main" after a push. */
+export const PUSHED_NOTE_MS = 6000;
+
+export type SyncControl =
+  { kind: "push"; label: string; title: string } | { kind: "diverged"; text: string } | null;
+
+/**
+ * What the Backlog header shows for the repo's main branch: a push button when
+ * it has commits origin doesn't, a hint when it has diverged, otherwise nothing.
+ */
+export function syncControl(sync: RepoSync | null | undefined): SyncControl {
+  if (!sync || sync.ahead === 0) return null;
+  const { branch, ahead, behind } = sync;
+  if (behind > 0)
+    return { kind: "diverged", text: `${branch} diverged from origin/${branch}; pull first` };
+  return {
+    kind: "push",
+    label: `Push ${plural(ahead, "commit")} to ${branch}`,
+    title: `Not yet on origin/${branch}`,
+  };
 }

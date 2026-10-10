@@ -69,6 +69,8 @@
   /* Stats screen only: resolved counts and chart bars, in --st-done. */
   --glow-done: 0 0 0 1px rgba(92, 214, 154, 0.55), 0 0 14px rgba(92, 214, 154, 0.28);
   --glow-text-done: 0 0 10px rgba(92, 214, 154, 0.55);
+  /* Backlog "Pushed to main" note; animated once by --animate-pushed-glow. */
+  --glow-text-pushed: 0 0 10px rgba(92, 214, 154, 0.55);
   --glow-status-needs: 0 0 0 1px rgba(255, 61, 207, 0.55), 0 0 10px rgba(255, 61, 207, 0.3);
   --glow-rail: 0 0 8px var(--magenta);
   --glow-pip: 0 0 6px currentColor; /* set text color to the status color */
@@ -137,6 +139,7 @@
   --glow-text-cyan: none;
   --glow-done: 0 0 0 1px #1a7f37, 0 0 0 3px rgba(26, 127, 55, 0.16);
   --glow-text-done: none;
+  --glow-text-pushed: none;
   --glow-status-needs: none;
   --glow-rail: none;
   --glow-pip: none;
@@ -252,6 +255,8 @@
   --animate-pulse-needs: bw-pulse-needs 1.4s ease-in-out infinite;
   /* Stats chart bars grow in once on mount; height changes after that are not animated. */
   --animate-bar-grow: bw-bar-grow 480ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  /* The Backlog "Pushed to main" note glows once, then fades. */
+  --animate-pushed-glow: bw-pushed-glow 1.6s ease-out both;
   --animate-blink-needs: bw-blink 1.2s steps(2, jump-none) infinite;
   --animate-stream: bw-sweep 1.4s linear infinite;
 }
@@ -334,6 +339,15 @@
   }
   to {
     transform: scaleY(1);
+  }
+}
+
+@keyframes bw-pushed-glow {
+  from {
+    text-shadow: var(--glow-text-pushed);
+  }
+  to {
+    text-shadow: none;
   }
 }
 

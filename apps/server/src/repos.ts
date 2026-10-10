@@ -6,6 +6,7 @@ import {
   repoUpdateSchema,
   type Repo,
   type RepoScanResult,
+  type RepoSync,
   type RepoView,
 } from "@blackwall/shared";
 import { Hono, type Context } from "hono";
@@ -67,6 +68,16 @@ export function repoRoutes(repos: RepoService): Hono {
   /** Check commands suggested from the repo's build files, for "reset to suggested". */
   routes.get("/:id/suggested-checks", async (c) =>
     c.json<string[]>(await repos.suggestChecks(c.req.param("id"))),
+  );
+
+  /** Local main vs origin/main as of the last fetch; `null` without both refs. */
+  routes.get("/:id/sync", async (c) =>
+    c.json<RepoSync | null>(await repos.sync(c.req.param("id"))),
+  );
+
+  /** Pushes the local main branch to origin (user-confirmed from the Backlog; never forces). */
+  routes.post("/:id/push", async (c) =>
+    c.json<RepoSync | null>(await repos.push(c.req.param("id"))),
   );
 
   return routes;

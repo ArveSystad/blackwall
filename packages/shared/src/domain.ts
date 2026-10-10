@@ -340,6 +340,16 @@ export type Repo = z.infer<typeof repoSchema>;
 export const repoViewSchema = repoSchema.extend({ exists: z.boolean() });
 export type RepoView = z.infer<typeof repoViewSchema>;
 
+/** The repo's local main branch vs `origin/<main>`, as of the last fetch. */
+export const repoSyncSchema = z.object({
+  branch: z.string().min(1),
+  /** Local commits `origin/<main>` doesn't have. */
+  ahead: z.int().min(0),
+  /** `origin/<main>` commits the local branch doesn't have. */
+  behind: z.int().min(0),
+});
+export type RepoSync = z.infer<typeof repoSyncSchema>;
+
 /** Body for registering one repo. */
 export const repoInputSchema = z.object({
   path: z.string().trim().min(1),

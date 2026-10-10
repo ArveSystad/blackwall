@@ -1,4 +1,10 @@
-import { AGENT_ROLES, type BacklogItemView, type RoleAgents, type Task } from "@blackwall/shared";
+import {
+  AGENT_ROLES,
+  type BacklogItemView,
+  type RepoSync,
+  type RoleAgents,
+  type Task,
+} from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
@@ -6,6 +12,7 @@ import {
   archiveTask,
   createBacklogItem,
   deleteBacklogItem,
+  pushRepo,
   reorderBacklog,
   resumeBacklogRunner,
   runBacklogItem,
@@ -15,14 +22,17 @@ import {
 } from "../api";
 import {
   PRIORITY_LABELS,
+  PUSHED_NOTE_MS,
   backlogSections,
   itemState,
   moveInBucket,
   nextBacklogItem,
   pendingCount,
+  plural,
   reorderIds,
   rowAction,
   runnerStatus,
+  syncControl,
   type BacklogItemState,
   type RunnerStatus,
 } from "../backlog";
@@ -52,6 +62,7 @@ import {
   backlogRunnerQuery,
   queryKeys,
   quotaQuery,
+  repoSyncQuery,
   reposQuery,
   roleDefaultsQuery,
   settingsQuery,
@@ -555,7 +566,10 @@ function QuickAdd({ repoId, onError }: { repoId: string; onError: (error: string
 }
 
 type Dialog =
-  { kind: "edit"; item: BacklogItemView } | { kind: "delete"; item: BacklogItemView } | null;
+  | { kind: "edit"; item: BacklogItemView }
+  | { kind: "delete"; item: BacklogItemView }
+  | { kind: "push"; sync: RepoSync }
+  | null;
 
 /** A repo's backlog: what waits, in pick order, and why the runner is or isn't promoting it. */
 export function Backlog({ repoId }: { repoId: string }) {
@@ -568,11 +582,16 @@ export function Backlog({ repoId }: { repoId: string }) {
   const tasks = useQuery(tasksQuery);
   const quota = useQuery(quotaQuery);
   const roleDefaults = useQuery(roleDefaultsQuery);
+  const sync = useQuery(repoSyncQuery(repoId));
   const [dialog, setDialog] = useState<Dialog>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState<BacklogItemView | null>(null);
   const [showArchive, setShowArchive] = useState(false);
   const focusAfter = useRef<string | null>(null);
+  const [pushed, setPushed] = useState<{ repoId: string; branch: string; at: number } | null>(null);
+  // The push button unmounts on success, so focus moves to the note instead.
+  const noteRef = useRef<HTMLSpanElement>(null);
+  const pushSucceeded = useRef(false);
 
   // Tick every second while a quota pause may be counting down.
   const now = useNow(quota.data?.some((q) => q.pausedUntil !== null) ? 1000 : 30_000);
@@ -620,6 +639,16 @@ export function Backlog({ repoId }: { repoId: string }) {
         })
       : null;
   const nextId = nextBacklogItem(items)?.id;
+  // A sync error (stale repo included) just hides the control.
+  const control = syncControl(sync.data);
+  const note = pushed?.repoId === repoId ? pushed : null;
+
+  // "Pushed to main" shows for a few seconds, then any current control returns.
+  useEffect(() => {
+    if (!pushed) return;
+    const timer = setTimeout(() => setPushed(null), PUSHED_NOTE_MS);
+    return () => clearTimeout(timer);
+  }, [pushed]);
 
   // Opening a backlog selects its repo, however it was reached; never a repo that isn't there.
   const missing = repos.data !== undefined && !repo;
@@ -685,13 +714,44 @@ export function Backlog({ repoId }: { repoId: string }) {
 
   return (
     <div className="flex h-full min-w-0 flex-col">
-      <div className={paneHeader}>
+      <div className={cn(paneHeader, "flex-wrap gap-y-1.5")}>
         <BacklogIcon className="text-muted-foreground" />
         <h1 className={paneTitle}>Backlog</h1>
-        <span className="mono text-meta text-muted-foreground">{repo?.name ?? ""}</span>
+        <span className="mono min-w-0 truncate text-meta text-muted-foreground" title={repo?.name}>
+          {repo?.name ?? ""}
+        </span>
         {backlog.data && (
           <span className="mono text-label text-faint">{pendingCount(items)} waiting</span>
         )}
+        <div className="flex min-w-0 items-center gap-2">
+          {/* Always mounted so screen readers announce the note when its text appears. */}
+          <span
+            ref={noteRef}
+            role="status"
+            aria-live="polite"
+            tabIndex={-1}
+            className="mono text-label text-done focus:outline-none"
+          >
+            {note && (
+              <span key={note.at} className="animate-pushed-glow">
+                Pushed to {note.branch}
+              </span>
+            )}
+          </span>
+          {!note && control?.kind === "push" && sync.data && (
+            <Button
+              size="sm"
+              className="shrink-0"
+              title={control.title}
+              onClick={() => setDialog({ kind: "push", sync: sync.data! })}
+            >
+              {control.label}
+            </Button>
+          )}
+          {!note && control?.kind === "diverged" && (
+            <span className="mono text-label text-faint">{control.text}</span>
+          )}
+        </div>
       </div>
 
       <RunnerBar
@@ -903,6 +963,29 @@ export function Backlog({ repoId }: { repoId: string }) {
           {dialog.item.status === "promoted"
             ? " Its task stays."
             : " Items that depend on it stay blocked until you edit them."}
+        </ConfirmDialog>
+      )}
+      {dialog?.kind === "push" && (
+        <ConfirmDialog
+          title={`Push to ${dialog.sync.branch}`}
+          confirmLabel={`Push to ${dialog.sync.branch}`}
+          confirmVariant="default"
+          onClose={() => setDialog(null)}
+          onConfirm={async () => {
+            await pushRepo(repoId);
+            pushSucceeded.current = true;
+            setPushed({ repoId, branch: dialog.sync.branch, at: Date.now() });
+            await queryClient.invalidateQueries({ queryKey: queryKeys.repoSync(repoId) });
+          }}
+          onCloseAutoFocus={(event) => {
+            if (!pushSucceeded.current) return;
+            event.preventDefault();
+            pushSucceeded.current = false;
+            noteRef.current?.focus();
+          }}
+        >
+          Push {plural(dialog.sync.ahead, "commit")} from local {dialog.sync.branch} in {repo?.name}{" "}
+          to origin/{dialog.sync.branch}. This publishes them to the remote.
         </ConfirmDialog>
       )}
     </div>

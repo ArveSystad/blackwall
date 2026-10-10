@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -15,6 +15,7 @@ import {
   STALE_REPO_STATUS,
   repoScanResultSchema,
   repoSchema,
+  repoSyncSchema,
   repoViewSchema,
   staleRepoSchema,
 } from "@blackwall/shared";
@@ -63,6 +64,37 @@ function gitRepo(name: string): string {
   mkdirSync(path, { recursive: true });
   execFileSync("git", ["init", "--quiet"], { cwd: path, stdio: "ignore" });
   return path;
+}
+
+function git(cwd: string, ...args: string[]): string {
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  }).trim();
+}
+
+function commit(dir: string, file: string): string {
+  writeFileSync(join(dir, file), `${file}\n`);
+  git(dir, "add", "-A");
+  git(dir, "commit", "--quiet", "-m", `edit ${file}`);
+  return git(dir, "rev-parse", "HEAD");
+}
+
+/** A git repo with a bare `origin` and one pushed commit on main. */
+function clonedRepo(name: string): { path: string; origin: string } {
+  const origin = join(root, `${name}-origin.git`);
+  const path = join(root, name);
+  git(root, "init", "--quiet", "--bare", "-b", "main", origin);
+  mkdirSync(path);
+  git(path, "init", "--quiet", "-b", "main");
+  git(path, "config", "user.name", "Test");
+  git(path, "config", "user.email", "test@example.com");
+  git(path, "config", "commit.gpgsign", "false");
+  git(path, "remote", "add", "origin", origin);
+  commit(path, "README.md");
+  git(path, "push", "--quiet", "origin", "main");
+  return { path, origin };
 }
 
 describe("repo routes", () => {
@@ -166,5 +198,54 @@ describe("repo routes", () => {
     expect(stale).toMatchObject({ repoId: repo.id, path, removed: true });
     expect(stale.message).toContain("no longer exists");
     expect(await (await request("/api/repos")).json()).toEqual([]);
+  });
+
+  it("reads main's sync status", async () => {
+    const plain = repoSchema.parse(
+      await (
+        await request("/api/repos", { method: "POST", body: { path: gitRepo("plain") } })
+      ).json(),
+    );
+    const none = await request(`/api/repos/${plain.id}/sync`);
+    expect(none.status).toBe(200);
+    expect(await none.json()).toBeNull();
+
+    const { path } = clonedRepo("app");
+    const repo = repoSchema.parse(
+      await (await request("/api/repos", { method: "POST", body: { path } })).json(),
+    );
+    commit(path, "a.txt");
+    const res = await request(`/api/repos/${repo.id}/sync`);
+    expect(repoSyncSchema.parse(await res.json())).toEqual({ branch: "main", ahead: 1, behind: 0 });
+  });
+
+  it("pushes main, refusing when there is nothing to push", async () => {
+    const { path, origin } = clonedRepo("app");
+    const repo = repoSchema.parse(
+      await (await request("/api/repos", { method: "POST", body: { path } })).json(),
+    );
+    const nothing = await request(`/api/repos/${repo.id}/push`, { method: "POST" });
+    expect(nothing.status).toBe(400);
+    expect(await nothing.json()).toEqual({ error: "Nothing to push" });
+
+    const sha = commit(path, "a.txt");
+    const res = await request(`/api/repos/${repo.id}/push`, { method: "POST" });
+    expect(res.status).toBe(200);
+    expect(repoSyncSchema.parse(await res.json())).toEqual({ branch: "main", ahead: 0, behind: 0 });
+    expect(git(origin, "rev-parse", "refs/heads/main")).toBe(sha);
+  });
+
+  it("answers 502 when git rejects the push", async () => {
+    const { path, origin } = clonedRepo("app");
+    const repo = repoSchema.parse(
+      await (await request("/api/repos", { method: "POST", body: { path } })).json(),
+    );
+    writeFileSync(join(origin, "hooks", "pre-receive"), "#!/bin/sh\necho rejected >&2\nexit 1\n", {
+      mode: 0o755,
+    });
+    commit(path, "a.txt");
+    const res = await request(`/api/repos/${repo.id}/push`, { method: "POST" });
+    expect(res.status).toBe(502);
+    expect(((await res.json()) as { error: string }).error).toContain("rejected");
   });
 });

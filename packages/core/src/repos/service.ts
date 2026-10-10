@@ -10,13 +10,15 @@ import {
   type RepoInput,
   type RepoScanInput,
   type RepoScanResult,
+  type RepoSync,
   type RepoUpdate,
   type RepoView,
 } from "@blackwall/shared";
 import type { ConnectionService } from "../connections/service.js";
 import type { Repositories } from "../db/repositories.js";
 import { suggestCheckCommands } from "./checks.js";
-import { gitDirKind, readOriginRemote } from "./git.js";
+import { GitError } from "../git/service.js";
+import { gitDirKind, pushBranch, readBranchSync, readOriginRemote } from "./git.js";
 import { findGitRepos } from "./scan.js";
 
 /** Rejected repo input (not a folder, not a git repo, already registered). Safe to show the user. */
@@ -60,9 +62,19 @@ export class StaleRepoError extends Error {
   }
 }
 
+/** Git refused the user's push of the main branch; carries git's own message. */
+export class RepoPushError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RepoPushError";
+  }
+}
+
 export interface RepoServiceOptions {
   repos: Repositories["repos"];
   connections: Pick<ConnectionService, "resolve">;
+  /** The main branch the Backlog push tracks (default `main`). */
+  mainBranch?: string;
 }
 
 export type RepoService = ReturnType<typeof createRepoService>;
@@ -88,7 +100,7 @@ async function canonicalFolder(path: string): Promise<string> {
  * its `origin` remote, the GitHub connection resolved from it, and the check
  * commands the Checks stage runs.
  */
-export function createRepoService({ repos, connections }: RepoServiceOptions) {
+export function createRepoService({ repos, connections, mainBranch = "main" }: RepoServiceOptions) {
   function existing(id: string): Repo {
     const repo = repos.get(id);
     if (!repo) throw new RepoNotFoundError(id);
@@ -217,6 +229,39 @@ export function createRepoService({ repos, connections }: RepoServiceOptions) {
       const repo = use(id);
       const remoteUrl = await readOriginRemote(repo.path);
       return repos.update(id, { remoteUrl, connectionId: connectionIdFor(remoteUrl) });
+    },
+
+    /** The local main branch vs `origin/<main>` as of the last fetch; `null` without both refs. */
+    async sync(id: string): Promise<RepoSync | null> {
+      return readBranchSync(use(id).path, mainBranch);
+    },
+
+    /**
+     * Pushes the local main branch to origin. Only the user does this, from the
+     * Backlog, after confirming; the pipeline never pushes main. Never forces.
+     */
+    async push(id: string): Promise<RepoSync | null> {
+      const repo = use(id);
+      const sync = await readBranchSync(repo.path, mainBranch);
+      if (!sync) {
+        throw new InvalidRepoError(
+          `${repo.name} has no local ${mainBranch} or origin/${mainBranch}`,
+        );
+      }
+      if (sync.ahead === 0) throw new InvalidRepoError("Nothing to push");
+      if (sync.behind > 0) {
+        throw new InvalidRepoError(
+          `origin/${mainBranch} has ${sync.behind} commit${sync.behind === 1 ? "" : "s"} that aren't local; pull first`,
+        );
+      }
+      try {
+        await pushBranch(repo.path, mainBranch);
+      } catch (error) {
+        if (error instanceof GitError)
+          throw new RepoPushError(error.stderr.trim() || error.message);
+        throw error;
+      }
+      return readBranchSync(repo.path, mainBranch);
     },
   };
 }

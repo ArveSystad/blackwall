@@ -12,6 +12,7 @@ import {
   InvalidRepoError,
   RepoInUseError,
   RepoNotFoundError,
+  RepoPushError,
   StaleRepoError,
   createRepoService,
   type RepoService,
@@ -216,5 +217,123 @@ describe("repo service", () => {
     service.delete(repo.id);
     expect(service.list()).toEqual([]);
     expect(() => service.delete(repo.id)).toThrow(RepoNotFoundError);
+  });
+});
+
+describe("pushing main", () => {
+  let origin: string;
+  let path: string;
+
+  function out(cwd: string, ...args: string[]): string {
+    return execFileSync("git", args, {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  }
+
+  function configure(dir: string): void {
+    git(dir, "config", "user.name", "Test");
+    git(dir, "config", "user.email", "test@example.com");
+    git(dir, "config", "commit.gpgsign", "false");
+    git(dir, "config", "core.autocrlf", "false");
+  }
+
+  function commit(dir: string, file: string): string {
+    writeFileSync(join(dir, file), `${file}\n`);
+    git(dir, "add", "-A");
+    git(dir, "commit", "--quiet", "-m", `edit ${file}`);
+    return out(dir, "rev-parse", "HEAD");
+  }
+
+  /** A clone of a bare origin with one pushed commit on `branch`. */
+  function cloneWithOrigin(branch = "main"): void {
+    origin = join(root, "origin.git");
+    path = join(root, "app");
+    git(root, "init", "--quiet", "--bare", "-b", branch, origin);
+    mkdirSync(path);
+    git(path, "init", "--quiet", "-b", branch);
+    configure(path);
+    git(path, "remote", "add", "origin", origin);
+    commit(path, "README.md");
+    git(path, "push", "--quiet", "origin", branch);
+  }
+
+  it("pushes local main to origin", async () => {
+    cloneWithOrigin();
+    const repo = await service.add({ path });
+    const sha = commit(path, "a.txt");
+    expect(await service.sync(repo.id)).toEqual({ branch: "main", ahead: 1, behind: 0 });
+
+    expect(await service.push(repo.id)).toEqual({ branch: "main", ahead: 0, behind: 0 });
+    expect(out(origin, "rev-parse", "refs/heads/main")).toBe(sha);
+  });
+
+  it("pushes main while another branch is checked out", async () => {
+    cloneWithOrigin();
+    const repo = await service.add({ path });
+    git(path, "checkout", "--quiet", "-b", "feature");
+    const sha = commit(path, "b.txt");
+    git(path, "update-ref", "refs/heads/main", sha);
+
+    await service.push(repo.id);
+    expect(out(origin, "rev-parse", "refs/heads/main")).toBe(sha);
+    expect(() => out(origin, "rev-parse", "--verify", "--quiet", "refs/heads/feature")).toThrow();
+  });
+
+  it("refuses when there is nothing to push or no origin main", async () => {
+    cloneWithOrigin();
+    const repo = await service.add({ path });
+    await expect(service.push(repo.id)).rejects.toThrow("Nothing to push");
+
+    const bare = await service.add({ path: gitRepo(["bare"]) });
+    expect(await service.sync(bare.id)).toBeNull();
+    await expect(service.push(bare.id)).rejects.toThrow(InvalidRepoError);
+  });
+
+  it("refuses a diverged main and leaves the remote alone", async () => {
+    cloneWithOrigin();
+    const repo = await service.add({ path });
+    const other = join(root, "other");
+    git(root, "clone", "--quiet", origin, other);
+    configure(other);
+    const remoteSha = commit(other, "theirs.txt");
+    git(other, "push", "--quiet", "origin", "main");
+    git(path, "fetch", "--quiet", "origin");
+    commit(path, "ours.txt");
+
+    expect(await service.sync(repo.id)).toEqual({ branch: "main", ahead: 1, behind: 1 });
+    await expect(service.push(repo.id)).rejects.toThrow("pull first");
+    expect(out(origin, "rev-parse", "refs/heads/main")).toBe(remoteSha);
+  });
+
+  it("reports git's refusal as a push error", async () => {
+    cloneWithOrigin();
+    const repo = await service.add({ path });
+    writeFileSync(join(origin, "hooks", "pre-receive"), "#!/bin/sh\necho nope >&2\nexit 1\n", {
+      mode: 0o755,
+    });
+    commit(path, "a.txt");
+
+    const error = await service.push(repo.id).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(RepoPushError);
+    expect((error as Error).message).toContain("nope");
+  });
+
+  it("tracks the configured main branch", async () => {
+    cloneWithOrigin("trunk");
+    const tokens = createConnectionTokens({
+      store: createMemorySecretStore(),
+      connections: r.connections,
+      env: {},
+    });
+    const connections = createConnectionService({ connections: r.connections, tokens });
+    const trunk = createRepoService({ repos: r.repos, connections, mainBranch: "trunk" });
+    const repo = await trunk.add({ path });
+    const sha = commit(path, "a.txt");
+
+    expect(await trunk.sync(repo.id)).toEqual({ branch: "trunk", ahead: 1, behind: 0 });
+    await trunk.push(repo.id);
+    expect(out(origin, "rev-parse", "refs/heads/trunk")).toBe(sha);
   });
 });

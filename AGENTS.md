@@ -65,7 +65,8 @@ This file plus the code are the design reference. User-facing docs are in [`READ
 
 - Bind only to 127.0.0.1.
 - Tokens live in the OS keychain or `BLACKWALL_TOKEN_*` env vars. They are never sent to the browser or stored in SQLite.
-- Agents never push, and `main` is never pushed.
+- Agents never push. `main` is pushed only when the user clicks Push on a repo's Backlog and confirms it; the pipeline never pushes it.
+  - The Backlog header shows "Push N commits to main" when local `main` is ahead of `origin/main`. It only ever pushes `main`, never fetches and never forces (`RepoService.push`, outside `GitService`).
 
 ## Task workflow
 

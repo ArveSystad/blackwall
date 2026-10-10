@@ -3,6 +3,7 @@ import {
   ApiError,
   getBacklogRunner,
   getQuota,
+  getRepoSync,
   getRoleDefaults,
   getSettings,
   getDeliveryPlan,
@@ -53,6 +54,11 @@ export const queryKeys = {
   backlogs: ["backlog"] as const,
   backlog: (repoId: string) => ["backlog", repoId] as const,
   backlogRunner: (repoId: string) => ["backlog", repoId, "runner"] as const,
+  /**
+   * Local main vs origin/main. Under the backlog prefix so `backlog.changed` and
+   * finished tasks (which may have merged into main) refresh it.
+   */
+  repoSync: (repoId: string) => ["backlog", repoId, "sync"] as const,
   quota: ["quota"] as const,
 };
 
@@ -132,6 +138,14 @@ export const backlogRunnerQuery = (repoId: string) =>
   queryOptions({
     queryKey: queryKeys.backlogRunner(repoId),
     queryFn: () => getBacklogRunner(repoId),
+  });
+
+/** Also re-read on window focus, since main may have been pushed from a terminal. */
+export const repoSyncQuery = (repoId: string) =>
+  queryOptions({
+    queryKey: queryKeys.repoSync(repoId),
+    queryFn: () => getRepoSync(repoId),
+    refetchOnWindowFocus: "always",
   });
 
 /** Written in place by `quota.changed`. */

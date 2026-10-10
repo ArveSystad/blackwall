@@ -6,7 +6,7 @@ import { ErrorText } from "./ui/field";
 import { Kbd } from "./ui/kbd";
 
 /**
- * Asks before a destructive action. Esc cancels; Enter confirms, since the
+ * Asks before a destructive or outbound action. Esc cancels; Enter confirms, since the
  * confirm button has focus. A failed action keeps the dialog open with its error.
  */
 export function ConfirmDialog({
@@ -15,12 +15,18 @@ export function ConfirmDialog({
   confirmLabel,
   onConfirm,
   onClose,
+  confirmVariant = "destructive",
+  onCloseAutoFocus,
 }: {
   title: string;
   children: ReactNode;
   confirmLabel: string;
   onConfirm: () => Promise<unknown>;
   onClose: () => void;
+  /** `default` for actions that aren't irreversible, like a push. */
+  confirmVariant?: "destructive" | "default";
+  /** Where focus goes on close; by default it returns to the trigger. */
+  onCloseAutoFocus?: (event: Event) => void;
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +45,7 @@ export function ConfirmDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-[420px]">
+      <DialogContent className="max-w-[420px]" onCloseAutoFocus={onCloseAutoFocus}>
         <div className="flex flex-col gap-2 px-5 pt-[18px] pb-4">
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription className="m-0 text-pretty">{children}</DialogDescription>
@@ -49,7 +55,12 @@ export function ConfirmDialog({
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button autoFocus variant="destructive" disabled={pending} onClick={() => void confirm()}>
+          <Button
+            autoFocus
+            variant={confirmVariant}
+            disabled={pending}
+            onClick={() => void confirm()}
+          >
             {pending ? "Working…" : confirmLabel}
             <Kbd aria-hidden="true">↵</Kbd>
           </Button>

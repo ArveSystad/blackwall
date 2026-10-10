@@ -12,6 +12,7 @@ import {
   MissingCredentialError,
   RepoInUseError,
   RepoNotFoundError,
+  RepoPushError,
   SecretStoreError,
   StaleRepoError,
   TaskNotFoundError,
@@ -74,7 +75,7 @@ export function errorResponse(error: unknown, c: Context) {
   if (error instanceof RepoInUseError || error instanceof TaskStateError) {
     return c.json({ error: error.message }, 409);
   }
-  if (error instanceof DeliveryError) {
+  if (error instanceof DeliveryError || error instanceof RepoPushError) {
     // Git's or the host's own message; GitHub and Jira errors never carry the token.
     return c.json({ error: error.message }, 502);
   }

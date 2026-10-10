@@ -24,6 +24,7 @@ import {
   repoBacklogRunnerSchema,
   repoScanResultSchema,
   repoSchema,
+  repoSyncSchema,
   repoViewSchema,
   runSchema,
   staleRepoSchema,
@@ -42,6 +43,7 @@ import {
   type CliStatus,
   type ConnectionInput,
   type ConnectionTestResult,
+  type RepoSync,
   type ConnectionView,
   type DeliveryPlan,
   type Finding,
@@ -307,6 +309,16 @@ export function deleteRepo(id: string): Promise<void> {
 /** Re-reads the repo's origin remote and its connection; a missing folder is a `StaleRepoError`. */
 export function refreshRepo(id: string): Promise<Repo> {
   return request(`${at("/api/repos", id)}/refresh`, repoSchema, { method: "POST" });
+}
+
+/** Local main vs origin/main as of the last fetch; `null` without both refs. */
+export function getRepoSync(id: string): Promise<RepoSync | null> {
+  return request(`${at("/api/repos", id)}/sync`, repoSyncSchema.nullable());
+}
+
+/** Pushes the repo's local main to origin (the user confirmed); returns the fresh status. */
+export function pushRepo(id: string): Promise<RepoSync | null> {
+  return request(`${at("/api/repos", id)}/push`, repoSyncSchema.nullable(), { method: "POST" });
 }
 
 /** Check commands suggested from the repo's build files; a missing folder is a `StaleRepoError`. */
