@@ -32,7 +32,7 @@ export const MISSING_CREDENTIAL_STATUS = 409;
 export const missingCredentialSchema = z.object({
   error: z.literal("MissingCredential"),
   kind: connectionKindSchema,
-  /** Host the action targets, e.g. `jbf.ghe.com` or `acme.atlassian.net`. */
+  /** Host the action targets, e.g. `acme.ghe.com` or `acme.atlassian.net`. */
   host: z.string().min(1),
   /** The host's connection when it exists but has no token; `null` when there is no connection. */
   connectionId: z.string().nullable(),

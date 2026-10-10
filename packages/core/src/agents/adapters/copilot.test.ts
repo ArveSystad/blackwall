@@ -228,10 +228,10 @@ describe("copilotArgs", () => {
 
 describe("copilotEnv", () => {
   it("adds the connection's token and host", () => {
-    expect(copilotEnv({ host: "jbf.ghe.com", token: "t0k" }, { PATH: "p" })).toEqual({
+    expect(copilotEnv({ host: "acme.ghe.com", token: "t0k" }, { PATH: "p" })).toEqual({
       PATH: "p",
       COPILOT_GITHUB_TOKEN: "t0k",
-      COPILOT_GH_HOST: "jbf.ghe.com",
+      COPILOT_GH_HOST: "acme.ghe.com",
     });
   });
 
@@ -295,12 +295,12 @@ describe("createCopilotAdapter", () => {
     const adapter = createCopilotAdapter({
       command: process.execPath,
       commandArgs: [fakeCli, "copilot-echo"],
-      auth: { host: "jbf.ghe.com", token: "t0k" },
+      auth: { host: "acme.ghe.com", token: "t0k" },
     });
     const events = await collect(adapter.run({ cwd, prompt: "x", permissions: readOnly }));
     expect(events).toContainEqual({
       type: "message",
-      text: JSON.stringify({ token: "t0k", host: "jbf.ghe.com" }),
+      text: JSON.stringify({ token: "t0k", host: "acme.ghe.com" }),
     });
   });
 

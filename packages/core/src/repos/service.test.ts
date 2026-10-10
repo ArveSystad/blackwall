@@ -56,18 +56,18 @@ function gitRepo(segments: string[], remote?: string): string {
 describe("repo service", () => {
   it("registers a repo with its origin, connection and suggested checks", async () => {
     const connection = r.connections.create({
-      name: "jbf.ghe.com",
+      name: "acme.ghe.com",
       kind: "github",
-      baseUrl: "https://jbf.ghe.com",
+      baseUrl: "https://acme.ghe.com",
     });
-    const path = gitRepo(["app"], "git@jbf.ghe.com:team/app.git");
+    const path = gitRepo(["app"], "git@acme.ghe.com:team/app.git");
     writeFileSync(join(path, "package.json"), JSON.stringify({ scripts: { test: "vitest" } }));
 
     const repo = await service.add({ path });
     expect(repo).toMatchObject({
       path,
       name: "app",
-      remoteUrl: "git@jbf.ghe.com:team/app.git",
+      remoteUrl: "git@acme.ghe.com:team/app.git",
       connectionId: connection.id,
       checkCommands: ["npm run test"],
       defaultCli: "claude",

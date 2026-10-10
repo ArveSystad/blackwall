@@ -20,9 +20,9 @@ const TOKEN = "ghp_secret_token";
 
 const ghe: Connection = {
   id: "g1",
-  name: "jbf",
+  name: "acme",
   kind: "github",
-  baseUrl: "https://jbf.ghe.com",
+  baseUrl: "https://acme.ghe.com",
   authMeta: {},
   tokenSet: true,
 } as Connection;
@@ -47,7 +47,7 @@ const prTask = (connectionId: string | null) =>
     title: "Round invoice totals once",
     origin: {
       kind: "github-pr",
-      url: "https://jbf.ghe.com/acme/shop/pull/42",
+      url: "https://acme.ghe.com/acme/shop/pull/42",
       owner: "acme",
       repo: "shop",
       number: 42,
@@ -71,7 +71,7 @@ function fakeGitHub(headRepo = "acme/shop") {
       return Promise.resolve(
         json({
           number: 42,
-          html_url: "https://jbf.ghe.com/acme/shop/pull/42",
+          html_url: "https://acme.ghe.com/acme/shop/pull/42",
           title: "Round invoice totals once",
           body: "Fixes rounding.",
           state: "open",
@@ -92,10 +92,10 @@ describe("createGitHubOrigin", () => {
     expect(await github.branchFor(prTask(null))).toBe("fix/abc-123-rounding");
     expect(list.requireCredential).toHaveBeenCalledWith({
       kind: "github",
-      remote: "https://jbf.ghe.com/acme/shop/pull/42",
+      remote: "https://acme.ghe.com/acme/shop/pull/42",
     });
     const [url, init] = fetchImpl.mock.calls[0]!;
-    expect(String(url)).toBe("https://api.jbf.ghe.com/repos/acme/shop/pulls/42");
+    expect(String(url)).toBe("https://api.acme.ghe.com/repos/acme/shop/pulls/42");
     expect(new Headers(init?.headers).get("authorization")).toBe(`token ${TOKEN}`);
   });
 
@@ -129,7 +129,7 @@ describe("createGitHubOrigin", () => {
 
 const issueOrigin = {
   kind: "github-issue" as const,
-  url: "https://jbf.ghe.com/acme/shop/issues/7",
+  url: "https://acme.ghe.com/acme/shop/issues/7",
   owner: "acme",
   repo: "shop",
   number: 7,
@@ -152,14 +152,14 @@ function fakeIssues(labels: string[] = []) {
     if (init?.method === "POST") {
       writes.push({ path, body: JSON.parse(String(init.body)) });
       return Promise.resolve(
-        json({ id: 1, html_url: "https://jbf.ghe.com/acme/shop/issues/7#issuecomment-1" }, 201),
+        json({ id: 1, html_url: "https://acme.ghe.com/acme/shop/issues/7#issuecomment-1" }, 201),
       );
     }
     if (path === "/repos/acme/shop/issues/7") {
       return Promise.resolve(
         json({
           number: 7,
-          html_url: "https://jbf.ghe.com/acme/shop/issues/7",
+          html_url: "https://acme.ghe.com/acme/shop/issues/7",
           title: "Export drops the last row",
           body: "The CSV misses a line.",
           state: "open",
@@ -207,7 +207,7 @@ describe("GitHub issue origin", () => {
       connections: connections([ghe]),
       fetch: fakeIssues().fetchImpl,
     });
-    const pr = { ...issueOrigin, url: "https://jbf.ghe.com/acme/shop/issues/42", number: 42 };
+    const pr = { ...issueOrigin, url: "https://acme.ghe.com/acme/shop/issues/42", number: 42 };
     await expect(github.titleFor(pr)).rejects.toThrow(
       "acme/shop#42 is a pull request; use the GitHub PR origin",
     );
@@ -220,7 +220,7 @@ describe("GitHub issue origin", () => {
     const { fetchImpl, writes } = fakeIssues();
     const github = createGitHubOrigin({ connections: connections([ghe]), fetch: fetchImpl });
     expect(await github.commentOnIssue(issueTask(), "Plan approved.")).toEqual({
-      url: "https://jbf.ghe.com/acme/shop/issues/7#issuecomment-1",
+      url: "https://acme.ghe.com/acme/shop/issues/7#issuecomment-1",
     });
     await github.commentOnIssue(issueOrigin, "Work started.");
     expect(writes).toEqual([
@@ -239,7 +239,7 @@ describe("GitHub issue origin", () => {
   it("surfaces a missing token so the token modal can ask for one", async () => {
     const list = connections([ghe]);
     list.requireCredential.mockRejectedValue(
-      new MissingCredentialError("github", "jbf.ghe.com", null),
+      new MissingCredentialError("github", "acme.ghe.com", null),
     );
     const github = createGitHubOrigin({ connections: list, fetch: fakeIssues().fetchImpl });
     await expect(github.titleFor(issueOrigin)).rejects.toThrow(MissingCredentialError);
@@ -251,14 +251,14 @@ describe("issueRoutes", () => {
   const routes = issueRoutes({
     connections: {
       resolve: ({ kind, ...target }) =>
-        kind === "github" && "remote" in target && target.remote.includes("jbf.ghe.com")
+        kind === "github" && "remote" in target && target.remote.includes("acme.ghe.com")
           ? ghe
           : undefined,
     },
     repos: {
       list: () =>
         [
-          { id: "r1", remoteUrl: "git@jbf.ghe.com:acme/shop.git" },
+          { id: "r1", remoteUrl: "git@acme.ghe.com:acme/shop.git" },
           { id: "r2", remoteUrl: null },
         ] as never,
     },
@@ -271,7 +271,7 @@ describe("issueRoutes", () => {
     });
 
   it("resolves an issue link to its origin, connection and registered repo", async () => {
-    const res = await lookup("https://jbf.ghe.com/acme/shop/issues/7/");
+    const res = await lookup("https://acme.ghe.com/acme/shop/issues/7/");
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual<IssueLookup>({
       origin: { ...issueOrigin, connectionId: "g1" },
@@ -294,14 +294,14 @@ describe("pullRequestRoutes", () => {
   const routes = pullRequestRoutes({
     connections: {
       resolve: ({ kind, ...target }) =>
-        kind === "github" && "remote" in target && target.remote.includes("jbf.ghe.com")
+        kind === "github" && "remote" in target && target.remote.includes("acme.ghe.com")
           ? ghe
           : undefined,
     },
     repos: {
       list: () =>
         [
-          { id: "r1", remoteUrl: "git@jbf.ghe.com:acme/shop.git" },
+          { id: "r1", remoteUrl: "git@acme.ghe.com:acme/shop.git" },
           { id: "r2", remoteUrl: null },
         ] as never,
     },
@@ -314,12 +314,12 @@ describe("pullRequestRoutes", () => {
     });
 
   it("resolves a PR link to its origin, connection and registered repo", async () => {
-    const res = await lookup("https://jbf.ghe.com/acme/shop/pull/42/files");
+    const res = await lookup("https://acme.ghe.com/acme/shop/pull/42/files");
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual<PullRequestLookup>({
       origin: {
         kind: "github-pr",
-        url: "https://jbf.ghe.com/acme/shop/pull/42",
+        url: "https://acme.ghe.com/acme/shop/pull/42",
         owner: "acme",
         repo: "shop",
         number: 42,
@@ -355,7 +355,7 @@ describe("GitHub delivery", () => {
       if (init?.method === "POST") {
         writes.push({ path, body: JSON.parse(String(init.body)) as Record<string, unknown> });
         return Promise.resolve(
-          json({ id: 1, number: 8, html_url: `https://jbf.ghe.com/created${path}` }, 201),
+          json({ id: 1, number: 8, html_url: `https://acme.ghe.com/created${path}` }, 201),
         );
       }
       if (accept.includes("diff")) {
@@ -401,7 +401,7 @@ describe("GitHub delivery", () => {
       finding("On the diff", "src/a.ts", 2),
       finding("Elsewhere", "src/b.ts", 9),
     ]);
-    expect(url).toBe("https://jbf.ghe.com/created/repos/acme/shop/pulls/42/reviews");
+    expect(url).toBe("https://acme.ghe.com/created/repos/acme/shop/pulls/42/reviews");
     expect(writes).toHaveLength(1);
     const body = writes[0]!.body;
     expect(body).toMatchObject({ event: "COMMENT", commit_id: "head-sha" });
@@ -422,7 +422,7 @@ describe("GitHub delivery", () => {
     await github.commentOnPullRequest(prTask("g1"), "Summary");
     const { url } = await github.openPullRequest({
       kind: "open-pr",
-      host: "jbf.ghe.com",
+      host: "acme.ghe.com",
       owner: "acme",
       repo: "shop",
       head: "feature/abc-1-x",
@@ -430,10 +430,10 @@ describe("GitHub delivery", () => {
       title: "ABC-1 X",
       body: "Summary",
     });
-    expect(url).toBe("https://jbf.ghe.com/created/repos/acme/shop/pulls");
+    expect(url).toBe("https://acme.ghe.com/created/repos/acme/shop/pulls");
     expect(list.requireCredential).toHaveBeenCalledWith({
       kind: "github",
-      remote: "https://jbf.ghe.com/acme/shop.git",
+      remote: "https://acme.ghe.com/acme/shop.git",
     });
     expect(writes).toEqual([
       {

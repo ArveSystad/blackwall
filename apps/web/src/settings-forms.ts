@@ -226,7 +226,7 @@ export function connectionBaseUrl(host: string): string {
     url = undefined;
   }
   if (!url || (url.protocol !== "http:" && url.protocol !== "https:") || url.hostname === "") {
-    throw new Error("Enter a host such as github.com or a URL such as https://jbf.ghe.com");
+    throw new Error("Enter a host such as github.com or a URL such as https://acme.ghe.com");
   }
   return url.origin;
 }

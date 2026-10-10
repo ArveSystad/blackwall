@@ -11,16 +11,16 @@ import { missingTokenCopy } from "./missing-token";
 const missing: MissingCredential = {
   error: "MissingCredential",
   kind: "github",
-  host: "jbf.ghe.com",
+  host: "acme.ghe.com",
   connectionId: null,
-  message: "No GitHub connection for jbf.ghe.com",
+  message: "No GitHub connection for acme.ghe.com",
 };
 
 const view = {
   id: "c1",
-  name: "jbf.ghe.com",
+  name: "acme.ghe.com",
   kind: "github",
-  baseUrl: "https://jbf.ghe.com",
+  baseUrl: "https://acme.ghe.com",
   authMeta: {},
   createdAt: "2026-10-08T10:00:00.000Z",
   updatedAt: "2026-10-08T10:00:00.000Z",
@@ -50,7 +50,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe("API errors", () => {
   it("turns a MissingCredential response into MissingCredentialError", async () => {
     stubFetch(json(409, missing));
-    const error = await resolveConnection({ kind: "github", remote: "git@jbf.ghe.com:a/b" }).catch(
+    const error = await resolveConnection({ kind: "github", remote: "git@acme.ghe.com:a/b" }).catch(
       (e: unknown) => e,
     );
     expect(error).toBeInstanceOf(MissingCredentialError);
@@ -92,9 +92,9 @@ describe("saveCredential", () => {
     await saveCredential(missing, { token: "t0k" });
     expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/connections");
     expect(sentBody(fetchMock)).toEqual({
-      name: "jbf.ghe.com",
+      name: "acme.ghe.com",
       kind: "github",
-      baseUrl: "https://jbf.ghe.com",
+      baseUrl: "https://acme.ghe.com",
       authMeta: {},
       token: "t0k",
     });
@@ -118,9 +118,9 @@ describe("saveCredential", () => {
   });
 
   it("surfaces the server's error message", async () => {
-    stubFetch(json(400, { error: "A connection named jbf.ghe.com already exists" }));
+    stubFetch(json(400, { error: "A connection named acme.ghe.com already exists" }));
     await expect(saveCredential(missing, { token: "t0k" })).rejects.toThrow(
-      "A connection named jbf.ghe.com already exists",
+      "A connection named acme.ghe.com already exists",
     );
   });
 });
@@ -129,13 +129,13 @@ describe("missingTokenCopy", () => {
   it("describes a GHE.com host with the repo scope and a token link", () => {
     const copy = missingTokenCopy(missing);
     expect(copy).toMatchObject({
-      title: "Token needed for jbf.ghe.com",
+      title: "Token needed for acme.ghe.com",
       hostType: "GitHub Enterprise Cloud",
       scope: "repo",
       needsEmail: false,
     });
     expect(copy.createLink.href).toBe(
-      "https://jbf.ghe.com/settings/tokens/new?scopes=repo&description=blackwall",
+      "https://acme.ghe.com/settings/tokens/new?scopes=repo&description=blackwall",
     );
   });
 

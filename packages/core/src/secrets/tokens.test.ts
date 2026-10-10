@@ -21,15 +21,15 @@ afterEach(() => opened.close());
 
 function seed() {
   return r.connections.create({
-    name: "jbf.ghe.com",
+    name: "acme.ghe.com",
     kind: "github",
-    baseUrl: "https://jbf.ghe.com",
+    baseUrl: "https://acme.ghe.com",
   });
 }
 
 describe("tokenEnvVar", () => {
   it.each([
-    ["jbf.ghe.com", "BLACKWALL_TOKEN_JBF_GHE_COM"],
+    ["acme.ghe.com", "BLACKWALL_TOKEN_ACME_GHE_COM"],
     ["My Jira", "BLACKWALL_TOKEN_MY_JIRA"],
     ["-github-", "BLACKWALL_TOKEN_GITHUB"],
   ])("maps %j to %s", (name, envVar) => {
@@ -60,7 +60,7 @@ describe("connection tokens", () => {
 
   it("prefers the env override over the keychain", async () => {
     const conn = seed();
-    const env = { BLACKWALL_TOKEN_JBF_GHE_COM: " from-env " };
+    const env = { BLACKWALL_TOKEN_ACME_GHE_COM: " from-env " };
     const tokens = createConnectionTokens({ store, connections: r.connections, env });
 
     expect(tokens.source(conn)).toBe("env");
@@ -73,7 +73,7 @@ describe("connection tokens", () => {
 
   it("ignores an empty env override", async () => {
     const conn = seed();
-    const env = { BLACKWALL_TOKEN_JBF_GHE_COM: "  " };
+    const env = { BLACKWALL_TOKEN_ACME_GHE_COM: "  " };
     const tokens = createConnectionTokens({ store, connections: r.connections, env });
     expect(tokens.hasToken(conn)).toBe(false);
   });

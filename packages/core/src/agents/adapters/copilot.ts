@@ -184,7 +184,7 @@ export function copilotArgs({
 
 /** A GitHub connection's host and token, for Copilot authentication. */
 export interface CopilotAuth {
-  /** e.g. `github.com` or `jbf.ghe.com`. */
+  /** e.g. `github.com` or `acme.ghe.com`. */
   host: string;
   token: string;
 }

@@ -1,8 +1,8 @@
 {
-  "url": "https://jbf.ghe.com/api/v3/repos/acme/shop/issues/7",
+  "url": "https://acme.ghe.com/api/v3/repos/acme/shop/issues/7",
   "id": 1800000007,
   "number": 7,
-  "html_url": "https://jbf.ghe.com/acme/shop/issues/7",
+  "html_url": "https://acme.ghe.com/acme/shop/issues/7",
   "state": "open",
   "title": "Invoice export drops the last row",
   "body": "The CSV export misses the final invoice line.\n\n## Steps\n\n1. Export March\n2. Count rows",

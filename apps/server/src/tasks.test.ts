@@ -513,8 +513,8 @@ describe("new tasks", () => {
 
   it("starts a task from the role defaults of its repo's CLI", async () => {
     const copilotRepo = repositories.repos.create({
-      path: "/code/jbf",
-      name: "jbf",
+      path: "/code/ghe",
+      name: "ghe",
       defaultCli: "copilot",
     });
     const res = await request("/api/tasks", {

@@ -4,11 +4,11 @@ import { gitRemoteHost, normalizeBaseUrl, urlHost } from "./hosts.js";
 describe("gitRemoteHost", () => {
   it.each([
     ["https://github.com/acme/web.git", "github.com"],
-    ["https://user@JBF.ghe.com/platform/gateway", "jbf.ghe.com"],
+    ["https://user@ACME.ghe.com/platform/gateway", "acme.ghe.com"],
     ["https://ghe.local:8443/a/b.git", "ghe.local:8443"],
     ["git@github.com:acme/web.git", "github.com"],
-    ["jbf.ghe.com:platform/gateway.git", "jbf.ghe.com"],
-    ["ssh://git@jbf.ghe.com:2222/platform/gateway.git", "jbf.ghe.com"],
+    ["acme.ghe.com:platform/gateway.git", "acme.ghe.com"],
+    ["ssh://git@acme.ghe.com:2222/platform/gateway.git", "acme.ghe.com"],
     ["ssh://git@ssh.github.com:443/acme/web.git", "github.com"],
     ["  git@github.com:acme/web.git\n", "github.com"],
   ])("reads the host of %j", (remote, host) => {
@@ -32,7 +32,7 @@ describe("urlHost", () => {
 
 describe("normalizeBaseUrl", () => {
   it("keeps only the origin", () => {
-    expect(normalizeBaseUrl("https://JBF.ghe.com/")).toBe("https://jbf.ghe.com");
+    expect(normalizeBaseUrl("https://ACME.ghe.com/")).toBe("https://acme.ghe.com");
     expect(normalizeBaseUrl("https://acme.atlassian.net/jira/your-work")).toBe(
       "https://acme.atlassian.net",
     );

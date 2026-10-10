@@ -246,7 +246,7 @@ describe("CLI twins on an existing install", () => {
 
   it("moves unpromoted backlog items onto their repo's CLI once", () => {
     const id = oldInstall();
-    const jbf = r.repos.create({ path: "/code/jbf", name: "jbf", defaultCli: "copilot" });
+    const ghe = r.repos.create({ path: "/code/ghe", name: "ghe", defaultCli: "copilot" });
     const app = r.repos.create({ path: "/code/app", name: "app" });
     const mixed: RoleAgents = {
       planner: id["Planner"],
@@ -260,20 +260,20 @@ describe("CLI twins on an existing install", () => {
         agents: mixed,
         status,
       }).id;
-    const jbfWaiting = item(jbf.id, "a", "waiting");
-    const jbfPaused = item(jbf.id, "b", "paused");
-    const jbfPromoted = item(jbf.id, "c", "promoted");
+    const gheWaiting = item(ghe.id, "a", "waiting");
+    const ghePaused = item(ghe.id, "b", "paused");
+    const ghePromoted = item(ghe.id, "c", "promoted");
     const appWaiting = item(app.id, "d", "waiting");
     service.seed();
 
     const agentsOf = (itemId: string) => r.backlogItems.get(itemId)!.agents;
-    expect(agentsOf(jbfWaiting)).toEqual({
+    expect(agentsOf(gheWaiting)).toEqual({
       planner: byName("Planner (Copilot)").id,
       codeReviewers: [id["Security reviewer"], byName("UX/design reviewer (Copilot)").id],
     });
-    expect(clisOf(agentsOf(jbfPaused))).toEqual(new Set(["copilot"]));
+    expect(clisOf(agentsOf(ghePaused))).toEqual(new Set(["copilot"]));
     expect(clisOf(agentsOf(appWaiting))).toEqual(new Set(["claude"]));
-    expect(agentsOf(jbfPromoted)).toEqual(mixed);
+    expect(agentsOf(ghePromoted)).toEqual(mixed);
 
     r.backlogItems.update(appWaiting, { agents: mixed });
     service.seed();

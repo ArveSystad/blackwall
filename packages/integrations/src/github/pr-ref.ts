@@ -1,6 +1,6 @@
 /** A pull request as the user pasted it: `https://<host>/<owner>/<repo>/pull/<n>`. */
 export interface PullRequestRef {
-  /** Web origin of the GitHub host, e.g. `https://github.com` or `https://jbf.ghe.com`. */
+  /** Web origin of the GitHub host, e.g. `https://github.com` or `https://acme.ghe.com`. */
   baseUrl: string;
   /** Lower-case host (with a non-default port), for matching connections and remotes. */
   host: string;
@@ -13,7 +13,7 @@ export interface PullRequestRef {
 
 /** An issue as the user pasted it: `https://<host>/<owner>/<repo>/issues/<n>`. */
 export interface IssueRef {
-  /** Web origin of the GitHub host, e.g. `https://github.com` or `https://jbf.ghe.com`. */
+  /** Web origin of the GitHub host, e.g. `https://github.com` or `https://acme.ghe.com`. */
   baseUrl: string;
   /** Lower-case host (with a non-default port), for matching connections and remotes. */
   host: string;

@@ -262,9 +262,9 @@ describe("settings and inputs", () => {
 describe("connectionViewSchema", () => {
   const view = {
     id: "c1",
-    name: "jbf.ghe.com",
+    name: "acme.ghe.com",
     kind: "github",
-    baseUrl: "https://jbf.ghe.com",
+    baseUrl: "https://acme.ghe.com",
     authMeta: {},
     hasToken: true,
     createdAt: now,

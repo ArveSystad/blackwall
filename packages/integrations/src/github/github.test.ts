@@ -21,7 +21,7 @@ const jiraFixtureText = (name: string) =>
   readFileSync(new URL(`../jira/fixtures/${name}`, import.meta.url), "utf8");
 
 const TOKEN = "ghp_secret_token";
-const GHE = { baseUrl: "https://jbf.ghe.com", token: TOKEN };
+const GHE = { baseUrl: "https://acme.ghe.com", token: TOKEN };
 const PR = { owner: "acme", repo: "shop", number: 42 };
 const ISSUE = { owner: "acme", repo: "shop", number: 7 };
 const DIFF = fixtureText("pr-42.diff");
@@ -74,13 +74,13 @@ describe("parsePullRequestUrl", () => {
       number: 42,
       url: "https://github.com/acme/shop/pull/42",
     });
-    expect(parsePullRequestUrl("https://JBF.ghe.com/team/api/pull/7/files#diff-1")).toEqual({
-      baseUrl: "https://jbf.ghe.com",
-      host: "jbf.ghe.com",
+    expect(parsePullRequestUrl("https://ACME.ghe.com/team/api/pull/7/files#diff-1")).toEqual({
+      baseUrl: "https://acme.ghe.com",
+      host: "acme.ghe.com",
       owner: "team",
       repo: "api",
       number: 7,
-      url: "https://jbf.ghe.com/team/api/pull/7",
+      url: "https://acme.ghe.com/team/api/pull/7",
     });
     expect(parsePullRequestUrl("https://www.github.com/acme/shop/pulls/3")?.host).toBe(
       "github.com",
@@ -105,13 +105,13 @@ describe("parseIssueUrl", () => {
       number: 7,
       url: "https://github.com/acme/shop/issues/7",
     });
-    expect(parseIssueUrl("https://JBF.ghe.com/team/api/issues/12#issuecomment-1")).toEqual({
-      baseUrl: "https://jbf.ghe.com",
-      host: "jbf.ghe.com",
+    expect(parseIssueUrl("https://ACME.ghe.com/team/api/issues/12#issuecomment-1")).toEqual({
+      baseUrl: "https://acme.ghe.com",
+      host: "acme.ghe.com",
       owner: "team",
       repo: "api",
       number: 12,
-      url: "https://jbf.ghe.com/team/api/issues/12",
+      url: "https://acme.ghe.com/team/api/issues/12",
     });
     expect(parseIssueUrl("https://www.github.com/acme/shop/issues/3")?.url).toBe(
       "https://github.com/acme/shop/issues/3",
@@ -135,8 +135,8 @@ describe("repo matching", () => {
       owner: "acme",
       repo: "shop",
     });
-    expect(parseRemoteSlug("git@jbf.ghe.com:team/api.git")).toEqual({
-      host: "jbf.ghe.com",
+    expect(parseRemoteSlug("git@acme.ghe.com:team/api.git")).toEqual({
+      host: "acme.ghe.com",
       owner: "team",
       repo: "api",
     });
@@ -149,12 +149,12 @@ describe("repo matching", () => {
     const repos = [
       { id: "r1", remoteUrl: null },
       { id: "r2", remoteUrl: "git@github.com:acme/shop-legacy.git" },
-      { id: "r3", remoteUrl: "https://jbf.ghe.com/acme/shop.git" },
+      { id: "r3", remoteUrl: "https://acme.ghe.com/acme/shop.git" },
       { id: "r4", remoteUrl: "git@github.com:acme/shop.git" },
     ];
     expect(findRepoForPullRequest(repos, ref)?.id).toBe("r4");
     expect(findRepoForPullRequest(repos.slice(0, 3), ref)).toBeUndefined();
-    const issue = parseIssueUrl("https://jbf.ghe.com/ACME/shop/issues/7");
+    const issue = parseIssueUrl("https://acme.ghe.com/ACME/shop/issues/7");
     expect(issue && findRepoForPullRequest(repos, issue)?.id).toBe("r3");
   });
 });
@@ -228,10 +228,10 @@ describe("informFromPullRequest", () => {
     expect(result.jira?.issue.key).toBe("ABC-123");
     expect(result.markdown).toBe(fixtureText("pr-42.context.md").trimEnd());
 
-    const github = fetchImpl.mock.calls.filter(([url]) => String(url).includes("jbf.ghe.com"));
+    const github = fetchImpl.mock.calls.filter(([url]) => String(url).includes("acme.ghe.com"));
     expect(github.length).toBe(5);
     for (const [url, init] of github) {
-      expect(String(url)).toMatch(/^https:\/\/api\.jbf\.ghe\.com\/repos\/acme\/shop\//);
+      expect(String(url)).toMatch(/^https:\/\/api\.acme\.ghe\.com\/repos\/acme\/shop\//);
       expect(new Headers(init?.headers).get("authorization")).toBe(`token ${TOKEN}`);
     }
   });
@@ -277,7 +277,7 @@ describe("GitHub issues", () => {
       owner: "acme",
       repo: "shop",
       number: 7,
-      url: "https://jbf.ghe.com/acme/shop/issues/7",
+      url: "https://acme.ghe.com/acme/shop/issues/7",
       title: "Invoice export drops the last row",
       description:
         "The CSV export misses the final invoice line.\n\n## Steps\n\n1. Export March\n2. Count rows",
@@ -298,7 +298,7 @@ describe("GitHub issues", () => {
     expect(renderIssue(context)).toBe(
       [
         "## Issue acme/shop#7: Invoice export drops the last row",
-        "State: open · Author: grace · Labels: Bug, billing\nhttps://jbf.ghe.com/acme/shop/issues/7",
+        "State: open · Author: grace · Labels: Bug, billing\nhttps://acme.ghe.com/acme/shop/issues/7",
         "### Description\n\nThe CSV export misses the final invoice line.\n\n##### Steps\n\n1. Export March\n2. Count rows",
         "### Conversation\n\n**ada** (2026-10-02):\n\nSeen it too, only for months with 31 days.",
       ].join("\n\n"),
@@ -350,11 +350,11 @@ describe("GitHub client", () => {
 
   it("posts a PR comment on the issue endpoint", async () => {
     const fetchImpl = vi.fn<typeof fetch>(() =>
-      Promise.resolve(json('{"id":1,"html_url":"https://jbf.ghe.com/x"}', 201)),
+      Promise.resolve(json('{"id":1,"html_url":"https://acme.ghe.com/x"}', 201)),
     );
     await createGitHubClient(GHE, fetchImpl).addComment(PR, "Done.");
     const [url, init] = fetchImpl.mock.calls[0]!;
-    expect(String(url)).toBe("https://api.jbf.ghe.com/repos/acme/shop/issues/42/comments");
+    expect(String(url)).toBe("https://api.acme.ghe.com/repos/acme/shop/issues/42/comments");
     expect(JSON.parse(String(init?.body))).toEqual({ body: "Done." });
   });
 
@@ -379,11 +379,11 @@ describe("GitHub client", () => {
     const error = await client.getPullRequest(PR).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(GitHubError);
     expect((error as GitHubError).status).toBe(401);
-    expect((error as GitHubError).message).toBe("jbf.ghe.com: token rejected");
+    expect((error as GitHubError).message).toBe("acme.ghe.com: token rejected");
 
     const offline = createGitHubClient(GHE, () => Promise.reject(new TypeError("fetch failed")));
     const down = await offline.getPullRequest(PR).catch((e: unknown) => e);
-    expect((down as GitHubError).message).toBe("jbf.ghe.com: could not connect");
+    expect((down as GitHubError).message).toBe("acme.ghe.com: could not connect");
     expect(String((down as GitHubError).message)).not.toContain(TOKEN);
 
     const denied = createGitHubClient(GHE, () =>
@@ -392,7 +392,7 @@ describe("GitHub client", () => {
     const forbidden = await denied.getPullRequest(PR).catch((e: unknown) => e);
     expect((forbidden as GitHubError).status).toBe(403);
     expect((forbidden as GitHubError).message).toBe(
-      "jbf.ghe.com: access denied: Resource not accessible by personal access token",
+      "acme.ghe.com: access denied: Resource not accessible by personal access token",
     );
 
     const sso = createGitHubClient(GHE, () =>
@@ -401,14 +401,14 @@ describe("GitHub client", () => {
           status: 403,
           headers: {
             "content-type": "application/json",
-            "x-github-sso": "required; url=https://jbf.ghe.com/orgs/acme/sso",
+            "x-github-sso": "required; url=https://acme.ghe.com/orgs/acme/sso",
           },
         }),
       ),
     );
     const ssoError = (await sso.getPullRequest(PR).catch((e: unknown) => e)) as GitHubError;
     expect(ssoError.message).toBe(
-      "jbf.ghe.com: token not authorised for SAML SSO (authorise it under Settings → Tokens → Configure SSO)",
+      "acme.ghe.com: token not authorised for SAML SSO (authorise it under Settings → Tokens → Configure SSO)",
     );
   });
 });
@@ -521,14 +521,14 @@ describe("review payloads", () => {
 
   it("posts the payload as a review", async () => {
     const fetchImpl = vi.fn<typeof fetch>(() =>
-      Promise.resolve(json('{"id":77,"html_url":"https://jbf.ghe.com/acme/shop/pull/42"}')),
+      Promise.resolve(json('{"id":77,"html_url":"https://acme.ghe.com/acme/shop/pull/42"}')),
     );
     const payload = buildReviewPayload([], { diff: DIFF });
     expect(payload).toEqual({ event: "COMMENT", body: "No findings.", comments: [] });
     const posted = await createGitHubClient(GHE, fetchImpl).createReview(PR, payload);
     expect(posted.id).toBe(77);
     const [url, init] = fetchImpl.mock.calls[0]!;
-    expect(String(url)).toBe("https://api.jbf.ghe.com/repos/acme/shop/pulls/42/reviews");
+    expect(String(url)).toBe("https://api.acme.ghe.com/repos/acme/shop/pulls/42/reviews");
     expect(JSON.parse(String(init?.body))).toEqual(payload);
   });
 });

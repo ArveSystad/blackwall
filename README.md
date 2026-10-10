@@ -65,7 +65,7 @@ pnpm start          # builds if output is missing or stale, starts on 127.0.0.1 
 
 The server binds to `127.0.0.1` only and prints a URL containing a per-launch token. Data lives in `~/.blackwall/`; `BLACKWALL_HOME` overrides the data directory. Personal access tokens are stored in your OS keychain, never in the database.
 
-For headless use, set `BLACKWALL_TOKEN_<CONNECTION>` to override a connection's keychain token. The suffix is the connection name in upper case with other characters replaced by `_`, so `jbf.ghe.com` reads `BLACKWALL_TOKEN_JBF_GHE_COM`.
+For headless use, set `BLACKWALL_TOKEN_<CONNECTION>` to override a connection's keychain token. The suffix is the connection name in upper case with other characters replaced by `_`, so `acme.ghe.com` reads `BLACKWALL_TOKEN_ACME_GHE_COM`.
 
 ## Quick-launch function
 

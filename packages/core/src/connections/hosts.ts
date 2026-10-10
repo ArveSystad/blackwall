@@ -1,6 +1,6 @@
 /**
  * Host of an http(s) URL in lower case, with a non-default port kept
- * (`https://JBF.ghe.com/x` → `jbf.ghe.com`). `undefined` when it is not a URL.
+ * (`https://ACME.ghe.com/x` → `acme.ghe.com`). `undefined` when it is not a URL.
  */
 export function urlHost(url: string): string | undefined {
   try {

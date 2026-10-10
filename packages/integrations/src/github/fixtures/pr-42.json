@@ -1,8 +1,8 @@
 {
-  "url": "https://jbf.ghe.com/api/v3/repos/acme/shop/pulls/42",
+  "url": "https://acme.ghe.com/api/v3/repos/acme/shop/pulls/42",
   "id": 1900000042,
   "number": 42,
-  "html_url": "https://jbf.ghe.com/acme/shop/pull/42",
+  "html_url": "https://acme.ghe.com/acme/shop/pull/42",
   "state": "open",
   "draft": false,
   "merged": false,

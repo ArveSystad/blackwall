@@ -6,7 +6,7 @@ export const TOKEN_ENV_PREFIX = "BLACKWALL_TOKEN_";
 
 /**
  * Env var that overrides the keychain token for a connection, derived from its
- * name: `jbf.ghe.com` → `BLACKWALL_TOKEN_JBF_GHE_COM`.
+ * name: `acme.ghe.com` → `BLACKWALL_TOKEN_ACME_GHE_COM`.
  */
 export function tokenEnvVar(connectionName: string): string {
   const suffix = connectionName

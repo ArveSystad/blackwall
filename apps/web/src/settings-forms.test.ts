@@ -153,11 +153,11 @@ describe("tags", () => {
 });
 
 describe("connection drafts", () => {
-  const hostError = "Enter a host such as github.com or a URL such as https://jbf.ghe.com";
+  const hostError = "Enter a host such as github.com or a URL such as https://acme.ghe.com";
 
   it("normalises a host or URL to its origin", () => {
     expect(connectionBaseUrl("github.com")).toBe("https://github.com");
-    expect(connectionBaseUrl(" https://jbf.ghe.com/foo/ ")).toBe("https://jbf.ghe.com");
+    expect(connectionBaseUrl(" https://acme.ghe.com/foo/ ")).toBe("https://acme.ghe.com");
     expect(connectionBaseUrl("http://localhost:8080/x")).toBe("http://localhost:8080");
   });
 
@@ -168,7 +168,7 @@ describe("connection drafts", () => {
   });
 
   it("reads the draft's host without throwing", () => {
-    expect(connectionDraftHost("https://jbf.ghe.com/foo/")).toBe("jbf.ghe.com");
+    expect(connectionDraftHost("https://acme.ghe.com/foo/")).toBe("acme.ghe.com");
     expect(connectionDraftHost("github.com")).toBe("github.com");
     expect(connectionDraftHost("http://localhost:8080/x")).toBe("localhost:8080");
     for (const host of ["", "not a host", "http://"]) {
@@ -182,11 +182,11 @@ describe("connection drafts", () => {
   });
 
   it("names the connection after the host when the name is blank", () => {
-    const draft = { ...emptyConnectionDraft(), host: "https://jbf.ghe.com/foo/", name: "  " };
+    const draft = { ...emptyConnectionDraft(), host: "https://acme.ghe.com/foo/", name: "  " };
     expect(connectionDraftToInput(draft)).toEqual({
-      name: "jbf.ghe.com",
+      name: "acme.ghe.com",
       kind: "github",
-      baseUrl: "https://jbf.ghe.com",
+      baseUrl: "https://acme.ghe.com",
       authMeta: {},
     });
     expect(connectionDraftToInput({ ...draft, name: " Work GHE " }).name).toBe("Work GHE");

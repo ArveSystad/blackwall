@@ -35,9 +35,9 @@ beforeEach(() => {
   opened = openDatabase(":memory:");
   const repositories = createRepositories(opened.db);
   connectionId = repositories.connections.create({
-    name: "jbf.ghe.com",
+    name: "acme.ghe.com",
     kind: "github",
-    baseUrl: "https://jbf.ghe.com",
+    baseUrl: "https://acme.ghe.com",
   }).id;
   store = createMemorySecretStore();
   const connectionTokens = createConnectionTokens({
@@ -168,7 +168,7 @@ describe("connection CRUD", () => {
 
     const duplicate = await request("/api/connections", {
       method: "POST",
-      body: { name: "ghe again", kind: "github", baseUrl: "https://JBF.ghe.com/" },
+      body: { name: "ghe again", kind: "github", baseUrl: "https://ACME.ghe.com/" },
     });
     expect(duplicate.status).toBe(400);
   });
@@ -193,7 +193,7 @@ describe("test connection", () => {
     expect(res.status).toBe(MISSING_CREDENTIAL_STATUS);
     expect(missingCredentialSchema.parse(await res.json())).toMatchObject({
       kind: "github",
-      host: "jbf.ghe.com",
+      host: "acme.ghe.com",
       connectionId,
     });
     expect(tested).toEqual([]);
@@ -204,11 +204,11 @@ describe("resolve", () => {
   const resolve = (body: unknown) => request("/api/connections/resolve", { method: "POST", body });
 
   it("resolves a git remote to its GitHub connection once a token is saved", async () => {
-    const remote = "git@jbf.ghe.com:platform/gateway.git";
+    const remote = "git@acme.ghe.com:platform/gateway.git";
     const missing = await resolve({ kind: "github", remote });
     expect(missing.status).toBe(MISSING_CREDENTIAL_STATUS);
     expect(missingCredentialSchema.parse(await missing.json())).toMatchObject({
-      host: "jbf.ghe.com",
+      host: "acme.ghe.com",
       connectionId,
     });
 

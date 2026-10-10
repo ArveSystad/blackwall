@@ -4,7 +4,7 @@ import type { ReviewPayload } from "./review.js";
 
 /** A GitHub.com or GHE host and a personal access token for it. */
 export interface GitHubCredentials {
-  /** Web URL of the host (`https://github.com`, `https://jbf.ghe.com`); the API root is derived. */
+  /** Web URL of the host (`https://github.com`, `https://acme.ghe.com`); the API root is derived. */
   baseUrl: string;
   token: string;
 }

@@ -119,7 +119,7 @@ describe("openDatabase", () => {
     expect(r.runs.listByTask("t1")).toHaveLength(1);
   });
 
-  it("switches repos with a jbf.ghe.com origin to Copilot when adding the default CLI", () => {
+  it("switches repos with a GHE (*.ghe.com) origin to Copilot when adding the default CLI", () => {
     // Build a database at the migration before the repo default CLI.
     const oldMigrations = join(dir, "..", "migrations-0005");
     cpSync(MIGRATIONS_DIR, oldMigrations, { recursive: true });
@@ -139,8 +139,9 @@ describe("openDatabase", () => {
     const insert = sqlite.prepare(
       "insert into repos (id, path, name, remote_url, created_at, updated_at) values (?, ?, ?, ?, 0, 0)",
     );
-    insert.run("https", "/code/a", "a", "https://jbf.ghe.com/o/r.git");
-    insert.run("ssh", "/code/b", "b", "git@JBF.ghe.com:o/r.git");
+    insert.run("https", "/code/a", "a", "https://acme.ghe.com/o/r.git");
+    insert.run("ssh", "/code/b", "b", "git@ACME.ghe.com:o/r.git");
+    insert.run("tenant", "/code/e", "e", "ssh://git@other.ghe.com:2222/o/r.git");
     insert.run("github", "/code/c", "c", "https://github.com/o/r.git");
     insert.run("none", "/code/d", "d", null);
     sqlite.close();
@@ -150,6 +151,7 @@ describe("openDatabase", () => {
     const cli = (id: string) => r.repos.get(id)?.defaultCli;
     expect(cli("https")).toBe("copilot");
     expect(cli("ssh")).toBe("copilot");
+    expect(cli("tenant")).toBe("copilot");
     expect(cli("github")).toBe("claude");
     expect(cli("none")).toBe("claude");
   });
