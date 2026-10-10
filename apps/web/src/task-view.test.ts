@@ -18,6 +18,7 @@ import {
   deliveryActionCopy,
   deliveryConflicts,
   diffStat,
+  effectiveModel,
   findingLocation,
   gateBanner,
   isBlocking,
@@ -26,6 +27,8 @@ import {
   latestHarnessStep,
   latestStep,
   looksLikeDiff,
+  MODEL_SOURCE_HINTS,
+  modelTitle,
   openQuestionCount,
   parseDiff,
   originUrl,
@@ -179,6 +182,58 @@ describe("stepModel", () => {
   it("ignores non-string and empty models", () => {
     expect(stepModel([event(1, "session", { sessionId: "x", model: 42 })])).toBeNull();
     expect(stepModel([event(1, "session", { sessionId: "x", model: "" })])).toBeNull();
+  });
+});
+
+describe("effectiveModel", () => {
+  const reported = [event(1, "session", { sessionId: "x", model: "claude-opus-5-5" })];
+
+  it("prefers the model the CLI reported over the agent's", () => {
+    expect(effectiveModel(reported, { model: "sonnet" })).toEqual({
+      model: "claude-opus-5-5",
+      source: "reported",
+    });
+  });
+
+  it("falls back to the agent's model before the CLI reports one", () => {
+    expect(effectiveModel([event(1, "session", { sessionId: "x" })], { model: "sonnet" })).toEqual({
+      model: "sonnet",
+      source: "configured",
+    });
+  });
+
+  it("is Auto when neither names a model", () => {
+    const auto = { model: null, source: "default" };
+    expect(effectiveModel([], { model: null })).toEqual(auto);
+    expect(effectiveModel(undefined, undefined)).toEqual(auto);
+    expect(effectiveModel(undefined, { model: "sonnet" })).toEqual({
+      model: "sonnet",
+      source: "configured",
+    });
+  });
+
+  it("uses the later session event that carries a model", () => {
+    expect(
+      effectiveModel(
+        [
+          event(1, "session", { sessionId: "x" }),
+          event(2, "session", { sessionId: "x", model: "claude-sonnet-5.5" }),
+        ],
+        { model: null },
+      ),
+    ).toEqual({ model: "claude-sonnet-5.5", source: "reported" });
+  });
+});
+
+describe("modelTitle", () => {
+  it("prepends the model to the source hint", () => {
+    expect(modelTitle({ model: "sonnet", source: "configured" })).toBe(
+      `sonnet — ${MODEL_SOURCE_HINTS.configured}`,
+    );
+  });
+
+  it("is only the hint for Auto", () => {
+    expect(modelTitle({ model: null, source: "default" })).toBe(MODEL_SOURCE_HINTS.default);
   });
 });
 

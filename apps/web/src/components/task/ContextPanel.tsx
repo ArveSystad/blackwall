@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { useAgentLibrary } from "../../hooks";
 import { reposQuery } from "../../query";
 import { ROLE_LABELS, TRIAGE_OPTIONS, roleIds } from "../../settings-forms";
+import { AUTO_MODEL_LABEL } from "../../task-view";
 import { AgentTile } from "../AgentTile";
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -84,8 +85,10 @@ export function ContextPanel({ task }: { task: Task }) {
                         <span key={id} className="inline-flex items-center gap-1.5">
                           {agent && <AgentTile cli={agent.cli} />}
                           {agent?.name ?? "Deleted agent"}
-                          {agent?.model && (
-                            <span className="mono text-[11px] text-faint">{agent.model}</span>
+                          {agent && (
+                            <span className="mono text-[11px] text-faint">
+                              {agent.model ?? AUTO_MODEL_LABEL}
+                            </span>
                           )}
                         </span>
                       );

@@ -9,7 +9,13 @@ import { useAgentLibrary, useNow } from "../hooks";
 import { originKey, relativeTime } from "../inbox";
 import { cn } from "../lib/utils";
 import { activeAgentsQuery, reposQuery, stepEventsQuery, tasksQuery } from "../query";
-import { STAGE_LABELS, currentActivity, stepModel } from "../task-view";
+import {
+  AUTO_MODEL_LABEL,
+  STAGE_LABELS,
+  currentActivity,
+  effectiveModel,
+  modelTitle,
+} from "../task-view";
 
 /** One running agent: who it is, the model, the stage, what it is doing now and the task it works on. */
 function AgentRow({
@@ -27,7 +33,7 @@ function AgentRow({
 }) {
   const events = useQuery(stepEventsQuery(step.taskId, step.id));
   const activity = events.data ? currentActivity(events.data) : null;
-  const model = (events.data && stepModel(events.data)) ?? agent?.model ?? null;
+  const { model, source } = effectiveModel(events.data, agent);
   const since = step.startedAt ?? step.createdAt;
   return (
     <li className="flex flex-col gap-1.5 rounded-lg border border-border bg-card px-3.5 py-2.5">
@@ -40,9 +46,9 @@ function AgentRow({
         <span className="font-medium text-foreground-strong">{agent?.name ?? "Deleted agent"}</span>
         <span
           className="mono max-w-40 truncate text-label text-muted-foreground"
-          title={model ?? undefined}
+          title={modelTitle({ model, source })}
         >
-          {model ?? "CLI default"}
+          {model ?? AUTO_MODEL_LABEL}
         </span>
         <span className="label text-cyan">{STAGE_LABELS[step.stage]}</span>
         {step.round > 0 && <span className="mono text-label text-faint">round {step.round}</span>}

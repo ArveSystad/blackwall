@@ -3,6 +3,7 @@ import {
   JIRA_KEY_PATTERN,
   TASK_STOPPED_ERROR,
   type ConnectionView,
+  type Agent,
   type AgentCli,
   type DeliveryAction,
   type Finding,
@@ -402,6 +403,45 @@ export function stepModel(events: readonly StepEvent[]): string | null {
     if (typeof payload.model === "string" && payload.model) return payload.model;
   }
   return null;
+}
+
+/** Where a step's displayed model comes from. */
+export type ModelSource = "reported" | "configured" | "default";
+
+/** Shown when neither the CLI nor the agent names a model. */
+export const AUTO_MODEL_LABEL = "Auto";
+
+export const MODEL_SOURCE_HINTS: Record<ModelSource, string> = {
+  reported: "Reported by the CLI for this run.",
+  configured: "Set on the agent; the CLI hasn't reported it yet.",
+  default:
+    "Auto: no model set on the agent, so the CLI uses its own default. Choose one in Settings → Agent library.",
+};
+
+/**
+ * The model a step runs on: the one the CLI reported, else the agent's
+ * configured model, else null (the CLI's own default).
+ */
+export function effectiveModel(
+  events: readonly StepEvent[] | undefined,
+  agent: Pick<Agent, "model"> | undefined,
+): { model: string | null; source: ModelSource } {
+  const reported = events ? stepModel(events) : null;
+  if (reported) return { model: reported, source: "reported" };
+  if (agent?.model) return { model: agent.model, source: "configured" };
+  return { model: null, source: "default" };
+}
+
+/** Tooltip for a displayed model: the id, if any, and where it comes from. */
+export function modelTitle({
+  model,
+  source,
+}: {
+  model: string | null;
+  source: ModelSource;
+}): string {
+  const hint = MODEL_SOURCE_HINTS[source];
+  return model ? `${model} — ${hint}` : hint;
 }
 
 // ---------------------------------------------------------------------------

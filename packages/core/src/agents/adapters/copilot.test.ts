@@ -48,8 +48,9 @@ async function collect(iterable: AsyncIterable<AgentEvent>): Promise<AgentEvent[
 
 /** What two CLIs should agree on for the same task: event kinds, texts and outcome. */
 function normalized(events: AgentEvent[]) {
+  const firstSession = events.find((e) => e.type === "session");
   return events
-    .filter((e) => e.type !== "usage")
+    .filter((e) => e.type !== "usage" && (e.type !== "session" || e === firstSession))
     .map((e) => {
       switch (e.type) {
         case "session":
@@ -69,10 +70,15 @@ function normalized(events: AgentEvent[]) {
 }
 
 describe("createCopilotParser", () => {
-  it("normalizes a run with a tool call and drops ephemeral events", () => {
+  it("normalizes a run with a tool call, reporting the model from session.tools_updated", () => {
     const events = parse("tool-call.jsonl", "acc98e74-9ed5-4338-8941-64ce5b9fcd79");
     expect(events).toEqual([
       { type: "session", sessionId: "acc98e74-9ed5-4338-8941-64ce5b9fcd79" },
+      {
+        type: "session",
+        sessionId: "acc98e74-9ed5-4338-8941-64ce5b9fcd79",
+        model: "claude-sonnet-5.5",
+      },
       {
         type: "tool-call-start",
         id: "toolu_011R3FAVheTWyCQc6XYKQREV",
@@ -121,12 +127,23 @@ describe("createCopilotParser", () => {
     expect(events.filter((e) => e.type === "message")).toHaveLength(1);
   });
 
-  it("announces the session once, with the requested model", () => {
-    const parser = createCopilotParser({ sessionId: "s-1", model: "gpt-5" });
-    expect(parser.push('{"type":"session.tools_updated","data":{},"ephemeral":true}')).toEqual([
-      { type: "session", sessionId: "s-1", model: "gpt-5" },
+  it("announces the session once, then the model the CLI reports", () => {
+    const parser = createCopilotParser({ sessionId: "s-1" });
+    const toolsUpdated =
+      '{"type":"session.tools_updated","data":{"model":"claude-sonnet-5.5"},"ephemeral":true}';
+    expect(parser.push(toolsUpdated)).toEqual([
+      { type: "session", sessionId: "s-1" },
+      { type: "session", sessionId: "s-1", model: "claude-sonnet-5.5" },
     ]);
+    expect(parser.push(toolsUpdated)).toEqual([]);
     expect(parser.push('{"type":"assistant.turn_start","data":{}}')).toEqual([]);
+  });
+
+  it("announces the session without a model when none is reported", () => {
+    const parser = createCopilotParser({ sessionId: "s-1" });
+    expect(parser.push('{"type":"session.tools_updated","data":{},"ephemeral":true}')).toEqual([
+      { type: "session", sessionId: "s-1" },
+    ]);
   });
 
   it("reports a non-zero exit code as an error", () => {
@@ -250,7 +267,9 @@ describe("createCopilotAdapter", () => {
     });
     const events = await collect(run);
     const session = events[0];
-    expect(session).toMatchObject({ type: "session", model: "gpt-5" });
+    expect(session).toMatchObject({ type: "session" });
+    expect(session).not.toHaveProperty("model");
+    expect(events[1]).toMatchObject({ type: "session", model: "fake" });
     const messages = events.flatMap((e) => (e.type === "message" ? [e.text] : []));
     expect(messages[0]).toBe(`<role>\nYou plan.\n</role>\n\n${prompt}`);
     const result = await run.result;
@@ -305,7 +324,8 @@ describe("createCopilotAdapter", () => {
       jsonSchema: schema,
     });
     const events = await collect(run);
-    expect(events.filter((e) => e.type === "session")).toHaveLength(1);
+    // The announcement and the reported model, both from the first run; the repair adds none.
+    expect(events.filter((e) => e.type === "session")).toHaveLength(2);
     expect(events.filter((e) => e.type === "result")).toHaveLength(1);
     await expect(run.result).resolves.toMatchObject({ structured: { sum: 4, color: "blue" } });
   });

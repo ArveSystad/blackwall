@@ -24,6 +24,21 @@ export const CLI_NAMES: Record<AgentCli, string> = {
   copilot: "Copilot CLI",
 };
 
+/** Common models per CLI for the agent editor's picker; any other id goes in Custom. */
+export const MODEL_PRESETS: Record<AgentCli, readonly string[]> = {
+  claude: ["opus", "sonnet", "haiku"],
+  copilot: ["claude-sonnet-5.5", "claude-opus-5.5", "claude-haiku-5.5", "gpt-5"],
+};
+
+export function isPresetModel(cli: AgentCli, model: string): boolean {
+  return MODEL_PRESETS[cli].includes(model);
+}
+
+/** The model to keep when the CLI changes: a preset the new CLI lacks falls back to Auto (""). */
+export function modelForCli(model: string, from: AgentCli, to: AgentCli): string {
+  return isPresetModel(from, model) && !isPresetModel(to, model) ? "" : model;
+}
+
 /** Stages an agent can be eligible for, with their labels. Checks run in the harness, not an agent. */
 export const AGENT_STAGES = [
   { stage: "inform", label: "Inform" },
@@ -78,7 +93,7 @@ export function agentDraft(agent?: Agent): AgentDraft {
   };
 }
 
-/** The draft as an API body. A blank model means the CLI's default. */
+/** The draft as an API body. A blank model means Auto: the CLI's own default. */
 export function draftToInput(draft: AgentDraft): Required<AgentInput> {
   const allow = parseLines(draft.allow);
   const deny = parseLines(draft.deny);

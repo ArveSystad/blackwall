@@ -1,20 +1,24 @@
 import { stagePermissionProfile, type Agent } from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { createAgent, deleteAgent, updateAgent } from "../../api";
 import { cn } from "../../lib/utils";
 import { agentsQuery, queryKeys } from "../../query";
 import {
   AGENT_STAGES,
   CLI_NAMES,
+  MODEL_PRESETS,
   agentDraft,
   copyName,
   draftToInput,
   errorMessage,
+  isPresetModel,
+  modelForCli,
   sameDraft,
   stageLabel,
   type AgentDraft,
 } from "../../settings-forms";
+import { AUTO_MODEL_LABEL } from "../../task-view";
 import { AgentTile } from "../AgentTile";
 import {
   editorBody,
@@ -34,11 +38,15 @@ import { CheckChip } from "../ui/check-chip";
 import { Tag } from "../ui/chip";
 import { Field, fieldLabel } from "../ui/field";
 import { Input } from "../ui/input";
+import { Select } from "../ui/select";
 import { Textarea } from "../ui/textarea";
 import { Empty, SaveBar, SectionHeader } from "./parts";
 
 /** What the editor shows: an existing agent, or a new one (blank or a duplicate). */
 type Editing = { kind: "agent"; id: string } | { kind: "new"; draft: AgentDraft; key: string };
+
+/** The Model select's value for Custom…; never stored. */
+const CUSTOM_MODEL = "__custom";
 
 const newDraft = (draft: AgentDraft): Editing => ({ kind: "new", draft, key: crypto.randomUUID() });
 
@@ -71,8 +79,12 @@ function AgentEditor({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Picked Custom… but not yet typed an id outside the presets.
+  const [customPicked, setCustomPicked] = useState(false);
+  const customId = useId();
 
   const isNew = agent === undefined;
+  const customMode = customPicked || (draft.model !== "" && !isPresetModel(draft.cli, draft.model));
   const dirty = isNew || !sameDraft(draft, initial);
   const set = <K extends keyof AgentDraft>(key: K, value: AgentDraft[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));
@@ -143,7 +155,9 @@ function AgentEditor({
             <Segmented
               label="CLI"
               value={draft.cli}
-              onChange={(cli) => set("cli", cli)}
+              onChange={(cli) =>
+                setDraft((d) => ({ ...d, cli, model: modelForCli(d.model, d.cli, cli) }))
+              }
               options={(["claude", "copilot"] as const).map((cli) => ({
                 value: cli,
                 label: (
@@ -156,13 +170,38 @@ function AgentEditor({
             />
           </Field>
           <Field label="Model">
-            <Input
-              className="mono"
-              spellCheck={false}
-              placeholder="CLI default"
-              value={draft.model}
-              onChange={(event) => set("model", event.target.value)}
-            />
+            <Select
+              value={customMode ? CUSTOM_MODEL : draft.model}
+              onChange={(event) => {
+                const value = event.target.value;
+                if (value === CUSTOM_MODEL) {
+                  setCustomPicked(true);
+                  if (isPresetModel(draft.cli, draft.model)) set("model", "");
+                } else {
+                  setCustomPicked(false);
+                  set("model", value);
+                }
+              }}
+            >
+              <option value="">Auto (CLI default)</option>
+              {MODEL_PRESETS[draft.cli].map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+              <option value={CUSTOM_MODEL}>Custom…</option>
+            </Select>
+            {customMode && (
+              <Input
+                id={customId}
+                className="mono"
+                spellCheck={false}
+                placeholder="Model id"
+                aria-label="Custom model"
+                value={draft.model}
+                onChange={(event) => set("model", event.target.value)}
+              />
+            )}
           </Field>
           <Field label="Permission profile" group>
             <span className="flex h-[30px] items-center text-muted-foreground">
@@ -240,6 +279,7 @@ function AgentEditor({
         onDiscard={() => {
           if (isNew) onDeleted();
           else setDraft(initial);
+          setCustomPicked(false);
           setError(null);
         }}
         onSave={() => void save()}
@@ -336,7 +376,9 @@ export function AgentLibrary() {
                         {agent.name}
                       </span>
                       <span className="flex-1" />
-                      <span className="mono text-label text-faint">{agent.model ?? "default"}</span>
+                      <span className="mono text-label text-faint">
+                        {agent.model ?? AUTO_MODEL_LABEL}
+                      </span>
                     </span>
                     <span className="flex flex-wrap gap-1 pl-6">
                       {agent.eligibleStages.length === 0 ? (

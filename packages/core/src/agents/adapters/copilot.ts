@@ -16,8 +16,6 @@ const str = (value: unknown): string | undefined => (typeof value === "string" ?
 export interface CopilotParserOptions {
   /** Session id the run was started with (`--session-id`/`--resume`), announced up front. */
   sessionId?: string;
-  /** Model requested with `--model`, until the CLI reports the one it uses. */
-  model?: string;
   /** Clock for relative "try again in …" reset times. */
   now?: () => Date;
 }
@@ -25,17 +23,18 @@ export interface CopilotParserOptions {
 /**
  * Parses `copilot --output-format json` output (JSONL session events).
  * Ephemeral events (deltas, model-call and MCP bookkeeping, reasoning) are
- * dropped. The final text is the last non-empty `assistant.message`; the
+ * dropped, except `session.tools_updated`: it names the model the CLI actually
+ * uses, reported as a second `session` event whenever it changes. The final text is the last non-empty `assistant.message`; the
  * closing `result` event carries the session id and exit code. Copilot reports
  * premium requests rather than tokens, so usage stays zero. A `session.error`
  * about a rate limit or exhausted quota also yields a `rate-limit` event.
  */
 export function createCopilotParser({
   sessionId,
-  model,
   now = () => new Date(),
 }: CopilotParserOptions = {}): LineParser {
   let announced = false;
+  let reportedModel: string | undefined;
   let text = "";
   let sessionError: string | undefined;
   let limited = false;
@@ -55,7 +54,14 @@ export function createCopilotParser({
       // The id is fixed by the arguments, so it can be persisted before any output matters.
       if (!announced && sessionId) {
         announced = true;
-        events.push({ type: "session", sessionId, ...(model ? { model } : {}) });
+        events.push({ type: "session", sessionId });
+      }
+      if (parsed.type === "session.tools_updated" && sessionId) {
+        const model = str(data.model);
+        if (model && model !== reportedModel) {
+          reportedModel = model;
+          events.push({ type: "session", sessionId, model });
+        }
       }
       if (parsed.ephemeral === true) return events;
 
@@ -238,7 +244,7 @@ export function createCopilotAdapter({
           cwd,
           input,
           signal,
-          parser: createCopilotParser({ sessionId, ...(model ? { model } : {}) }),
+          parser: createCopilotParser({ sessionId }),
           detectRateLimit: (text) => copilotRateLimitFromText(text),
           ...(runEnv ? { env: runEnv } : {}),
         });

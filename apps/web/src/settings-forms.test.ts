@@ -10,6 +10,8 @@ import {
   copyName,
   draftToInput,
   emptyConnectionDraft,
+  isPresetModel,
+  modelForCli,
   moveItem,
   parseCap,
   parseLines,
@@ -78,6 +80,23 @@ describe("helpers", () => {
     const implementer = { ...agent, id: "a2", eligibleStages: ["implement" as const] };
     expect(agentsForRole([agent, implementer], "codeReviewers")).toEqual([agent]);
     expect(agentsForRole([agent, implementer], "implementer")).toEqual([implementer]);
+  });
+});
+
+describe("model presets", () => {
+  it("knows each CLI's presets", () => {
+    expect(isPresetModel("claude", "sonnet")).toBe(true);
+    expect(isPresetModel("copilot", "sonnet")).toBe(false);
+    expect(isPresetModel("claude", "")).toBe(false);
+  });
+
+  it("resets a preset the other CLI lacks to Auto", () => {
+    expect(modelForCli("sonnet", "claude", "copilot")).toBe("");
+  });
+
+  it("keeps a custom model and Auto across a CLI switch", () => {
+    expect(modelForCli("my-model", "claude", "copilot")).toBe("my-model");
+    expect(modelForCli("", "copilot", "claude")).toBe("");
   });
 });
 

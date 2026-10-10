@@ -4,7 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import { useAgentLibrary } from "../../hooks";
 import { cn } from "../../lib/utils";
 import { stepEventsQuery } from "../../query";
-import { STAGE_LABELS, buildTranscript, defaultStepId, type TranscriptItem } from "../../task-view";
+import {
+  AUTO_MODEL_LABEL,
+  STAGE_LABELS,
+  buildTranscript,
+  defaultStepId,
+  effectiveModel,
+  modelTitle,
+  type TranscriptItem,
+} from "../../task-view";
 import { AgentTile } from "../AgentTile";
 import { panelNote } from "../classes";
 import { CheckIcon, FailedIcon, PausedIcon } from "../icons";
@@ -98,6 +106,7 @@ function Transcript({
   const live = step.status === "running";
   const end = useRef<HTMLDivElement>(null);
   const count = events.data?.length ?? 0;
+  const model = effectiveModel(events.data, agent);
 
   useEffect(() => {
     if (follow && live) end.current?.scrollIntoView({ block: "end" });
@@ -114,7 +123,12 @@ function Transcript({
           <>
             <AgentTile cli={agent.cli} size="lg" />
             <span className="font-semibold text-foreground-strong">{agent.name}</span>
-            {agent.model && <span className="mono text-[11px] text-faint">{agent.model}</span>}
+            <span
+              className="mono max-w-40 truncate text-[11px] text-faint"
+              title={modelTitle(model)}
+            >
+              {model.model ?? AUTO_MODEL_LABEL}
+            </span>
           </>
         ) : (
           <span className="font-semibold text-foreground-strong">
