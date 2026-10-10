@@ -495,7 +495,7 @@ function Section({
   );
 }
 
-/** Title-only free text items, added with Enter. */
+/** Title-only Blackwall items, added with Enter. */
 function QuickAdd({ repoId, onError }: { repoId: string; onError: (error: string) => void }) {
   const queryClient = useQueryClient();
   const [text, setText] = useState("");
@@ -523,7 +523,7 @@ function QuickAdd({ repoId, onError }: { repoId: string; onError: (error: string
         <PlusIcon />
       </span>
       <Input
-        aria-label="Quick add a free text item"
+        aria-label="Quick add a Blackwall item"
         placeholder="Quick add: describe the work, Enter adds it at normal priority"
         className="pr-10 pl-[30px]"
         maxLength={120}

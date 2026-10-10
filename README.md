@@ -1,6 +1,6 @@
 # blackwall
 
-A local, single-user, browser-based control room for coding agents. blackwall runs Claude Code and GitHub Copilot CLI as headless subprocesses against your own git repos. Tasks come from Jira Cloud issues, GitHub/GHE pull requests (Work on PR or Review PR), GitHub/GHE issues or free text.
+A local, single-user, browser-based control room for coding agents. blackwall runs Claude Code and GitHub Copilot CLI as headless subprocesses against your own git repos. Tasks come from Jira Cloud issues, GitHub/GHE pull requests (Work on PR or Review PR), GitHub/GHE issues or Blackwall tasks you write yourself (free text).
 
 Agents from different vendors plan, grill, implement and review each other's work. You approve the plan, answer the questions only you can answer, triage the findings and confirm every outbound action.
 

@@ -8,7 +8,7 @@ export const TASK_TYPES = [
   { key: "jira", label: "Jira issue", origin: "jira-issue" },
   { key: "pr-work", label: "Work on PR", origin: "github-pr" },
   { key: "pr-review", label: "Review PR", origin: "github-pr" },
-  { key: "free-text", label: "Free text", origin: "free-text" },
+  { key: "free-text", label: "Blackwall", origin: "free-text" },
 ] as const satisfies readonly { key: string; label: string; origin: OriginKind }[];
 
 export type TaskTypeKey = (typeof TASK_TYPES)[number]["key"];

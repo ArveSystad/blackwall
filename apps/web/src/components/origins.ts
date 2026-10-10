@@ -5,7 +5,7 @@ import { IssueIcon, JiraIcon, PullRequestIcon, TextIcon } from "./icons";
 export const ORIGINS: { value: OriginKind; label: string; icon: typeof JiraIcon }[] = [
   { value: "jira-issue", label: "Jira issue", icon: JiraIcon },
   { value: "github-pr", label: "GitHub PR", icon: PullRequestIcon },
-  { value: "free-text", label: "Free text", icon: TextIcon },
+  { value: "free-text", label: "Blackwall", icon: TextIcon },
   { value: "github-issue", label: "GitHub issue", icon: IssueIcon },
 ];
 

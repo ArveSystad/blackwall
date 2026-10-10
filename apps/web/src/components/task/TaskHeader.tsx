@@ -83,7 +83,7 @@ export function TaskHeader({
           : "Pull request"
         : task.origin.kind === "github-issue"
           ? "GitHub issue"
-          : "Free text";
+          : "Blackwall";
   const inReview = task.stage === "code-review" || task.stage === "aggregate";
 
   async function setArchived(archived: boolean) {

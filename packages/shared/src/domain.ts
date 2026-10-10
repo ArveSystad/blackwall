@@ -640,7 +640,7 @@ const backlogDependsOn = z
   .array(id)
   .refine((ids) => new Set(ids).size === ids.length, "Each dependency can be listed only once");
 
-/** Free text items need a description, like free text tasks. */
+/** Blackwall items need a description, like Blackwall tasks. */
 function checkBacklogText(
   value: { origin: TaskOrigin; freeText: string },
   ctx: z.RefinementCtx,

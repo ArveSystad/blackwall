@@ -100,14 +100,14 @@
   </div>
 </aside>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"selected":{"editor":"enum","options":["ABC-482","ABC-490","ABC-471","ABC-475","acme/web#911","ABC-468","free text","none"],"default":"ABC-482"},"empty":{"editor":"boolean","default":false},"$preview":{"width":352,"height":900}}'>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"selected":{"editor":"enum","options":["ABC-482","ABC-490","ABC-471","ABC-475","acme/web#911","ABC-468","blackwall","none"],"default":"ABC-482"},"empty":{"editor":"boolean","default":false},"$preview":{"width":352,"height":900}}'>
 class Component extends DCLogic {
   renderVals() {
     const theme = this.props.theme ?? 'dark';
     const selected = this.props.selected ?? 'ABC-482';
     const empty = this.props.empty ?? false;
     const light = theme === 'light';
-    const boards = { 'ABC-482': 'Main', 'ABC-490': 'Grill', 'ABC-471': 'Finish', 'ABC-475': 'Running', 'ABC-468': 'Exceptions', 'free text': 'Exceptions' };
+    const boards = { 'ABC-482': 'Main', 'ABC-490': 'Grill', 'ABC-471': 'Finish', 'ABC-475': 'Running', 'ABC-468': 'Exceptions', 'blackwall': 'Exceptions' };
     const hasLight = { Main: 1, Grill: 1, Finish: 1 };
     const stages = ['Inform', 'Plan review', 'Implement', 'Checks', 'Code review', 'Finish'];
     const stColor = { needs: 'var(--st-needs)', running: 'var(--st-running)', interrupted: 'var(--st-interrupted)', failed: 'var(--st-failed)', done: 'var(--st-done)' };
@@ -120,7 +120,7 @@ class Component extends DCLogic {
       { key: 'ABC-475', kind: 'jira', title: 'Paginate audit log CSV export', repo: 'acme/api', stage: 2, st: 'running', agents: ['cc'], time: 'now' },
       { key: 'acme/web#911', kind: 'pr', title: 'Review: onboarding wizard step validation', repo: 'acme/web', stage: 4, st: 'running', agents: ['cp', 'cc'], time: '1m' },
       { key: 'ABC-468', kind: 'jira', title: 'Upgrade billing service to NServiceBus 9', repo: 'acme/billing', stage: 2, st: 'interrupted', agents: ['cc'], time: '1h' },
-      { key: 'free text', kind: 'text', title: 'Spike: replace moment with date-fns in reports', repo: 'acme/reports', stage: 3, st: 'failed', agents: ['cp'], time: '3h' },
+      { key: 'blackwall', kind: 'text', title: 'Spike: replace moment with date-fns in reports', repo: 'acme/reports', stage: 3, st: 'failed', agents: ['cp'], time: '3h' },
       { key: 'ABC-460', kind: 'jira', title: 'Hide internal fields from /v2/orders response', repo: 'acme/api', stage: 6, st: 'done', agents: ['cc', 'cp'], time: '5h' },
       { key: 'acme/infra#88', kind: 'pr', title: 'Review: bump AKS node pool to v1.31', repo: 'acme/infra', stage: 6, st: 'done', agents: ['cp'], time: 'yday' }
     ];

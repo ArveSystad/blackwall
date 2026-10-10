@@ -63,7 +63,7 @@ describe("originKey and matchesFilter", () => {
     });
     expect(originKey(jira)).toBe("ABC-482");
     expect(originKey(pr)).toBe("acme/web#911");
-    expect(originKey(makeTask())).toBe("free text");
+    expect(originKey(makeTask())).toBe("blackwall");
     const issue = makeTask({
       origin: {
         kind: "github-issue",

@@ -30,7 +30,7 @@ export const STATUS_LABELS: Record<TaskStatus, string> = {
   done: "Done",
 };
 
-/** Short origin label: Jira key, `owner/repo#42`, or "free text". */
+/** Short origin label: Jira key, `owner/repo#42`, or "blackwall". */
 export function originKey(task: Pick<Task, "origin">): string {
   const { origin } = task;
   switch (origin.kind) {
@@ -40,7 +40,7 @@ export function originKey(task: Pick<Task, "origin">): string {
     case "github-issue":
       return `${origin.owner}/${origin.repo}#${origin.number}`;
     case "free-text":
-      return "free text";
+      return "blackwall";
   }
 }
 
