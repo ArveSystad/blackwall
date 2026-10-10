@@ -39,16 +39,17 @@ describe("taskStats", () => {
       makeTask({ status: "done", origin: jira }),
       makeTask({ status: "done", origin: pr, mode: "review" }),
       makeTask({ status: "done", archivedAt: new Date(2026, 9, 9) }),
+      makeTask({ status: "done", origin: issue }),
       makeTask({ status: "running", origin: pr, mode: "work", repoId: "r2" }),
       makeTask({ status: "failed", repoId: "r3" }),
     ];
     const stats = taskStats(tasks, [], now);
-    expect(stats.resolved).toBe(3);
+    expect(stats.resolved).toBe(4);
     expect(stats.byType).toEqual({
       jira: 1,
       "pr-work": 0,
       "pr-review": 1,
-      issue: 0,
+      issue: 1,
       "free-text": 1,
     });
     expect(stats.repos).toBe(3);
