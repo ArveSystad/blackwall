@@ -18,9 +18,6 @@
     <div style="display: flex; align-items: center; gap: 8px; height: 28px">
       <svg class="i" viewBox="0 0 16 16" style="color: var(--cyan); width: 16px; height: 16px"><path d="M2 3h12M2 6.5h12M2 10h12M2 13.5h12"></path><path d="M5 3v3.5M10 6.5V10M5 10v3.5"></path></svg>
       <span class="wordmark">black<span class="w-accent">wall</span></span>
-      <sc-if value="{{hasNeeds}}" hint-placeholder-val="{{ true }}">
-        <span class="status st-needs" style="margin-left: 4px"><span class="sdot"></span>{{needsCount}} need you</span>
-      </sc-if>
       <span style="flex: 1"></span>
       <button class="btn btn-ghost btn-icon" aria-label="Settings" type="button"><svg class="i" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"></circle><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"></path></svg></button>
     </div>
@@ -149,7 +146,6 @@ class Component extends DCLogic {
     ];
     return {
       theme, empty, notEmpty: !empty, groups,
-      hasNeeds: !empty && needs.length > 0,
       needsCount: empty ? 0 : needs.length,
       runCount: empty ? 0 : running.length,
       total: empty ? 0 : tasks.length

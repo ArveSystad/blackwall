@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
 import { useAgentLibrary, useNow } from "../hooks";
-import { activeAgentsLabel, groupTasks, matchesFilter, needsYouCount } from "../inbox";
+import { activeAgentsLabel, groupTasks, matchesFilter } from "../inbox";
 import { isPlainKey, isTypingTarget, useWindowKeydown } from "../keyboard";
 import { cn } from "../lib/utils";
 import { useLiveStatus } from "../live-status";
@@ -13,7 +13,6 @@ import { EmptyState } from "./EmptyState";
 import { GearIcon, PlusIcon, SearchIcon, StatsIcon } from "./icons";
 import { NewTaskModal } from "./NewTaskModal";
 import { QuotaChip } from "./QuotaChip";
-import { StatusBadge } from "./StatusBadge";
 import { TaskCard } from "./TaskCard";
 import { ThemeToggle } from "./ThemeToggle";
 import { Button } from "./ui/button";
@@ -115,7 +114,6 @@ export function Inbox() {
   const [filter, setFilter] = useState("");
   const [creating, setCreating] = useState(false);
   const filterInput = useRef<HTMLInputElement>(null);
-  const needs = needsYouCount(tasks.data ?? []);
 
   useWindowKeydown((event) => {
     if (!isPlainKey(event) || isTypingTarget(event.target)) return;
@@ -136,11 +134,8 @@ export function Inbox() {
       <div className="flex flex-col gap-2.5 border-b border-border py-3 pr-3 pl-3.5">
         <div className="flex h-7 items-center gap-2">
           <WordmarkLink />
-          {/* At the widest the pills clip, never the buttons. */}
+          {/* At the widest the quota chip clips, never the buttons. */}
           <div className="flex min-w-0 items-center gap-2 overflow-hidden">
-            {needs > 0 && (
-              <StatusBadge status="needs-you" label={`${needs} need you`} className="ml-1" />
-            )}
             <QuotaChip />
           </div>
           <span className="flex-1" />
