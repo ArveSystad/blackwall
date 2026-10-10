@@ -83,6 +83,24 @@ export function dotPosition(taskId: string): { x: number; y: number } {
   };
 }
 
+/** Mirror --animate-pulse-running/needs in styles.css; the grid boom runs at 2× these. */
+export const PULSE_RUNNING_S = 1.6;
+export const PULSE_NEEDS_S = 1.4;
+
+/** A task's stable pulse phase, in [0, 1). */
+export function pulsePhase(taskId: string): number {
+  return fnv1a(taskId) / 0x1_0000_0000;
+}
+
+/**
+ * A task's pulse `animation-delay` in seconds, in (−period, 0]. It is shared by
+ * the task's core pulse and its boom, so tasks don't pulse in lockstep and each
+ * ring fires on its own core's beat. Negative, so nothing waits on mount.
+ */
+export function pulseDelay(taskId: string, periodS: number): number {
+  return -pulsePhase(taskId) * periodS;
+}
+
 /** Offsets 0, +step, −step, +2·step, −2·step … that keep `base + offset` within [min, max]. */
 function* offsets(base: number, min: number, max: number): Generator<number> {
   yield base;

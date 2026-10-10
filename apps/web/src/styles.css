@@ -296,6 +296,29 @@
   }
 }
 
+@keyframes bw-boom {
+  0% {
+    transform: scale(0.04);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
+@keyframes bw-ripple {
+  0% {
+    transform: scale(0.1);
+    opacity: 1;
+  }
+  60%,
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
 @keyframes bw-blink {
   0% {
     opacity: 1;
@@ -485,8 +508,85 @@
     filter: none;
   }
 
+  /* ---------- agent boom (GridAgents.tsx) ----------
+   * A ripple ring from each running or needs-you dot, and a faint, wide bloom
+   * from each such task's first dot, drawn in one layer under all dots.
+   * Boom delay = core delay (--pulse-delay, set inline). Boom period = 2 × core
+   * period (3.2s/2.8s vs 1.6s/1.4s above). Change them together.
+   */
+  .bw-boom {
+    --boom-color: var(--st-running);
+    --boom-size: 26rem;
+    position: absolute;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+  }
+
+  .bw-boom::before,
+  .bw-boom::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    border-radius: 50%;
+    opacity: 0;
+    animation-delay: var(--pulse-delay, 0s);
+  }
+
+  .bw-boom::before {
+    width: var(--boom-size);
+    height: var(--boom-size);
+    margin: calc(var(--boom-size) / -2) 0 0 calc(var(--boom-size) / -2);
+    background: radial-gradient(
+      circle,
+      color-mix(in oklab, var(--boom-color) 22%, transparent),
+      transparent 70%
+    );
+    animation-name: bw-boom;
+    animation-duration: 3.2s;
+    animation-timing-function: ease-out;
+    animation-iteration-count: infinite;
+  }
+
+  .bw-boom::after {
+    width: 72px;
+    height: 72px;
+    margin: -36px 0 0 -36px;
+    border: 1px solid var(--boom-color);
+    box-shadow: 0 0 8px color-mix(in oklab, var(--boom-color) 60%, transparent);
+    animation-name: bw-ripple;
+    animation-duration: 3.2s;
+    animation-timing-function: ease-out;
+    animation-iteration-count: infinite;
+  }
+
+  .bw-boom-needs {
+    --boom-color: var(--st-needs);
+  }
+
+  .bw-boom-needs::before,
+  .bw-boom-needs::after {
+    animation-duration: 2.8s;
+  }
+
+  /* A task's later parallel steps ring only; its first dot draws the one bloom. */
+  .bw-boom-ring::before {
+    display: none;
+  }
+
+  /* Glow is dark only: light keeps the ring and drops the bloom. */
+  :root[data-theme="light"] .bw-boom::before {
+    display: none;
+  }
+
+  :root[data-theme="light"] .bw-boom::after {
+    box-shadow: none;
+  }
+
   @media (prefers-reduced-motion: reduce) {
-    .bw-laser {
+    .bw-laser,
+    .bw-boom {
       display: none;
     }
   }

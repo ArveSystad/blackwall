@@ -5,6 +5,10 @@ import {
   dotPosition,
   gridDots,
   layoutDots,
+  PULSE_NEEDS_S,
+  PULSE_RUNNING_S,
+  pulseDelay,
+  pulsePhase,
   stageChanges,
   type GridDot,
 } from "./agent-dots";
@@ -170,5 +174,43 @@ describe("stageChanges", () => {
     expect(stageChanges(new Map([[task.id, "inform"]]), [task])).toEqual([]);
     expect(stageChanges(new Map([[task.id, "plan-review"]]), [task])).toEqual([task.id]);
     expect(stageChanges(new Map([[task.id, null]]), [task])).toEqual([task.id]);
+  });
+});
+
+describe("pulsePhase", () => {
+  it("is stable for the same id", () => {
+    expect(pulsePhase("task-a")).toBe(pulsePhase("task-a"));
+  });
+
+  it("lies in [0, 1)", () => {
+    for (let i = 0; i < 200; i++) {
+      const phase = pulsePhase(`task-${i}`);
+      expect(phase).toBeGreaterThanOrEqual(0);
+      expect(phase).toBeLessThan(1);
+    }
+  });
+
+  it("differs between ids", () => {
+    expect(pulsePhase("task-a")).not.toBe(pulsePhase("task-b"));
+  });
+});
+
+describe("pulseDelay", () => {
+  it("is the phase as a negative share of the period", () => {
+    expect(pulseDelay("task-a", PULSE_RUNNING_S)).toBe(-pulsePhase("task-a") * PULSE_RUNNING_S);
+  });
+
+  it("lies in (−period, 0]", () => {
+    for (const period of [PULSE_RUNNING_S, PULSE_NEEDS_S]) {
+      for (let i = 0; i < 200; i++) {
+        const delay = pulseDelay(`task-${i}`, period);
+        expect(delay).toBeGreaterThan(-period);
+        expect(delay).toBeLessThanOrEqual(0);
+      }
+    }
+  });
+
+  it("is shared by a task's dots", () => {
+    expect(pulseDelay("task-a", PULSE_NEEDS_S)).toBe(pulseDelay("task-a", PULSE_NEEDS_S));
   });
 });

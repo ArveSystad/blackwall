@@ -1,8 +1,16 @@
 import type { Agent, Stage, Task } from "@blackwall/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { DOT_SPACING, layoutDots, stageChanges, type GridDot } from "../agent-dots";
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  DOT_SPACING,
+  PULSE_NEEDS_S,
+  PULSE_RUNNING_S,
+  layoutDots,
+  pulseDelay,
+  stageChanges,
+  type GridDot,
+} from "../agent-dots";
 import { originKey } from "../inbox";
 import { cn } from "../lib/utils";
 import { stepEventsQuery } from "../query";
@@ -40,6 +48,7 @@ function AgentDot({
   y,
   overlayWidth,
   lasers,
+  delay,
 }: {
   dot: GridDot;
   task: Task;
@@ -48,6 +57,8 @@ function AgentDot({
   y: number;
   overlayWidth: number;
   lasers: number;
+  /** The task's pulse delay in seconds, shared with its boom. */
+  delay: number;
 }) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -98,6 +109,7 @@ function AgentDot({
       >
         <span
           aria-hidden="true"
+          style={dot.state === "queued" ? undefined : { animationDelay: `${delay}s` }}
           className={cn(
             "rounded-full",
             dot.state === "running" && "size-2 animate-pulse-running bg-running shadow-glow-cyan",
@@ -153,8 +165,9 @@ function AgentDot({
 /**
  * The active agents as glowing dots on the empty pane's grid floor (see
  * `agent-dots.ts`): a link to each task with a hover/focus card, and a laser
- * fired upward when a task changes stage. Lay it over `GridBackdrop` in a
- * `relative` parent.
+ * fired upward when a task changes stage. Running and needs-you dots send a
+ * ring and their task a bloom (`.bw-boom`), drawn under the dots and sharing
+ * each task's pulse delay. Lay it over `GridBackdrop` in a `relative` parent.
  */
 export function GridAgents({
   dots,
@@ -202,25 +215,51 @@ export function GridAgents({
       aria-label="Active agents"
       className="pointer-events-none absolute inset-0 z-10 overflow-hidden"
     >
-      {size &&
-        layout &&
-        dots.map((dot) => {
-          const task = tasks.get(dot.taskId);
-          const spot = layout.get(dot.key);
-          if (!task || !spot) return null;
-          return (
-            <AgentDot
-              key={dot.key}
-              dot={dot}
-              task={task}
-              agent={dot.agentId ? agents.get(dot.agentId) : undefined}
-              x={spot.x}
-              y={spot.y}
-              overlayWidth={size.width}
-              lasers={lasers.get(dot.taskId) ?? 0}
-            />
-          );
-        })}
+      {size && layout && (
+        <>
+          {/* Booms: keep this layer first and without a z-index, so it paints under every dot. */}
+          <div aria-hidden="true" className="absolute inset-0">
+            {dots.map((dot) => {
+              const spot = layout.get(dot.key);
+              if (dot.state === "queued" || !tasks.has(dot.taskId) || !spot) return null;
+              const needs = dot.state === "needs-you";
+              const delay = pulseDelay(dot.taskId, needs ? PULSE_NEEDS_S : PULSE_RUNNING_S);
+              return (
+                <span
+                  key={dot.key}
+                  className={cn(
+                    "bw-boom",
+                    needs && "bw-boom-needs",
+                    dot.slot > 0 && "bw-boom-ring",
+                  )}
+                  style={
+                    { left: spot.x, top: spot.y, "--pulse-delay": `${delay}s` } as CSSProperties
+                  }
+                />
+              );
+            })}
+          </div>
+          {dots.map((dot) => {
+            const task = tasks.get(dot.taskId);
+            const spot = layout.get(dot.key);
+            if (!task || !spot) return null;
+            const needs = dot.state === "needs-you";
+            return (
+              <AgentDot
+                key={dot.key}
+                dot={dot}
+                task={task}
+                agent={dot.agentId ? agents.get(dot.agentId) : undefined}
+                x={spot.x}
+                y={spot.y}
+                overlayWidth={size.width}
+                lasers={lasers.get(dot.taskId) ?? 0}
+                delay={pulseDelay(dot.taskId, needs ? PULSE_NEEDS_S : PULSE_RUNNING_S)}
+              />
+            );
+          })}
+        </>
+      )}
     </nav>
   );
 }
