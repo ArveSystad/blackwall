@@ -1,6 +1,7 @@
 import {
   isGatingSeverity,
   type Agent,
+  type AgentCli,
   type Finding,
   type FindingOverride,
 } from "@blackwall/shared";
@@ -81,6 +82,7 @@ function Triage({
 export function FindingRow({
   finding,
   reviewer,
+  cli,
   expanded,
   pending,
   onToggle,
@@ -88,6 +90,8 @@ export function FindingRow({
 }: {
   finding: Finding;
   reviewer: Agent | undefined;
+  /** The CLI the reviewer ran on; null when unknown. */
+  cli: AgentCli | null;
   expanded: boolean;
   pending: boolean;
   onToggle: () => void;
@@ -140,7 +144,7 @@ export function FindingRow({
         >
           {reviewer ? (
             <>
-              <AgentTile cli={reviewer.cli} />
+              {cli && <AgentTile cli={cli} />}
               <span className="truncate">{reviewer.name}</span>
             </>
           ) : (

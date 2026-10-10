@@ -141,7 +141,7 @@ function AgentDot({
             <>
               {agent && (
                 <span className="flex items-center gap-2 text-meta">
-                  <AgentTile cli={agent.cli} />
+                  {dot.cli && <AgentTile cli={dot.cli} />}
                   <span className="text-foreground-strong">{agent.name}</span>
                 </span>
               )}

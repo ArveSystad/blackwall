@@ -60,7 +60,9 @@ try {
     settings: repositories.settings,
     tags: repositories.tags,
     repos: repositories.repos,
+    tasks: repositories.tasks,
     backlogItems: repositories.backlogItems,
+    transaction: repositories.transaction,
   });
   // First start: the built-in agents, their role defaults and the finding tags.
   agents.seed();
@@ -85,6 +87,7 @@ try {
   const newTask = {
     repos,
     resolveRoles: agents.resolveRoles,
+    resolveClis: agents.resolveClis,
     originTitle: async (origin: TaskOrigin) =>
       (await jira.titleFor(origin)) ?? (await github.titleFor(origin)),
     commentOnIssue: github.commentOnIssue,
@@ -102,7 +105,12 @@ try {
     resumeTask: (taskId) => void pipeline.resume(taskId),
     settings,
     quota,
-    clisFor: (item) => agents.clisFor(item.agents, repositories.repos.get(item.repoId)?.defaultCli),
+    clisFor: (item) =>
+      agents.clisFor(
+        agents.resolveRoles(item.agents),
+        item.agentClis,
+        repositories.repos.get(item.repoId)?.defaultCli ?? "claude",
+      ),
     onHalt: (repoId) => publish({ type: "backlog.changed", payload: { repoId } }),
   });
   const pipeline = createPipelineEngine({

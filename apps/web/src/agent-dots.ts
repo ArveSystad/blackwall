@@ -1,4 +1,4 @@
-import type { ActiveAgentStep, Stage, Task } from "@blackwall/shared";
+import type { ActiveAgentStep, AgentCli, Stage, Task } from "@blackwall/shared";
 
 /** One dot on the empty pane's grid: a running agent, or a task that waits. */
 export interface GridDot {
@@ -8,6 +8,8 @@ export interface GridDot {
   /** The running step; null between steps and for needs-you or queued tasks. */
   stepId: string | null;
   agentId: string | null;
+  /** The CLI the running step's agent runs on; null without a running agent step. */
+  cli: AgentCli | null;
   /** Index among the task's running steps, oldest first. */
   slot: number;
   state: "running" | "needs-you" | "queued";
@@ -38,7 +40,14 @@ export function gridDots(tasks: readonly Task[], active: readonly ActiveAgentSte
     .filter((t) => t.status === "running" || t.status === "needs-you" || t.status === "queued")
     .sort(byCreated);
   for (const task of shown) {
-    const base = { taskId: task.id, stepId: null, agentId: null, slot: 0, key: `${task.id}:0` };
+    const base = {
+      taskId: task.id,
+      stepId: null,
+      agentId: null,
+      cli: null,
+      slot: 0,
+      key: `${task.id}:0`,
+    };
     if (task.status === "needs-you" || task.status === "queued") {
       dots.push({ ...base, state: task.status });
       continue;
@@ -54,6 +63,7 @@ export function gridDots(tasks: readonly Task[], active: readonly ActiveAgentSte
         taskId: task.id,
         stepId: step.id,
         agentId: step.agentId,
+        cli: step.cli,
         slot,
         state: "running",
       }),

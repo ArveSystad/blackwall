@@ -41,7 +41,7 @@ export interface BacklogRunnerOptions {
   resumeTask: (taskId: string) => void;
   settings: BacklogRunnerSettings;
   quota: Pick<QuotaTracker, "isPaused" | "release" | "nextReset">;
-  /** The CLIs an item's resolved role agents run on. */
+  /** The CLIs an item's resolved role agents run on: its repo's default CLI and its overrides. */
   clisFor: (item: BacklogItem) => AgentCli[];
   clock?: () => Date;
   intervalMs?: number;

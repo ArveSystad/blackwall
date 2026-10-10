@@ -1,4 +1,4 @@
-import { stagePermissionProfile, type Agent } from "@blackwall/shared";
+import { AGENT_CLIS, stagePermissionProfile, type Agent, type AgentCli } from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { createAgent, deleteAgent, updateAgent } from "../../api";
@@ -13,7 +13,7 @@ import {
   draftToInput,
   errorMessage,
   isPresetModel,
-  modelForCli,
+  overrideCount,
   sameDraft,
   stageLabel,
   type AgentDraft,
@@ -79,15 +79,22 @@ function AgentEditor({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  // Picked Custom… but not yet typed an id outside the presets.
-  const [customPicked, setCustomPicked] = useState(false);
+  // CLIs whose Custom… was picked before an id outside the presets was typed.
+  const [customPicked, setCustomPicked] = useState<Partial<Record<AgentCli, boolean>>>({});
   const customId = useId();
+  const [overridesCli, setOverridesCli] = useState<AgentCli>(
+    () => AGENT_CLIS.find((cli) => overrideCount(initial, cli) > 0) ?? "claude",
+  );
 
   const isNew = agent === undefined;
-  const customMode = customPicked || (draft.model !== "" && !isPresetModel(draft.cli, draft.model));
+  const customMode = (cli: AgentCli) =>
+    !!customPicked[cli] || (draft.models[cli] !== "" && !isPresetModel(cli, draft.models[cli]));
   const dirty = isNew || !sameDraft(draft, initial);
   const set = <K extends keyof AgentDraft>(key: K, value: AgentDraft[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));
+  /** Sets one CLI's entry of a per-CLI field. */
+  const setFor = (key: "models" | "allow" | "deny", cli: AgentCli, value: string) =>
+    setDraft((d) => ({ ...d, [key]: { ...d[key], [cli]: value } }));
 
   async function save() {
     if (!dirty || saving) return;
@@ -120,7 +127,6 @@ function AgentEditor({
   return (
     <section aria-label="Edit agent" className="flex min-w-0 flex-1 flex-col bg-sidebar">
       <div className={paneHeader}>
-        <AgentTile cli={draft.cli} size="lg" />
         <span className={paneTitle}>{draft.name.trim() || (isNew ? "New agent" : agent.name)}</span>
         {isNew && <span className="text-meta text-muted-foreground">not saved yet</span>}
         <span className="flex-1" />
@@ -151,64 +157,56 @@ function AgentEditor({
               onChange={(event) => set("name", event.target.value)}
             />
           </Field>
-          <Field label="CLI" group>
-            <Segmented
-              label="CLI"
-              value={draft.cli}
-              onChange={(cli) =>
-                setDraft((d) => ({ ...d, cli, model: modelForCli(d.model, d.cli, cli) }))
-              }
-              options={(["claude", "copilot"] as const).map((cli) => ({
-                value: cli,
-                label: (
-                  <>
-                    <AgentTile cli={cli} />
-                    {CLI_NAMES[cli]}
-                  </>
-                ),
-              }))}
-            />
-          </Field>
-          <Field label="Model">
-            <Select
-              value={customMode ? CUSTOM_MODEL : draft.model}
-              onChange={(event) => {
-                const value = event.target.value;
-                if (value === CUSTOM_MODEL) {
-                  setCustomPicked(true);
-                  if (isPresetModel(draft.cli, draft.model)) set("model", "");
-                } else {
-                  setCustomPicked(false);
-                  set("model", value);
-                }
-              }}
-            >
-              <option value="">Auto (CLI default)</option>
-              {MODEL_PRESETS[draft.cli].map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
-              <option value={CUSTOM_MODEL}>Custom…</option>
-            </Select>
-            {customMode && (
-              <Input
-                id={customId}
-                className="mono"
-                spellCheck={false}
-                placeholder="Model id"
-                aria-label="Custom model"
-                value={draft.model}
-                onChange={(event) => set("model", event.target.value)}
-              />
-            )}
-          </Field>
           <Field label="Permission profile" group>
             <span className="flex h-[30px] items-center text-muted-foreground">
               {permissionSummary(draft.eligibleStages)}
             </span>
           </Field>
         </div>
+
+        <fieldset className="m-0 grid grid-cols-1 gap-3.5 border-none p-0 lg:grid-cols-2">
+          <legend className={cn(fieldLabel, "mb-1 p-0")}>Model</legend>
+          <p className="col-span-full m-0 text-meta text-muted-foreground">
+            The agent runs on its task&apos;s CLI. Leave a model blank to use that CLI&apos;s
+            default.
+          </p>
+          {AGENT_CLIS.map((cli) => (
+            <Field key={cli} label={CLI_NAMES[cli]}>
+              <Select
+                value={customMode(cli) ? CUSTOM_MODEL : draft.models[cli]}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (value === CUSTOM_MODEL) {
+                    setCustomPicked((c) => ({ ...c, [cli]: true }));
+                    if (isPresetModel(cli, draft.models[cli])) setFor("models", cli, "");
+                  } else {
+                    setCustomPicked((c) => ({ ...c, [cli]: false }));
+                    setFor("models", cli, value);
+                  }
+                }}
+              >
+                <option value="">Auto (CLI default)</option>
+                {MODEL_PRESETS[cli].map((model) => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+                <option value={CUSTOM_MODEL}>Custom…</option>
+              </Select>
+              {customMode(cli) && (
+                <Input
+                  id={`${customId}-${cli}`}
+                  className="mono"
+                  spellCheck={false}
+                  placeholder="Model id"
+                  aria-label={`Custom ${CLI_NAMES[cli]} model`}
+                  value={draft.models[cli]}
+                  onChange={(event) => setFor("models", cli, event.target.value)}
+                />
+              )}
+            </Field>
+          ))}
+        </fieldset>
 
         <fieldset className="m-0 border-none p-0">
           <legend className={cn(fieldLabel, "mb-2 p-0")}>Eligible stages</legend>
@@ -242,10 +240,29 @@ function AgentEditor({
 
         <fieldset className="m-0 grid grid-cols-1 gap-3.5 border-none p-0 lg:grid-cols-2">
           <legend className={cn(fieldLabel, "mb-1 p-0")}>Permission overrides</legend>
+          <div className="col-span-full">
+            <Segmented
+              label="Overrides for CLI"
+              value={overridesCli}
+              onChange={setOverridesCli}
+              options={AGENT_CLIS.map((cli) => {
+                const count = overrideCount(draft, cli);
+                return {
+                  value: cli,
+                  label: (
+                    <>
+                      {CLI_NAMES[cli]}
+                      {count > 0 && <span className="mono text-label text-faint">{count}</span>}
+                    </>
+                  ),
+                };
+              })}
+            />
+          </div>
           <p className="col-span-full m-0 text-meta text-muted-foreground">
             Extra rules on top of the stage profile, one per line in the CLI&apos;s own syntax (
             <span className="mono">
-              {draft.cli === "claude" ? "Bash(npm test:*)" : "shell(npm test)"}
+              {overridesCli === "claude" ? "Bash(npm test:*)" : "shell(npm test)"}
             </span>
             ). Deny always wins: an allow cannot lift a built-in deny such as{" "}
             <span className="mono">git push</span>.
@@ -255,8 +272,8 @@ function AgentEditor({
             <Textarea
               className="mono min-h-20 text-code"
               spellCheck={false}
-              value={draft.allow}
-              onChange={(event) => set("allow", event.target.value)}
+              value={draft.allow[overridesCli]}
+              onChange={(event) => setFor("allow", overridesCli, event.target.value)}
             />
           </label>
           <label className="flex flex-col gap-1.5">
@@ -264,8 +281,8 @@ function AgentEditor({
             <Textarea
               className="mono min-h-20 text-code"
               spellCheck={false}
-              value={draft.deny}
-              onChange={(event) => set("deny", event.target.value)}
+              value={draft.deny[overridesCli]}
+              onChange={(event) => setFor("deny", overridesCli, event.target.value)}
             />
           </label>
         </fieldset>
@@ -279,7 +296,7 @@ function AgentEditor({
         onDiscard={() => {
           if (isNew) onDeleted();
           else setDraft(initial);
-          setCustomPicked(false);
+          setCustomPicked({});
           setError(null);
         }}
         onSave={() => void save()}
@@ -303,6 +320,28 @@ function AgentEditor({
   );
 }
 
+/** The models an agent has set, each with its CLI's tile; Auto when none is. */
+function AgentModels({ agent }: { agent: Agent }) {
+  const set = AGENT_CLIS.flatMap((cli) => {
+    const model = agent.models[cli];
+    return model ? [{ cli, model }] : [];
+  });
+  if (set.length === 0) {
+    return <span className="mono text-label text-faint">{AUTO_MODEL_LABEL}</span>;
+  }
+  return (
+    <span className="flex min-w-0 items-center gap-1.5 text-label text-faint">
+      {set.map(({ cli, model }, i) => (
+        <span key={cli} className="inline-flex min-w-0 items-center gap-1">
+          {i > 0 && <span aria-hidden="true">·</span>}
+          <AgentTile cli={cli} />
+          <span className="mono truncate">{model}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
 /** Agent library: the agents beside the selected agent's editor. */
 export function AgentLibrary() {
   const agents = useQuery(agentsQuery);
@@ -314,7 +353,8 @@ export function AgentLibrary() {
   const shown = needle
     ? list.filter(
         (a) =>
-          a.name.toLowerCase().includes(needle) || (a.model ?? "").toLowerCase().includes(needle),
+          a.name.toLowerCase().includes(needle) ||
+          Object.values(a.models).some((model) => model.toLowerCase().includes(needle)),
       )
     : list;
   const selected =
@@ -371,16 +411,13 @@ export function AgentLibrary() {
                     )}
                   >
                     <span className="flex items-center gap-2">
-                      <AgentTile cli={agent.cli} />
                       <span className="truncate font-medium text-foreground-strong">
                         {agent.name}
                       </span>
                       <span className="flex-1" />
-                      <span className="mono text-label text-faint">
-                        {agent.model ?? AUTO_MODEL_LABEL}
-                      </span>
+                      <AgentModels agent={agent} />
                     </span>
-                    <span className="flex flex-wrap gap-1 pl-6">
+                    <span className="flex flex-wrap gap-1">
                       {agent.eligibleStages.length === 0 ? (
                         <span className="text-label text-faint">No stages</span>
                       ) : (

@@ -2,7 +2,7 @@ import type { Task } from "@blackwall/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
-import { useAgentLibrary, useNow } from "../hooks";
+import { useNow } from "../hooks";
 import { activeAgentsLabel, groupTasks, matchesFilter } from "../inbox";
 import { isPlainKey, isTypingTarget, useWindowKeydown } from "../keyboard";
 import { cn } from "../lib/utils";
@@ -28,7 +28,6 @@ const GROUPS = [
 
 function TaskList({ tasks, filter }: { tasks: Task[]; filter: string }) {
   const repos = useQuery(reposQuery);
-  const library = useAgentLibrary();
   const now = useNow();
   const repoNames = useMemo(
     () => new Map((repos.data ?? []).map((repo) => [repo.id, repo.name])),
@@ -69,7 +68,7 @@ function TaskList({ tasks, filter }: { tasks: Task[]; filter: string }) {
                   key={task.id}
                   task={task}
                   now={now}
-                  clis={agentClis(task.agents, library)}
+                  clis={agentClis(task)}
                   {...(repoName ? { repoName } : {})}
                 />
               );

@@ -323,7 +323,7 @@ export const repoSchema = z.object({
   connectionId: id.nullable(),
   /** Build/test commands run in the Checks stage; empty = skip. */
   checkCommands: z.array(z.string().trim().min(1)),
-  /** CLI whose role defaults new tasks in this repo start from. */
+  /** CLI new tasks in this repo run their agents on. */
   defaultCli: agentCliSchema,
   /** Origin the new-task and backlog forms open on for this repo. */
   defaultOrigin: originKindSchema,
@@ -397,38 +397,49 @@ export const permissionOverridesSchema = z.object({
 });
 export type PermissionOverrides = z.infer<typeof permissionOverridesSchema>;
 
-/** Agent library entry. */
+/** Model id per CLI; a CLI without an entry runs the agent on its own default model. */
+export const agentModelsSchema = z.partialRecord(agentCliSchema, z.string().trim().min(1));
+export type AgentModels = z.infer<typeof agentModelsSchema>;
+
+/** Permission overrides per CLI, since each CLI has its own rule syntax. */
+export const agentPermissionOverridesSchema = z.partialRecord(
+  agentCliSchema,
+  permissionOverridesSchema,
+);
+export type AgentPermissionOverrides = z.infer<typeof agentPermissionOverridesSchema>;
+
+/**
+ * Agent library entry. Agents are not tied to a CLI: a task runs them on its
+ * repo's default CLI, or on the CLI chosen for that agent on the task.
+ */
 export const agentSchema = z.object({
   id,
   name,
-  cli: agentCliSchema,
-  /** CLI default when null. */
-  model: z.string().nullable(),
+  models: agentModelsSchema,
   /** Role prompt / persona. */
   prompt: z.string(),
   eligibleStages: z.array(stageSchema),
-  permissionOverrides: permissionOverridesSchema,
+  permissionOverrides: agentPermissionOverridesSchema,
   createdAt: timestamp,
   updatedAt: timestamp,
 });
 export type Agent = z.infer<typeof agentSchema>;
 
-export const agentInputSchema = agentSchema.pick({ name: true, cli: true }).extend({
-  model: agentSchema.shape.model.default(null),
+export const agentInputSchema = agentSchema.pick({ name: true }).extend({
+  models: agentModelsSchema.default({}),
   prompt: agentSchema.shape.prompt.default(""),
   eligibleStages: agentSchema.shape.eligibleStages.default([]),
-  permissionOverrides: permissionOverridesSchema.default({}),
+  permissionOverrides: agentPermissionOverridesSchema.default({}),
 });
 export type AgentInput = z.input<typeof agentInputSchema>;
 
 /** Body for editing an agent; omitted fields keep their value. */
 export const agentUpdateSchema = z.object({
   name: agentSchema.shape.name.optional(),
-  cli: agentSchema.shape.cli.optional(),
-  model: agentSchema.shape.model.optional(),
+  models: agentModelsSchema.optional(),
   prompt: agentSchema.shape.prompt.optional(),
   eligibleStages: agentSchema.shape.eligibleStages.optional(),
-  permissionOverrides: permissionOverridesSchema.optional(),
+  permissionOverrides: agentPermissionOverridesSchema.optional(),
 });
 export type AgentUpdate = z.infer<typeof agentUpdateSchema>;
 
@@ -499,12 +510,17 @@ export const roleAgentsSchema = z.object({
 });
 export type RoleAgents = z.infer<typeof roleAgentsSchema>;
 
-/** The role defaults of each CLI; a repo's `defaultCli` picks the set its new tasks start from. */
-export const roleDefaultsByCliSchema = z.object({
-  claude: roleAgentsSchema,
-  copilot: roleAgentsSchema,
-});
-export type RoleDefaultsByCli = z.infer<typeof roleDefaultsByCliSchema>;
+/** Per-agent CLI choices on one task, by agent id; agents not listed run on the task's CLI. */
+export const agentClisSchema = z.record(id, agentCliSchema);
+export type AgentClis = z.infer<typeof agentClisSchema>;
+
+/** The CLI a task runs one of its agents on. */
+export function agentCliFor(
+  task: { cli: AgentCli; agentClis: AgentClis },
+  agentId: string,
+): AgentCli {
+  return task.agentClis[agentId] ?? task.cli;
+}
 
 export const DEFAULT_MAX_TASKS_PER_REPO = 3;
 export const DEFAULT_MAX_BACKLOG_TASKS_PER_REPO = 1;
@@ -615,6 +631,10 @@ export const taskSchema = z
     error: z.string().nullable(),
     triageMode: triageModeSchema,
     agents: roleAgentsSchema,
+    /** CLI the agents run on: the repo's default CLI when the task was created. */
+    cli: agentCliSchema,
+    /** Agents run on another CLI than `cli`, chosen on the new task form. */
+    agentClis: agentClisSchema,
     deliveryTargets: z.array(deliveryTargetSchema),
     freeText: z.string(),
     plan: z.string().nullable(),
@@ -660,6 +680,8 @@ export const newTaskInputSchema = z
     title: name.optional(),
     freeText: z.string().default(""),
     agents: roleAgentsSchema.default({}),
+    /** Agents to run on another CLI than the repo's default. */
+    agentClis: agentClisSchema.default({}),
     triageMode: triageModeSchema.default("intervene"),
     /**
      * GitHub issue tasks only: a comment the user confirmed, posted on the
@@ -709,6 +731,8 @@ export const backlogItemSchema = z
     mode: prModeSchema.nullable(),
     freeText: z.string(),
     agents: roleAgentsSchema,
+    /** Agents to run on another CLI than the repo's default once promoted. */
+    agentClis: agentClisSchema,
     triageMode: triageModeSchema,
     priority: backlogPrioritySchema,
     /** Manual order inside a priority bucket. */
@@ -750,6 +774,7 @@ export const newBacklogItemInputSchema = z
     title: backlogTitle.optional(),
     freeText: z.string().default(""),
     agents: roleAgentsSchema.default({}),
+    agentClis: agentClisSchema.default({}),
     triageMode: triageModeSchema.default("intervene"),
     priority: backlogPrioritySchema.default("normal"),
     dependsOn: backlogDependsOn.default([]),
@@ -777,6 +802,7 @@ export const updateBacklogItemInputSchema = z.object({
   /** Hold an item back or release it; promotion happens through `run`. */
   status: z.enum(["waiting", "paused"]).optional(),
   agents: roleAgentsSchema.optional(),
+  agentClis: agentClisSchema.optional(),
   triageMode: triageModeSchema.optional(),
 });
 export type UpdateBacklogItemInput = z.infer<typeof updateBacklogItemInputSchema>;
@@ -1001,6 +1027,8 @@ export const stepSchema = z.object({
   stage: stageSchema,
   /** Null for harness-run steps such as checks, or when the agent was deleted. */
   agentId: id.nullable(),
+  /** CLI the agent ran on; null for harness-run steps. */
+  cli: agentCliSchema.nullable(),
   /** Fix round within the stage loop (0 for the first pass). */
   round: z.int().nonnegative(),
   /**

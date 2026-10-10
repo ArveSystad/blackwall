@@ -155,4 +155,68 @@ describe("openDatabase", () => {
     expect(cli("github")).toBe("claude");
     expect(cli("none")).toBe("claude");
   });
+
+  it("moves each agent's CLI onto its tasks, backlog items and steps when agents lose it", () => {
+    // Build a database at the migration before CLI-agnostic agents.
+    const oldMigrations = join(dir, "..", "migrations-0010");
+    cpSync(MIGRATIONS_DIR, oldMigrations, { recursive: true });
+    const journalPath = join(oldMigrations, "meta", "_journal.json");
+    const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
+      entries: { tag: string }[];
+    };
+    journal.entries = journal.entries.slice(
+      0,
+      journal.entries.findIndex((e) => e.tag === "0011_cli_agnostic_agents"),
+    );
+    expect(journal.entries.at(-1)?.tag).toBe("0010_task_follow_ups");
+    writeFileSync(journalPath, JSON.stringify(journal));
+
+    mkdirSync(dir, { recursive: true });
+    const sqlite = new Database(join(dir, DB_FILENAME));
+    migrate(drizzle(sqlite), { migrationsFolder: oldMigrations });
+    sqlite.exec(`
+      insert into repos (id, path, name, default_cli, created_at, updated_at)
+        values ('cp', '/code/cp', 'cp', 'copilot', 0, 0), ('cc', '/code/cc', 'cc', 'claude', 0, 0);
+      insert into agents (id, name, cli, model, permission_overrides, created_at, updated_at)
+        values ('claude', 'Planner', 'claude', 'opus', '{"allow":["Read"]}', 0, 0),
+               ('copilot', 'Reviewer', 'copilot', null, '{}', 0, 0);
+      insert into tasks (id, title, origin, repo_id, agents, follow_ups, created_at, updated_at)
+        values ('t1', 'Fix login', '{"kind":"free-text"}', 'cp',
+                '{"planner":"claude","planReviewers":["claude"],"codeReviewers":["copilot"]}',
+                '[{"title":"Tidy up","description":"Later.","repoId":null}]', 0, 0),
+               ('t2', 'Fix logout', '{"kind":"free-text"}', 'cc', '{"planner":"claude"}', '[]', 0, 0);
+      insert into backlog_items (id, repo_id, title, origin, agents, source_task_id, created_at, updated_at)
+        values ('b1', 'cc', 'Later', '{"kind":"free-text"}',
+                '{"planner":"claude","codeReviewers":["copilot"]}', 't1', 0, 0);
+      insert into runs (id, task_id, number, created_at) values ('u1', 't1', 1, 0);
+      insert into steps (id, run_id, stage, agent_id, created_at)
+        values ('s1', 'u1', 'inform', 'claude', 0), ('s2', 'u1', 'code-review', 'copilot', 0),
+               ('s3', 'u1', 'checks', null, 0);
+      insert into findings (id, task_id, step_id, reviewer_agent_id, severity, title, explanation, created_at, updated_at)
+        values ('f1', 't1', 's2', 'copilot', 'low', 'Typo', 'A typo.', 0, 0);
+    `);
+    sqlite.close();
+
+    opened = openDatabase(dir);
+    const r = createRepositories(opened.db);
+    expect(r.agents.get("claude")).toMatchObject({
+      models: { claude: "opus" },
+      permissionOverrides: { claude: { allow: ["Read"] } },
+    });
+    expect(r.agents.get("copilot")).toMatchObject({ models: {}, permissionOverrides: {} });
+    expect(r.agents.get("claude")).not.toHaveProperty("cli");
+    expect(r.tasks.get("t1")).toMatchObject({ cli: "copilot", agentClis: { claude: "claude" } });
+    expect(r.tasks.get("t2")).toMatchObject({ cli: "claude", agentClis: {} });
+    expect(r.backlogItems.get("b1")).toMatchObject({
+      agentClis: { copilot: "copilot" },
+      sourceTaskId: "t1",
+    });
+    expect(r.tasks.get("t1")?.followUps).toEqual([
+      { title: "Tidy up", description: "Later.", repoId: null },
+    ]);
+    expect(r.steps.get("s1")).toMatchObject({ agentId: "claude", cli: "claude" });
+    expect(r.steps.get("s2")).toMatchObject({ agentId: "copilot", cli: "copilot" });
+    expect(r.steps.get("s3")).toMatchObject({ agentId: null, cli: null });
+    expect(r.findings.get("f1")).toMatchObject({ stepId: "s2", reviewerAgentId: "copilot" });
+  });
 });

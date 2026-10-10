@@ -43,7 +43,9 @@ beforeEach(() => {
     settings: r.settings,
     tags: r.tags,
     repos: r.repos,
+    tasks: r.tasks,
     backlogItems: r.backlogItems,
+    transaction: r.transaction,
   });
   agents.seed();
   now = new Date("2026-10-09T12:00:00Z");
@@ -359,9 +361,10 @@ describe("backlog runner with the pipeline engine", () => {
       limit && options.prompt !== RESUME_PROMPT
         ? { sessionId: "planner-1", rateLimit: { resetsAt: resetsAt.toISOString() } }
         : {};
-    // The planner runs on Claude Code, the plan reviewer on Copilot.
-    const copilotReviewer = agents.roleDefaults("copilot").planReviewers ?? [];
-    agents.setRoleDefaults({ ...agents.roleDefaults(), planReviewers: copilotReviewer });
+    // The planner runs on Claude Code (the repo's CLI), the plan reviewer on Copilot.
+    const agentClis = Object.fromEntries(
+      (agents.roleDefaults().planReviewers ?? []).map((id) => [id, "copilot" as const]),
+    );
     const engine = createPipelineEngine({
       repositories: r,
       invocation: agents.invocation,
@@ -391,6 +394,8 @@ describe("backlog runner with the pipeline engine", () => {
           freeText,
           triageMode,
           agents: agents.resolveRoles(backlogItem.agents),
+          cli: "claude",
+          agentClis: backlogItem.agentClis,
         });
         r.backlogItems.markPromoted(backlogItem.id, task.id);
         return task;
@@ -398,12 +403,13 @@ describe("backlog runner with the pipeline engine", () => {
       resumeTask: (taskId) => void engine.resume(taskId),
       settings,
       quota,
-      clisFor: (backlogItem) => agents.clisFor(backlogItem.agents),
+      clisFor: (backlogItem) =>
+        agents.clisFor(agents.resolveRoles(backlogItem.agents), backlogItem.agentClis, "claude"),
       clock,
       log: () => undefined,
     });
-    const a = addItem("A");
-    const b = addItem("B");
+    const a = addItem("A", { agentClis });
+    const b = addItem("B", { agentClis });
 
     await runner.tick();
     await engine.idle();

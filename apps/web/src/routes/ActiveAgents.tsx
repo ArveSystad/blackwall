@@ -33,7 +33,7 @@ function AgentRow({
 }) {
   const events = useQuery(stepEventsQuery(step.taskId, step.id));
   const activity = events.data ? currentActivity(events.data) : null;
-  const { model, source } = effectiveModel(events.data, agent);
+  const { model, source } = effectiveModel(events.data, agent, step.cli);
   const since = step.startedAt ?? step.createdAt;
   return (
     <li className="flex flex-col gap-1.5 rounded-lg border border-border bg-card px-3.5 py-2.5">
@@ -42,7 +42,7 @@ function AgentRow({
           aria-hidden="true"
           className="size-1.5 animate-pulse-running rounded-full bg-running"
         />
-        {agent && <AgentTile cli={agent.cli} />}
+        {step.cli && <AgentTile cli={step.cli} />}
         <span className="font-medium text-foreground-strong">{agent?.name ?? "Deleted agent"}</span>
         <span
           className="mono max-w-40 truncate text-label text-muted-foreground"

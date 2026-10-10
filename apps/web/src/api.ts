@@ -1,4 +1,5 @@
 import {
+  roleAgentsSchema,
   JIRA_EMAIL_META,
   MISSING_CREDENTIAL_STATUS,
   STALE_REPO_STATUS,
@@ -24,7 +25,6 @@ import {
   repoScanResultSchema,
   repoSchema,
   repoViewSchema,
-  roleDefaultsByCliSchema,
   runSchema,
   staleRepoSchema,
   stepEventSchema,
@@ -35,7 +35,6 @@ import {
   taskSchema,
   type ActiveAgentStep,
   type Agent,
-  type AgentCli,
   type AgentInput,
   type AgentUpdate,
   type BacklogItem,
@@ -67,7 +66,6 @@ import {
   type RepoUpdate,
   type RepoView,
   type RoleAgents,
-  type RoleDefaultsByCli,
   type Run,
   type StaleRepo,
   type Step,
@@ -395,17 +393,14 @@ export function deleteAgent(id: string): Promise<void> {
   return requestEmpty(at("/api/agents", id), { method: "DELETE" });
 }
 
-/** The role defaults of every CLI. */
-export function getRoleDefaults(): Promise<RoleDefaultsByCli> {
-  return request("/api/agents/role-defaults", roleDefaultsByCliSchema);
+/** The default agent per role. */
+export function getRoleDefaults(): Promise<RoleAgents> {
+  return request("/api/agents/role-defaults", roleAgentsSchema);
 }
 
-/** Replaces one CLI's role defaults; returns every CLI's defaults. */
-export function setRoleDefaults(cli: AgentCli, roles: RoleAgents): Promise<RoleDefaultsByCli> {
-  return request(at("/api/agents/role-defaults", cli), roleDefaultsByCliSchema, {
-    method: "PUT",
-    body: roles,
-  });
+/** Replaces the role defaults. */
+export function setRoleDefaults(roles: RoleAgents): Promise<RoleAgents> {
+  return request("/api/agents/role-defaults", roleAgentsSchema, { method: "PUT", body: roles });
 }
 
 /** Agent CLIs found on PATH at server start, with their versions. */

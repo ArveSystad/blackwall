@@ -9,11 +9,13 @@ import {
   stagePermissionProfile,
   type Agent,
   type AgentCli,
+  type AgentClis,
   type AgentInput,
+  type AgentModels,
+  type AgentPermissionOverrides,
   type AgentRole,
   type AgentUpdate,
   type RoleAgents,
-  type RoleDefaultsByCli,
   type Stage,
 } from "@blackwall/shared";
 import type { Repositories } from "../db/repositories.js";
@@ -36,21 +38,24 @@ export class AgentNotFoundError extends Error {
   }
 }
 
-/** Settings keys holding the default agent per role, one set per CLI. */
-export const ROLE_DEFAULTS_KEYS: Record<AgentCli, string> = {
-  claude: "roleDefaults",
-  copilot: "roleDefaults.copilot",
-};
+/** Settings key holding the default agent per role. */
+export const ROLE_DEFAULTS_KEY = "roleDefaults";
 /** Settings keys recording that the built-in agents and tags were seeded, so deleting them sticks. */
 export const AGENTS_SEEDED_KEY = "seeded.agents";
 export const TAGS_SEEDED_KEY = "seeded.tags";
-/** Settings key recording that every agent got its twin on the other CLI. */
-export const CLI_TWINS_SEEDED_KEY = "seeded.cliTwins";
+/** Settings key recording that the per-CLI agent twins were merged into their base agents. */
+export const CLI_TWINS_MERGED_KEY = "seeded.mergedCliTwins";
+/** Settings keys of the per-CLI agents, left behind by earlier versions and removed by the merge. */
+const LEGACY_COPILOT_ROLE_DEFAULTS_KEY = "roleDefaults.copilot";
+const LEGACY_CLI_TWINS_SEEDED_KEY = "seeded.cliTwins";
 
-/** Everything a step needs to invoke an agent: its persona, prompt and permissions. */
+/** Everything a step needs to invoke an agent: its persona, prompt, CLI, model and permissions. */
 export interface AgentInvocation {
   agent: Agent;
   stage: Stage;
+  cli: AgentCli;
+  /** The agent's model on `cli`; null runs the CLI's default model. */
+  model: string | null;
   systemPrompt: string;
   permissions: AgentPermissions;
 }
@@ -60,7 +65,10 @@ export interface AgentServiceOptions {
   settings: Repositories["settings"];
   tags: Repositories["tags"];
   repos: Repositories["repos"];
+  tasks: Repositories["tasks"];
   backlogItems: Repositories["backlogItems"];
+  /** Runs `fn` in one database transaction. */
+  transaction: Repositories["transaction"];
 }
 
 export type AgentService = ReturnType<typeof createAgentService>;
@@ -75,31 +83,137 @@ function roleIds(roles: RoleAgents, role: AgentRole): string[] {
   return typeof value === "string" ? [value] : value;
 }
 
-const otherCli = (cli: AgentCli): AgentCli => (cli === "claude" ? "copilot" : "claude");
-
-/** First name among `X (Copilot)`, `X (Copilot 2)`, … not in `taken`. */
-function freeTwinName(base: string, cli: AgentCli, taken: ReadonlySet<string>): string {
-  const suffix = CLI_TWIN_SUFFIX[cli];
-  let name = `${base} (${suffix})`;
-  for (let n = 2; taken.has(name); n++) name = `${base} (${suffix} ${n})`;
-  return name;
+/** Every agent id in a role set, each once. */
+function allRoleIds(roles: RoleAgents): string[] {
+  return [...new Set(AGENT_ROLES.flatMap((role) => roleIds(roles, role)))];
 }
 
-function sameRoles(a: RoleAgents, b: RoleAgents): boolean {
-  return AGENT_ROLES.every((role) => JSON.stringify(a[role]) === JSON.stringify(b[role]));
+/** Maps each role's agents through `map`, dropping unmapped ones and repeats; single roles stay single. */
+function mapRoleIds(
+  roles: RoleAgents,
+  map: (role: AgentRole, id: string) => string | undefined,
+): RoleAgents {
+  const next: RoleAgents = {};
+  for (const role of AGENT_ROLES) {
+    const value = roles[role];
+    if (value === undefined) continue;
+    const ids = [...new Set(roleIds(roles, role).flatMap((id) => map(role, id) ?? []))];
+    if (typeof value !== "string") Object.assign(next, { [role]: ids });
+    else if (ids[0] !== undefined) Object.assign(next, { [role]: ids[0] });
+  }
+  return next;
 }
 
 /**
- * The agent library: user-managed agents (CLI, model, persona, eligible stages,
- * permission overrides), the default agent per pipeline role, and the prompt and
- * permissions an agent gets for a stage.
+ * The per-agent CLI choices worth storing for a task: those for agents in
+ * `roles` that differ from the task's `cli`.
+ */
+export function resolveClis(roles: RoleAgents, agentClis: AgentClis, cli: AgentCli): AgentClis {
+  const listed = new Set(allRoleIds(roles));
+  return Object.fromEntries(
+    Object.entries(agentClis).filter(([id, value]) => listed.has(id) && value !== cli),
+  );
+}
+
+const TWIN_NAME = new RegExp(
+  String.raw`^(.*) \((${AGENT_CLIS.map((cli) => CLI_TWIN_SUFFIX[cli]).join("|")})(?: (\d+))?\)$`,
+);
+
+/**
+ * What a twin's name says: its base agent's name, the CLI the twin was made
+ * for, and its number (1 when unnumbered). `X (Copilot 2)` is `X`'s second
+ * Copilot CLI twin; `X (Claude)` is the Claude Code twin of a Copilot agent `X`.
+ */
+function twinBase(name: string): { base: string; side: AgentCli; n: number } | undefined {
+  const match = TWIN_NAME.exec(name);
+  if (!match) return undefined;
+  const [, base, suffix, n] = match;
+  const side = AGENT_CLIS.find((cli) => CLI_TWIN_SUFFIX[cli] === suffix);
+  if (base === undefined || side === undefined) return undefined;
+  return { base, side, n: n === undefined ? 1 : Number(n) };
+}
+
+/**
+ * A base agent and its twins, Claude Code side first: `(Claude…)` twins by
+ * number, then the base, then `(Copilot…)` twins by number. Where the twins
+ * differ, the first one wins.
+ */
+function groupOrder(base: Agent, candidates: readonly Agent[]): Agent[] {
+  const ranked = candidates.map((agent) => {
+    const twin = twinBase(agent.name);
+    return { agent, rank: twin?.side === "claude" ? -1 : 1, n: twin?.n ?? 1 };
+  });
+  ranked.sort((a, b) => a.rank - b.rank || a.n - b.n || a.agent.name.localeCompare(b.agent.name));
+  return [
+    ...ranked.filter((r) => r.rank < 0).map((r) => r.agent),
+    base,
+    ...ranked.filter((r) => r.rank > 0).map((r) => r.agent),
+  ];
+}
+
+/**
+ * The fields of the agent a group merges into: the first member's prompt and
+ * stages, and per CLI the first member's model and permission overrides.
+ */
+function mergedAgent(
+  group: readonly Agent[],
+): Pick<Agent, "prompt" | "eligibleStages" | "models" | "permissionOverrides"> {
+  const [first] = group;
+  if (!first) throw new Error("An agent group needs at least one agent");
+  const models: AgentModels = {};
+  const permissionOverrides: AgentPermissionOverrides = {};
+  for (const cli of AGENT_CLIS) {
+    const model = group.find((a) => a.models[cli] !== undefined)?.models[cli];
+    if (model !== undefined) models[cli] = model;
+    const overrides = group.find((a) => a.permissionOverrides[cli] !== undefined)
+      ?.permissionOverrides[cli];
+    if (overrides !== undefined) permissionOverrides[cli] = overrides;
+  }
+  return {
+    prompt: first.prompt,
+    eligibleStages: [...first.eligibleStages],
+    models,
+    permissionOverrides,
+  };
+}
+
+/**
+ * A row's CLI choices once `group` is merged into `base`: the choice of the
+ * first member (in precedence order) the row lists in any role moves to the
+ * base, where no entry means the row's `cli`. The other members' entries go,
+ * and choices equal to `cli` are dropped.
+ */
+function mergeAgentClis(
+  agentClis: AgentClis,
+  listedIds: ReadonlySet<string>,
+  group: readonly Agent[],
+  base: Agent,
+  cli: AgentCli,
+): AgentClis {
+  const members = new Set(group.map((a) => a.id));
+  const next: AgentClis = Object.fromEntries(
+    Object.entries(agentClis).filter(([id]) => !members.has(id)),
+  );
+  const chosen = group.find((a) => listedIds.has(a.id));
+  if (chosen) next[base.id] = agentClis[chosen.id] ?? cli;
+  return Object.fromEntries(Object.entries(next).filter(([, value]) => value !== cli));
+}
+
+const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * The agent library: user-managed agents (persona, eligible stages, and per
+ * CLI a model and permission overrides), the default agent per pipeline role,
+ * and the prompt and permissions an agent gets for a stage on a CLI.
  */
 export function createAgentService({
   agents,
   settings,
   tags,
   repos,
+  tasks,
   backlogItems,
+  transaction,
 }: AgentServiceOptions) {
   function existing(id: string): Agent {
     const agent = agents.get(id);
@@ -148,114 +262,123 @@ export function createAgentService({
     return parsed.data;
   }
 
-  /** The role defaults of one CLI's set. */
-  function roleDefaults(cli: AgentCli = "claude"): RoleAgents {
-    const parsed = roleAgentsSchema.safeParse(settings.get(ROLE_DEFAULTS_KEYS[cli]) ?? {});
+  function roleDefaults(): RoleAgents {
+    const parsed = roleAgentsSchema.safeParse(settings.get(ROLE_DEFAULTS_KEY) ?? {});
     return parsed.success ? parsed.data : {};
-  }
-
-  /** Maps each role's agents through `map`, dropping unmapped ones and repeats; single roles stay single. */
-  function mapRoleIds(
-    roles: RoleAgents,
-    map: (role: AgentRole, id: string) => string | undefined,
-  ): RoleAgents {
-    const next: RoleAgents = {};
-    for (const role of AGENT_ROLES) {
-      const value = roles[role];
-      if (value === undefined) continue;
-      const ids = [...new Set(roleIds(roles, role).flatMap((id) => map(role, id) ?? []))];
-      if (typeof value !== "string") Object.assign(next, { [role]: ids });
-      else if (ids[0] !== undefined) Object.assign(next, { [role]: ids[0] });
-    }
-    return next;
   }
 
   /** Drops an agent from the role defaults (after it is deleted or no longer eligible). */
   function pruneRoleDefaults(keep: (role: AgentRole, id: string) => boolean): void {
-    for (const cli of AGENT_CLIS) {
-      // An unset set is left unset, so seeding can still derive it.
-      if (settings.get(ROLE_DEFAULTS_KEYS[cli]) === undefined) continue;
-      settings.set(
-        ROLE_DEFAULTS_KEYS[cli],
-        mapRoleIds(roleDefaults(cli), (role, id) => (keep(role, id) ? id : undefined)),
-      );
-    }
+    // Unset defaults are left unset, so seeding can still derive them.
+    if (settings.get(ROLE_DEFAULTS_KEY) === undefined) return;
+    settings.set(
+      ROLE_DEFAULTS_KEY,
+      mapRoleIds(roleDefaults(), (role, id) => (keep(role, id) ? id : undefined)),
+    );
   }
 
   /**
-   * The agents for a new task: the role defaults of `cli` with the new-task
-   * form's choices on top. Validated like the defaults.
+   * The agents for a new task: the role defaults with the new-task form's
+   * choices on top. Validated like the defaults.
    */
-  function resolveRoles(overrides: RoleAgents = {}, cli: AgentCli = "claude"): RoleAgents {
+  function resolveRoles(overrides: RoleAgents = {}): RoleAgents {
     const chosen = Object.fromEntries(
       Object.entries(checkRoles(overrides)).filter(([, value]) => value !== undefined),
     );
-    return { ...roleDefaults(cli), ...chosen };
+    return { ...roleDefaults(), ...chosen };
+  }
+
+  /** The base agent a twin finally resolves to, following twins of twins; none for a non-twin. */
+  function baseOf(agent: Agent, byName: ReadonlyMap<string, Agent>): Agent | undefined {
+    let base: Agent | undefined;
+    const seen = new Set<string>();
+    for (let name = agent.name; !seen.has(name);) {
+      seen.add(name);
+      const next = byName.get(twinBase(name)?.base ?? "");
+      if (!next) break;
+      base = next;
+      name = next.name;
+    }
+    return base;
   }
 
   /**
-   * Gives every agent a twin on the other CLI, derives each CLI's role
-   * defaults from the current ones, and moves unpromoted backlog items onto
-   * their repo's default CLI. Runs once, so twins the user deletes stay
-   * deleted. An existing agent named exactly like the twin and already on the
-   * twin's CLI is adopted as the twin instead of creating another.
+   * Folds every per-CLI twin left by earlier versions (`X (Copilot)`,
+   * `X (Copilot 2)`, `X (Claude)`, …) into its base agent `X`, which keeps
+   * its id and name. Where the copies differ, the Claude Code side wins (see
+   * {@link groupOrder}). Tasks, backlog items, role defaults, steps, findings
+   * and grill questions that name a twin name `X` instead. Twins whose base
+   * no longer exists are left alone. Runs once, in one transaction.
    */
-  function seedCliTwins(): void {
-    if (settings.get(CLI_TWINS_SEEDED_KEY) === true) return;
-    const library = agents.list();
-    const byName = new Map(library.map((a) => [a.name, a]));
-    const taken = new Set(byName.keys());
-    const counterpart = new Map<string, Record<AgentCli, string>>();
-    const pair = (a: Agent, b: Agent) => {
-      const ids = { [a.cli]: a.id, [b.cli]: b.id } as Record<AgentCli, string>;
-      counterpart.set(a.id, ids);
-      counterpart.set(b.id, ids);
-    };
-    const twin = (agent: Agent, cli: AgentCli): Agent => {
-      const name = freeTwinName(agent.name, cli, taken);
-      taken.add(name);
-      // Model ids and override syntax differ per CLI, so the twin starts without them.
-      return agents.create({
-        name,
-        cli,
-        model: null,
-        prompt: agent.prompt,
-        eligibleStages: [...agent.eligibleStages],
-        permissionOverrides: {},
-      });
-    };
-    // Claude Code agents first, so an existing `X` / `X (Copilot)` pair is not twinned twice.
-    for (const cli of AGENT_CLIS) {
-      const target = otherCli(cli);
+  function mergeCliTwins(): void {
+    if (settings.get(CLI_TWINS_MERGED_KEY) === true) return;
+    transaction(() => {
+      const library = agents.list();
+      const byName = new Map(library.map((a) => [a.name, a]));
+      const twins = new Map<Agent, Agent[]>();
       for (const agent of library) {
-        if (agent.cli !== cli || counterpart.has(agent.id)) continue;
-        const named = byName.get(`${agent.name} (${CLI_TWIN_SUFFIX[target]})`);
-        pair(
-          agent,
-          named?.cli === target && !counterpart.has(named.id) ? named : twin(agent, target),
-        );
+        const base = baseOf(agent, byName);
+        if (base) twins.set(base, [...(twins.get(base) ?? []), agent]);
       }
-    }
+      const groups = [...twins].map(([base, candidates]) => ({
+        base,
+        members: groupOrder(base, candidates),
+      }));
 
-    /** Each agent's counterpart on `cli`, if it may still fill the role. */
-    const mapRoles = (roles: RoleAgents, cli: AgentCli): RoleAgents =>
-      mapRoleIds(roles, (role, id) => {
-        const mapped = counterpart.get(id)?.[cli];
-        const agent = mapped === undefined ? undefined : agents.get(mapped);
-        return agent?.eligibleStages.includes(ROLE_STAGES[role]) ? agent.id : undefined;
-      });
-    const current = roleDefaults("claude");
-    settings.set(ROLE_DEFAULTS_KEYS.claude, mapRoles(current, "claude"));
-    if (settings.get(ROLE_DEFAULTS_KEYS.copilot) === undefined) {
-      settings.set(ROLE_DEFAULTS_KEYS.copilot, mapRoles(current, "copilot"));
-    }
+      const merged = new Map<string, Agent>();
+      const mergedInto = new Map<string, string>();
+      for (const { base, members } of groups) {
+        merged.set(base.id, agents.update(base.id, mergedAgent(members)));
+        for (const member of members) mergedInto.set(member.id, base.id);
+      }
+      const toBase = (_: AgentRole, id: string) => mergedInto.get(id) ?? id;
+      /** Also drops a merged agent from roles its merged stages no longer cover. */
+      const toEligibleBase = (role: AgentRole, id: string) => {
+        const base = toBase(role, id);
+        const agent = merged.get(base);
+        return !agent || agent.eligibleStages.includes(ROLE_STAGES[role]) ? base : undefined;
+      };
+      const mergeClis = (roles: RoleAgents, agentClis: AgentClis, cli: AgentCli) => {
+        const listed = new Set(allRoleIds(roles));
+        return groups.reduce(
+          (clis, { base, members }) => mergeAgentClis(clis, listed, members, base, cli),
+          agentClis,
+        );
+      };
 
-    for (const item of backlogItems.list()) {
-      if (item.status === "promoted") continue;
-      const roles = mapRoles(item.agents, repos.get(item.repoId)?.defaultCli ?? "claude");
-      if (!sameRoles(roles, item.agents)) backlogItems.update(item.id, { agents: roles });
-    }
-    settings.set(CLI_TWINS_SEEDED_KEY, true);
+      if (groups.length > 0) {
+        // Tasks are history, so they keep the merged agent in every role.
+        for (const task of tasks.list()) {
+          const roles = mapRoleIds(task.agents, toBase);
+          const agentClis = mergeClis(task.agents, task.agentClis, task.cli);
+          if (!sameJson(roles, task.agents) || !sameJson(agentClis, task.agentClis)) {
+            tasks.update(task.id, { agents: roles, agentClis });
+          }
+        }
+        // Backlog items must still promote, so they drop roles the merged agent lost.
+        for (const item of backlogItems.list()) {
+          const cli = repos.get(item.repoId)?.defaultCli ?? "claude";
+          const roles = mapRoleIds(item.agents, toEligibleBase);
+          const agentClis = resolveClis(roles, mergeClis(item.agents, item.agentClis, cli), cli);
+          if (!sameJson(roles, item.agents) || !sameJson(agentClis, item.agentClis)) {
+            backlogItems.update(item.id, { agents: roles, agentClis });
+          }
+        }
+        if (settings.get(ROLE_DEFAULTS_KEY) !== undefined) {
+          settings.set(ROLE_DEFAULTS_KEY, mapRoleIds(roleDefaults(), toEligibleBase));
+        }
+        for (const { base, members } of groups) {
+          for (const member of members) {
+            if (member.id === base.id) continue;
+            agents.reassign(member.id, base.id);
+            agents.delete(member.id);
+          }
+        }
+      }
+      settings.delete(LEGACY_COPILOT_ROLE_DEFAULTS_KEY);
+      settings.delete(LEGACY_CLI_TWINS_SEEDED_KEY);
+      settings.set(CLI_TWINS_MERGED_KEY, true);
+    });
   }
 
   return {
@@ -295,52 +418,49 @@ export function createAgentService({
 
     roleDefaults,
 
-    /** The role defaults of every CLI. */
-    allRoleDefaults: (): RoleDefaultsByCli => ({
-      claude: roleDefaults("claude"),
-      copilot: roleDefaults("copilot"),
-    }),
-
-    /** Replaces one CLI's role defaults. */
-    setRoleDefaults(input: RoleAgents, cli: AgentCli = "claude"): RoleAgents {
+    /** Replaces the role defaults. */
+    setRoleDefaults(input: RoleAgents): RoleAgents {
       const roles = checkRoles(input);
-      settings.set(ROLE_DEFAULTS_KEYS[cli], roles);
+      settings.set(ROLE_DEFAULTS_KEY, roles);
       return roles;
     },
 
     resolveRoles,
 
+    resolveClis,
+
     /**
-     * The CLIs the agents of a new task would run on (the role defaults of
-     * `cli` with `overrides` on top); unknown agents are left out.
+     * The CLIs a task's agents run on: `cli` for every agent in `roles`
+     * without a choice in `agentClis`, plus the chosen CLIs.
      */
-    clisFor(overrides: RoleAgents = {}, cli: AgentCli = "claude"): AgentCli[] {
-      const roles = resolveRoles(overrides, cli);
-      const ids = AGENT_ROLES.flatMap((role) => roleIds(roles, role));
-      return [...new Set(ids.flatMap((id) => agents.get(id)?.cli ?? []))];
+    clisFor(roles: RoleAgents, agentClis: AgentClis, cli: AgentCli): AgentCli[] {
+      return [...new Set(allRoleIds(roles).map((id) => agentClis[id] ?? cli))];
     },
 
     /**
-     * What an agent gets for a stage: its system prompt (code reviewers also get
-     * the current tags and the findings contract) and the permissions of the
-     * stage's profile plus the agent's overrides.
+     * What an agent gets for a stage on a CLI: its system prompt (code
+     * reviewers also get the current tags and the findings contract), its
+     * model on that CLI, and the permissions of the stage's profile plus the
+     * agent's overrides for that CLI.
      */
-    invocation(agentId: string, stage: Stage): AgentInvocation {
+    invocation(agentId: string, stage: Stage, cli: AgentCli): AgentInvocation {
       const agent = existing(agentId);
       assertEligible(agent, stage);
       const profile = stagePermissionProfile(stage);
       return {
         agent,
         stage,
+        cli,
+        model: agent.models[cli] ?? null,
         systemPrompt: buildSystemPrompt({ agent, stage, profile, tags: tags.names() }),
-        permissions: permissionsFor(agent.cli, profile, agent.permissionOverrides),
+        permissions: permissionsFor(cli, profile, agent.permissionOverrides[cli]),
       };
     },
 
     /**
-     * Adds the built-in agents, their twins on the other CLI, the role defaults
-     * and the finding tags on first start. Each is seeded once, so agents or
-     * tags the user deletes stay deleted.
+     * Adds the built-in agents, the role defaults and the finding tags on
+     * first start, and merges the per-CLI twins of earlier versions. Each
+     * runs once, so agents or tags the user deletes stay deleted.
      */
     seed(): void {
       upgradeSeedPrompts();
@@ -357,8 +477,8 @@ export function createAgentService({
         const idOf = (name: string) => byName.get(name)?.id;
         const ids = (names: readonly string[]) =>
           names.map(idOf).filter((id): id is string => id !== undefined);
-        if (settings.get(ROLE_DEFAULTS_KEYS.claude) === undefined) {
-          settings.set(ROLE_DEFAULTS_KEYS.claude, {
+        if (settings.get(ROLE_DEFAULTS_KEY) === undefined) {
+          settings.set(ROLE_DEFAULTS_KEY, {
             planner: idOf(SEED_ROLE_DEFAULTS.planner),
             planReviewers: ids(SEED_ROLE_DEFAULTS.planReviewers),
             implementer: idOf(SEED_ROLE_DEFAULTS.implementer),
@@ -368,7 +488,7 @@ export function createAgentService({
         }
         settings.set(AGENTS_SEEDED_KEY, true);
       }
-      seedCliTwins();
+      mergeCliTwins();
       if (settings.get(TAGS_SEEDED_KEY) !== true) {
         if (tags.list().length === 0) tags.replace(DEFAULT_TAGS);
         settings.set(TAGS_SEEDED_KEY, true);

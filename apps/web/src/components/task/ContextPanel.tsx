@@ -1,4 +1,4 @@
-import { AGENT_ROLES, type Task } from "@blackwall/shared";
+import { AGENT_ROLES, agentCliFor, type Task } from "@blackwall/shared";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { useAgentLibrary } from "../../hooks";
@@ -81,13 +81,15 @@ export function ContextPanel({ task }: { task: Task }) {
                   <span className="flex flex-wrap gap-x-3 gap-y-1">
                     {ids.map((id) => {
                       const agent = agentMap.get(id);
+                      const cli = agentCliFor(task, id);
+                      const model = agent?.models[cli];
                       return (
                         <span key={id} className="inline-flex items-center gap-1.5">
-                          {agent && <AgentTile cli={agent.cli} />}
+                          {agent && <AgentTile cli={cli} />}
                           {agent?.name ?? "Deleted agent"}
                           {agent && (
                             <span className="mono text-[11px] text-faint">
-                              {agent.model ?? AUTO_MODEL_LABEL}
+                              {model || AUTO_MODEL_LABEL}
                             </span>
                           )}
                         </span>

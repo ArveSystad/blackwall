@@ -39,13 +39,15 @@ describe("tags", () => {
       settings: r.settings,
       tags: r.tags,
       repos: r.repos,
+      tasks: r.tasks,
       backlogItems: r.backlogItems,
+      transaction: r.transaction,
     });
     agents.seed();
     service.setTags({ tags: ["only-this-tag"] });
     const reviewer = agents.list().find((a) => a.name === "Security reviewer");
     if (!reviewer) throw new Error("not seeded");
-    const { systemPrompt } = agents.invocation(reviewer.id, "code-review");
+    const { systemPrompt } = agents.invocation(reviewer.id, "code-review", "claude");
     expect(systemPrompt).toContain("only-this-tag");
     expect(systemPrompt).not.toContain("accessibility");
   });

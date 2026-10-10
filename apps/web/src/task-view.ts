@@ -1,10 +1,12 @@
 import {
+  agentCliFor,
   isGatingSeverity,
   JIRA_KEY_PATTERN,
   TASK_STOPPED_ERROR,
   type ConnectionView,
   type Agent,
   type AgentCli,
+  type AgentClis,
   type DeliveryAction,
   type Finding,
   type Gate,
@@ -420,15 +422,18 @@ export const MODEL_SOURCE_HINTS: Record<ModelSource, string> = {
 
 /**
  * The model a step runs on: the one the CLI reported, else the agent's
- * configured model, else null (the CLI's own default).
+ * configured model for the `cli` the step runs on, else null (the CLI's own
+ * default).
  */
 export function effectiveModel(
   events: readonly StepEvent[] | undefined,
-  agent: Pick<Agent, "model"> | undefined,
+  agent: Pick<Agent, "models"> | undefined,
+  cli: AgentCli | null,
 ): { model: string | null; source: ModelSource } {
   const reported = events ? stepModel(events) : null;
   if (reported) return { model: reported, source: "reported" };
-  if (agent?.model) return { model: agent.model, source: "configured" };
+  const configured = cli ? agent?.models[cli] : undefined;
+  if (configured) return { model: configured, source: "configured" };
   return { model: null, source: "default" };
 }
 
@@ -804,9 +809,31 @@ export function confirmLabel(count: number): string {
 }
 
 /** The distinct CLIs a task's agents run on, for the inbox card's agent tiles. */
-export function agentClis(
-  agents: RoleAgents,
-  library: ReadonlyMap<string, { cli: AgentCli }>,
+export function agentClis(task: Pick<Task, "agents" | "cli" | "agentClis">): AgentCli[] {
+  return [...new Set(taskAgentIds(task.agents).map((id) => agentCliFor(task, id)))];
+}
+
+/** The distinct CLIs a backlog item's agents would run on in a repo whose default is `repoCli`. */
+export function backlogAgentClis(
+  roles: RoleAgents,
+  overrides: AgentClis,
+  repoCli: AgentCli,
 ): AgentCli[] {
-  return [...new Set(taskAgentIds(agents).flatMap((id) => library.get(id)?.cli ?? []))];
+  return agentClis({ agents: roles, cli: repoCli, agentClis: overrides });
+}
+
+/**
+ * The per-agent CLI choices that still matter: those for agents still chosen
+ * that differ from the default `cli`. Stored choices are kept when the repo
+ * changes, so switching back brings them back.
+ */
+export function activeOverrides(
+  overrides: AgentClis,
+  cli: AgentCli,
+  chosenIds: readonly string[],
+): AgentClis {
+  const chosen = new Set(chosenIds);
+  return Object.fromEntries(
+    Object.entries(overrides).filter(([id, value]) => chosen.has(id) && value !== cli),
+  );
 }

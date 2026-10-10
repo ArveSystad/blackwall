@@ -23,9 +23,11 @@ import {
   SEVERITIES,
   TASK_STATUSES,
   TRIAGE_MODES,
+  type AgentClis,
+  type AgentModels,
+  type AgentPermissionOverrides,
   type DeliveryTarget,
   type FollowUp,
-  type PermissionOverrides,
   type RoleAgents,
   type Stage,
   type TaskOrigin,
@@ -95,15 +97,18 @@ export const repos = sqliteTable("repos", {
 export const agents = sqliteTable("agents", {
   id: id(),
   name: text("name").notNull().unique(),
-  cli: text("cli", { enum: AGENT_CLIS }).notNull(),
-  model: text("model"),
+  /** Model id per CLI; a CLI without one uses its own default. */
+  models: text("models", { mode: "json" })
+    .$type<AgentModels>()
+    .notNull()
+    .default(sql`'{}'`),
   prompt: text("prompt").notNull().default(""),
   eligibleStages: text("eligible_stages", { mode: "json" })
     .$type<Stage[]>()
     .notNull()
     .default(sql`'[]'`),
   permissionOverrides: text("permission_overrides", { mode: "json" })
-    .$type<PermissionOverrides>()
+    .$type<AgentPermissionOverrides>()
     .notNull()
     .default(sql`'{}'`),
   createdAt: createdAt(),
@@ -141,6 +146,13 @@ export const tasks = sqliteTable(
     triageMode: text("triage_mode", { enum: TRIAGE_MODES }).notNull().default("intervene"),
     agents: text("agents", { mode: "json" })
       .$type<RoleAgents>()
+      .notNull()
+      .default(sql`'{}'`),
+    /** The repo's default CLI when the task was created. */
+    cli: text("cli", { enum: AGENT_CLIS }).notNull().default("claude"),
+    /** Agents run on another CLI than `cli`. */
+    agentClis: text("agent_clis", { mode: "json" })
+      .$type<AgentClis>()
       .notNull()
       .default(sql`'{}'`),
     deliveryTargets: text("delivery_targets", { mode: "json" })
@@ -181,6 +193,11 @@ export const backlogItems = sqliteTable(
     freeText: text("free_text").notNull().default(""),
     agents: text("agents", { mode: "json" })
       .$type<RoleAgents>()
+      .notNull()
+      .default(sql`'{}'`),
+    /** Agents to run on another CLI than the repo's default. */
+    agentClis: text("agent_clis", { mode: "json" })
+      .$type<AgentClis>()
       .notNull()
       .default(sql`'{}'`),
     triageMode: text("triage_mode", { enum: TRIAGE_MODES }).notNull().default("intervene"),
@@ -228,6 +245,8 @@ export const steps = sqliteTable(
       .references(() => runs.id, { onDelete: "cascade" }),
     stage: text("stage", { enum: STAGES }).notNull(),
     agentId: text("agent_id").references(() => agents.id, { onDelete: "set null" }),
+    /** CLI the agent ran on; null for harness steps. */
+    cli: text("cli", { enum: AGENT_CLIS }),
     /** Fix round within the stage loop (0 for the first pass). */
     round: integer("round").notNull().default(0),
     /** Visit of the stage within the run (0 for the first). */

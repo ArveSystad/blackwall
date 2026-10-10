@@ -182,6 +182,20 @@ export function createAgentsRepository(db: Db) {
     delete(id: string): void {
       db.delete(agents).where(eq(agents.id, id)).run();
     },
+    /** Moves the steps, findings and grill questions of agent `fromId` over to `toId`. */
+    reassign(fromId: string, toId: string): void {
+      db.transaction((tx) => {
+        tx.update(steps).set({ agentId: toId }).where(eq(steps.agentId, fromId)).run();
+        tx.update(findings)
+          .set({ reviewerAgentId: toId })
+          .where(eq(findings.reviewerAgentId, fromId))
+          .run();
+        tx.update(grillQuestions)
+          .set({ askedByAgentId: toId })
+          .where(eq(grillQuestions.askedByAgentId, fromId))
+          .run();
+      });
+    },
   };
 }
 
@@ -232,8 +246,17 @@ export function createTasksRepository(db: Db) {
 
 /** Backlog item fields the user can edit; promotion goes through `markPromoted`. */
 export type BacklogItemPatch = {
-  [K in "title" | "freeText" | "priority" | "dependsOn" | "status" | "agents" | "triageMode"]?:
-    BacklogItem[K] | undefined;
+  [
+    K in
+      | "title"
+      | "freeText"
+      | "priority"
+      | "dependsOn"
+      | "status"
+      | "agents"
+      | "agentClis"
+      | "triageMode"
+  ]?: BacklogItem[K] | undefined;
 };
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -547,6 +570,10 @@ export function createRepositories(db: Db) {
     stepEvents: createStepEventsRepository(db),
     findings: createFindingsRepository(db),
     grillQuestions: createGrillQuestionsRepository(db),
+    /** Runs `fn` in one transaction; repository calls inside it nest as savepoints. */
+    transaction<T>(fn: () => T): T {
+      return db.transaction(() => fn());
+    },
   };
 }
 

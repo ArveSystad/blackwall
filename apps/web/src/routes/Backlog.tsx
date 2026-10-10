@@ -44,7 +44,7 @@ import { Button } from "../components/ui/button";
 import { ErrorText } from "../components/ui/field";
 import { Input } from "../components/ui/input";
 import { Kbd } from "../components/ui/kbd";
-import { useAgentLibrary, useNow } from "../hooks";
+import { useNow } from "../hooks";
 import { originKey } from "../inbox";
 import { cn } from "../lib/utils";
 import {
@@ -59,7 +59,7 @@ import {
 } from "../query";
 import { setSelectedRepo } from "../selected-repo";
 import { errorMessage } from "../settings-forms";
-import { agentClis } from "../task-view";
+import { backlogAgentClis } from "../task-view";
 
 /** An item's role agents with the role defaults filled in, as the server resolves them. */
 function resolvedRoles(agents: RoleAgents, defaults: RoleAgents): RoleAgents {
@@ -567,7 +567,6 @@ export function Backlog({ repoId }: { repoId: string }) {
   const settings = useQuery(settingsQuery);
   const tasks = useQuery(tasksQuery);
   const quota = useQuery(quotaQuery);
-  const library = useAgentLibrary();
   const roleDefaults = useQuery(roleDefaultsQuery);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [error, setError] = useState<string | null>(null);
@@ -602,9 +601,10 @@ export function Backlog({ repoId }: { repoId: string }) {
   );
   const titles = useMemo(() => new Map(items.map((i) => [i.id, i.title])), [items]);
   const clisFor = (item: BacklogItemView) =>
-    agentClis(
-      resolvedRoles(item.agents, roleDefaults.data?.[repo?.defaultCli ?? "claude"] ?? {}),
-      library,
+    backlogAgentClis(
+      resolvedRoles(item.agents, roleDefaults.data ?? {}),
+      item.agentClis,
+      repo?.defaultCli ?? "claude",
     );
 
   const status =

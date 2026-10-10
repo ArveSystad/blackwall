@@ -5,6 +5,7 @@ import {
   TaskStateError,
   createRepositories,
   openDatabase,
+  resolveClis,
   type OpenedDatabase,
   type Repositories,
 } from "@blackwall/core";
@@ -164,7 +165,6 @@ describe("task routes", () => {
     const run = repositories.runs.create(task.id);
     const agent = repositories.agents.create({
       name: "coder",
-      cli: "claude",
       eligibleStages: ["implement"],
     });
     const step = repositories.steps.create({
@@ -472,10 +472,8 @@ describe("new tasks", () => {
       taskServices: {
         newTask: {
           repos: { use: (id) => repositories.repos.get(id)! },
-          resolveRoles: (overrides = {}, cli = "claude") => ({
-            planner: cli === "copilot" ? "a-copilot-default" : "a-default",
-            ...overrides,
-          }),
+          resolveRoles: (overrides = {}) => ({ planner: "a-default", ...overrides }),
+          resolveClis,
           originTitle,
         },
         diffs: async (task) => [
@@ -511,7 +509,7 @@ describe("new tasks", () => {
     expect(originTitle).toHaveBeenCalledWith(prOrigin);
   });
 
-  it("starts a task from the role defaults of its repo's CLI", async () => {
+  it("runs a task on its repo's CLI, keeping only the form's real CLI overrides", async () => {
     const copilotRepo = repositories.repos.create({
       path: "/code/ghe",
       name: "ghe",
@@ -519,10 +517,27 @@ describe("new tasks", () => {
     });
     const res = await request("/api/tasks", {
       method: "POST",
-      body: { origin: prOrigin, mode: "work", repoId: copilotRepo.id },
+      body: {
+        origin: prOrigin,
+        mode: "work",
+        repoId: copilotRepo.id,
+        agents: { implementer: "a-impl" },
+        // a-default matches the repo's CLI, and a-gone is in no role.
+        agentClis: { "a-impl": "claude", "a-default": "copilot", "a-gone": "claude" },
+      },
     });
     expect(res.status).toBe(201);
-    expect(taskSchema.parse(await res.json()).agents).toEqual({ planner: "a-copilot-default" });
+    expect(taskSchema.parse(await res.json())).toMatchObject({
+      agents: { planner: "a-default", implementer: "a-impl" },
+      cli: "copilot",
+      agentClis: { "a-impl": "claude" },
+    });
+
+    const plain = await request("/api/tasks", {
+      method: "POST",
+      body: { origin: prOrigin, mode: "work", repoId },
+    });
+    expect(taskSchema.parse(await plain.json())).toMatchObject({ cli: "claude", agentClis: {} });
   });
 
   it("titles a free text task from its first line and validates the form", async () => {
@@ -588,6 +603,7 @@ describe("new tasks", () => {
           newTask: {
             repos: { use: (id) => repositories.repos.get(id)! },
             resolveRoles: (overrides = {}) => ({ ...overrides }),
+            resolveClis,
             originTitle,
             commentOnIssue,
           },
@@ -604,6 +620,11 @@ describe("new tasks", () => {
       expect(commentOnIssue).toHaveBeenCalledWith(issueOrigin, "Work has started.");
       expect(order).toEqual(["comment", "create"]);
       expect(vi.mocked(pipeline.createTask).mock.calls[0]![0]).not.toHaveProperty("startComment");
+      // Like any task, it runs on the repo's default CLI.
+      expect(vi.mocked(pipeline.createTask).mock.calls[0]![0]).toMatchObject({
+        cli: repositories.repos.get(repoId)!.defaultCli,
+        agentClis: {},
+      });
     });
 
     it("creates no task when the comment fails, and surfaces a missing token", async () => {

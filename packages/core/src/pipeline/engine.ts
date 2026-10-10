@@ -1,4 +1,5 @@
 import {
+  agentCliFor,
   deliveryConfirmationSchema,
   findingOverrideInputSchema,
   gateResponseInputSchema,
@@ -57,7 +58,15 @@ type GateResponse = ReturnType<typeof gateResponseInputSchema.parse>;
 /** A new task as the new task form describes it, with its role agents resolved. */
 export type NewTaskValues = Pick<
   Task,
-  "title" | "origin" | "mode" | "repoId" | "freeText" | "agents" | "triageMode"
+  | "title"
+  | "origin"
+  | "mode"
+  | "repoId"
+  | "freeText"
+  | "agents"
+  | "cli"
+  | "agentClis"
+  | "triageMode"
 >;
 
 /** Prompt sent when a step resumes its interrupted CLI session. */
@@ -172,8 +181,8 @@ export interface PreparedWorkspace {
 
 export interface PipelineEngineOptions {
   repositories: Repositories;
-  /** Resolves an agent's prompt and permissions for a stage. */
-  invocation: (agentId: string, stage: Stage) => AgentInvocation;
+  /** Resolves an agent's prompt, model and permissions for a stage on a CLI. */
+  invocation: (agentId: string, stage: Stage, cli: AgentCli) => AgentInvocation;
   adapters: Partial<Record<AgentCli, AgentAdapter>>;
   stages: StageHandlers;
   /** Creates the task's worktree before its first stage. */
@@ -363,9 +372,11 @@ export function createPipelineEngine({
       if (stored) return stored;
     }
 
-    const inv = invocation(input.agentId, input.asStage ?? stage);
-    const adapter = adapters[inv.agent.cli];
-    if (!adapter) throw new Error(`No adapter for the ${inv.agent.cli} CLI`);
+    // A resumed step stays on its own CLI, since its session belongs to that CLI.
+    const cli = earlier?.cli ?? agentCliFor(ctx.task, input.agentId);
+    const inv = invocation(input.agentId, input.asStage ?? stage, cli);
+    const adapter = adapters[cli];
+    if (!adapter) throw new Error(`No adapter for the ${cli} CLI`);
 
     const worktree = ctx.task.worktreePath;
     if (!worktree) throw new Error("The task has no worktree");
@@ -376,7 +387,15 @@ export function createPipelineEngine({
     const started = { status: "running" as const, startedAt: new Date(), finishedAt: null };
     let step = earlier
       ? saveStep(earlier.id, { ...started, error: null })
-      : r.steps.create({ runId: run.id, stage, agentId: input.agentId, round, visit, ...started });
+      : r.steps.create({
+          runId: run.id,
+          stage,
+          agentId: input.agentId,
+          cli,
+          round,
+          visit,
+          ...started,
+        });
     if (!earlier) publish({ type: "step.upserted", payload: { step } });
 
     const agentRun = adapter.run({
@@ -385,7 +404,7 @@ export function createPipelineEngine({
       systemPrompt: inv.systemPrompt,
       permissions: inv.permissions,
       signal,
-      ...(inv.agent.model ? { model: inv.agent.model } : {}),
+      ...(inv.model ? { model: inv.model } : {}),
       ...(resumeSessionId ? { resumeSessionId } : {}),
       ...(input.jsonSchema ? { jsonSchema: input.jsonSchema } : {}),
       ...(input.maxTurns !== undefined ? { maxTurns: input.maxTurns } : {}),
@@ -407,7 +426,7 @@ export function createPipelineEngine({
       }
       const result = await agentRun.result;
       saveStep(step.id, { status: "succeeded", finishedAt: new Date() });
-      quota?.succeeded(inv.agent.cli);
+      quota?.succeeded(cli);
       return result;
     } catch (error) {
       if (signal.aborted) {
@@ -416,11 +435,11 @@ export function createPipelineEngine({
       }
       if (rateLimit && quota) {
         const resetsAt = rateLimit.resetsAt ? new Date(rateLimit.resetsAt) : undefined;
-        const until = quota.report(inv.agent.cli, {
+        const until = quota.report(cli, {
           taskId: ctx.task.id,
           ...(resetsAt && !Number.isNaN(resetsAt.getTime()) ? { resetsAt } : {}),
         });
-        const limited = new RateLimitedError(inv.agent.cli, until);
+        const limited = new RateLimitedError(cli, until);
         saveStep(step.id, {
           status: "interrupted",
           error: limited.message,

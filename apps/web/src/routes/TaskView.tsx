@@ -206,7 +206,7 @@ function TaskScreen({ task }: { task: Task }) {
           />
         );
       case "findings":
-        return <FindingsPanel task={task} findings={data.visibleFindings} />;
+        return <FindingsPanel task={task} findings={data.visibleFindings} steps={data.steps} />;
       case "diff":
         return <DiffPanel diffs={data.diffs.data ?? []} loading={data.diffs.isPending} />;
       case "checks":

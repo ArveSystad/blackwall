@@ -16,6 +16,7 @@ import {
   newTaskInputSchema,
   type ActiveAgentStep,
   type AgentCli,
+  type AgentClis,
   type DeliveryPlan,
   type Finding,
   type GrillAnswerResult,
@@ -59,8 +60,10 @@ export interface TaskRouteStores {
 /** What creating a task needs besides the pipeline. */
 export interface NewTaskServices {
   repos: Pick<RepoService, "use">;
-  /** The role defaults of `cli` with the form's choices on top. */
-  resolveRoles: (overrides?: RoleAgents, cli?: AgentCli) => RoleAgents;
+  /** The role defaults with the form's choices on top. */
+  resolveRoles: (overrides?: RoleAgents) => RoleAgents;
+  /** The form's per-agent CLI choices for agents in `roles` that differ from `cli`. */
+  resolveClis: (roles: RoleAgents, agentClis: AgentClis, cli: AgentCli) => AgentClis;
   /** The Jira issue's summary or the PR's or GitHub issue's title; undefined when the origin has none. */
   originTitle?: (origin: TaskOrigin) => Promise<string | undefined>;
   /** Posts a comment the user confirmed on a GitHub issue, for the start comment. */
@@ -111,8 +114,11 @@ export async function titleFor(
   return fallbackTitle(origin, freeText);
 }
 
+/** A titled task as the form describes it; its CLI comes from the repo when it is queued. */
+export type QueuedTaskInput = Omit<NewTaskValues, "cli">;
+
 /** A parsed new task form: what `POST /api/tasks` and backlog promotion both start from. */
-export type ParsedNewTaskInput = Omit<NewTaskValues, "title"> & {
+export type ParsedNewTaskInput = Omit<QueuedTaskInput, "title"> & {
   title?: string | undefined;
   /** GitHub issue tasks: a comment the user confirmed, posted when the task is created. */
   startComment?: { body: string } | undefined;
@@ -120,7 +126,7 @@ export type ParsedNewTaskInput = Omit<NewTaskValues, "title"> & {
 
 /**
  * Creates and queues a task: checks the repo is usable, puts the form's
- * agents on top of the repo's CLI's role defaults and, without a title, uses the Jira
+ * agents on top of the role defaults and, without a title, uses the Jira
  * issue's summary, the PR's or GitHub issue's title, or a fallback. A GitHub
  * issue task's confirmed start comment is posted before the task exists, so
  * a failed post creates nothing and a retry leaves no duplicate task.
@@ -160,18 +166,31 @@ export async function postStartComment(
 }
 
 /**
- * Queues a titled task without awaiting anything: checks the repo is usable
- * and puts the given agents on top of the repo's CLI's role defaults.
+ * Queues a titled task without awaiting anything: checks the repo is usable,
+ * puts the given agents on top of the role defaults, and runs them on the
+ * repo's default CLI except where the input chose another one.
  */
 export function queueTask(
   pipeline: Pick<TaskPipeline, "createTask">,
   newTask: NewTaskServices,
-  input: NewTaskValues,
+  input: QueuedTaskInput,
 ): Task {
   const { title, origin, mode, repoId, freeText, triageMode } = input;
   const repo = newTask.repos.use(repoId);
-  const agents = newTask.resolveRoles(input.agents, repo.defaultCli);
-  return pipeline.createTask({ title, origin, mode, repoId, freeText, agents, triageMode });
+  const agents = newTask.resolveRoles(input.agents);
+  const cli = repo.defaultCli;
+  const agentClis = newTask.resolveClis(agents, input.agentClis, cli);
+  return pipeline.createTask({
+    title,
+    origin,
+    mode,
+    repoId,
+    freeText,
+    agents,
+    cli,
+    agentClis,
+    triageMode,
+  });
 }
 
 /**

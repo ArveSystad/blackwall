@@ -306,7 +306,7 @@ function RepoEditor({
               }))}
             />
             <span className="text-meta text-faint">
-              New tasks here start with this CLI&apos;s role defaults.
+              The CLI new tasks in this repo run their agents on.
             </span>
           </Field>
           <Field label="Default origin" group className="min-w-0">

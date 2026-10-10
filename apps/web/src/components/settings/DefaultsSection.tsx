@@ -1,11 +1,9 @@
 import {
-  AGENT_CLIS,
   AGENT_ROLES,
   type Agent,
-  type AgentCli,
   type AgentRole,
   type GeneralSettings,
-  type RoleDefaultsByCli,
+  type RoleAgents,
 } from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -13,7 +11,6 @@ import { setRoleDefaults, updateSettings } from "../../api";
 import { cn } from "../../lib/utils";
 import { agentsQuery, queryKeys, roleDefaultsQuery, settingsQuery } from "../../query";
 import {
-  CLI_NAMES,
   ROLE_LABELS,
   agentsForRole,
   errorMessage,
@@ -23,9 +20,7 @@ import {
   sameRoles,
   withRole,
 } from "../../settings-forms";
-import { AgentTile } from "../AgentTile";
 import { editorBody, sectionLegend } from "../classes";
-import { Segmented } from "../Segmented";
 import { CheckChip } from "../ui/check-chip";
 import { fieldLabel } from "../ui/field";
 import { Input } from "../ui/input";
@@ -34,20 +29,14 @@ import { Empty, SaveBar, SectionHeader } from "./parts";
 
 function DefaultsEditor({
   agents,
-  cli,
-  onCliChange,
-  savedByCli,
+  savedRoles,
   savedSettings,
 }: {
   agents: Agent[];
-  /** The CLI whose role defaults are edited. */
-  cli: AgentCli;
-  onCliChange: (cli: AgentCli) => void;
-  savedByCli: RoleDefaultsByCli;
+  savedRoles: RoleAgents;
   savedSettings: GeneralSettings;
 }) {
   const queryClient = useQueryClient();
-  const savedRoles = savedByCli[cli];
   const [roles, setRoles] = useState(savedRoles);
   const [cap, setCap] = useState(String(savedSettings.maxTasksPerRepo));
   const [saving, setSaving] = useState(false);
@@ -72,7 +61,7 @@ function DefaultsEditor({
     setError(null);
     try {
       if (rolesDirty) {
-        queryClient.setQueryData(queryKeys.roleDefaults, await setRoleDefaults(cli, roles));
+        queryClient.setQueryData(queryKeys.roleDefaults, await setRoleDefaults(roles));
       }
       if (capDirty) {
         queryClient.setQueryData(
@@ -92,26 +81,8 @@ function DefaultsEditor({
       <div className={cn(editorBody, "gap-6")}>
         <fieldset className="m-0 flex max-w-[720px] flex-col gap-4 border-none p-0">
           <legend className={sectionLegend}>Agent per role</legend>
-          <div className="grid grid-cols-[140px_minmax(0,1fr)] items-center gap-3">
-            <span className={fieldLabel}>Defaults for</span>
-            <Segmented
-              label="Defaults for"
-              value={cli}
-              onChange={onCliChange}
-              options={AGENT_CLIS.map((option) => ({
-                value: option,
-                label: (
-                  <>
-                    <AgentTile cli={option} />
-                    {CLI_NAMES[option]}
-                  </>
-                ),
-              }))}
-            />
-          </div>
           <p className="m-0 text-meta text-muted-foreground">
-            New tasks start with these agents; the new-task form can change them. Each repo picks
-            the CLI whose defaults it uses under Repositories.
+            New tasks start with these agents, on their repo&apos;s default CLI.
           </p>
           {AGENT_ROLES.map((role) => {
             const eligible = agentsForRole(agents, role);
@@ -132,7 +103,6 @@ function DefaultsEditor({
                     {eligible.map((agent) => (
                       <option key={agent.id} value={agent.id}>
                         {agent.name}
-                        {agent.model ? ` · ${agent.model}` : ""}
                       </option>
                     ))}
                   </Select>
@@ -165,7 +135,6 @@ function DefaultsEditor({
                         )
                       }
                     >
-                      <AgentTile cli={agent.cli} />
                       {agent.name}
                     </CheckChip>
                   ))}
@@ -214,9 +183,8 @@ function DefaultsEditor({
   );
 }
 
-/** Role defaults per CLI and the concurrency cap per repo. */
+/** The role defaults and the concurrency cap per repo. */
 export function DefaultsSection() {
-  const [cli, setCli] = useState<AgentCli>("claude");
   const agents = useQuery(agentsQuery);
   const roles = useQuery(roleDefaultsQuery);
   const settings = useQuery(settingsQuery);
@@ -230,13 +198,10 @@ export function DefaultsSection() {
         <Empty>Loading defaults…</Empty>
       ) : (
         <DefaultsEditor
-          // Re-keyed when the stored values change (after a save, or an agent edit elsewhere)
-          // and when switching CLI, which drops unsaved edits.
-          key={JSON.stringify([cli, roles.data, settings.data])}
+          // Re-keyed when the stored values change (after a save, or an agent edit elsewhere).
+          key={JSON.stringify([roles.data, settings.data])}
           agents={agents.data}
-          cli={cli}
-          onCliChange={setCli}
-          savedByCli={roles.data}
+          savedRoles={roles.data}
           savedSettings={settings.data}
         />
       )}

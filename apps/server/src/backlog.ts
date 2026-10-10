@@ -79,7 +79,7 @@ export function promoteBacklogItem(
   if (!current || current.status === "promoted") {
     throw new Error("The item was already promoted to a task");
   }
-  const { title, origin, mode, repoId, freeText, agents, triageMode } = current;
+  const { title, origin, mode, repoId, freeText, agents, agentClis, triageMode } = current;
   const task = queueTask(pipeline, newTask, {
     title,
     origin,
@@ -87,6 +87,7 @@ export function promoteBacklogItem(
     repoId,
     freeText,
     agents,
+    agentClis,
     triageMode,
   });
   backlogItems.markPromoted(item.id, task.id);

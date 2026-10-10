@@ -1,4 +1,4 @@
-import type { Agent, GrillQuestion, Task } from "@blackwall/shared";
+import { agentCliFor, type Agent, type GrillQuestion, type Task } from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { answerQuestion } from "../../api";
@@ -111,7 +111,8 @@ function QuestionCard({
     ...stepEventsQuery(task.id, question.stepId ?? ""),
     enabled: question.stepId !== null,
   });
-  const model = effectiveModel(events.data, asker);
+  const cli = asker ? agentCliFor(task, asker.id) : null;
+  const model = effectiveModel(events.data, asker, cli);
   return (
     <article
       aria-label={`Question ${number}`}
@@ -127,7 +128,7 @@ function QuestionCard({
         <span className="flex-1" />
         {asker ? (
           <>
-            <AgentTile cli={asker.cli} />
+            <AgentTile cli={agentCliFor(task, asker.id)} />
             <span className="text-muted-foreground">{asker.name}</span>
             <span
               className="mono max-w-40 truncate text-[11px] text-faint"

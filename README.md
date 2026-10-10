@@ -2,7 +2,7 @@
 
 A local, single-user, browser-based control room for coding agents. blackwall runs Claude Code and GitHub Copilot CLI as headless subprocesses against your own git repos. Tasks come from Jira Cloud issues, GitHub/GHE pull requests (Work on PR or Review PR), GitHub/GHE issues or Blackwall tasks you write yourself (free text).
 
-Agents from different vendors plan, grill, implement and review each other's work. You approve the plan, answer the questions only you can answer, triage the findings and confirm every outbound action.
+Agents plan, grill, implement and review each other's work, on either CLI. You approve the plan, answer the questions only you can answer, triage the findings and confirm every outbound action.
 
 The name comes from the Blackwall in Cyberpunk 2077, the barrier that keeps rogue AIs contained. Here you are the wall: agents work freely inside their worktrees, but nothing leaves the machine without your say-so.
 
@@ -31,7 +31,7 @@ Inform ──► Plan review / grill ──► [human plan approval] ──► I
 
 ## Features
 
-- Agent library with role defaults per stage
+- Agent library with role defaults per stage. Agents are not tied to a CLI: each repo picks the CLI its tasks run on, and a task can run single agents on the other one.
 - Finding tags and severities, with force-fix and force-ignore on any finding
 - Connections to GitHub.com, GHE and Jira Cloud, with tokens in the OS keychain
 - Repo registry with auto-suggested check commands

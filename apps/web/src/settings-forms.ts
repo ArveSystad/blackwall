@@ -1,4 +1,5 @@
 import {
+  AGENT_CLIS,
   AGENT_ROLES,
   JIRA_EMAIL_META,
   PANEL_ROLES,
@@ -7,6 +8,8 @@ import {
   type Agent,
   type AgentCli,
   type AgentInput,
+  type AgentModels,
+  type AgentPermissionOverrides,
   type AgentRole,
   type ConnectionInput,
   type ConnectionKind,
@@ -32,11 +35,6 @@ export const MODEL_PRESETS: Record<AgentCli, readonly string[]> = {
 
 export function isPresetModel(cli: AgentCli, model: string): boolean {
   return MODEL_PRESETS[cli].includes(model);
-}
-
-/** The model to keep when the CLI changes: a preset the new CLI lacks falls back to Auto (""). */
-export function modelForCli(model: string, from: AgentCli, to: AgentCli): string {
-  return isPresetModel(from, model) && !isPresetModel(to, model) ? "" : model;
 }
 
 /** Stages an agent can be eligible for, with their labels. Checks run in the harness, not an agent. */
@@ -70,47 +68,67 @@ export function parseLines(text: string): string[] {
     .filter((line) => line !== "");
 }
 
-/** The agent editor's form state. List fields are edited as one item per line. */
+/** The agent editor's form state. List fields are edited as one item per line, per CLI. */
 export interface AgentDraft {
   name: string;
-  cli: AgentCli;
-  model: string;
+  /** Model per CLI; blank runs that CLI's default model. */
+  models: Record<AgentCli, string>;
   prompt: string;
   eligibleStages: Stage[];
-  allow: string;
-  deny: string;
+  allow: Record<AgentCli, string>;
+  deny: Record<AgentCli, string>;
+}
+
+/** One value per CLI. */
+function perCli<T>(value: (cli: AgentCli) => T): Record<AgentCli, T> {
+  return Object.fromEntries(AGENT_CLIS.map((cli) => [cli, value(cli)])) as Record<AgentCli, T>;
 }
 
 export function agentDraft(agent?: Agent): AgentDraft {
   return {
     name: agent?.name ?? "",
-    cli: agent?.cli ?? "claude",
-    model: agent?.model ?? "",
+    models: perCli((cli) => agent?.models[cli] ?? ""),
     prompt: agent?.prompt ?? "",
     eligibleStages: agent ? [...agent.eligibleStages] : [],
-    allow: (agent?.permissionOverrides.allow ?? []).join("\n"),
-    deny: (agent?.permissionOverrides.deny ?? []).join("\n"),
+    allow: perCli((cli) => (agent?.permissionOverrides[cli]?.allow ?? []).join("\n")),
+    deny: perCli((cli) => (agent?.permissionOverrides[cli]?.deny ?? []).join("\n")),
   };
 }
 
-/** The draft as an API body. A blank model means Auto: the CLI's own default. */
+/**
+ * The draft as an API body. A blank model means Auto, the CLI's own default;
+ * blank models and CLIs without rules are left out.
+ */
 export function draftToInput(draft: AgentDraft): Required<AgentInput> {
-  const allow = parseLines(draft.allow);
-  const deny = parseLines(draft.deny);
+  const models: AgentModels = {};
+  const permissionOverrides: AgentPermissionOverrides = {};
+  for (const cli of AGENT_CLIS) {
+    const model = draft.models[cli].trim();
+    if (model !== "") models[cli] = model;
+    const allow = parseLines(draft.allow[cli]);
+    const deny = parseLines(draft.deny[cli]);
+    if (allow.length > 0 || deny.length > 0) {
+      permissionOverrides[cli] = {
+        ...(allow.length > 0 ? { allow } : {}),
+        ...(deny.length > 0 ? { deny } : {}),
+      };
+    }
+  }
   return {
     name: draft.name.trim(),
-    cli: draft.cli,
-    model: draft.model.trim() === "" ? null : draft.model.trim(),
+    models,
     prompt: draft.prompt,
     // Keep pipeline order whatever order the boxes were ticked in.
     eligibleStages: AGENT_STAGES.map((s) => s.stage).filter((s) =>
       draft.eligibleStages.includes(s),
     ),
-    permissionOverrides: {
-      ...(allow.length > 0 ? { allow } : {}),
-      ...(deny.length > 0 ? { deny } : {}),
-    },
+    permissionOverrides,
   };
+}
+
+/** How many non-blank permission rules the draft has for one CLI. */
+export function overrideCount(draft: AgentDraft, cli: AgentCli): number {
+  return parseLines(draft.allow[cli]).length + parseLines(draft.deny[cli]).length;
 }
 
 /** Whether two drafts would save the same agent. */

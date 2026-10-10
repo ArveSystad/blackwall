@@ -244,6 +244,11 @@ async function resolveRebase(
   }
 }
 
+/** `branch` without a `refs/heads/` prefix, as `git symbolic-ref --short` prints it. */
+function shortBranch(branch: string): string {
+  return branch.replace(/^refs\/heads\//, "");
+}
+
 function samePath(a: string, b: string): boolean {
   const norm = (p: string) => {
     const full = resolve(p).replace(/[\\/]+$/, "");
@@ -278,6 +283,20 @@ export function createGitService({
       return (await runGit(cwd, ["symbolic-ref", "--short", "-q", "HEAD"])) || null;
     } catch {
       return null; // detached HEAD
+    }
+  }
+
+  /**
+   * Aborts a rebase left in the worktree and checks `branch` out again when
+   * HEAD is elsewhere (`git rebase --quit` leaves it detached), dropping the
+   * abandoned rebase's edits. The branch itself is never moved.
+   */
+  async function restoreBranch(worktree: string, branch: string): Promise<void> {
+    if (await rebaseInProgress(worktree)) {
+      await runGit(worktree, ["rebase", "--abort"]).catch(() => undefined);
+    }
+    if ((await currentBranch(worktree)) !== shortBranch(branch)) {
+      await runGit(worktree, ["checkout", "--force", "--quiet", shortBranch(branch)]);
     }
   }
 
@@ -404,12 +423,15 @@ export function createGitService({
 
     /**
      * Free-text finish: rebases the task branch onto local main, then
-     * fast-forwards main to it (`git merge --ff-only` when main is checked out
-     * in the repo folder). Each rebase stop on conflicts goes to `resolve`,
-     * which edits the files; the harness checks for leftover markers, stages
-     * and continues. Without a resolver, or when it fails, the rebase is
-     * aborted and the conflicting files are reported; nothing is changed. A
-     * rebase a crash left behind is aborted first. Never pushes.
+     * fast-forwards main to the rebased commit (`git merge --ff-only <sha>`
+     * when main is checked out in the repo folder) and checks that main now
+     * points at it. Each rebase stop on conflicts goes to `resolve`, which
+     * edits the files; the harness checks for leftover markers, stages and
+     * continues. Without a resolver, or when it fails, the rebase is aborted
+     * and the conflicting files are reported; nothing is changed. A resolver
+     * that leaves the rebase unfinished (stopped, or quit with HEAD detached)
+     * is reported the same way, with the branch checked out again. A rebase a
+     * crash left behind is aborted first. Never pushes.
      */
     async finishIntoMain({
       repoPath,
@@ -418,9 +440,7 @@ export function createGitService({
       resolve: resolveConflict,
     }: FinishInput): Promise<FinishResult> {
       assertUnprotected(branch);
-      if (await rebaseInProgress(worktreePath)) {
-        await runGit(worktreePath, ["rebase", "--abort"]);
-      }
+      await restoreBranch(worktreePath, branch);
       let resolved: string[] = [];
       try {
         await runGit(worktreePath, ["rebase", "--quiet", mainBranch]);
@@ -434,6 +454,14 @@ export function createGitService({
         }
         const outcome = await resolveRebase(worktreePath, files, resolveConflict);
         if ("unresolved" in outcome) return { status: "conflict", ...outcome };
+        // Only a finished rebase leaves the branch checked out at the rebased commit.
+        if (
+          (await rebaseInProgress(worktreePath)) ||
+          (await currentBranch(worktreePath)) !== shortBranch(branch)
+        ) {
+          await restoreBranch(worktreePath, branch);
+          return { status: "conflict", files, unresolved: "the rebase was left unfinished" };
+        }
         resolved = outcome.resolved;
       }
 
@@ -441,12 +469,21 @@ export function createGitService({
       if (!(await succeeds(repoPath, ["merge-base", "--is-ancestor", mainBranch, sha]))) {
         return { status: "not-fast-forward" };
       }
+      const mainRef = `refs/heads/${mainBranch}`;
       if ((await currentBranch(repoPath)) === mainBranch) {
-        await runGit(repoPath, ["merge", "--ff-only", "--quiet", branch]);
+        await runGit(repoPath, ["merge", "--ff-only", "--quiet", sha]);
       } else {
         // Main is not checked out in the repo folder: move the ref, still fast-forward only.
-        const old = await runGit(repoPath, ["rev-parse", `refs/heads/${mainBranch}`]);
-        await runGit(repoPath, ["update-ref", `refs/heads/${mainBranch}`, sha, old]);
+        const old = await runGit(repoPath, ["rev-parse", mainRef]);
+        await runGit(repoPath, ["update-ref", mainRef, sha, old]);
+      }
+      const merged = await runGit(repoPath, ["rev-parse", mainRef]);
+      if (merged !== sha) {
+        throw new GitError(
+          ["rev-parse", mainRef],
+          `${mainBranch} is at ${merged}, not at the rebased ${sha}`,
+          null,
+        );
       }
       return { status: "merged", sha, resolved };
     },

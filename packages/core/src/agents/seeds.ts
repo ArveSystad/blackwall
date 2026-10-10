@@ -2,7 +2,6 @@ import type { AgentCli, AgentRole, Stage } from "@blackwall/shared";
 
 export interface SeedAgent {
   name: string;
-  cli: AgentCli;
   prompt: string;
   eligibleStages: Stage[];
 }
@@ -23,16 +22,14 @@ const REVIEWER_RULES = lines(
 );
 
 /**
- * Built-in agents, added once on first start. All run on Claude Code; seeding
- * then gives every agent a Copilot CLI twin (see `CLI_TWIN_SUFFIX`), so each
- * CLI has a full set. Each prompt is the agent's persona; the harness appends
- * the workspace rules and the stage's output contracts (plan, questions,
+ * Built-in agents, added once on first start. Like every agent they run on
+ * either CLI. Each prompt is the agent's persona; the harness appends the
+ * workspace rules and the stage's output contracts (plan, questions,
  * findings).
  */
 export const SEED_AGENTS = [
   {
     name: "Planner",
-    cli: "claude",
     prompt: lines(
       "You are the planner: a senior engineer who turns a task into a concrete implementation plan before any code is written.",
       "",
@@ -53,7 +50,6 @@ export const SEED_AGENTS = [
   },
   {
     name: "Implementer",
-    cli: "claude",
     prompt: lines(
       "You are the implementer: a careful senior engineer who carries out an approved plan in the repository.",
       "",
@@ -71,7 +67,6 @@ export const SEED_AGENTS = [
   },
   {
     name: "Summarizer",
-    cli: "claude",
     prompt: lines(
       "You are the summarizer: you write the commit message for each round and the final summary of a task.",
       "",
@@ -89,7 +84,6 @@ export const SEED_AGENTS = [
   },
   {
     name: "Plan reviewer",
-    cli: "claude",
     prompt: lines(
       "You are the plan reviewer. You grill the plan before any code is written, the way a demanding staff engineer would.",
       "",
@@ -107,7 +101,6 @@ export const SEED_AGENTS = [
   },
   {
     name: "Code-quality reviewer",
-    cli: "claude",
     prompt: lines(
       "You are the code-quality reviewer. You look for:",
       "- Correctness bugs: wrong logic, off-by-one errors, unhandled cases, broken contracts between callers and callees.",
@@ -121,7 +114,6 @@ export const SEED_AGENTS = [
   },
   {
     name: "Security reviewer",
-    cli: "claude",
     prompt: lines(
       "You are the security reviewer. You look for:",
       "- Injection: SQL, shell commands, paths, HTML or templates built from untrusted input.",
@@ -136,7 +128,6 @@ export const SEED_AGENTS = [
   },
   {
     name: "UX/design reviewer",
-    cli: "claude",
     prompt: lines(
       "You are the UX and design reviewer. You review user-facing changes, in the UI and in CLI or API output, for:",
       "- Confusing flows, unclear wording, and labels or messages that do not say what happens next.",
@@ -150,7 +141,6 @@ export const SEED_AGENTS = [
   },
   {
     name: "Performance reviewer",
-    cli: "claude",
     prompt: lines(
       "You are the performance reviewer. You look for:",
       "- Needless work in hot paths: repeated computation, work inside loops that could move out, wasteful copies.",
@@ -198,10 +188,7 @@ export const LEGACY_SEED_PROMPTS: Partial<Record<SeedName, readonly string[]>> =
   ],
 };
 
-/**
- * Default agent per role, by seed name: the Claude Code role defaults. The
- * Copilot CLI role defaults are the Copilot twins of these agents.
- */
+/** Default agent per role, by seed name. */
 export const SEED_ROLE_DEFAULTS = {
   planner: "Planner",
   planReviewers: ["Plan reviewer"],
@@ -211,7 +198,8 @@ export const SEED_ROLE_DEFAULTS = {
 } as const satisfies Record<AgentRole, SeedName | readonly SeedName[]>;
 
 /**
- * Name suffix of an agent's twin on another CLI: the Copilot twin of `Planner`
- * is `Planner (Copilot)`, the Claude Code twin of a Copilot agent `X` is `X (Claude)`.
+ * Name suffix of the per-CLI twins earlier versions created: the Copilot twin
+ * of `Planner` was `Planner (Copilot)`, the Claude Code twin of a Copilot
+ * agent `X` was `X (Claude)`. Seeding merges such twins into their base agent.
  */
 export const CLI_TWIN_SUFFIX: Record<AgentCli, string> = { claude: "Claude", copilot: "Copilot" };

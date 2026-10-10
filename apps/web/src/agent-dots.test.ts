@@ -21,6 +21,7 @@ function makeStep(taskId: string, id: string, createdAt: string): ActiveAgentSte
     runId: "run1",
     stage: "implement",
     agentId: "a1",
+    cli: "copilot",
     round: 0,
     visit: 0,
     status: "running",
@@ -38,6 +39,7 @@ function dot(taskId: string, slot = 0): GridDot {
     taskId,
     stepId: null,
     agentId: null,
+    cli: null,
     slot,
     state: "running",
   };
@@ -59,9 +61,9 @@ describe("gridDots", () => {
     const later = makeStep(task.id, "s2", "2026-10-08T10:05:00.000Z");
     const earlier = makeStep(task.id, "s1", "2026-10-08T10:01:00.000Z");
     const dots = gridDots([task], [later, earlier]);
-    expect(dots.map((d) => [d.key, d.stepId, d.state])).toEqual([
-      [`${task.id}:0`, "s1", "running"],
-      [`${task.id}:1`, "s2", "running"],
+    expect(dots.map((d) => [d.key, d.stepId, d.cli, d.state])).toEqual([
+      [`${task.id}:0`, "s1", "copilot", "running"],
+      [`${task.id}:1`, "s2", "copilot", "running"],
     ]);
   });
 
@@ -73,6 +75,7 @@ describe("gridDots", () => {
         taskId: task.id,
         stepId: null,
         agentId: null,
+        cli: null,
         slot: 0,
         state: "running",
       },

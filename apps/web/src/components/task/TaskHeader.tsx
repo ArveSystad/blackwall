@@ -4,7 +4,14 @@ import { Link } from "@tanstack/react-router";
 import { originKey, relativeTime } from "../../inbox";
 import { useAgentLibrary } from "../../hooks";
 import { connectionsQuery, queryKeys, reposQuery } from "../../query";
-import { canArchive, canStop, deleteBlockedReason, originUrl, taskAgentIds } from "../../task-view";
+import {
+  agentClis,
+  canArchive,
+  canStop,
+  deleteBlockedReason,
+  originUrl,
+  taskAgentIds,
+} from "../../task-view";
 import { AgentTile } from "../AgentTile";
 import { BacklogIcon, BranchIcon, ChevronRightIcon, StopIcon, TrashIcon } from "../icons";
 import { ORIGIN_ICONS, PR_MODE_LABELS } from "../origins";
@@ -30,7 +37,7 @@ function AgentSummary({ task, agents }: { task: Task; agents: ReadonlyMap<string
   return (
     <span className="inline-flex items-center gap-1.5">
       <span className="inline-flex items-center gap-0.5">
-        {[...new Set(tiles.map((a) => a.cli))].map((cli) => (
+        {agentClis(task).map((cli) => (
           <AgentTile key={cli} cli={cli} />
         ))}
       </span>

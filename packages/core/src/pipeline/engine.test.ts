@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   MAX_GRILL_ROUNDS,
   TASK_STOPPED_ERROR,
+  type AgentCli,
   type ReviewFinding,
   type ServerEvent,
   type Stage,
@@ -106,7 +107,7 @@ const ISSUE_COMMENT_URL = "https://github.com/acme/app/issues/7#issuecomment-1";
 
 interface Harness {
   engine: ReturnType<typeof createPipelineEngine>;
-  calls: { stage: Call; options: AgentRunOptions }[];
+  calls: { stage: Call; cli: AgentCli; options: AgentRunOptions }[];
   events: ServerEvent[];
   delivered: string[];
   /** Delivery calls, with what the user confirmed. */
@@ -131,17 +132,11 @@ function harness(
     commentOnIssue?: (task: Task, body: string) => Promise<{ url: string }>;
   } = {},
 ): Harness {
-  const agents = createAgentService({
-    agents: r.agents,
-    settings: r.settings,
-    tags: r.tags,
-    repos: r.repos,
-    backlogItems: r.backlogItems,
-  });
+  const agents = agentService();
   const calls: Harness["calls"] = [];
-  const run = (options: AgentRunOptions) => {
+  const run = (cli: AgentCli) => (options: AgentRunOptions) => {
     const stage = stageOf(options);
-    calls.push({ stage, options });
+    calls.push({ stage, cli, options });
     return withPlanDefaults(stage, script(stage, options));
   };
   const events: ServerEvent[] = [];
@@ -151,8 +146,8 @@ function harness(
     repositories: r,
     invocation: agents.invocation,
     adapters: {
-      claude: createFakeAdapter("claude", run),
-      copilot: createFakeAdapter("copilot", run),
+      claude: createFakeAdapter("claude", run("claude")),
+      copilot: createFakeAdapter("copilot", run("copilot")),
     },
     stages,
     prepareWorkspace: async (task) => ({
@@ -181,14 +176,20 @@ function harness(
   return { engine, calls, events, delivered, deliveries };
 }
 
-function seedTask(patch: Partial<Parameters<Repositories["tasks"]["create"]>[0]> = {}): Task {
-  const agents = createAgentService({
+function agentService() {
+  return createAgentService({
     agents: r.agents,
     settings: r.settings,
     tags: r.tags,
     repos: r.repos,
+    tasks: r.tasks,
     backlogItems: r.backlogItems,
+    transaction: r.transaction,
   });
+}
+
+function seedTask(patch: Partial<Parameters<Repositories["tasks"]["create"]>[0]> = {}): Task {
+  const agents = agentService();
   agents.seed();
   const repo = r.repos.getByPath("/code/app") ?? r.repos.create({ path: "/code/app", name: "app" });
   return r.tasks.create({
@@ -218,6 +219,8 @@ describe("pipeline engine", () => {
       repoId: seeded.repoId,
       freeText: "Add dark mode",
       agents: seeded.agents,
+      cli: "claude",
+      agentClis: {},
       triageMode: "pause",
     });
     expect(created).toMatchObject({ status: "queued", triageMode: "pause", stage: null });
@@ -607,6 +610,51 @@ describe("pipeline engine", () => {
     await settle(h.engine);
     expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "plan-approval" });
     expect(h.calls.some((c) => c.options.resumeSessionId === "inform-1")).toBe(true);
+  });
+
+  it("runs an agent on the CLI the task chose for it and records it on the step", async () => {
+    const seeded = seedTask({ cli: "claude" });
+    const planner = seeded.agents.planner!;
+    r.tasks.update(seeded.id, { agentClis: { [planner]: "copilot" } });
+    const h = harness();
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "plan-approval" });
+    expect(h.calls.filter((c) => c.stage === "inform").map((c) => c.cli)).toEqual(["copilot"]);
+    expect(h.calls.filter((c) => c.stage === "plan-review").map((c) => c.cli)).toEqual(["claude"]);
+    const steps = r.steps.listByRun(r.runs.listByTask(seeded.id)[0]!.id);
+    expect(steps.find((s) => s.stage === "inform")?.cli).toBe("copilot");
+    expect(steps.find((s) => s.stage === "plan-review")?.cli).toBe("claude");
+  });
+
+  it("charges a usage limit to the agent's CLI and resumes the step on that CLI", async () => {
+    const seeded = seedTask({ cli: "copilot" });
+    const planner = seeded.agents.planner!;
+    r.tasks.update(seeded.id, { agentClis: { [planner]: "claude" } });
+    const now = new Date("2026-10-09T12:00:00Z");
+    const quota = createQuotaTracker({ settings: r.settings, clock: () => now });
+    const resetsAt = "2026-10-09T15:00:00.000Z";
+    let limited = true;
+    const h = harness(
+      (stage) =>
+        stage === "inform" && limited ? { sessionId: "inform-1", rateLimit: { resetsAt } } : {},
+      { quota },
+    );
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(quota.pausedUntil("claude")).toEqual(new Date(resetsAt));
+    expect(quota.pausedUntil("copilot")).toBeNull();
+    expect(lastStep(seeded.id)).toMatchObject({ status: "interrupted", cli: "claude" });
+
+    // The step's session belongs to Claude Code, even once the task's choice changes.
+    r.tasks.update(seeded.id, { agentClis: {} });
+    limited = false;
+    h.engine.resume(seeded.id);
+    await settle(h.engine);
+    const resumed = h.calls.find((c) => c.options.resumeSessionId === "inform-1");
+    expect(resumed?.cli).toBe("claude");
+    expect(h.calls.filter((c) => c.stage === "plan-review").map((c) => c.cli)).toEqual(["copilot"]);
   });
 
   it("fails the task as before when no quota tracker is set", async () => {

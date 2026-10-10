@@ -347,6 +347,59 @@ describe("finishIntoMain", () => {
     expect(result.status).toBe("merged");
   });
 
+  it.each([
+    ["checked out", false],
+    ["not checked out", true],
+  ])("reports a rebase the resolver quit as unfinished, with main %s", async (_, elsewhere) => {
+    const path = await freeTextTask("t4b");
+    const taskHead = commit(path, "README.md", "from task\n", "task edit");
+    const mainHead = commit(repo, "README.md", "from main\n", "main edit");
+    if (elsewhere) git(repo, "switch", "--quiet", "-c", "elsewhere");
+
+    const result = await service.finishIntoMain({
+      repoPath: repo,
+      worktreePath: path,
+      branch: "agent/t4b",
+      resolve: async () => {
+        write(path, "README.md", "both\n");
+        // Leaves HEAD detached at main and the branch where it was.
+        git(path, "rebase", "--quit");
+      },
+    });
+
+    expect(result).toEqual({
+      status: "conflict",
+      files: ["README.md"],
+      unresolved: "the rebase was left unfinished",
+    });
+    expect(git(repo, "rev-parse", "main")).toBe(mainHead);
+    expect(git(path, "branch", "--show-current")).toBe("agent/t4b");
+    expect(git(path, "rev-parse", "HEAD")).toBe(taskHead);
+    expect(git(path, "status", "--porcelain")).toBe("");
+    expect(rebasing(path)).toBe(false);
+  });
+
+  it("checks the branch out again when a quit rebase left HEAD detached", async () => {
+    const path = await freeTextTask("t4c");
+    commit(path, "README.md", "from task\n", "task edit");
+    commit(repo, "README.md", "from main\n", "main edit");
+    expect(() => git(path, "rebase", "--quiet", "main")).toThrow();
+    git(path, "rebase", "--quit");
+    expect(git(path, "branch", "--show-current")).toBe("");
+
+    const result = await service.finishIntoMain({
+      repoPath: repo,
+      worktreePath: path,
+      branch: "agent/t4c",
+      resolve: async () => write(path, "README.md", "both\n"),
+    });
+
+    expect(result).toMatchObject({ status: "merged", resolved: ["README.md"] });
+    expect(git(path, "branch", "--show-current")).toBe("agent/t4c");
+    expect(git(repo, "rev-parse", "main")).toBe(git(path, "rev-parse", "agent/t4c"));
+    expect(log(repo, "main")).toEqual(["task edit", "main edit", "initial"]);
+  });
+
   it("resolves each conflicting commit in turn", async () => {
     const path = await freeTextTask("t7");
     commit(path, "README.md", "task one\n", "task one");

@@ -3,6 +3,7 @@ import {
   createRepositories,
   createSettingsService,
   openDatabase,
+  resolveClis,
   type OpenedDatabase,
   type Repositories,
 } from "@blackwall/core";
@@ -41,6 +42,7 @@ beforeEach(() => {
   newTask = {
     repos: { use: (id) => repositories.repos.get(id)! },
     resolveRoles: (overrides = {}) => ({ planner: "a-default", ...overrides }),
+    resolveClis,
   };
   mount();
 });
@@ -249,6 +251,31 @@ describe("backlog routes", () => {
     expect((await request(`/${item.id}/run`, { method: "POST" })).status).toBe(409);
     const edit = await request(`/${item.id}`, { method: "PATCH", body: { title: "x" } });
     expect(edit.status).toBe(409);
+  });
+
+  it("stores an item's CLI choices and promotes it on the repo's CLI, keeping real overrides", async () => {
+    repositories.repos.update(repoId, { defaultCli: "copilot" });
+    const item = await create({
+      agents: { implementer: "a-impl" },
+      agentClis: { "a-impl": "claude", "a-default": "claude" },
+    });
+    expect(item.agentClis).toEqual({ "a-impl": "claude", "a-default": "claude" });
+    const patched = await request(`/${item.id}`, {
+      method: "PATCH",
+      body: { agentClis: { "a-impl": "claude", "a-default": "copilot", "a-gone": "claude" } },
+    });
+    expect(backlogItemSchema.parse(await patched.json()).agentClis).toEqual({
+      "a-impl": "claude",
+      "a-default": "copilot",
+      "a-gone": "claude",
+    });
+
+    const res = await request(`/${item.id}/run`, { method: "POST" });
+    // An agent outside the roles and a choice equal to the repo's CLI are dropped.
+    expect(taskSchema.parse(await res.json())).toMatchObject({
+      cli: "copilot",
+      agentClis: { "a-impl": "claude" },
+    });
   });
 });
 

@@ -106,7 +106,7 @@ function Transcript({
   const live = step.status === "running";
   const end = useRef<HTMLDivElement>(null);
   const count = events.data?.length ?? 0;
-  const model = effectiveModel(events.data, agent);
+  const model = effectiveModel(events.data, agent, step.cli);
 
   useEffect(() => {
     if (follow && live) end.current?.scrollIntoView({ block: "end" });
@@ -121,7 +121,7 @@ function Transcript({
       <div className="flex items-center gap-2">
         {agent ? (
           <>
-            <AgentTile cli={agent.cli} size="lg" />
+            {step.cli && <AgentTile cli={step.cli} size="lg" />}
             <span className="font-semibold text-foreground-strong">{agent.name}</span>
             <span
               className="mono max-w-40 truncate text-[11px] text-faint"

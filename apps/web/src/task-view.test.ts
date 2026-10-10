@@ -2,7 +2,9 @@ import { findingSchema, type Finding, type StepEvent } from "@blackwall/shared";
 import { describe, expect, it } from "vitest";
 import { TASK_STOPPED_ERROR } from "@blackwall/shared";
 import {
+  activeOverrides,
   agentClis,
+  backlogAgentClis,
   canArchive,
   canStop,
   deleteBlockedReason,
@@ -190,24 +192,34 @@ describe("effectiveModel", () => {
   const reported = [event(1, "session", { sessionId: "x", model: "claude-opus-5-5" })];
 
   it("prefers the model the CLI reported over the agent's", () => {
-    expect(effectiveModel(reported, { model: "sonnet" })).toEqual({
+    expect(effectiveModel(reported, { models: { claude: "sonnet" } }, "claude")).toEqual({
       model: "claude-opus-5-5",
       source: "reported",
     });
   });
 
   it("falls back to the agent's model before the CLI reports one", () => {
-    expect(effectiveModel([event(1, "session", { sessionId: "x" })], { model: "sonnet" })).toEqual({
-      model: "sonnet",
-      source: "configured",
+    expect(
+      effectiveModel(
+        [event(1, "session", { sessionId: "x" })],
+        { models: { claude: "sonnet" } },
+        "claude",
+      ),
+    ).toEqual({ model: "sonnet", source: "configured" });
+  });
+
+  it("ignores a model set for another CLI than the step's", () => {
+    expect(effectiveModel([], { models: { claude: "sonnet" } }, "copilot")).toEqual({
+      model: null,
+      source: "default",
     });
   });
 
   it("is Auto when neither names a model", () => {
     const auto = { model: null, source: "default" };
-    expect(effectiveModel([], { model: null })).toEqual(auto);
-    expect(effectiveModel(undefined, undefined)).toEqual(auto);
-    expect(effectiveModel(undefined, { model: "sonnet" })).toEqual({
+    expect(effectiveModel([], { models: {} }, "claude")).toEqual(auto);
+    expect(effectiveModel(undefined, undefined, null)).toEqual(auto);
+    expect(effectiveModel(undefined, { models: { claude: "sonnet" } }, "claude")).toEqual({
       model: "sonnet",
       source: "configured",
     });
@@ -220,7 +232,8 @@ describe("effectiveModel", () => {
           event(1, "session", { sessionId: "x" }),
           event(2, "session", { sessionId: "x", model: "claude-sonnet-5.5" }),
         ],
-        { model: null },
+        { models: {} },
+        "copilot",
       ),
     ).toEqual({ model: "claude-sonnet-5.5", source: "reported" });
   });
@@ -539,15 +552,25 @@ describe("new task form", () => {
   });
 
   it("lists the CLIs a task's agents run on", () => {
-    const library = new Map([
-      ["a", { cli: "claude" as const }],
-      ["b", { cli: "copilot" as const }],
-      ["c", { cli: "claude" as const }],
-    ]);
-    expect(agentClis({ planner: "a", codeReviewers: ["b", "c", "gone"] }, library)).toEqual([
-      "claude",
-      "copilot",
-    ]);
+    const task = {
+      agents: { planner: "a", codeReviewers: ["b", "c"] },
+      cli: "claude" as const,
+      agentClis: { b: "copilot" as const },
+    };
+    expect(agentClis(task)).toEqual(["claude", "copilot"]);
+    expect(agentClis({ ...task, agentClis: {} })).toEqual(["claude"]);
+    expect(backlogAgentClis({ planner: "a" }, { a: "claude" }, "copilot")).toEqual(["claude"]);
+    expect(backlogAgentClis({}, {}, "copilot")).toEqual([]);
+  });
+
+  it("keeps only CLI overrides for chosen agents that differ from the default", () => {
+    const stored = { a: "copilot" as const, b: "claude" as const, gone: "copilot" as const };
+    expect(activeOverrides(stored, "claude", ["a", "b"])).toEqual({ a: "copilot" });
+    // On a Copilot repo, a's choice equals the default and b's becomes active.
+    expect(activeOverrides(stored, "copilot", ["a", "b"])).toEqual({ b: "claude" });
+    // Switching back to the first repo brings a's stored choice back.
+    expect(activeOverrides(stored, "claude", ["a", "b"])).toEqual({ a: "copilot" });
+    expect(activeOverrides(stored, "claude", ["b"])).toEqual({});
   });
 });
 

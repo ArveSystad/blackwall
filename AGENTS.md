@@ -4,7 +4,7 @@ Guidance for coding agents working in this repo.
 
 ## What this is
 
-blackwall is a local, single-user, browser-based control room that runs Claude Code and GitHub Copilot CLI as headless subprocesses against the user's git repos. Agents from different vendors plan, grill, implement and review each other's work on tasks from Jira Cloud, GitHub/GHE PRs and issues, or Blackwall tasks you write yourself (free text); the user approves plans, answers questions, triages findings and confirms every outbound action.
+blackwall is a local, single-user, browser-based control room that runs Claude Code and GitHub Copilot CLI as headless subprocesses against the user's git repos. Agents run on either CLI and plan, grill, implement and review each other's work on tasks from Jira Cloud, GitHub/GHE PRs and issues, or Blackwall tasks you write yourself (free text); the user approves plans, answers questions, triages findings and confirms every outbound action.
 
 This file plus the code are the design reference. User-facing docs are in [`README.md`](README.md).
 
@@ -47,6 +47,7 @@ This file plus the code are the design reference. User-facing docs are in [`READ
 ## Design rules
 
 - **Domain:** a Task has one origin (`jira-issue` | `github-pr` | `github-issue` | `free-text`, shown as "Blackwall") and one or more Runs; Runs are made of Steps; Findings carry a severity and tags.
+- **Agents:** CLI-agnostic. A task runs its agents on its repo's default CLI (copied onto the task when it is created), with optional per-agent overrides per task. Each step records the CLI it ran on. Models and permission overrides are set per CLI on the agent.
 - **Pipeline:** Inform → Plan review/grill → plan approval → Implement → Checks → Code review → Summarize → finish. Review PR mode: Inform → review panel → triage → inline PR comments, no plan or implement. Summarize may propose up to 5 follow-up tasks, stored on the task; a task that only analyses code may change nothing and deliver its follow-ups as its whole output.
 - **Checks:** per-repo commands run after each implement round; a failure goes back to the implementer and becomes a Critical `correctness` finding if it persists.
 - **Grill:** plan reviewers ask questions; the planner answers what the repo can settle, the rest go to the user. Nothing is implemented before the user approves the plan.

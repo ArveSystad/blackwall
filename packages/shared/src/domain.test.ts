@@ -7,6 +7,7 @@ import {
   summaryOutputSchema,
   MAX_FOLLOW_UPS,
   ROLE_STAGES,
+  agentCliFor,
   agentUpdateSchema,
   connectionInputSchema,
   connectionViewSchema,
@@ -47,6 +48,8 @@ const task = {
   error: null,
   triageMode: "intervene",
   agents: { planner: "a1", codeReviewers: ["a2", "a3"] },
+  cli: "copilot",
+  agentClis: { a2: "claude" },
   deliveryTargets: ["push-branch", "open-pr", "jira-comment"],
   freeText: "",
   plan: null,
@@ -117,6 +120,7 @@ describe("newTaskInputSchema", () => {
       repoId: "r1",
       freeText: "Add dark mode",
       agents: {},
+      agentClis: {},
       triageMode: "intervene",
     });
   });
@@ -309,11 +313,19 @@ describe("agents", () => {
   });
 
   it("accepts partial agent updates and rejects blank permission rules", () => {
-    expect(agentUpdateSchema.parse({ model: null })).toEqual({ model: null });
-    expect(agentUpdateSchema.safeParse({ permissionOverrides: { allow: [" "] } }).success).toBe(
-      false,
-    );
-    expect(agentUpdateSchema.safeParse({ cli: "codex" }).success).toBe(false);
+    expect(agentUpdateSchema.parse({ models: { copilot: "gpt-5" } })).toEqual({
+      models: { copilot: "gpt-5" },
+    });
+    expect(
+      agentUpdateSchema.safeParse({ permissionOverrides: { claude: { allow: [" "] } } }).success,
+    ).toBe(false);
+    expect(agentUpdateSchema.safeParse({ models: { codex: "o3" } }).success).toBe(false);
+  });
+
+  it("runs an agent on the task's CLI unless the task overrides it", () => {
+    const parsed = taskSchema.parse(task);
+    expect(agentCliFor(parsed, "a1")).toBe("copilot");
+    expect(agentCliFor(parsed, "a2")).toBe("claude");
   });
 });
 

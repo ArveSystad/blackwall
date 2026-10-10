@@ -11,8 +11,8 @@ import {
   draftToInput,
   emptyConnectionDraft,
   isPresetModel,
-  modelForCli,
   moveItem,
+  overrideCount,
   parseCap,
   parseLines,
   roleIds,
@@ -24,11 +24,10 @@ import {
 const agent: Agent = {
   id: "a1",
   name: "Security reviewer",
-  cli: "copilot",
-  model: null,
+  models: { copilot: "gpt-5" },
   prompt: "Look for injection.",
   eligibleStages: ["code-review", "plan-review"],
-  permissionOverrides: { allow: ["shell(npm test)"] },
+  permissionOverrides: { copilot: { allow: ["shell(npm test)"] } },
   createdAt: new Date(0),
   updatedAt: new Date(0),
 };
@@ -37,32 +36,42 @@ describe("agent drafts", () => {
   it("round-trips an agent", () => {
     expect(draftToInput(agentDraft(agent))).toEqual({
       name: "Security reviewer",
-      cli: "copilot",
-      model: null,
+      models: { copilot: "gpt-5" },
       prompt: "Look for injection.",
       eligibleStages: ["plan-review", "code-review"],
-      permissionOverrides: { allow: ["shell(npm test)"] },
+      permissionOverrides: { copilot: { allow: ["shell(npm test)"] } },
     });
   });
 
-  it("trims the name and model and drops blank rule lines", () => {
-    const draft = {
-      ...agentDraft(),
+  it("trims the name and models and drops blank models and rule lines", () => {
+    const draft = agentDraft();
+    const edited = {
+      ...draft,
       name: "  Docs ",
-      model: " opus ",
-      deny: "\n  Bash(rm:*) \n\n",
+      models: { claude: " opus ", copilot: "  " },
+      deny: { ...draft.deny, claude: "\n  Bash(rm:*) \n\n" },
     };
-    expect(draftToInput(draft)).toMatchObject({
+    expect(draftToInput(edited)).toMatchObject({
       name: "Docs",
-      model: "opus",
-      permissionOverrides: { deny: ["Bash(rm:*)"] },
+      models: { claude: "opus" },
+      permissionOverrides: { claude: { deny: ["Bash(rm:*)"] } },
     });
   });
 
   it("compares drafts by what they would save", () => {
     const draft = agentDraft(agent);
-    expect(sameDraft(draft, { ...draft, allow: "shell(npm test)\n" })).toBe(true);
-    expect(sameDraft(draft, { ...draft, cli: "claude" })).toBe(false);
+    expect(
+      sameDraft(draft, { ...draft, allow: { ...draft.allow, copilot: "shell(npm test)\n" } }),
+    ).toBe(true);
+    expect(sameDraft(draft, { ...draft, models: { ...draft.models, claude: "opus" } })).toBe(false);
+  });
+
+  it("counts each CLI's permission rules", () => {
+    const draft = agentDraft(agent);
+    expect(overrideCount(draft, "copilot")).toBe(1);
+    expect(overrideCount(draft, "claude")).toBe(0);
+    const rules = { ...draft, deny: { ...draft.deny, claude: "Bash\n \nRead" } };
+    expect(overrideCount(rules, "claude")).toBe(2);
   });
 });
 
@@ -88,15 +97,6 @@ describe("model presets", () => {
     expect(isPresetModel("claude", "sonnet")).toBe(true);
     expect(isPresetModel("copilot", "sonnet")).toBe(false);
     expect(isPresetModel("claude", "")).toBe(false);
-  });
-
-  it("resets a preset the other CLI lacks to Auto", () => {
-    expect(modelForCli("sonnet", "claude", "copilot")).toBe("");
-  });
-
-  it("keeps a custom model and Auto across a CLI switch", () => {
-    expect(modelForCli("my-model", "claude", "copilot")).toBe("my-model");
-    expect(modelForCli("", "copilot", "claude")).toBe("");
   });
 });
 

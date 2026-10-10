@@ -233,17 +233,18 @@ describe("agents and tags", () => {
   it("round-trips agents with JSON fields", () => {
     const agent = r.agents.create({
       name: "security",
-      cli: "claude",
       eligibleStages: ["code-review"],
-      permissionOverrides: { deny: ["Bash"] },
+      permissionOverrides: { claude: { deny: ["Bash"] } },
     });
     expect(r.agents.get(agent.id)).toMatchObject({
       eligibleStages: ["code-review"],
-      permissionOverrides: { deny: ["Bash"] },
-      model: null,
+      permissionOverrides: { claude: { deny: ["Bash"] } },
+      models: {},
     });
-    expect(r.agents.update(agent.id, { model: "opus" }).model).toBe("opus");
-    expect(() => r.agents.update("missing", { model: "x" })).toThrow(/not found/);
+    expect(r.agents.update(agent.id, { models: { claude: "opus" } }).models).toEqual({
+      claude: "opus",
+    });
+    expect(() => r.agents.update("missing", { models: {} })).toThrow(/not found/);
   });
 
   it("replaces the tag list in order", () => {
@@ -283,7 +284,7 @@ describe("tasks, runs and steps", () => {
   it("lists running agent steps with their task", () => {
     const task = seedTask();
     const run = r.runs.create(task.id);
-    const agent = r.agents.create({ name: "coder", cli: "claude", eligibleStages: ["implement"] });
+    const agent = r.agents.create({ name: "coder", eligibleStages: ["implement"] });
     const running = r.steps.create({
       runId: run.id,
       stage: "implement",
@@ -300,7 +301,7 @@ describe("tasks, runs and steps", () => {
 
   it("orders active agent steps oldest first, then by insertion", () => {
     const run = r.runs.create(seedTask().id);
-    const agent = r.agents.create({ name: "rev", cli: "claude", eligibleStages: ["code-review"] });
+    const agent = r.agents.create({ name: "rev", eligibleStages: ["code-review"] });
     const at = new Date("2026-01-01T10:00:00Z");
     const step = (createdAt: Date) =>
       r.steps.create({
@@ -444,7 +445,7 @@ describe("shared schemas", () => {
     expect(findingSchema.parse(finding)).toEqual(finding);
     expect(connectionSchema.parse(conn)).toEqual(conn);
     expect(repoSchema.parse(r.repos.get(task.repoId))).toBeTruthy();
-    expect(agentSchema.parse(r.agents.create({ name: "Planner", cli: "claude" }))).toBeTruthy();
+    expect(agentSchema.parse(r.agents.create({ name: "Planner" }))).toBeTruthy();
     expect(
       grillQuestionSchema.parse(r.grillQuestions.create({ taskId: task.id, question: "?" })),
     ).toBeTruthy();

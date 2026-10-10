@@ -1,9 +1,11 @@
 import {
+  AGENT_CLIS,
   AGENT_ROLES,
   BACKLOG_PRIORITIES,
   MAX_TITLE_CHARS,
   type Agent,
   type AgentCli,
+  type AgentClis,
   type BacklogItemView,
   type BacklogPriority,
   type IssueLookup,
@@ -11,7 +13,6 @@ import {
   type PrMode,
   type PullRequestLookup,
   type RoleAgents,
-  type RoleDefaultsByCli,
   type Task,
   type TaskOrigin,
   type TriageMode,
@@ -35,6 +36,7 @@ import {
   agentsQuery,
   backlogQuery,
   backlogRunnerQuery,
+  clisQuery,
   connectionsQuery,
   queryKeys,
   reposQuery,
@@ -44,6 +46,7 @@ import {
 } from "../query";
 import { resolveSelectedRepo, useSelectedRepoId } from "../selected-repo";
 import {
+  CLI_NAMES,
   ROLE_LABELS,
   TRIAGE_OPTIONS,
   agentsForRole,
@@ -52,7 +55,13 @@ import {
   roleIds,
   withRole,
 } from "../settings-forms";
-import { START_COMMENT_DRAFT, jiraConnectionId, parseJiraInput } from "../task-view";
+import {
+  START_COMMENT_DRAFT,
+  activeOverrides,
+  jiraConnectionId,
+  parseJiraInput,
+  taskAgentIds,
+} from "../task-view";
 import { AgentTile } from "./AgentTile";
 import { CheckIcon, CloseIcon, WarnIcon } from "./icons";
 import { ORIGINS, PR_MODE_LABELS } from "./origins";
@@ -98,22 +107,72 @@ function useOriginLookup<T>(url: string, lookupUrl: (url: string) => Promise<T>)
   return settled?.url === value ? settled.lookup : { state: "loading" };
 }
 
+/** A CLI's name, with a muted "Not installed" when detection says so. */
+function CliName({ cli, installed }: { cli: AgentCli; installed: boolean | undefined }) {
+  return (
+    <>
+      {CLI_NAMES[cli]}
+      {installed === false && <span className="text-faint">Not installed</span>}
+    </>
+  );
+}
+
 function AgentsField({
   agents,
   roles,
   onChange,
   onReset,
+  cli,
+  agentClis,
+  onAgentClisChange,
+  advanced,
+  onToggleAdvanced,
+  cliStatus,
 }: {
   agents: readonly Agent[];
   roles: RoleAgents;
   onChange: (roles: RoleAgents) => void;
   onReset: () => void;
+  /** The repo's default CLI. */
+  cli: AgentCli;
+  /** Per-agent CLI choices, kept across repo changes; see {@link activeOverrides}. */
+  agentClis: AgentClis;
+  onAgentClisChange: (agentClis: AgentClis) => void;
+  advanced: boolean;
+  onToggleAdvanced: () => void;
+  /** Whether each CLI is installed; undefined while unknown. */
+  cliStatus: ReadonlyMap<AgentCli, boolean> | undefined;
 }) {
+  const byId = new Map(agents.map((agent) => [agent.id, agent]));
+  const chosen = taskAgentIds(roles).flatMap((id) => {
+    const agent = byId.get(id);
+    return agent ? [agent] : [];
+  });
+  const active = activeOverrides(agentClis, cli, taskAgentIds(roles));
+  const overridden = chosen.filter((agent) => active[agent.id] !== undefined);
+  const cliFor = (id: string) => active[id] ?? cli;
+
+  function setCli(id: string, value: AgentCli) {
+    const next = { ...agentClis };
+    if (value === cli) delete next[id];
+    else next[id] = value;
+    onAgentClisChange(next);
+  }
+
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center">
+      <div className="flex items-center gap-1">
         <span className={fieldLabel}>Agents</span>
         <span className="flex-1" />
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-expanded={advanced}
+          aria-controls="new-task-advanced"
+          onClick={onToggleAdvanced}
+        >
+          Advanced
+        </Button>
         <Button size="sm" variant="ghost" onClick={onReset}>
           Reset to defaults
         </Button>
@@ -121,7 +180,7 @@ function AgentsField({
       <div className="flex flex-col rounded-lg border border-border bg-card">
         {AGENT_ROLES.map((role, i) => {
           const eligible = agentsForRole(agents, role);
-          const chosen = roleIds(roles, role);
+          const chosenIds = roleIds(roles, role);
           const id = `new-task-${role}`;
           return (
             <div
@@ -148,20 +207,19 @@ function AgentsField({
                       <CheckChip
                         key={agent.id}
                         size="sm"
-                        checked={chosen.includes(agent.id)}
+                        checked={chosenIds.includes(agent.id)}
                         onCheckedChange={(checked) =>
                           onChange(
                             withRole(
                               roles,
                               role,
                               checked
-                                ? [...chosen, agent.id]
-                                : chosen.filter((c) => c !== agent.id),
+                                ? [...chosenIds, agent.id]
+                                : chosenIds.filter((c) => c !== agent.id),
                             ),
                           )
                         }
                       >
-                        <AgentTile cli={agent.cli} />
                         {agent.name}
                       </CheckChip>
                     ))}
@@ -175,22 +233,73 @@ function AgentsField({
                   <Select
                     id={id}
                     className="h-7 max-w-80"
-                    value={chosen[0] ?? ""}
+                    value={chosenIds[0] ?? ""}
                     onChange={(event) => onChange(withRole(roles, role, [event.target.value]))}
                   >
                     <option value="">None</option>
-                    {eligible.map((agent) => (
-                      <option key={agent.id} value={agent.id}>
-                        {agent.name}
-                        {agent.model ? ` · ${agent.model}` : ""}
-                      </option>
-                    ))}
+                    {eligible.map((agent) => {
+                      const model = agent.models[cliFor(agent.id)];
+                      return (
+                        <option key={agent.id} value={agent.id}>
+                          {agent.name}
+                          {model ? ` · ${model}` : ""}
+                        </option>
+                      );
+                    })}
                   </Select>
                 </>
               )}
             </div>
           );
         })}
+      </div>
+      {!advanced && overridden.length > 0 && (
+        <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-meta text-muted-foreground">
+          Runs on another CLI:
+          {overridden.map((agent) => (
+            <span key={agent.id} className="inline-flex items-center gap-1.5">
+              <AgentTile cli={cliFor(agent.id)} />
+              {agent.name}
+            </span>
+          ))}
+        </span>
+      )}
+      <div
+        id="new-task-advanced"
+        hidden={!advanced}
+        className="flex flex-col gap-2 rounded-lg border border-border bg-card px-3 py-2.5"
+      >
+        <span className="inline-flex items-center gap-1.5 text-meta text-muted-foreground">
+          Runs on <CliName cli={cli} installed={cliStatus?.get(cli)} /> by default (repo setting).
+        </span>
+        {chosen.length === 0 ? (
+          <span className="text-meta text-faint">Choose agents above to set their CLI.</span>
+        ) : (
+          chosen.map((agent) => (
+            <div
+              key={agent.id}
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5"
+            >
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate text-foreground-strong">{agent.name}</span>
+                <span className="truncate text-label text-faint">
+                  {AGENT_ROLES.filter((role) => roleIds(roles, role).includes(agent.id))
+                    .map((role) => ROLE_LABELS[role])
+                    .join(" · ")}
+                </span>
+              </span>
+              <Segmented
+                label={`CLI for ${agent.name}`}
+                value={cliFor(agent.id)}
+                onChange={(value) => setCli(agent.id, value)}
+                options={AGENT_CLIS.map((option) => ({
+                  value: option,
+                  label: <CliName cli={option} installed={cliStatus?.get(option)} />,
+                }))}
+              />
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
@@ -246,7 +355,7 @@ function NewTaskForm({
   item,
   onClose,
 }: {
-  defaults: RoleDefaultsByCli;
+  defaults: RoleAgents;
   /** The backlog item to edit; without it the form creates a new task. */
   item: BacklogItemView | undefined;
   onClose: () => void;
@@ -257,6 +366,10 @@ function NewTaskForm({
   const repos = useQuery(reposQuery);
   const agents = useQuery(agentsQuery);
   const connections = useQuery(connectionsQuery);
+  const clis = useQuery(clisQuery);
+  const cliStatus = clis.data
+    ? new Map(clis.data.map((status) => [status.cli, status.installed]))
+    : undefined;
 
   // Until the user picks an origin or types into the form, it follows the repo's default.
   const [kindChoice, setKindChoice] = useState<OriginKind | null>(null);
@@ -269,13 +382,19 @@ function NewTaskForm({
   const [mode, setMode] = useState<PrMode>(item?.mode ?? "work");
   const [chosenRepo, setChosenRepo] = useState<string | null>(item?.repoId ?? null);
   const [freeText, setFreeText] = useState(item?.freeText ?? "");
-  /** The role defaults of a CLI, under the edited backlog item's agents. */
-  const startRoles = (cli: AgentCli): RoleAgents =>
-    item ? { ...defaults[cli], ...item.agents } : defaults[cli];
-  const [roles, setRoles] = useState<RoleAgents>(() => startRoles("claude"));
-  // Until the user picks agents, they follow the role defaults of the repo's CLI.
-  const [rolesEdited, setRolesEdited] = useState(false);
-  const [rolesCli, setRolesCli] = useState<AgentCli>("claude");
+  // The role defaults, under the edited backlog item's agents.
+  const [roles, setRoles] = useState<RoleAgents>(() =>
+    item ? { ...defaults, ...item.agents } : defaults,
+  );
+  const [agentClis, setAgentClis] = useState<AgentClis>(item?.agentClis ?? {});
+  // Opens by itself when the edited item already runs an agent on another CLI.
+  const [advanced, setAdvanced] = useState(() => {
+    if (!item) return false;
+    const itemRepoCli =
+      (repos.data ?? []).find((r) => r.id === item.repoId)?.defaultCli ?? "claude";
+    const itemChosenIds = taskAgentIds({ ...defaults, ...item.agents });
+    return Object.keys(activeOverrides(item.agentClis, itemRepoCli, itemChosenIds)).length > 0;
+  });
   // Backlog items run unattended, so they default to "Run and let me intervene" too.
   const [triageMode, setTriageMode] = useState<TriageMode>(item?.triageMode ?? "intervene");
   const [title, setTitle] = useState(item?.title ?? "");
@@ -311,11 +430,9 @@ function NewTaskForm({
     (kind === "github-pr" || kind === "github-issue" ? lookedUpRepo : null) ??
     selectedRepo ??
     (usableRepos.length === 1 ? usableRepos[0]!.id : null);
-  const cli = (repos.data ?? []).find((r) => r.id === repoId)?.defaultCli ?? "claude";
-  if (cli !== rolesCli) {
-    setRolesCli(cli);
-    if (!rolesEdited) setRoles(startRoles(cli));
-  }
+  const cli: AgentCli = (repos.data ?? []).find((r) => r.id === repoId)?.defaultCli ?? "claude";
+  // Stored choices survive a repo change; only those that still differ are sent.
+  const overrides = activeOverrides(agentClis, cli, taskAgentIds(roles));
 
   const backlogList = useQuery({ ...backlogQuery(repoId ?? ""), enabled: !!repoId });
   const runner = useQuery({ ...backlogRunnerQuery(repoId ?? ""), enabled: !!repoId && !item });
@@ -372,6 +489,7 @@ function NewTaskForm({
         priority,
         dependsOn: chosenDeps,
         agents: roles,
+        agentClis: overrides,
         triageMode,
       });
       await queryClient.invalidateQueries({ queryKey: queryKeys.backlog(edited.repoId) });
@@ -406,6 +524,7 @@ function NewTaskForm({
             title: title.trim() || undefined,
             freeText,
             agents: roles,
+            agentClis: overrides,
             triageMode,
             priority,
             dependsOn: chosenDeps,
@@ -806,14 +925,17 @@ function NewTaskForm({
           <AgentsField
             agents={agents.data}
             roles={roles}
-            onChange={(next) => {
-              setRolesEdited(true);
-              setRoles(next);
-            }}
+            onChange={setRoles}
             onReset={() => {
-              setRolesEdited(false);
-              setRoles(defaults[cli]);
+              setRoles(defaults);
+              setAgentClis({});
             }}
+            cli={cli}
+            agentClis={agentClis}
+            onAgentClisChange={setAgentClis}
+            advanced={advanced}
+            onToggleAdvanced={() => setAdvanced((open) => !open)}
+            cliStatus={cliStatus}
           />
         )}
 

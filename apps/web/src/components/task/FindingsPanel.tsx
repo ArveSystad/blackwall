@@ -1,9 +1,11 @@
 import {
   SEVERITIES,
+  agentCliFor,
   isGatingSeverity,
   type Finding,
   type FindingOverride,
   type Severity,
+  type Step,
   type Task,
 } from "@blackwall/shared";
 import { useQueryClient } from "@tanstack/react-query";
@@ -26,7 +28,16 @@ import { SeverityChip } from "../SeverityChip";
  * suggested fix, and force fix / force ignore it (F / I on the open row).
  * Fixed findings fold into a collapsed list below the open ones.
  */
-export function FindingsPanel({ task, findings }: { task: Task; findings: readonly Finding[] }) {
+export function FindingsPanel({
+  task,
+  findings,
+  steps = [],
+}: {
+  task: Task;
+  findings: readonly Finding[];
+  /** The latest run's steps, for the CLI each reviewer ran on. */
+  steps?: readonly Step[];
+}) {
   const queryClient = useQueryClient();
   const agentMap = useAgentLibrary();
   const [severities, setSeverities] = useState<ReadonlySet<Severity>>(new Set());
@@ -102,6 +113,10 @@ export function FindingsPanel({ task, findings }: { task: Task; findings: readon
       key={finding.id}
       finding={finding}
       reviewer={finding.reviewerAgentId ? agentMap.get(finding.reviewerAgentId) : undefined}
+      cli={
+        steps.find((s) => s.id === finding.stepId)?.cli ??
+        (finding.reviewerAgentId ? agentCliFor(task, finding.reviewerAgentId) : null)
+      }
       expanded={expanded === finding.id}
       pending={pending === finding.id}
       onToggle={() => setExpanded((id) => (id === finding.id ? null : finding.id))}
