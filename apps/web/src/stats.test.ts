@@ -11,6 +11,14 @@ const pr = {
   connectionId: null,
 };
 const jira = { kind: "jira-issue" as const, key: "ABC-1", connectionId: null };
+const issue = {
+  kind: "github-issue" as const,
+  url: "https://github.com/acme/app/issues/2",
+  owner: "acme",
+  repo: "app",
+  number: 2,
+  connectionId: null,
+};
 
 // Local times, so the assertions hold in any timezone.
 const now = new Date(2026, 9, 9, 15, 0);
@@ -20,6 +28,7 @@ describe("taskType", () => {
     expect(taskType(makeTask({ origin: jira }))).toBe("jira");
     expect(taskType(makeTask({ origin: pr, mode: "work" }))).toBe("pr-work");
     expect(taskType(makeTask({ origin: pr, mode: "review" }))).toBe("pr-review");
+    expect(taskType(makeTask({ origin: issue }))).toBe("issue");
     expect(taskType(makeTask())).toBe("free-text");
   });
 });
@@ -35,7 +44,13 @@ describe("taskStats", () => {
     ];
     const stats = taskStats(tasks, [], now);
     expect(stats.resolved).toBe(3);
-    expect(stats.byType).toEqual({ jira: 1, "pr-work": 0, "pr-review": 1, "free-text": 1 });
+    expect(stats.byType).toEqual({
+      jira: 1,
+      "pr-work": 0,
+      "pr-review": 1,
+      issue: 0,
+      "free-text": 1,
+    });
     expect(stats.repos).toBe(3);
   });
 

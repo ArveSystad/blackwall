@@ -8,6 +8,7 @@ export const TASK_TYPES = [
   { key: "jira", label: "Jira issue", origin: "jira-issue" },
   { key: "pr-work", label: "Work on PR", origin: "github-pr" },
   { key: "pr-review", label: "Review PR", origin: "github-pr" },
+  { key: "issue", label: "GitHub issue", origin: "github-issue" },
   { key: "free-text", label: "Blackwall", origin: "free-text" },
 ] as const satisfies readonly { key: string; label: string; origin: OriginKind }[];
 
@@ -20,6 +21,8 @@ export function taskType(task: Pick<Task, "origin" | "mode">): TaskTypeKey {
       return "jira";
     case "github-pr":
       return task.mode === "review" ? "pr-review" : "pr-work";
+    case "github-issue":
+      return "issue";
     case "free-text":
       return "free-text";
   }
