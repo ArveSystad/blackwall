@@ -91,14 +91,41 @@ describe("gridDots", () => {
     ]);
   });
 
-  it("leaves out finished and archived tasks", () => {
+  it("gives a done, unarchived task one done dot on the running dot's key", () => {
+    const done = makeTask({ status: "done" });
+    expect(gridDots([done], [])).toEqual([
+      {
+        key: `${done.id}:0`,
+        taskId: done.id,
+        stepId: null,
+        agentId: null,
+        cli: null,
+        slot: 0,
+        state: "done",
+      },
+    ]);
+  });
+
+  it("leaves out failed, interrupted and archived tasks", () => {
+    const archivedAt = new Date("2026-10-08T12:00:00.000Z");
     const tasks = [
-      makeTask({ status: "done" }),
       makeTask({ status: "failed" }),
       makeTask({ status: "interrupted" }),
-      makeTask({ status: "running", archivedAt: new Date("2026-10-08T12:00:00.000Z") }),
+      makeTask({ status: "running", archivedAt }),
+      makeTask({ status: "done", archivedAt }),
     ];
     expect(gridDots(tasks, [])).toEqual([]);
+  });
+
+  it("keeps a done task in creation order among running tasks", () => {
+    const first = makeTask({ status: "running", createdAt: new Date("2026-10-08T09:00:00.000Z") });
+    const done = makeTask({ status: "done", createdAt: new Date("2026-10-08T10:00:00.000Z") });
+    const last = makeTask({ status: "running", createdAt: new Date("2026-10-08T11:00:00.000Z") });
+    expect(gridDots([last, done, first], []).map((d) => [d.taskId, d.state])).toEqual([
+      [first.id, "running"],
+      [done.id, "done"],
+      [last.id, "running"],
+    ]);
   });
 });
 

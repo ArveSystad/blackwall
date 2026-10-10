@@ -1,18 +1,18 @@
 import type { ActiveAgentStep, AgentCli, Stage, Task } from "@blackwall/shared";
 
-/** One dot on the empty pane's grid: a running agent, or a task that waits. */
+/** One dot on the empty pane's grid: a running agent, a task that waits, or a done task. */
 export interface GridDot {
   /** `${taskId}:${slot}`, so a dot stays mounted as its task moves from step to step. */
   key: string;
   taskId: string;
-  /** The running step; null between steps and for needs-you or queued tasks. */
+  /** The running step; null between steps and for needs-you, queued or done tasks. */
   stepId: string | null;
   agentId: string | null;
   /** The CLI the running step's agent runs on; null without a running agent step. */
   cli: AgentCli | null;
   /** Index among the task's running steps, oldest first. */
   slot: number;
-  state: "running" | "needs-you" | "queued";
+  state: "running" | "needs-you" | "queued" | "done";
 }
 
 /** Minimum distance between dot centres: the 24px hit target plus a 4px gap. */
@@ -31,13 +31,20 @@ function byCreated(a: { createdAt: Date; id: string }, b: { createdAt: Date; id:
 /**
  * The dots for the active tasks, oldest task first, then by slot: one per
  * running step of a running task (one with no step between steps), one
- * for a needs-you or queued task. Archived and finished tasks get none.
+ * for a needs-you, queued or done task. Archived, failed and interrupted
+ * tasks get none.
  */
 export function gridDots(tasks: readonly Task[], active: readonly ActiveAgentStep[]): GridDot[] {
   const dots: GridDot[] = [];
   const shown = tasks
     .filter((t) => t.archivedAt === null)
-    .filter((t) => t.status === "running" || t.status === "needs-you" || t.status === "queued")
+    .filter(
+      (t) =>
+        t.status === "running" ||
+        t.status === "needs-you" ||
+        t.status === "queued" ||
+        t.status === "done",
+    )
     .sort(byCreated);
   for (const task of shown) {
     const base = {
@@ -48,7 +55,7 @@ export function gridDots(tasks: readonly Task[], active: readonly ActiveAgentSte
       slot: 0,
       key: `${task.id}:0`,
     };
-    if (task.status === "needs-you" || task.status === "queued") {
+    if (task.status === "needs-you" || task.status === "queued" || task.status === "done") {
       dots.push({ ...base, state: task.status });
       continue;
     }
@@ -93,9 +100,10 @@ export function dotPosition(taskId: string): { x: number; y: number } {
   };
 }
 
-/** Mirror --animate-pulse-running/needs in styles.css; the grid boom runs at 2× these. */
+/** Mirror --animate-pulse-running/needs/done in styles.css; the grid boom runs at 2× running/needs. */
 export const PULSE_RUNNING_S = 1.6;
 export const PULSE_NEEDS_S = 1.4;
+export const PULSE_DONE_S = 2.4;
 
 /** A task's stable pulse phase, in [0, 1). */
 export function pulsePhase(taskId: string): number {

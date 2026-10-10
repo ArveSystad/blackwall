@@ -6,6 +6,7 @@ import { GridAgents } from "../components/GridAgents";
 import { GridBackdrop } from "../components/GridBackdrop";
 import { CheckIcon, PlusIcon, WallIcon } from "../components/icons";
 import { NewTaskModal } from "../components/NewTaskModal";
+import { useArchiveLaunches } from "../components/use-archive-launches";
 import { Button } from "../components/ui/button";
 import { Kbd } from "../components/ui/kbd";
 import { cn } from "../lib/utils";
@@ -152,9 +153,10 @@ function Message({
 }
 
 /**
- * Main pane with no task selected: first-run setup, or the active agents as
- * dots on the grid. With nothing active it prompts to pick or create a task;
- * when the tasks or agents cannot load it says so, with Retry.
+ * Main pane with no task selected: first-run setup, or the active agents and
+ * the done tasks waiting to be archived as dots on the grid. With nothing on
+ * the grid it prompts to pick or create a task; when the tasks or agents
+ * cannot load it says so, with Retry.
  */
 export function Home() {
   const tasks = useQuery(tasksQuery);
@@ -162,6 +164,7 @@ export function Home() {
   const agents = useQuery(agentsQuery);
   const firstRun = tasks.data?.length === 0;
   const [creating, setCreating] = useState(false);
+  const launch = useArchiveLaunches();
   const dots = useMemo(
     () => gridDots(tasks.data ?? [], active.data ?? []),
     [tasks.data, active.data],
@@ -178,8 +181,15 @@ export function Home() {
   const tasksFailed = tasks.isError && !tasks.data;
   const activeFailed = active.isError && !active.data;
   const loaded = !!tasks.data && !!active.data;
-  // The agents view has no centred text, so the grid runs full width behind it.
-  const showAgents = !firstRun && !tasksFailed && !activeFailed && loaded && dots.length > 0;
+  // The agents view (active and done tasks) has no centred text, so the grid runs
+  // full width behind it. It stays up until an archived dot's launch lands, even
+  // when that was the last dot.
+  const showAgents =
+    !firstRun &&
+    !tasksFailed &&
+    !activeFailed &&
+    loaded &&
+    (dots.length > 0 || launch.launches.size > 0);
   const create = () => setCreating(true);
 
   return (
@@ -206,7 +216,7 @@ export function Home() {
             </Button>
           </span>
         </Message>
-      ) : !loaded ? null : dots.length === 0 ? (
+      ) : !loaded ? null : !showAgents ? (
         <Message title="No active tasks" onCreate={create}>
           <span className="text-meta text-muted-foreground">
             Pick a task from the inbox to see its progress.
@@ -214,7 +224,7 @@ export function Home() {
           <span className="text-meta text-muted-foreground">Why don't you create one?</span>
         </Message>
       ) : (
-        <GridAgents dots={dots} tasks={taskById} agents={library} />
+        <GridAgents dots={dots} tasks={taskById} agents={library} launch={launch} />
       )}
       <NewTaskModal open={creating} onClose={() => setCreating(false)} />
     </div>

@@ -4,6 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   DOT_SPACING,
+  PULSE_DONE_S,
   PULSE_NEEDS_S,
   PULSE_RUNNING_S,
   layoutDots,
@@ -12,15 +13,18 @@ import {
   type GridDot,
 } from "../agent-dots";
 import { originKey } from "../inbox";
+import { isMac } from "../keyboard";
 import { cn } from "../lib/utils";
 import { stepEventsQuery } from "../query";
 import { GATE_REASONS, STAGE_LABELS, currentActivity } from "../task-view";
 import { AgentTile } from "./AgentTile";
+import type { ArchiveLaunches } from "./use-archive-launches";
 
 const STATE_LABELS: Record<GridDot["state"], string> = {
   running: "running",
   "needs-you": "needs you",
   queued: "queued",
+  done: "done",
 };
 
 /** Card width and the margin it keeps from the overlay's edges and the dot. */
@@ -49,6 +53,7 @@ function AgentDot({
   overlayWidth,
   lasers,
   delay,
+  onArchive,
 }: {
   dot: GridDot;
   task: Task;
@@ -59,6 +64,8 @@ function AgentDot({
   lasers: number;
   /** The task's pulse delay in seconds, shared with its boom. */
   delay: number;
+  /** Archives a done dot's task, on Ctrl+click (⌘+click on macOS). */
+  onArchive?: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -72,7 +79,10 @@ function AgentDot({
   const activity = events.data ? currentActivity(events.data) : null;
 
   const stage = task.stage ? STAGE_LABELS[task.stage] : null;
-  const label = `${task.title}: ${stage ? `${stage}, ` : ""}${STATE_LABELS[dot.state]}`;
+  const done = dot.state === "done";
+  const label = done
+    ? `${task.title}: ${STATE_LABELS.done}`
+    : `${task.title}: ${stage ? `${stage}, ` : ""}${STATE_LABELS[dot.state]}`;
   const width = Math.min(CARD_WIDTH, overlayWidth - 2 * CARD_MARGIN);
   const needs = dot.state === "needs-you";
 
@@ -88,6 +98,17 @@ function AgentDot({
           "pointer-events-auto absolute flex size-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full focus-visible:shadow-ring",
           open ? "z-20" : needs ? "z-[2]" : dot.state === "running" ? "z-[1]" : "z-0",
         )}
+        onClick={
+          done && onArchive
+            ? (event) => {
+                // The Link skips navigation on modified clicks; this also stops a new tab.
+                if ((isMac() ? event.metaKey : event.ctrlKey) && !event.altKey) {
+                  event.preventDefault();
+                  onArchive();
+                }
+              }
+            : undefined
+        }
         onPointerEnter={(event) => {
           if (event.pointerType !== "touch") setHovered(true);
         }}
@@ -115,6 +136,7 @@ function AgentDot({
             dot.state === "running" && "size-2 animate-pulse-running bg-running shadow-glow-cyan",
             needs && "size-2.5 animate-pulse-needs bg-needs shadow-glow-needs",
             dot.state === "queued" && "size-2 bg-faint opacity-60",
+            done && "size-2 animate-pulse-done bg-done shadow-glow-done",
           )}
         />
         {lasers > 0 && <span key={lasers} className="bw-laser" aria-hidden="true" />}
@@ -134,8 +156,17 @@ function AgentDot({
               {originKey(task)}
             </span>
           </span>
-          {stage && (
-            <span className={cn("label", needs ? "text-magenta" : "text-cyan")}>{stage}</span>
+          {done ? (
+            <>
+              <span className="label text-done">Done</span>
+              <span className="text-meta text-muted-foreground">
+                {isMac() ? "⌘+click" : "Ctrl+click"} to archive
+              </span>
+            </>
+          ) : (
+            stage && (
+              <span className={cn("label", needs ? "text-magenta" : "text-cyan")}>{stage}</span>
+            )
           )}
           {dot.state === "running" && (
             <>
@@ -167,16 +198,21 @@ function AgentDot({
  * `agent-dots.ts`): a link to each task with a hover/focus card, and a laser
  * fired upward when a task changes stage. Running and needs-you dots send a
  * ring and their task a bloom (`.bw-boom`), drawn under the dots and sharing
- * each task's pulse delay. Lay it over `GridBackdrop` in a `relative` parent.
+ * each task's pulse delay. Done tasks wait as calm green dots; Ctrl+click
+ * (⌘+click on macOS) archives one through `launch`, and its dot flies off
+ * toward the horizon (`.bw-launch`). Lay it over `GridBackdrop` in a
+ * `relative` parent.
  */
 export function GridAgents({
   dots,
   tasks,
   agents,
+  launch,
 }: {
   dots: readonly GridDot[];
   tasks: ReadonlyMap<string, Task>;
   agents: ReadonlyMap<string, Agent>;
+  launch: ArchiveLaunches;
 }) {
   const ref = useRef<HTMLElement>(null);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
@@ -221,7 +257,14 @@ export function GridAgents({
           <div aria-hidden="true" className="absolute inset-0">
             {dots.map((dot) => {
               const spot = layout.get(dot.key);
-              if (dot.state === "queued" || !tasks.has(dot.taskId) || !spot) return null;
+              if (
+                dot.state === "queued" ||
+                dot.state === "done" ||
+                launch.launches.has(dot.taskId) ||
+                !tasks.has(dot.taskId) ||
+                !spot
+              )
+                return null;
               const needs = dot.state === "needs-you";
               const delay = pulseDelay(dot.taskId, needs ? PULSE_NEEDS_S : PULSE_RUNNING_S);
               return (
@@ -242,8 +285,13 @@ export function GridAgents({
           {dots.map((dot) => {
             const task = tasks.get(dot.taskId);
             const spot = layout.get(dot.key);
-            if (!task || !spot) return null;
-            const needs = dot.state === "needs-you";
+            if (!task || !spot || launch.launches.has(dot.taskId)) return null;
+            const period =
+              dot.state === "done"
+                ? PULSE_DONE_S
+                : dot.state === "needs-you"
+                  ? PULSE_NEEDS_S
+                  : PULSE_RUNNING_S;
             return (
               <AgentDot
                 key={dot.key}
@@ -254,11 +302,36 @@ export function GridAgents({
                 y={spot.y}
                 overlayWidth={size.width}
                 lasers={lasers.get(dot.taskId) ?? 0}
-                delay={pulseDelay(dot.taskId, needs ? PULSE_NEEDS_S : PULSE_RUNNING_S)}
+                delay={pulseDelay(dot.taskId, period)}
+                onArchive={() => launch.archive(task, spot.x, spot.y)}
               />
             );
           })}
+          {/* Archived done dots, flying to the horizon's centre (58%, as .bw-grid-horizon). */}
+          {[...launch.launches].map(([taskId, from]) => (
+            <span
+              key={taskId}
+              aria-hidden="true"
+              className="bw-launch"
+              style={
+                {
+                  left: from.x,
+                  top: from.y,
+                  "--dx": `${size.width / 2 - from.x}px`,
+                  "--dy": `${0.58 * size.height - from.y}px`,
+                } as CSSProperties
+              }
+            />
+          ))}
         </>
+      )}
+      {launch.error && (
+        <p
+          role="alert"
+          className="pointer-events-auto absolute inset-x-0 bottom-4 m-0 text-center text-meta text-destructive"
+        >
+          {launch.error}
+        </p>
       )}
     </nav>
   );

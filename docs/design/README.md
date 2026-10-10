@@ -12,7 +12,7 @@ Exported from the Claude Design canvas. These are reference mockups, not product
   - `Grill`: plan review with the Q&A interview and plan approval
   - `Finish`: summary and outbound action confirmation
   - `NewTask`, `Settings` (agent library), `TokenModal`
-  - `Running`, `Exceptions` (interrupted + failed), `FirstRun` (empty state; the mockup has a plain `--bg-0` background, the app adds the animated grid backdrop, the one decorative use of glow; the app also shows it behind the empty main pane, with the active agents as dots on its floor, running full width there, and "No active tasks" when nothing is active; a pointer spotlight brightens the lines in dark and subtly darkens them in light)
+  - `Running`, `Exceptions` (interrupted + failed), `FirstRun` (empty state; the mockup has a plain `--bg-0` background, the app adds the animated grid backdrop, the one decorative use of glow; the app also shows it behind the empty main pane, with the active agents as dots on its floor, running full width there; done tasks stay as calmly pulsing green dots until archived, Ctrl+click (⌘+click on macOS) archives one and its dot flies off toward the horizon; and "No active tasks" when nothing is active; a pointer spotlight brightens the lines in dark and subtly darkens them in light)
   - `*Light.dc.html` render the same screen with `theme="light"`
 - `canvas.json` is the canvas layout index. You can ignore it.
 
