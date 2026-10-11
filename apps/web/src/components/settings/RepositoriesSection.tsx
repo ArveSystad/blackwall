@@ -12,9 +12,9 @@ import {
   updateRepo,
 } from "../../api";
 import { cn } from "../../lib/utils";
-import { connectionsQuery, queryKeys, reposQuery } from "../../query";
+import { connectionsQuery, queryKeys, reposQuery, settingsQuery } from "../../query";
 import { moveRepo, reorderRepoIds } from "../../repo-order";
-import { CLI_NAMES, errorMessage, parseLines, sameList } from "../../settings-forms";
+import { CLI_NAMES, errorMessage, parseCap, parseLines, sameList } from "../../settings-forms";
 import { AgentTile } from "../AgentTile";
 import {
   editorBody,
@@ -155,21 +155,30 @@ function RepoEditor({
 }) {
   const queryClient = useQueryClient();
   const connections = useQuery(connectionsQuery);
+  const settings = useQuery(settingsQuery);
   const [name, setName] = useState(repo.name);
   const [checks, setChecks] = useState(repo.checkCommands.join("\n"));
   const [defaultCli, setDefaultCli] = useState(repo.defaultCli);
   const [defaultOrigin, setDefaultOrigin] = useState(repo.defaultOrigin);
+  const [backlogCap, setBacklogCap] = useState(
+    repo.maxBacklogTasks === null ? "" : String(repo.maxBacklogTasks),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<"suggest" | "refresh" | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
 
+  // Empty uses the global backlog cap.
+  const backlogCapValue = backlogCap.trim() === "" ? null : parseCap(backlogCap);
+  const backlogCapInvalid = backlogCap.trim() !== "" && backlogCapValue === null;
   const dirty =
     name.trim() !== repo.name ||
     !sameList(parseLines(checks), repo.checkCommands) ||
     defaultCli !== repo.defaultCli ||
-    defaultOrigin !== repo.defaultOrigin;
+    defaultOrigin !== repo.defaultOrigin ||
+    backlogCapInvalid ||
+    backlogCapValue !== repo.maxBacklogTasks;
   const connection = connections.data?.find((c) => c.id === repo.connectionId);
   const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeys.repos });
 
@@ -184,6 +193,10 @@ function RepoEditor({
 
   async function save() {
     if (!dirty || saving) return;
+    if (backlogCapInvalid) {
+      setError("Backlog tasks at once must be empty or a whole number from 1 to 20");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -192,6 +205,7 @@ function RepoEditor({
         checkCommands: parseLines(checks),
         defaultCli,
         defaultOrigin,
+        maxBacklogTasks: backlogCapValue,
       });
       await invalidate();
       setNotice(null);
@@ -328,6 +342,21 @@ function RepoEditor({
               New tasks and backlog items here start on this origin.
             </span>
           </Field>
+          <Field
+            label="Backlog tasks at once"
+            hint="Backlog tasks running at once here. Empty uses the default from Settings → Backlog."
+          >
+            <Input
+              type="number"
+              min={1}
+              max={20}
+              className="mono w-20"
+              placeholder={String(settings.data?.maxBacklogTasksPerRepo ?? "")}
+              aria-invalid={backlogCapInvalid}
+              value={backlogCap}
+              onChange={(event) => setBacklogCap(event.target.value)}
+            />
+          </Field>
         </div>
 
         <label className="flex flex-col gap-1.5">
@@ -367,6 +396,7 @@ function RepoEditor({
           setChecks(repo.checkCommands.join("\n"));
           setDefaultCli(repo.defaultCli);
           setDefaultOrigin(repo.defaultOrigin);
+          setBacklogCap(repo.maxBacklogTasks === null ? "" : String(repo.maxBacklogTasks));
           setError(null);
           setNotice(null);
         }}

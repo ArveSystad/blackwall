@@ -314,6 +314,9 @@ export const resolveConnectionInputSchema = z.discriminatedUnion("kind", [
 ]);
 export type ResolveConnectionInput = z.infer<typeof resolveConnectionInputSchema>;
 
+/** How many backlog tasks may run at once in one repo. */
+export const backlogCapSchema = z.int().min(1).max(20);
+
 export const repoSchema = z.object({
   id,
   /** Absolute path of the local git repo. */
@@ -327,6 +330,8 @@ export const repoSchema = z.object({
   defaultCli: agentCliSchema,
   /** Origin the new-task and backlog forms open on for this repo. */
   defaultOrigin: originKindSchema,
+  /** Backlog tasks running at once in this repo; null uses the global setting. */
+  maxBacklogTasks: backlogCapSchema.nullable(),
   /** Listed first, with a star. */
   favorite: z.boolean(),
   /** Manual order among repos in the same favourite group. */
@@ -366,6 +371,7 @@ export const repoUpdateSchema = z.object({
   checkCommands: repoSchema.shape.checkCommands.optional(),
   defaultCli: agentCliSchema.optional(),
   defaultOrigin: originKindSchema.optional(),
+  maxBacklogTasks: backlogCapSchema.nullable().optional(),
   favorite: z.boolean().optional(),
 });
 export type RepoUpdate = z.infer<typeof repoUpdateSchema>;
@@ -540,8 +546,8 @@ export const settingsSchema = z.object({
   maxTasksPerRepo: z.int().min(1).max(20).default(DEFAULT_MAX_TASKS_PER_REPO),
   /** Whether the backlog runner promotes backlog items on its own (per repo switch on top). */
   backlogRunner: z.boolean().default(true),
-  /** How many backlog-originated tasks may be queued or running at once in one repo. */
-  maxBacklogTasksPerRepo: z.int().min(1).max(20).default(DEFAULT_MAX_BACKLOG_TASKS_PER_REPO),
+  /** How many backlog-originated tasks may run at once in a repo without its own cap. */
+  maxBacklogTasksPerRepo: backlogCapSchema.default(DEFAULT_MAX_BACKLOG_TASKS_PER_REPO),
   /** Hold a repo's backlog while one of its backlog tasks waits on the user. */
   stopBacklogOnNeedsYou: z.boolean().default(true),
 });
@@ -551,6 +557,14 @@ export type SettingsInput = z.input<typeof settingsSchema>;
 /** Settings other than the role defaults (which live under `/api/agents/role-defaults`). */
 export const generalSettingsSchema = settingsSchema.omit({ roleDefaults: true });
 export type GeneralSettings = z.infer<typeof generalSettingsSchema>;
+
+/** How many backlog tasks may run at once in a repo: its own cap, else the global one. */
+export function backlogCapFor(
+  repo: Pick<Repo, "maxBacklogTasks"> | undefined,
+  general: Pick<GeneralSettings, "maxBacklogTasksPerRepo">,
+): number {
+  return repo?.maxBacklogTasks ?? general.maxBacklogTasksPerRepo;
+}
 
 /** Body for editing the general settings; omitted fields keep their value. */
 export const generalSettingsUpdateSchema = z.object({

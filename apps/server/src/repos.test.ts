@@ -119,16 +119,28 @@ describe("repo routes", () => {
     const repo = repoSchema.parse(await add.json());
     expect(repo.defaultCli).toBe("claude");
     expect(repo.defaultOrigin).toBe("jira-issue");
+    expect(repo.maxBacklogTasks).toBeNull();
 
     const patch = await request(`/api/repos/${repo.id}`, {
       method: "PATCH",
-      body: { checkCommands: [], defaultCli: "copilot", defaultOrigin: "free-text" },
+      body: {
+        checkCommands: [],
+        defaultCli: "copilot",
+        defaultOrigin: "free-text",
+        maxBacklogTasks: 2,
+      },
     });
     expect(repoSchema.parse(await patch.json())).toMatchObject({
       checkCommands: [],
       defaultCli: "copilot",
       defaultOrigin: "free-text",
+      maxBacklogTasks: 2,
     });
+    const invalid = await request(`/api/repos/${repo.id}`, {
+      method: "PATCH",
+      body: { maxBacklogTasks: 0 },
+    });
+    expect(invalid.status).toBe(400);
 
     expect((await request(`/api/repos/${repo.id}`, { method: "DELETE" })).status).toBe(204);
     expect((await request(`/api/repos/${repo.id}`)).status).toBe(404);

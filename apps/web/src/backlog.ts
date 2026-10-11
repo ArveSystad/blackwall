@@ -1,10 +1,12 @@
 import {
   BACKLOG_PRIORITIES,
+  backlogCapFor,
   type AgentCli,
   type BacklogItemView,
   type BacklogPriority,
   type GeneralSettings,
   type QuotaState,
+  type Repo,
   type RepoBacklogRunner,
   type RepoSync,
   type Task,
@@ -232,6 +234,8 @@ export interface RunnerStatusInput {
     GeneralSettings,
     "backlogRunner" | "maxTasksPerRepo" | "maxBacklogTasksPerRepo" | "stopBacklogOnNeedsYou"
   >;
+  /** The repo, for its own backlog cap; undefined uses the global one. */
+  repo: Pick<Repo, "maxBacklogTasks"> | undefined;
   runner: RepoBacklogRunner;
   /** The repo's backlog, in pick order. */
   items: readonly BacklogItemView[];
@@ -251,6 +255,7 @@ export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" :
  */
 export function runnerStatus({
   settings,
+  repo,
   runner,
   items,
   tasks,
@@ -292,7 +297,7 @@ export function runnerStatus({
   const promoted = new Set(items.flatMap((i) => (i.taskId ? [i.taskId] : [])));
   const fromBacklog = tasks.filter((t) => promoted.has(t.id));
   const backlogRunning = fromBacklog.filter((t) => t.status === "running").length;
-  if (backlogRunning >= settings.maxBacklogTasksPerRepo) {
+  if (backlogRunning >= backlogCapFor(repo, settings)) {
     return {
       tone: "waiting",
       label: "Waiting",

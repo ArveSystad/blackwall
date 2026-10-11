@@ -91,7 +91,7 @@ function BacklogEditor({ saved }: { saved: GeneralSettings }) {
                 id="max-backlog-tasks-per-repo-hint"
                 className="text-meta text-muted-foreground"
               >
-                Backlog tasks running at once in one repo, within the repo&apos;s task cap.
+                Default for repos without their own cap, within the repo&apos;s task cap.
               </span>
             </div>
           </div>
@@ -127,7 +127,10 @@ function BacklogEditor({ saved }: { saved: GeneralSettings }) {
   );
 }
 
-/** Global backlog runner settings; the per-repo switch lives on each backlog view. */
+/**
+ * Global backlog runner settings; the per-repo switch lives on each backlog
+ * view and the per-repo cap on each repo's settings.
+ */
 export function BacklogSection() {
   const settings = useQuery(settingsQuery);
   return (

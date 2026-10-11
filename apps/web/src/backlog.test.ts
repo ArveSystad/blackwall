@@ -239,6 +239,7 @@ describe("runnerStatus", () => {
   const status = (overrides: Partial<RunnerStatusInput> = {}) =>
     runnerStatus({
       settings,
+      repo: undefined,
       runner,
       items: [makeBacklogItem({ title: "Add login" })],
       tasks: [],
@@ -288,6 +289,31 @@ describe("runnerStatus", () => {
       status({ items, tasks: [waiting], settings: { ...settings, stopBacklogOnNeedsYou: false } })
         .tone,
     ).toBe("ready");
+  });
+
+  it("caps running backlog tasks by the repo's own cap over the global one", () => {
+    const tasks = [makeTask({ status: "running" }), makeTask({ status: "running" })];
+    const items = [
+      ...tasks.map((t) => makeBacklogItem({ status: "promoted", taskId: t.id })),
+      makeBacklogItem({ title: "Add login" }),
+    ];
+    expect(status({ items, tasks: tasks.slice(0, 1), repo: { maxBacklogTasks: 2 } }).tone).toBe(
+      "ready",
+    );
+    expect(status({ items, tasks, repo: { maxBacklogTasks: 2 } }).detail).toBe(
+      "2 backlog tasks running.",
+    );
+    expect(
+      status({ items, tasks: tasks.slice(0, 1), repo: { maxBacklogTasks: null } }).detail,
+    ).toBe("1 backlog task running.");
+    expect(
+      status({
+        items,
+        tasks: tasks.slice(0, 1),
+        settings: { ...settings, maxBacklogTasksPerRepo: 3 },
+        repo: { maxBacklogTasks: 1 },
+      }).detail,
+    ).toBe("1 backlog task running.");
   });
 
   it("is paused while the next item's CLI is on a usage limit", () => {

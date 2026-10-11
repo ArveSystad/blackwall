@@ -1,0 +1,1 @@
+ALTER TABLE `repos` ADD `max_backlog_tasks` integer;

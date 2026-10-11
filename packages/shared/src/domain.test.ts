@@ -9,6 +9,7 @@ import {
   MAX_FOLLOW_UPS,
   ROLE_STAGES,
   agentCliFor,
+  backlogCapFor,
   agentUpdateSchema,
   connectionInputSchema,
   connectionViewSchema,
@@ -248,6 +249,21 @@ describe("settings and inputs", () => {
       defaultOrigin: "github-pr",
     });
     expect(repoUpdateSchema.safeParse({ defaultOrigin: "email" }).success).toBe(false);
+  });
+
+  it("accepts a repo's backlog cap, or null to clear it, and rejects others", () => {
+    expect(repoUpdateSchema.parse({ maxBacklogTasks: 3 })).toEqual({ maxBacklogTasks: 3 });
+    expect(repoUpdateSchema.parse({ maxBacklogTasks: null })).toEqual({ maxBacklogTasks: null });
+    for (const maxBacklogTasks of [0, 21, 1.5]) {
+      expect(repoUpdateSchema.safeParse({ maxBacklogTasks }).success).toBe(false);
+    }
+  });
+
+  it("uses a repo's own backlog cap over the global one", () => {
+    const general = { maxBacklogTasksPerRepo: 2 };
+    expect(backlogCapFor({ maxBacklogTasks: 5 }, general)).toBe(5);
+    expect(backlogCapFor({ maxBacklogTasks: null }, general)).toBe(2);
+    expect(backlogCapFor(undefined, general)).toBe(2);
   });
 
   it("accepts a repo's favourite flag", () => {

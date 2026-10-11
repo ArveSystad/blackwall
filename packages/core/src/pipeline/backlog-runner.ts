@@ -1,8 +1,10 @@
 import {
   TASK_STOPPED_ERROR,
+  backlogCapFor,
   type AgentCli,
   type BacklogItem,
   type GeneralSettings,
+  type Repo,
   type RepoBacklogRunner,
   type ServerEvent,
   type Task,
@@ -58,8 +60,8 @@ const errorMessage = (error: unknown) => (error instanceof Error ? error.message
  * Works through each repo's backlog on its own, like a built-in ralph loop.
  * On every tick it first resumes tasks a usage limit interrupted whose quota
  * has reset, then promotes at most one item per idle repo: no queued task in
- * the repo, a free run slot, fewer active backlog tasks than the backlog
- * limit, no backlog task waiting on the user (when that setting is on), and
+ * the repo, a free run slot, fewer active backlog tasks than the repo's
+ * backlog limit, no backlog task waiting on the user (when that setting is on), and
  * the item's CLIs not quota-paused. A failed backlog task halts its repo's
  * runner until the user resumes it.
  */
@@ -101,7 +103,8 @@ export function createBacklogRunner({
   }
 
   /** The item to promote in a repo now, or undefined when the repo is not idle. */
-  function pick(repoId: string, tasks: readonly Task[]): BacklogItem | undefined {
+  function pick(repo: Repo, tasks: readonly Task[]): BacklogItem | undefined {
+    const repoId = repo.id;
     const general = settings.general();
     const state = settings.repoBacklogRunner(repoId);
     if (!state.enabled || state.haltedTaskId !== null) return undefined;
@@ -118,7 +121,7 @@ export function createBacklogRunner({
     const promoted = new Set(items.flatMap((i) => (i.taskId ? [i.taskId] : [])));
     const fromBacklog = inRepo.filter((t) => promoted.has(t.id));
     const active = fromBacklog.filter((t) => t.status === "running").length;
-    if (active >= general.maxBacklogTasksPerRepo) return undefined;
+    if (active >= backlogCapFor(repo, general)) return undefined;
     if (general.stopBacklogOnNeedsYou && fromBacklog.some((t) => t.status === "needs-you")) {
       return undefined;
     }
@@ -139,7 +142,7 @@ export function createBacklogRunner({
     if (!settings.general().backlogRunner) return;
     for (const repo of r.repos.list()) {
       if (stopping) return;
-      const item = pick(repo.id, r.tasks.list());
+      const item = pick(repo, r.tasks.list());
       if (!item) continue;
       try {
         await createTask(item);

@@ -647,6 +647,7 @@ export function Backlog({ repoId }: { repoId: string }) {
     settings.data && runner.data && backlog.data && tasks.data
       ? runnerStatus({
           settings: settings.data,
+          repo,
           runner: runner.data,
           items,
           tasks: repoTasks,

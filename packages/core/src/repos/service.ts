@@ -190,12 +190,14 @@ export function createRepoService({ repos, connections, mainBranch = "main" }: R
       existing(id);
       const parsed = repoUpdateSchema.safeParse(patch);
       if (!parsed.success) throw invalid(parsed.error);
-      const { name, checkCommands, defaultCli, defaultOrigin, favorite } = parsed.data;
+      const { name, checkCommands, defaultCli, defaultOrigin, maxBacklogTasks, favorite } =
+        parsed.data;
       return repos.update(id, {
         ...(name === undefined ? {} : { name }),
         ...(checkCommands === undefined ? {} : { checkCommands }),
         ...(defaultCli === undefined ? {} : { defaultCli }),
         ...(defaultOrigin === undefined ? {} : { defaultOrigin }),
+        ...(maxBacklogTasks === undefined ? {} : { maxBacklogTasks }),
         ...(favorite === undefined ? {} : { favorite }),
       });
     },

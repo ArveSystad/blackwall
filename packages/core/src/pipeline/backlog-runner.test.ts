@@ -174,6 +174,31 @@ describe("backlog runner", () => {
     expect(promoted.map((i) => i.title)).toEqual(["A", "B"]);
   });
 
+  it("uses the repo's own backlog limit over the global one", async () => {
+    addItem("A");
+    addItem("B");
+    addItem("C");
+    settings.updateGeneral({ maxBacklogTasksPerRepo: 1 });
+    r.repos.update(repoId, { maxBacklogTasks: 2 });
+    const { runner, promoted } = unitRunner();
+    await runner.tick();
+    await runner.tick();
+    await runner.tick();
+    expect(promoted.map((i) => i.title)).toEqual(["A", "B"]);
+  });
+
+  it("holds to a repo's backlog limit below the global one", async () => {
+    addItem("A");
+    addItem("B");
+    addItem("C");
+    settings.updateGeneral({ maxBacklogTasksPerRepo: 3 });
+    r.repos.update(repoId, { maxBacklogTasks: 1 });
+    const { runner, promoted } = unitRunner();
+    await runner.tick();
+    await runner.tick();
+    expect(promoted.map((i) => i.title)).toEqual(["A"]);
+  });
+
   it("leaves repos alone when the runner is off globally or for the repo", async () => {
     addItem("A");
     const { runner, promoted } = unitRunner();

@@ -73,6 +73,7 @@ describe("repo service", () => {
       checkCommands: ["npm run test"],
       defaultCli: "claude",
       defaultOrigin: "jira-issue",
+      maxBacklogTasks: null,
     });
     expect(service.list()).toEqual([{ ...repo, exists: true }]);
   });
@@ -201,6 +202,11 @@ describe("repo service", () => {
       defaultOrigin: "github-pr",
     });
     expect(service.get(repo.id).defaultOrigin).toBe("github-pr");
+    expect(service.update(repo.id, { maxBacklogTasks: 2 })).toMatchObject({ maxBacklogTasks: 2 });
+    expect(service.get(repo.id).maxBacklogTasks).toBe(2);
+    expect(service.update(repo.id, { name: "App" }).maxBacklogTasks).toBe(2);
+    expect(service.update(repo.id, { maxBacklogTasks: null }).maxBacklogTasks).toBeNull();
+    expect(() => service.update(repo.id, { maxBacklogTasks: 0 })).toThrow(InvalidRepoError);
     expect(service.update(repo.id, { favorite: true })).toMatchObject({ favorite: true });
 
     const connection = r.connections.create({

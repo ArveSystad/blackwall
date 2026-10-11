@@ -85,6 +85,7 @@ export const repos = sqliteTable("repos", {
     .default(sql`'[]'`),
   defaultCli: text("default_cli", { enum: AGENT_CLIS }).notNull().default("claude"),
   defaultOrigin: text("default_origin", { enum: ORIGIN_KINDS }).notNull().default("jira-issue"),
+  maxBacklogTasks: integer("max_backlog_tasks"),
   /** Listed first, with a star. */
   favorite: integer("favorite", { mode: "boolean" }).notNull().default(false),
   /** Manual order among repos in the same favourite group. */
