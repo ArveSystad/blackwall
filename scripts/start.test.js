@@ -10,6 +10,7 @@ const OUTPUTS = [
   "packages/integrations/dist/index.js",
   "apps/server/dist/index.js",
   "apps/web/dist/index.html",
+  "apps/desktop/dist/main.js",
 ];
 
 describe("serverArgs", () => {
@@ -49,7 +50,12 @@ describe("buildReason", () => {
     write("package.json");
     write("packages/core/src/index.ts");
     write("apps/web/index.html");
-    for (const workspace of ["packages/shared", "packages/integrations", "apps/server"]) {
+    for (const workspace of [
+      "packages/shared",
+      "packages/integrations",
+      "apps/server",
+      "apps/desktop",
+    ]) {
       write(`${workspace}/package.json`);
     }
   });

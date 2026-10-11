@@ -1,0 +1,18 @@
+{
+  "name": "@blackwall/desktop",
+  "productName": "blackwall",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@blackwall/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "electron": "^44.7.0"
+  }
+}

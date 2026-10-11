@@ -8,6 +8,7 @@ const projects = [
   "packages/integrations",
   "apps/server",
   "apps/web",
+  "apps/desktop",
   "scripts",
 ];
 

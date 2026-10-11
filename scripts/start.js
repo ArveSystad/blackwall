@@ -1,5 +1,6 @@
 // `pnpm start`: builds the workspace when its output is missing or stale, then runs the server
 // in this process. Arguments (`--no-open`, `--port <n>`) are passed through to the server.
+// `ensureBuilt()` is shared with `pnpm desktop` (scripts/desktop.js).
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -12,6 +13,7 @@ const WORKSPACES = [
   "packages/integrations",
   "apps/server",
   "apps/web",
+  "apps/desktop",
 ];
 const ROOT_INPUTS = ["package.json", "pnpm-lock.yaml", "tsconfig.json", "tsconfig.base.json"];
 const SERVER_ENTRY = "apps/server/dist/index.js";
@@ -23,6 +25,7 @@ const OUTPUTS = [
   "packages/integrations/dist/index.js",
   SERVER_ENTRY,
   "apps/web/dist/index.html",
+  "apps/desktop/dist/main.js",
 ];
 const IGNORED_DIRS = new Set(["node_modules", "dist", "coverage", ".vite"]);
 
@@ -68,18 +71,23 @@ function build() {
   // `shell` resolves pnpm's .cmd shim on Windows.
   const result = spawnSync("pnpm build", { cwd: ROOT, stdio: "inherit", shell: true });
   if (result.status !== 0) {
-    console.error("Build failed; not starting the server.");
+    console.error("Build failed; not starting blackwall.");
     process.exit(result.status ?? 1);
   }
   writeFileSync(join(ROOT, STAMP), `${new Date().toISOString()}\n`);
 }
 
-async function main() {
+/** Builds the workspace when its output is missing or stale; exits the process if the build fails. */
+export function ensureBuilt() {
   const reason = buildReason();
   if (reason) {
     console.log(`Build output is ${reason}; building...`);
     build();
   }
+}
+
+async function main() {
+  ensureBuilt();
   const entry = join(ROOT, SERVER_ENTRY);
   // The server reads its flags from process.argv.slice(2).
   process.argv = [process.argv[0], entry, ...serverArgs(process.argv.slice(2))];

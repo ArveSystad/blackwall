@@ -1,3 +1,4 @@
+import { documentTitle } from "@blackwall/shared";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
@@ -14,7 +15,6 @@ import {
 import { createQueryClient, tasksQuery } from "./query";
 import { router } from "./router";
 import { GATE_REASONS } from "./task-view";
-import { documentTitle } from "./title";
 
 /** Keeps the tab title at `(N) blackwall`, N being the tasks that need the user. */
 function TabTitle() {

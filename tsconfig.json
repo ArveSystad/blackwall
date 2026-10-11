@@ -4,6 +4,7 @@
     { "path": "packages/shared" },
     { "path": "packages/core" },
     { "path": "packages/integrations" },
-    { "path": "apps/server" }
+    { "path": "apps/server" },
+    { "path": "apps/desktop" }
   ]
 }

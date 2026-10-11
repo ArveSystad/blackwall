@@ -10,7 +10,8 @@ This file plus the code are the design reference. User-facing docs are in [`READ
 
 ## Layout
 
-- `apps/server`: Hono HTTP + WebSocket on 127.0.0.1 with launch-token auth (`auth.ts`). Serves the built SPA; routes are wired in `app.ts`.
+- `apps/server`: Hono HTTP + WebSocket on 127.0.0.1 with launch-token auth (`auth.ts`). Serves the built SPA; routes are wired in `app.ts`. `start.ts` holds the startup shared by both entries: `index.ts` (`pnpm start`) and `desktop-entry.ts` (the desktop shell's child).
+- `apps/desktop`: Electron main process: forks the server (`apps/server/src/desktop-entry.ts`) on system Node, tray, badge, quit prompt. Electron-free logic sits in its own modules so Vitest can test it; `main.ts` only wires Electron to them.
 - `apps/web`: React + Vite, TanStack Router + Query, Tailwind v4 + shadcn/ui.
 - `packages/core`:
   - `pipeline/`: engine, transitions, scheduler, backlog runner, delivery.
@@ -19,13 +20,14 @@ This file plus the code are the design reference. User-facing docs are in [`READ
   - `db/`: SQLite via better-sqlite3 + Drizzle; migrations in `packages/core/drizzle/`.
 - `packages/integrations`: Jira Cloud and GitHub/GHE (Octokit) clients, with fixtures.
 - `packages/shared`: zod domain and protocol schemas shared by server and web.
-- `scripts/start.js`: the `pnpm start` launcher. `start.ps1`: the dev launcher on Windows.
+- `scripts/start.js`: the `pnpm start` launcher. `scripts/desktop.js`: the `pnpm desktop` launcher. `start.ps1`: the dev launcher on Windows.
 - `docs/design/`: UI mockups; `bw.css` is the token source.
 
 ## Commands
 
 - `pnpm install`
 - `pnpm dev`: server under `tsx watch` plus the Vite dev server.
+- `pnpm desktop`: builds if needed, then runs the Electron shell.
 - `pnpm build`
 - `pnpm typecheck`
 - `pnpm test`: Vitest against sources, no build needed.

@@ -38,7 +38,8 @@ Implementers may save screenshots (PNG, JPEG, GIF or WebP) to `.blackwall/artifa
 - Connections to GitHub.com, GHE and Jira Cloud, with tokens in the OS keychain
 - Repo registry with auto-suggested check commands
 - Live agent output and per-round diffs
-- Needs-you inbox, with the count in the tab title and optional desktop notifications (Settings → Notifications)
+- Needs-you inbox, with the count in the tab title (and on the dock or taskbar badge in the desktop app) and optional desktop notifications (Settings → Notifications)
+- Optional desktop window with a tray icon (`pnpm desktop`)
 - Dark and light themes
 - Keyboard shortcuts
 
@@ -64,6 +65,20 @@ pnpm start          # builds if output is missing or stale, starts on 127.0.0.1 
 The server binds to `127.0.0.1` only and prints a URL containing a per-launch token. Data lives in `~/.blackwall/`; `BLACKWALL_HOME` overrides the data directory. Personal access tokens are stored in your OS keychain, never in the database.
 
 For headless use, set `BLACKWALL_TOKEN_<CONNECTION>` to override a connection's keychain token. The suffix is the connection name in upper case with other characters replaced by `_`, so `acme.ghe.com` reads `BLACKWALL_TOKEN_ACME_GHE_COM`.
+
+## Desktop app
+
+```sh
+pnpm desktop        # builds if output is missing or stale, then opens blackwall in its own window
+```
+
+The desktop app is an Electron window around the same server, run from a source checkout after `pnpm install`. There are no installers yet.
+
+- **Requirements:** everything browser mode needs. Node.js 22+ must be on `PATH`, because the server runs on your system Node, not Electron's. On macOS and Linux the app reads `PATH` from your login shell, so CLIs installed by a version manager are found even when launched from Finder or a desktop launcher.
+- **Port:** 4712 (`BLACKWALL_DESKTOP_PORT` overrides it). The port stays fixed so the theme and selected repo are kept between launches. `BLACKWALL_PORT` and `BLACKWALL_WEB_PORT` are ignored in desktop mode.
+- **Data:** the same data directory as browser mode (`~/.blackwall/`, or `BLACKWALL_HOME`). Only one instance can use a data directory at a time, so `pnpm desktop` refuses to start while `pnpm start` is running on the same one, and the other way round.
+- **Tray and badge:** the tray icon opens the window and holds Quit. The number of tasks that need you shows on the dock or taskbar icon and in the tray tooltip.
+- **Quitting:** closing the window, Quit in the tray or the app menu all ask before quitting, and say how many agents are running. Confirming stops those agents the same way Ctrl+C does for `pnpm start`, so their steps resume on the next launch.
 
 ## Quick-launch function
 
