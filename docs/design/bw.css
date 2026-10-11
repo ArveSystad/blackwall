@@ -61,6 +61,7 @@
   --code-bg: #0c0b1c;
   --claude: #f0956b;
   --copilot: #8fb3ff;
+  --opencode: #c3a6ff;
   color-scheme: dark;
 }
 
@@ -109,6 +110,7 @@
   --code-bg: #f6f7f9;
   --claude: #b4522b;
   --copilot: #2f5fc4;
+  --opencode: #6b46c1;
   color-scheme: light;
 }
 
@@ -183,6 +185,7 @@
 .bw .agent { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 4px; font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: -.02em; }
 .bw .agent-cc { color: var(--claude); background: color-mix(in oklab, var(--claude) 18%, transparent); border: 1px solid color-mix(in oklab, var(--claude) 40%, transparent); }
 .bw .agent-cp { color: var(--copilot); background: color-mix(in oklab, var(--copilot) 18%, transparent); border: 1px solid color-mix(in oklab, var(--copilot) 40%, transparent); }
+.bw .agent-oc { color: var(--opencode); background: color-mix(in oklab, var(--opencode) 18%, transparent); border: 1px solid color-mix(in oklab, var(--opencode) 40%, transparent); }
 .bw .agent-lg { width: 20px; height: 20px; font-size: 10px; border-radius: 5px; }
 
 /* tabs */

@@ -9,6 +9,7 @@ import {
   MAX_FOLLOW_UPS,
   ROLE_STAGES,
   agentCliFor,
+  agentPermissionOverridesSchema,
   agentUpdateSchema,
   connectionInputSchema,
   connectionViewSchema,
@@ -322,6 +323,33 @@ describe("agents", () => {
       agentUpdateSchema.safeParse({ permissionOverrides: { claude: { allow: [" "] } } }).success,
     ).toBe(false);
     expect(agentUpdateSchema.safeParse({ models: { codex: "o3" } }).success).toBe(false);
+    expect(
+      agentUpdateSchema.parse({ models: { opencode: "anthropic/claude-sonnet-5-5" } }),
+    ).toEqual({ models: { opencode: "anthropic/claude-sonnet-5-5" } });
+  });
+
+  it("checks OpenCode permission rules against OpenCode's grammar", () => {
+    const opencode = (rules: string[]) =>
+      agentPermissionOverridesSchema.safeParse({ opencode: { allow: rules, deny: rules } });
+    expect(opencode(["bash(npm test*)", "bash", "webfetch", "read"]).success).toBe(true);
+    for (const rule of ["Bash(npm test:*)", "shell(npm test)", "foo", "bash()"]) {
+      const result = opencode([rule]);
+      expect(result.success).toBe(false);
+      expect(result.error?.issues[0]?.message).toMatch(/bash\(<glob>\), e\.g\. bash\(npm test\*\)/);
+      expect(result.error?.issues.map((issue) => issue.path)).toEqual([
+        ["opencode", "allow", 0],
+        ["opencode", "deny", 0],
+      ]);
+    }
+  });
+
+  it("leaves Claude and Copilot rules free-form", () => {
+    expect(
+      agentPermissionOverridesSchema.safeParse({
+        claude: { allow: ["Bash(npm test:*)", "anything"] },
+        copilot: { deny: ["shell(npm test)", "foo"] },
+      }).success,
+    ).toBe(true);
   });
 
   it("runs an agent on the task's CLI unless the task overrides it", () => {

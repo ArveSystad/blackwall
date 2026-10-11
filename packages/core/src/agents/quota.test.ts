@@ -35,6 +35,7 @@ describe("quota tracker", () => {
     expect(reopened.state()).toEqual([
       { cli: "claude", pausedUntil: resetsAt },
       { cli: "copilot", pausedUntil: null },
+      { cli: "opencode", pausedUntil: null },
     ]);
     expect(changes).toHaveLength(1);
     expect(reopened.nextReset()).toEqual(resetsAt);
@@ -87,6 +88,7 @@ describe("quota tracker", () => {
     expect(changes.at(-1)).toEqual([
       { cli: "claude", pausedUntil: null },
       { cli: "copilot", pausedUntil: new Date("2026-10-09T12:02:00Z") },
+      { cli: "opencode", pausedUntil: null },
     ]);
 
     advance(60_000);

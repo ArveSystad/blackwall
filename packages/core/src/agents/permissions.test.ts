@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { permissionArgs, permissionsFor } from "./permissions.js";
+import { REMOTE_COMMANDS, opencodeConfig, permissionArgs, permissionsFor } from "./permissions.js";
 
 /** Values passed to a repeated `--flag=value` option. */
 function flagValues(args: string[], flag: string): string[] {
@@ -98,5 +98,101 @@ describe("Copilot CLI permissions", () => {
   it("deduplicates override rules", () => {
     const permissions = permissionsFor("copilot", "implement", { deny: ["shell(git push)"] });
     expect(permissions.deny.filter((r) => r === "shell(git push)")).toHaveLength(1);
+  });
+});
+
+describe("OpenCode permissions", () => {
+  it("gives reviewers read tools and safe git only", () => {
+    const { allow, deny } = permissionsFor("opencode", "read-only");
+    expect(allow).toEqual([
+      "read",
+      "grep",
+      "glob",
+      "list",
+      "bash(git diff*)",
+      "bash(git log*)",
+      "bash(git show*)",
+      "bash(git status*)",
+    ]);
+    expect(deny).toEqual(
+      expect.arrayContaining(["edit", "task", "webfetch", "external_directory", "bash(git push*)"]),
+    );
+  });
+
+  it("lets implementers edit and use bash but never push, use gh or start subagents", () => {
+    const { allow, deny } = permissionsFor("opencode", "implement");
+    expect(allow).toEqual(expect.arrayContaining(["edit", "bash(*)", "todowrite"]));
+    expect(deny).toEqual(
+      expect.arrayContaining(["task", "bash(git push*)", "bash(git -C*)", "bash(gh*)"]),
+    );
+    expect(deny).not.toContain("edit");
+  });
+
+  it("has no flags: the rules go in through config", () => {
+    expect(permissionArgs(permissionsFor("opencode", "implement"))).toEqual([]);
+  });
+
+  it("denies everything by default and puts deny patterns after allow patterns", () => {
+    const config = opencodeConfig(permissionsFor("opencode", "read-only"));
+    const { permission } = config;
+    expect(Object.keys(permission)[0]).toBe("*");
+    expect(permission).toMatchObject({
+      "*": "deny",
+      read: "allow",
+      grep: "allow",
+      edit: "deny",
+      task: "deny",
+      external_directory: "deny",
+    });
+    const bash = permission.bash as Record<string, string>;
+    const keys = Object.keys(bash);
+    expect(keys[0]).toBe("*");
+    expect(bash["*"]).toBe("deny");
+    expect(bash["git status*"]).toBe("allow");
+    expect(keys.indexOf("git push*")).toBeGreaterThan(keys.indexOf("git status*"));
+    expect(Object.entries(bash).slice(-REMOTE_COMMANDS.length)).toEqual(
+      REMOTE_COMMANDS.map((c) => [`${c}*`, "deny"]),
+    );
+    expect(config.agent.blackwall).toEqual({ mode: "primary", permission });
+    expect(config).toMatchObject({ mcp: {}, plugin: [], share: "disabled" });
+  });
+
+  it("widens allow with overrides but never lifts a deny", () => {
+    const readOnly = opencodeConfig(
+      permissionsFor("opencode", "read-only", { allow: ["edit", "bash(npm test*)", "webfetch"] }),
+    ).permission;
+    expect(readOnly.edit).toBe("deny");
+    expect(readOnly.webfetch).toBe("deny");
+    expect((readOnly.bash as Record<string, string>)["npm test*"]).toBe("allow");
+
+    const bash = opencodeConfig(permissionsFor("opencode", "implement", { allow: ["bash"] }))
+      .permission.bash as Record<string, string>;
+    expect(bash["*"]).toBe("allow");
+    expect(Object.entries(bash).at(-1)).toEqual(["gh*", "deny"]);
+    expect(Object.keys(bash).indexOf("git push*")).toBeGreaterThan(0);
+    expect(bash["git push*"]).toBe("deny");
+  });
+
+  it("lets a deny override replace an allowed pattern", () => {
+    const bash = opencodeConfig(
+      permissionsFor("opencode", "read-only", { deny: ["bash(git log*)"] }),
+    ).permission.bash as Record<string, string>;
+    expect(bash["git log*"]).toBe("deny");
+    expect(Object.keys(bash).indexOf("git log*")).toBeGreaterThan(
+      Object.keys(bash).indexOf("git status*"),
+    );
+  });
+
+  it("denies all of bash when bare bash is denied", () => {
+    const bash = opencodeConfig(permissionsFor("opencode", "implement", { deny: ["bash"] }))
+      .permission.bash as Record<string, string>;
+    expect(Object.values(bash).every((action) => action === "deny")).toBe(true);
+  });
+
+  it("throws on a rule outside the grammar", () => {
+    expect(() =>
+      opencodeConfig(permissionsFor("opencode", "implement", { allow: ["Bash(npm test:*)"] })),
+    ).toThrow(/Bash\(npm test:\*\)/);
+    expect(() => opencodeConfig(permissionsFor("claude", "implement"))).toThrow(/claude/);
   });
 });

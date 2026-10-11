@@ -52,6 +52,7 @@
   --code-inline-bg: var(--bg-3); /* inline code chip in prose */
   --claude: #f0956b;
   --copilot: #8fb3ff;
+  --opencode: #c3a6ff;
   --overlay: rgba(5, 4, 16, 0.74);
   --shadow-pop: 0 16px 48px rgba(0, 0, 0, 0.6), 0 0 0 1px #3a3169;
   --kbd-on-fill-bg: rgba(0, 0, 0, 0.15);
@@ -127,6 +128,7 @@
   --code-inline-bg: var(--bg-3);
   --claude: #b4522b;
   --copilot: #2f5fc4;
+  --opencode: #6b46c1;
   --overlay: rgba(20, 20, 30, 0.38);
   --shadow-pop: 0 16px 48px rgba(20, 20, 40, 0.18), 0 0 0 1px #d6d6df;
   --kbd-on-fill-bg: rgba(255, 255, 255, 0.18);
@@ -205,6 +207,7 @@
 
   --color-claude: var(--claude);
   --color-copilot: var(--copilot);
+  --color-opencode: var(--opencode);
   --color-wordmark: var(--wordmark-accent);
   --color-overlay: var(--overlay);
   --color-kbd-on-fill: var(--kbd-on-fill-bg);

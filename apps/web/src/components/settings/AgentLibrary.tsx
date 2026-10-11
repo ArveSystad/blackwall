@@ -8,6 +8,7 @@ import {
   AGENT_STAGES,
   CLI_NAMES,
   MODEL_PRESETS,
+  OVERRIDE_EXAMPLES,
   agentDraft,
   copyName,
   draftToInput,
@@ -261,9 +262,7 @@ function AgentEditor({
           </div>
           <p className="col-span-full m-0 text-meta text-muted-foreground">
             Extra rules on top of the stage profile, one per line in the CLI&apos;s own syntax (
-            <span className="mono">
-              {overridesCli === "claude" ? "Bash(npm test:*)" : "shell(npm test)"}
-            </span>
+            <span className="mono">{OVERRIDE_EXAMPLES[overridesCli]}</span>
             ). Deny always wins: an allow cannot lift a built-in deny such as{" "}
             <span className="mono">git push</span>.
           </p>

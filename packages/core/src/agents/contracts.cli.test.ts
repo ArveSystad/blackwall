@@ -19,16 +19,18 @@ import {
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createClaudeAdapter } from "./adapters/claude.js";
 import { createCopilotAdapter } from "./adapters/copilot.js";
+import { createOpencodeAdapter } from "./adapters/opencode.js";
 import type { AgentResult } from "./adapters/types.js";
 import { permissionsFor } from "./permissions.js";
 import { buildSystemPrompt, missingPlanSections } from "./prompts.js";
 import { SEED_AGENTS } from "./seeds.js";
 
 /*
- * Runs every seeded persona on both real CLIs against a throwaway sample repo
- * and checks each output contract (plan, questions, answers, findings,
- * summary) comes back parseable. Needs both CLIs installed and logged in, and
- * spends real model calls, so it only runs with BLACKWALL_TEST_CLIS=1.
+ * Runs every seeded persona on all three real CLIs against a throwaway sample
+ * repo and checks each output contract (plan, questions, answers, findings,
+ * summary) comes back parseable. Needs all three CLIs installed and logged in,
+ * and spends real model calls, so it only runs with BLACKWALL_TEST_CLIS=1. Set
+ * BLACKWALL_OPENCODE_COMMAND where `opencode` itself cannot be spawned.
  */
 
 const TIMEOUT_MS = 10 * 60_000;
@@ -110,7 +112,12 @@ function run(
   jsonSchema?: Record<string, unknown>,
 ): Promise<AgentResult> {
   const profile = stagePermissionProfile(stage);
-  const adapter = cli === "claude" ? createClaudeAdapter() : createCopilotAdapter();
+  const adapter =
+    cli === "claude"
+      ? createClaudeAdapter()
+      : cli === "copilot"
+        ? createCopilotAdapter()
+        : createOpencodeAdapter({ command: process.env.BLACKWALL_OPENCODE_COMMAND ?? "opencode" });
   return adapter.run({
     cwd: repo,
     prompt,
@@ -121,7 +128,7 @@ function run(
 }
 
 describe.runIf(process.env.BLACKWALL_TEST_CLIS === "1")("seed prompt output contracts", () => {
-  for (const cli of ["claude", "copilot"] as const) {
+  for (const cli of ["claude", "copilot", "opencode"] as const) {
     describe.concurrent(cli, () => {
       it(
         "planner writes a plan in the plan contract",

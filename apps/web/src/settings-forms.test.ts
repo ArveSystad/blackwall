@@ -48,7 +48,7 @@ describe("agent drafts", () => {
     const edited = {
       ...draft,
       name: "  Docs ",
-      models: { claude: " opus ", copilot: "  " },
+      models: { claude: " opus ", copilot: "  ", opencode: "" },
       deny: { ...draft.deny, claude: "\n  Bash(rm:*) \n\n" },
     };
     expect(draftToInput(edited)).toMatchObject({
@@ -72,6 +72,7 @@ describe("agent drafts", () => {
     expect(overrideCount(draft, "claude")).toBe(0);
     const rules = { ...draft, deny: { ...draft.deny, claude: "Bash\n \nRead" } };
     expect(overrideCount(rules, "claude")).toBe(2);
+    expect(overrideCount(draft, "opencode")).toBe(0);
   });
 });
 
@@ -97,6 +98,8 @@ describe("model presets", () => {
     expect(isPresetModel("claude", "sonnet")).toBe(true);
     expect(isPresetModel("copilot", "sonnet")).toBe(false);
     expect(isPresetModel("claude", "")).toBe(false);
+    expect(isPresetModel("opencode", "anthropic/claude-sonnet-5-5")).toBe(true);
+    expect(isPresetModel("opencode", "sonnet")).toBe(false);
   });
 });
 

@@ -11,7 +11,7 @@ import { z } from "zod";
 // ---------------------------------------------------------------------------
 
 export const CONNECTION_KINDS = ["github", "jira"] as const;
-export const AGENT_CLIS = ["claude", "copilot"] as const;
+export const AGENT_CLIS = ["claude", "copilot", "opencode"] as const;
 export const ORIGIN_KINDS = ["jira-issue", "github-pr", "github-issue", "free-text"] as const;
 /** How a GitHub PR task treats the PR: work on it, or only review it. */
 export const PR_MODES = ["work", "review"] as const;
@@ -398,8 +398,9 @@ export type RepoScanResult = z.infer<typeof repoScanResultSchema>;
 
 /**
  * Extra permission rules for one agent, in its CLI's own syntax (Claude:
- * `Bash(npm test:*)`, Copilot: `shell(npm test)`). Added on top of the stage's
- * permission profile; deny rules always win, so an allow cannot undo a built-in deny.
+ * `Bash(npm test:*)`, Copilot: `shell(npm test)`, OpenCode: `bash(npm test*)`).
+ * Added on top of the stage's permission profile; deny rules always win, so an
+ * allow cannot undo a built-in deny.
  */
 export const permissionOverridesSchema = z.object({
   allow: z.array(z.string().trim().min(1)).optional(),
@@ -411,11 +412,53 @@ export type PermissionOverrides = z.infer<typeof permissionOverridesSchema>;
 export const agentModelsSchema = z.partialRecord(agentCliSchema, z.string().trim().min(1));
 export type AgentModels = z.infer<typeof agentModelsSchema>;
 
+/** OpenCode permission keys a rule may name; `bash` also takes a command glob. */
+export const OPENCODE_TOOLS = [
+  "read",
+  "grep",
+  "glob",
+  "list",
+  "edit",
+  "todowrite",
+  "todoread",
+  "webfetch",
+  "websearch",
+  "codesearch",
+  "task",
+  "skill",
+  "lsp",
+  "external_directory",
+  "bash",
+] as const;
+
+/**
+ * One OpenCode permission rule: a tool key from {@link OPENCODE_TOOLS}, or
+ * `bash(<glob>)` for matching shell commands. OpenCode rules become config, not
+ * flags, so unlike Claude's and Copilot's they are checked here.
+ */
+export const opencodeRuleSchema = z.union([
+  z.enum(OPENCODE_TOOLS),
+  z.string().regex(/^bash\(.+\)$/),
+]);
+
+const OPENCODE_RULE_HELP = `OpenCode rules are a tool name (${OPENCODE_TOOLS.join(", ")}) or bash(<glob>), e.g. bash(npm test*)`;
+
 /** Permission overrides per CLI, since each CLI has its own rule syntax. */
-export const agentPermissionOverridesSchema = z.partialRecord(
-  agentCliSchema,
-  permissionOverridesSchema,
-);
+export const agentPermissionOverridesSchema = z
+  .partialRecord(agentCliSchema, permissionOverridesSchema)
+  .superRefine((overrides, ctx) => {
+    for (const kind of ["allow", "deny"] as const) {
+      overrides.opencode?.[kind]?.forEach((rule, index) => {
+        if (!opencodeRuleSchema.safeParse(rule).success) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["opencode", kind, index],
+            message: `Invalid OpenCode rule "${rule}". ${OPENCODE_RULE_HELP}`,
+          });
+        }
+      });
+    }
+  });
 export type AgentPermissionOverrides = z.infer<typeof agentPermissionOverridesSchema>;
 
 /**
