@@ -19,7 +19,7 @@ const NO_REPO = "none";
 
 /**
  * Status bar atop the main pane: pick the repo to work in (each with how many items wait in its
- * backlog), see how many of its tasks run and whether auto-start is on, and go back to its backlog.
+ * backlog), jump to its backlog, and see how many of its tasks run and whether auto-start is on.
  */
 export function RepoContextBar() {
   const navigate = useNavigate();
@@ -74,6 +74,12 @@ export function RepoContextBar() {
       </SelectMenu>
       {repo ? (
         <>
+          <Button variant="ghost" size="sm" className="shrink-0" asChild>
+            <Link to="/repos/$repoId/backlog" params={{ repoId: repo.id }}>
+              <BacklogIcon size="sm" />
+              View backlog
+            </Link>
+          </Button>
           {status && <span className="shrink-0 whitespace-nowrap text-foreground">{status}</span>}
           <span
             className="mono min-w-0 flex-1 truncate text-[12.5px] text-muted-foreground"
@@ -81,12 +87,6 @@ export function RepoContextBar() {
           >
             {repo.path}
           </span>
-          <Button variant="ghost" size="sm" asChild>
-            <Link to="/repos/$repoId/backlog" params={{ repoId: repo.id }}>
-              <BacklogIcon size="sm" />
-              Backlog
-            </Link>
-          </Button>
         </>
       ) : (
         <span className="min-w-0 flex-1 truncate text-foreground">Pick a repo to work in</span>
