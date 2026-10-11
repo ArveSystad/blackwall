@@ -1,8 +1,8 @@
 # blackwall
 
-A local, single-user, browser-based control room for coding agents. blackwall runs Claude Code and GitHub Copilot CLI as headless subprocesses against your own git repos. Tasks come from Jira Cloud issues, GitHub/GHE pull requests (Work on PR or Review PR), GitHub/GHE issues or Blackwall tasks you write yourself (free text).
+A local, single-user, browser-based control room for coding agents. blackwall runs Claude Code, GitHub Copilot CLI and OpenCode as headless subprocesses against your own git repos. Tasks come from Jira Cloud issues, GitHub/GHE pull requests (Work on PR or Review PR), GitHub/GHE issues or Blackwall tasks you write yourself (free text).
 
-Agents plan, grill, implement and review each other's work, on either CLI. You approve the plan, answer the questions only you can answer, triage the findings and confirm every outbound action.
+Agents plan, grill, implement and review each other's work, on any of the CLIs. You approve the plan, answer the questions only you can answer, triage the findings and confirm every outbound action.
 
 ![blackwall screenshot](docs/screenshot.png)
 
@@ -50,6 +50,7 @@ Implementers may save screenshots (PNG, JPEG, GIF or WebP) to `.blackwall/artifa
 - At least one agent CLI, installed and logged in:
   - [Claude Code](https://code.claude.com) (`claude`)
   - [GitHub Copilot CLI](https://docs.github.com/en/copilot) (`copilot`)
+  - [OpenCode](https://opencode.ai) (`opencode`)
 
 ## Running
 

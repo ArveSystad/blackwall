@@ -46,8 +46,8 @@ export interface AgentRunOptions {
   cwd: string;
   prompt: string;
   /**
-   * Role prompt: appended to Claude's system prompt; Copilot has no such flag,
-   * so it is prepended to the prompt body there.
+   * Role prompt: appended to Claude's system prompt; Copilot and OpenCode have
+   * no such flag, so it is prepended to the prompt body there.
    */
   systemPrompt?: string;
   model?: string;
@@ -56,10 +56,11 @@ export interface AgentRunOptions {
   permissions: AgentPermissions;
   /**
    * JSON Schema the final answer must match; its parsed value lands in
-   * `structured`. Claude enforces it natively; Copilot via a prompt contract.
+   * `structured`. Claude enforces it natively; Copilot and OpenCode via a
+   * prompt contract.
    */
   jsonSchema?: Record<string, unknown>;
-  /** Turn limit. Claude only: Copilot has no such flag. */
+  /** Turn limit. Claude only: Copilot and OpenCode have no such flag. */
   maxTurns?: number;
   /** Aborting kills the CLI's whole process tree. */
   signal?: AbortSignal;

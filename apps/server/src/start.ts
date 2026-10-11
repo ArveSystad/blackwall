@@ -6,6 +6,7 @@ import {
   createConnectionService,
   createConnectionTokens,
   createCopilotAdapter,
+  createOpencodeAdapter,
   createDefaultStages,
   createDeliverer,
   createGitService,
@@ -138,7 +139,11 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
     const pipeline = createPipelineEngine({
       repositories,
       invocation: agents.invocation,
-      adapters: { claude: createClaudeAdapter(), copilot: createCopilotAdapter() },
+      adapters: {
+        claude: createClaudeAdapter(),
+        copilot: createCopilotAdapter(),
+        opencode: createOpencodeAdapter(),
+      },
       stages: createDefaultStages({
         originContext: firstOriginContext(jira.originContext, github.originContext),
         git,

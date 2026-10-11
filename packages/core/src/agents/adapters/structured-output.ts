@@ -16,6 +16,27 @@ export function structuredOutputContract(schema: JsonSchema): string {
   ].join("\n");
 }
 
+/**
+ * Prompt body for CLIs with neither a system-prompt nor a JSON-schema flag
+ * (Copilot, OpenCode): the role prompt goes first and the structured-output
+ * contract last.
+ */
+export function inlinePrompt({
+  prompt,
+  systemPrompt,
+  jsonSchema,
+}: {
+  prompt: string;
+  systemPrompt?: string;
+  jsonSchema?: JsonSchema;
+}): string {
+  return [
+    ...(systemPrompt ? [`<role>\n${systemPrompt}\n</role>`] : []),
+    prompt,
+    ...(jsonSchema ? [structuredOutputContract(jsonSchema)] : []),
+  ].join("\n\n");
+}
+
 /** Follow-up prompt asking the agent to fix an invalid JSON block. */
 export function structuredOutputRepairPrompt(problem: string): string {
   return [

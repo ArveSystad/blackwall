@@ -308,6 +308,16 @@ describe("merging the CLI twins of an earlier install", () => {
     expect(service.list()).toEqual([orphan]);
   });
 
+  it("leaves an agent named after OpenCode alone: twins only existed for Claude and Copilot", () => {
+    agent({ name: "S" });
+    agent({ name: "S (OpenCode)", prompt: "Mine." });
+    service.seed();
+    expect(service.list().map((a) => [a.name, a.prompt])).toEqual([
+      ["S", ""],
+      ["S (OpenCode)", "Mine."],
+    ]);
+  });
+
   it("merges only once", () => {
     service.seed();
     agent({ name: "S" });
@@ -346,6 +356,17 @@ describe("agent CRUD", () => {
     expect(() => service.update(agent.id, { name: "B" })).toThrow(InvalidAgentError);
     expect(() => service.create({ name: " " })).toThrow(InvalidAgentError);
     expect(() => service.update("missing", { name: "C" })).toThrow(AgentNotFoundError);
+  });
+
+  it("rejects OpenCode rules outside OpenCode's grammar, saying what it expects", () => {
+    const agent = service.create({ name: "A" });
+    const save = (rule: string) =>
+      service.update(agent.id, { permissionOverrides: { opencode: { allow: [rule] } } });
+    expect(() => save("Bash(npm test:*)")).toThrow(InvalidAgentError);
+    expect(() => save("Bash(npm test:*)")).toThrow(/bash\(npm test\*\)/);
+    expect(save("bash(npm test*)").permissionOverrides.opencode?.allow).toEqual([
+      "bash(npm test*)",
+    ]);
   });
 });
 

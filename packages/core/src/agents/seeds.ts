@@ -201,5 +201,10 @@ export const SEED_ROLE_DEFAULTS = {
  * Name suffix of the per-CLI twins earlier versions created: the Copilot twin
  * of `Planner` was `Planner (Copilot)`, the Claude Code twin of a Copilot
  * agent `X` was `X (Claude)`. Seeding merges such twins into their base agent.
+ * Twins only ever existed for these two CLIs, so an agent named `X (OpenCode)`
+ * is the user's own and stays as it is.
  */
-export const CLI_TWIN_SUFFIX: Record<AgentCli, string> = { claude: "Claude", copilot: "Copilot" };
+export const CLI_TWIN_SUFFIX: Partial<Record<AgentCli, string>> = {
+  claude: "Claude",
+  copilot: "Copilot",
+};

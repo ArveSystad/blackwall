@@ -11,6 +11,7 @@ const cookie = `${tokenCookieName(port)}=${launchToken}`;
 const detected: CliStatus[] = [
   { cli: "claude", installed: true, version: "2.1.294", error: null },
   { cli: "copilot", installed: false, version: null, error: "copilot not found on PATH" },
+  { cli: "opencode", installed: true, version: "1.18.30", error: null },
 ];
 
 describe("CLI routes", () => {

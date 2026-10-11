@@ -94,3 +94,19 @@ export function copilotRateLimitFromText(text: string, now = new Date()): RateLi
   const resetsAt = relativeReset(text, now);
   return resetsAt ? { resetsAt } : {};
 }
+
+/**
+ * OpenCode's limit errors, from an `error` event or stderr. OpenCode passes
+ * provider errors through, so this combines the Claude and Copilot matchers
+ * and adds OpenAI's `insufficient_quota`; a relative "try again in …" is
+ * honoured, otherwise the caller backs off.
+ */
+export function opencodeRateLimitFromText(
+  text: string,
+  now = new Date(),
+): RateLimitHit | undefined {
+  const hit = claudeRateLimitFromText(text, now) ?? copilotRateLimitFromText(text, now);
+  if (hit || !/insufficient_quota/i.test(text)) return hit;
+  const resetsAt = relativeReset(text, now);
+  return resetsAt ? { resetsAt } : {};
+}
