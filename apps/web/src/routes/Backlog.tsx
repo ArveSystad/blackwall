@@ -46,6 +46,7 @@ import {
   PausedIcon,
   PlayIcon,
   PlusIcon,
+  SearchIcon,
 } from "../components/icons";
 import { NewTaskModal } from "../components/NewTaskModal";
 import { ORIGIN_ICONS } from "../components/origins";
@@ -55,7 +56,7 @@ import { ErrorText } from "../components/ui/field";
 import { Input } from "../components/ui/input";
 import { Kbd } from "../components/ui/kbd";
 import { useNow } from "../hooks";
-import { originKey, statusLabel } from "../inbox";
+import { matchesFilter, originKey, statusLabel } from "../inbox";
 import { cn } from "../lib/utils";
 import {
   backlogQuery,
@@ -592,6 +593,7 @@ export function Backlog({ repoId }: { repoId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState<BacklogItemView | null>(null);
   const [showArchive, setShowArchive] = useState(false);
+  const [archiveFilter, setArchiveFilter] = useState("");
   const focusAfter = useRef<string | null>(null);
   const [pushed, setPushed] = useState<{ repoId: string; branch: string; at: number } | null>(null);
   // The push button unmounts on success, so focus moves to the note instead.
@@ -618,6 +620,11 @@ export function Backlog({ repoId }: { repoId: string }) {
   const shown = useMemo(
     () => new Set(sections.groups.flatMap((g) => g.items.map((i) => i.id))),
     [sections],
+  );
+  // Filtered in the view only: the archive bar keeps counting every archived task.
+  const archivedShown = useMemo(
+    () => sections.archived.filter((t) => matchesFilter(t, archiveFilter)),
+    [sections.archived, archiveFilter],
   );
   const linked = useMemo(
     () => new Set(items.flatMap((i) => (i.taskId ? [i.taskId] : []))),
@@ -901,25 +908,52 @@ export function Backlog({ repoId }: { repoId: string }) {
             )}
             {showArchive &&
               (sections.archived.length > 0 ? (
-                <Section label="Archived" ariaLabel="Archived" count={sections.archived.length}>
-                  {sections.archived.map((task) => (
-                    <TaskRow
-                      key={task.id}
-                      task={task}
-                      fromBacklog={linked.has(task.id)}
-                      action={
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => void setArchived(task, false)}
-                          aria-label={`Unarchive ${task.title}`}
-                        >
-                          Unarchive
-                        </Button>
-                      }
+                <div className="flex flex-col gap-2">
+                  <label className="relative block">
+                    <span className="pointer-events-none absolute top-[7px] left-[9px] flex text-faint">
+                      <SearchIcon />
+                    </span>
+                    <Input
+                      type="search"
+                      placeholder="Search archive"
+                      aria-label="Search archived tasks"
+                      className="h-7 pl-[30px]"
+                      value={archiveFilter}
+                      onChange={(event) => setArchiveFilter(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          setArchiveFilter("");
+                          event.currentTarget.blur();
+                        }
+                      }}
                     />
-                  ))}
-                </Section>
+                  </label>
+                  {archivedShown.length > 0 ? (
+                    <Section label="Archived" ariaLabel="Archived" count={archivedShown.length}>
+                      {archivedShown.map((task) => (
+                        <TaskRow
+                          key={task.id}
+                          task={task}
+                          fromBacklog={linked.has(task.id)}
+                          action={
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => void setArchived(task, false)}
+                              aria-label={`Unarchive ${task.title}`}
+                            >
+                              Unarchive
+                            </Button>
+                          }
+                        />
+                      ))}
+                    </Section>
+                  ) : (
+                    <p className="m-0 px-1.5 text-label text-faint">
+                      No archived tasks match “{archiveFilter.trim()}”
+                    </p>
+                  )}
+                </div>
               ) : (
                 <p className="m-0 px-1.5 text-label text-faint">No archived tasks</p>
               ))}
@@ -951,7 +985,10 @@ export function Backlog({ repoId }: { repoId: string }) {
           archived={sections.archived.length}
           archivable={sections.archivable}
           shown={showArchive}
-          onToggle={() => setShowArchive((shown) => !shown)}
+          onToggle={() => {
+            if (showArchive) setArchiveFilter("");
+            setShowArchive(!showArchive);
+          }}
         />
       )}
 

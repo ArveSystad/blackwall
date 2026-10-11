@@ -90,6 +90,17 @@ describe("originKey and matchesFilter", () => {
     expect(matchesFilter(pr, "login")).toBe(false);
     expect(matchesFilter(pr, "")).toBe(true);
   });
+
+  it("matches archived tasks too, as the archive search reuses it", () => {
+    const archived = makeTask({
+      title: "Fix login",
+      origin: { kind: "jira-issue", key: "ABC-482", connectionId: null },
+      archivedAt: new Date("2026-10-08T12:00:00Z"),
+    });
+    expect(matchesFilter(archived, "Login")).toBe(true);
+    expect(matchesFilter(archived, "abc-482")).toBe(true);
+    expect(matchesFilter(archived, "signup")).toBe(false);
+  });
 });
 
 describe("activeAgentsLabel", () => {
