@@ -1628,6 +1628,7 @@ describe("summarize and finish", () => {
       const deliverer = createDeliverer({
         git: {
           mainBranch: "main",
+          isProtected: () => false,
           mergeBase: unused,
           commitsSince: unused,
           squash: unused,

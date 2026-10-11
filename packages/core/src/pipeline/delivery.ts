@@ -92,7 +92,7 @@ export interface DeliveryPorts {
 
 export type DeliveryGit = Pick<
   GitService,
-  "mainBranch" | "mergeBase" | "commitsSince" | "squash" | "push" | "finishIntoMain"
+  "mainBranch" | "isProtected" | "mergeBase" | "commitsSince" | "squash" | "push" | "finishIntoMain"
 >;
 
 /** What the engine hands delivery when the user confirms. */
@@ -175,8 +175,10 @@ export function conflictResolutionPrompt(
  * as a review. Any task with follow-ups the summarizer proposed also offers
  * `create-tasks`, last, which adds the picked ones to their repos' backlogs
  * as waiting items; it needs no worktree. A branch with no commits of its own
- * (an analysis-only task) offers no push, PR or merge. Only the actions the
- * user confirmed are performed, in that order, after an optional squash.
+ * (an analysis-only task) offers no push, PR or merge, and a protected head
+ * branch (main, master or the configured main) offers no push or PR. Only the
+ * actions the user confirmed are performed, in that order, after an optional
+ * squash.
  */
 export function createDeliverer({
   git,
@@ -224,11 +226,14 @@ export function createDeliverer({
     if (!branch) return [];
     const body = task.summary?.trim() || task.title;
     const remoteUrl = r.repos.get(task.repoId)?.remoteUrl ?? null;
-    const push: DeliveryAction[] = remoteUrl
-      ? [{ kind: "push-branch", branch, remote: remoteUrl }]
-      : [];
-    /** Opening a PR from the branch, when the remote is a GitHub/GHE repo. */
+    // The harness never pushes a protected branch, so it is not offered.
+    const push: DeliveryAction[] =
+      remoteUrl && !git.isProtected(branch)
+        ? [{ kind: "push-branch", branch, remote: remoteUrl }]
+        : [];
+    /** Opening a PR from the pushed branch, when the remote is a GitHub/GHE repo. */
     const openPr = (prBody: string): DeliveryAction[] => {
+      if (push.length === 0) return [];
       const slug = remoteUrl ? ports.parseRemote(remoteUrl) : undefined;
       return slug
         ? [

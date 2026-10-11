@@ -120,11 +120,15 @@ async function seed(
   return { task, run: r.runs.create(task.id) };
 }
 
-function deliverer(ports = fakePorts(), onBacklogChanged?: (repoId: string) => void) {
+function deliverer(
+  ports = fakePorts(),
+  onBacklogChanged?: (repoId: string) => void,
+  gitService = git,
+) {
   return {
     ports,
     deliverer: createDeliverer({
-      git,
+      git: gitService,
       repositories: r,
       ports,
       ...(onBacklogChanged ? { onBacklogChanged } : {}),
@@ -525,6 +529,42 @@ describe("pull request tasks", () => {
     await deliver(d, task, runRow, { actions: ["push-branch", "pr-comment"], squash: true });
     expect(subjects(originPath, "feature/pr")).toEqual(["Fix login", "author's work", "initial"]);
     expect(ports.commentOnPullRequest).toHaveBeenCalledWith(task, "Compared passwords strictly.");
+  });
+
+  it("offers no push when the PR's head branch is main", async () => {
+    // Frees main so the task's worktree can check it out.
+    run(repoPath, "checkout", "--quiet", "--detach");
+    const { task, run: runRow } = await seed(
+      { branch: "main", origin: pr, mode: "work" },
+      { existing: true },
+    );
+    const { deliverer: d, ports } = deliverer();
+    const plan = await d.plan(task, []);
+    expect(plan.actions).toEqual([
+      { kind: "pr-comment", url: pr.url, body: "Compared passwords strictly." },
+    ]);
+
+    await expect(
+      deliver(d, task, runRow, { actions: ["push-branch", "pr-comment"] }),
+    ).rejects.toThrow(InvalidGateResponseError);
+    expect(subjects(originPath, "main")).toEqual(["initial"]);
+    expect(ports.commentOnPullRequest).not.toHaveBeenCalled();
+  });
+
+  it("offers no push when the PR's head branch is the configured main branch", async () => {
+    run(repoPath, "checkout", "--quiet", "-b", "trunk");
+    run(repoPath, "push", "--quiet", "origin", "trunk");
+    run(repoPath, "checkout", "--quiet", "main");
+    const { task } = await seed({ branch: "trunk", origin: pr, mode: "work" }, { existing: true });
+    const { deliverer: d } = deliverer(
+      fakePorts(),
+      undefined,
+      createGitService({ mainBranch: "trunk" }),
+    );
+    const plan = await d.plan(task, []);
+    expect(plan.actions).toEqual([
+      { kind: "pr-comment", url: pr.url, body: "Compared passwords strictly." },
+    ]);
   });
 
   it("posts only the selected findings of a Review PR task", async () => {

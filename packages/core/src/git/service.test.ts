@@ -561,6 +561,14 @@ describe("push", () => {
     ).rejects.toBeInstanceOf(ProtectedBranchError);
     expect(git(origin, "rev-parse", "main")).toBe(before);
   });
+
+  it("treats main, master and the configured main branch as protected", () => {
+    expect(service.isProtected("main")).toBe(true);
+    expect(service.isProtected("refs/heads/main")).toBe(true);
+    expect(service.isProtected("master")).toBe(true);
+    expect(service.isProtected("feature/x")).toBe(false);
+    expect(createGitService({ mainBranch: "trunk" }).isProtected("trunk")).toBe(true);
+  });
 });
 
 describe("removeWorktree", () => {

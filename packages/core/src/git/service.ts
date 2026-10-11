@@ -269,9 +269,13 @@ export function createGitService({
 }: GitServiceOptions = {}) {
   const protectedBranches = new Set([mainBranch, ...ALWAYS_PROTECTED]);
 
+  /** Whether the harness refuses to push or delete `branch`: the main branch, `main` or `master`. */
+  function isProtected(branch: string): boolean {
+    return protectedBranches.has(shortBranch(branch));
+  }
+
   function assertUnprotected(branch: string): void {
-    const name = branch.replace(/^refs\/heads\//, "");
-    if (protectedBranches.has(name)) throw new ProtectedBranchError(name);
+    if (isProtected(branch)) throw new ProtectedBranchError(shortBranch(branch));
   }
 
   async function headSha(cwd: string): Promise<string> {
@@ -313,6 +317,8 @@ export function createGitService({
 
   return {
     mainBranch,
+
+    isProtected,
 
     headSha,
 
