@@ -207,7 +207,11 @@ export function Inbox() {
 
 function WordmarkLink() {
   return (
-    <Link to="/" aria-label="blackwall inbox" className="shrink-0 no-underline hover:no-underline">
+    <Link
+      to="/"
+      aria-label="blackwall inbox"
+      className="flex shrink-0 items-center no-underline hover:no-underline"
+    >
       <Wordmark />
     </Link>
   );
