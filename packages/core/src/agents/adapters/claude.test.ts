@@ -202,12 +202,24 @@ describe("createClaudeAdapter", () => {
     expect(result.structured).toEqual(expect.arrayContaining(["-p", "--model", "haiku"]));
   });
 
-  it("rejects with the CLI's error message", async () => {
+  it("rejects a resume of a lost session as session-missing", async () => {
     const run = fake("replay", fixture("resume-missing.jsonl")).run({
       cwd,
       prompt: "x",
       permissions: readOnly,
       resumeSessionId: "00000000-0000-0000-0000-000000000000",
+    });
+    await expect(run.result).rejects.toMatchObject({
+      reason: "session-missing",
+      message: expect.stringContaining("No conversation found"),
+    });
+  });
+
+  it("rejects with the CLI's error message", async () => {
+    const run = fake("replay", fixture("resume-missing.jsonl")).run({
+      cwd,
+      prompt: "x",
+      permissions: readOnly,
     });
     await expect(run.result).rejects.toMatchObject({
       reason: "cli-error",

@@ -196,6 +196,11 @@ export function claudeArgs(options: Omit<AgentRunOptions, "cwd" | "prompt" | "si
   ];
 }
 
+/** Whether a failed `--resume` run's output says the session no longer exists. */
+export function claudeSessionMissing(text: string): boolean {
+  return /No conversation found with session ID/i.test(text);
+}
+
 export interface ClaudeAdapterOptions {
   /** Executable to run. Default `claude`. */
   command?: string;
@@ -221,6 +226,8 @@ export function createClaudeAdapter({
         signal,
         parser: createClaudeParser(),
         detectRateLimit: (text) => claudeRateLimitFromText(text),
+        // Only a resumed run can lose its session; gating avoids false positives.
+        ...(rest.resumeSessionId ? { detectMissingSession: claudeSessionMissing } : {}),
         ...(env ? { env } : {}),
       });
     },

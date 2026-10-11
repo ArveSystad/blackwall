@@ -37,6 +37,11 @@ export interface RunProcessOptions {
    * stderr; a hit adds a `rate-limit` event unless the parser emitted one.
    */
   detectRateLimit?: (text: string) => RateLimitHit | undefined;
+  /**
+   * Recognises the CLI's "session not found" message in a failed run's error
+   * and stderr; a hit rejects with reason `session-missing`.
+   */
+  detectMissingSession?: (text: string) => boolean;
 }
 
 /**
@@ -54,6 +59,7 @@ export function runAgentProcess({
   signal,
   parser,
   detectRateLimit,
+  detectMissingSession,
 }: RunProcessOptions): AgentRun {
   const queue: AgentEvent[] = [];
   let finished = false;
@@ -153,15 +159,23 @@ ${stderr}`);
         settle.resolve(final);
       } else if (cliError !== undefined) {
         // The parser already emitted the error event.
-        settle.reject(new AgentRunError("cli-error", cliError, stderr, exitCode));
+        const reason = missingSession() ? "session-missing" : "cli-error";
+        settle.reject(new AgentRunError(reason, cliError, stderr, exitCode));
       } else {
         fail(
-          "exit",
+          missingSession() ? "session-missing" : "exit",
           `${command} exited with code ${exitCode ?? "unknown"} without a result${tail ? `: ${tail}` : ""}`,
           exitCode,
         );
       }
       end();
+    }
+
+    function missingSession() {
+      return (
+        detectMissingSession?.(`${cliError ?? ""}
+${stderr}`) ?? false
+      );
     }
   }
 

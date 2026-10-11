@@ -75,8 +75,12 @@ export interface AgentRun extends AsyncIterable<AgentEvent> {
   readonly result: Promise<AgentResult>;
 }
 
-/** Why a run produced no result. */
-export type AgentRunFailure = "aborted" | "cli-error" | "exit" | "invalid-output" | "spawn";
+/**
+ * Why a run produced no result. `session-missing`: the resumed session no
+ * longer exists.
+ */
+export type AgentRunFailure =
+  "aborted" | "cli-error" | "exit" | "invalid-output" | "session-missing" | "spawn";
 
 export class AgentRunError extends Error {
   constructor(

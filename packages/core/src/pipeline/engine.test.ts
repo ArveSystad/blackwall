@@ -796,6 +796,68 @@ describe("stop and delete", () => {
     expect(h.calls.some((c) => c.options.resumeSessionId === "inform-1")).toBe(true);
   });
 
+  it("starts a step afresh when the CLI lost its session", async () => {
+    const seeded = seedTask();
+    let hang = true;
+    const h = harness((stage, options) => {
+      if (stage === "inform" && hang) return { hang: true, sessionId: "inform-1" };
+      if (options.resumeSessionId === "inform-1") return { missingSession: true };
+      return {};
+    });
+    h.engine.enqueue(seeded.id);
+    await vi.waitFor(() => expect(lastStep(seeded.id)?.sessionId).toBe("inform-1"));
+    await h.engine.stop(seeded.id);
+    const informSteps = () => stepsOf(seeded.id).filter((s) => s.stage === "inform");
+    const stepsBefore = informSteps().length;
+    const callsBefore = h.calls.length;
+
+    hang = false;
+    h.engine.resume(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({
+      status: "needs-you",
+      gate: "plan-approval",
+      error: null,
+    });
+    const informCalls = h.calls
+      .slice(callsBefore)
+      .filter((c) => c.stage === "inform" || c.options.resumeSessionId === "inform-1");
+    expect(informCalls).toHaveLength(2);
+    expect(informCalls[0]!.options).toMatchObject({
+      resumeSessionId: "inform-1",
+      prompt: RESUME_PROMPT,
+    });
+    expect(informCalls[1]!.stage).toBe("inform");
+    expect(informCalls[1]!.options.resumeSessionId).toBeUndefined();
+    // The same step ran afresh: no extra step for the visit.
+    expect(informSteps()).toHaveLength(stepsBefore);
+    const inform = informSteps().at(-1)!;
+    expect(inform.status).toBe("succeeded");
+    expect(inform.sessionId).not.toBe("inform-1");
+  });
+
+  it("fails the task when the fresh start after a lost session fails too", async () => {
+    const seeded = seedTask();
+    let hang = true;
+    const h = harness((stage, options) => {
+      if (stage === "inform" && hang) return { hang: true, sessionId: "inform-1" };
+      if (options.resumeSessionId === "inform-1") return { missingSession: true };
+      if (stage === "inform") return { fail: "boom" };
+      return {};
+    });
+    h.engine.enqueue(seeded.id);
+    await vi.waitFor(() => expect(lastStep(seeded.id)?.sessionId).toBe("inform-1"));
+    await h.engine.stop(seeded.id);
+    const callsBefore = h.calls.length;
+
+    hang = false;
+    h.engine.resume(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "failed", error: "boom" });
+    // One resume attempt and one fresh start: no loop.
+    expect(h.calls.slice(callsBefore)).toHaveLength(2);
+  });
+
   it("stops a queued task without starting it", async () => {
     const gate = new Promise<void>(() => undefined);
     const stages: StageHandlers = { ...createDefaultStages(), inform: () => gate };

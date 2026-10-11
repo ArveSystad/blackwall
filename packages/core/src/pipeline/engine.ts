@@ -21,7 +21,7 @@ import {
   type Task,
 } from "@blackwall/shared";
 import type { AgentInvocation } from "../agents/service.js";
-import type { AgentAdapter, AgentResult } from "../agents/adapters/types.js";
+import { AgentRunError, type AgentAdapter, type AgentResult } from "../agents/adapters/types.js";
 import type { QuotaTracker } from "../agents/quota.js";
 import type { Repositories } from "../db/repositories.js";
 import {
@@ -381,7 +381,8 @@ export function createPipelineEngine({
     const worktree = ctx.task.worktreePath;
     if (!worktree) throw new Error("The task has no worktree");
 
-    // An interrupted step continues its CLI session; a failed one starts afresh.
+    // An interrupted step continues its CLI session, or starts afresh if the CLI
+    // lost it; a failed one starts afresh.
     const resumeSessionId =
       earlier?.status === "interrupted" && earlier.sessionId ? earlier.sessionId : undefined;
     const started = { status: "running" as const, startedAt: new Date(), finishedAt: null };
@@ -398,21 +399,21 @@ export function createPipelineEngine({
         });
     if (!earlier) publish({ type: "step.upserted", payload: { step } });
 
-    const agentRun = adapter.run({
-      cwd: worktree,
-      prompt: resumeSessionId ? RESUME_PROMPT : input.prompt,
-      systemPrompt: inv.systemPrompt,
-      permissions: inv.permissions,
-      signal,
-      ...(inv.model ? { model: inv.model } : {}),
-      ...(resumeSessionId ? { resumeSessionId } : {}),
-      ...(input.jsonSchema ? { jsonSchema: input.jsonSchema } : {}),
-      ...(input.maxTurns !== undefined ? { maxTurns: input.maxTurns } : {}),
-    });
-
     /** Set when the CLI reported its usage limit; matters only if the run then fails. */
     let rateLimit: { resetsAt?: string } | undefined;
-    try {
+
+    const attempt = async (resumeSessionId?: string): Promise<AgentResult> => {
+      const agentRun = adapter.run({
+        cwd: worktree,
+        prompt: resumeSessionId ? RESUME_PROMPT : input.prompt,
+        systemPrompt: inv.systemPrompt,
+        permissions: inv.permissions,
+        signal,
+        ...(inv.model ? { model: inv.model } : {}),
+        ...(resumeSessionId ? { resumeSessionId } : {}),
+        ...(input.jsonSchema ? { jsonSchema: input.jsonSchema } : {}),
+        ...(input.maxTurns !== undefined ? { maxTurns: input.maxTurns } : {}),
+      });
       for await (const event of agentRun) {
         const stored = r.stepEvents.append(step.id, event.type, event);
         publish({ type: "step.event", payload: { event: stored } });
@@ -424,7 +425,24 @@ export function createPipelineEngine({
           rateLimit = resetsAt ? { resetsAt } : {};
         }
       }
-      const result = await agentRun.result;
+      return agentRun.result;
+    };
+
+    try {
+      let result: AgentResult;
+      try {
+        result = await attempt(resumeSessionId);
+      } catch (error) {
+        const lost =
+          resumeSessionId !== undefined &&
+          !signal.aborted &&
+          !rateLimit &&
+          error instanceof AgentRunError &&
+          error.reason === "session-missing";
+        if (!lost) throw error;
+        // The CLI no longer has the session: run the original prompt once, afresh.
+        result = await attempt();
+      }
       saveStep(step.id, { status: "succeeded", finishedAt: new Date() });
       quota?.succeeded(cli);
       return result;
@@ -891,7 +909,8 @@ export function createPipelineEngine({
     /**
      * Re-queues an interrupted or failed task at its current stage. Steps that
      * succeeded in that stage's visit keep their results; interrupted steps
-     * continue their CLI sessions with `--resume <sessionId>`.
+     * continue their CLI sessions with `--resume <sessionId>`, or start afresh
+     * if the CLI lost the session.
      */
     resume(taskId: string): Task {
       const task = getTask(taskId);

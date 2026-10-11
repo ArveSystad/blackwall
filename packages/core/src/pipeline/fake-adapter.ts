@@ -25,6 +25,8 @@ export interface FakeScript {
    * when given), then fail like a CLI that stopped on it.
    */
   rateLimit?: { resetsAt?: string };
+  /** The resumed session is gone: fail like Claude's `No conversation found`. */
+  missingSession?: boolean;
 }
 
 export interface FakeCall {
@@ -74,6 +76,13 @@ export function createFakeAdapter(
           end();
         };
         if (options.signal?.aborted) return abort();
+        if (plan.missingSession) {
+          // Like Claude, a lost session fails before any session event.
+          const message = `No conversation found with session ID: ${sessionId}`;
+          emit({ type: "error", message });
+          reject(new AgentRunError("session-missing", message, "", 1));
+          return end();
+        }
         emit({ type: "session", sessionId });
         if (plan.hang) {
           options.signal?.addEventListener("abort", abort, { once: true });

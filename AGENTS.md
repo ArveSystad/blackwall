@@ -63,7 +63,7 @@ This file plus the code are the design reference. User-facing docs are in [`READ
 - **Scratch folder and artifacts:** `.blackwall/` in a worktree is self-ignored by a harness-written `.gitignore` (`SCRATCH_DIR` in `@blackwall/shared`) and never committed. Implementers may save images to `.blackwall/artifacts/`, which are served read-only per task: raster images only, no symlinks.
 - **Permissions:** reviewers are read-only (read tools + safe git). Implementers can edit and use the shell, but `git push`, `gh` and anything touching remotes is denied. All agents are confined to the worktree.
 - **Concurrency:** up to 3 tasks per repo by default (configurable); one active task per branch. Tasks waiting on the user don't hold a slot.
-- **Resume:** on shutdown the child CLIs are killed; in-flight steps become interrupted and resume with `--resume <sessionId>` in the same worktree.
+- **Resume:** on shutdown the child CLIs are killed; in-flight steps become interrupted and resume with `--resume <sessionId>` in the same worktree; if the CLI no longer has the session (Claude: `No conversation found`), the step starts afresh with its original prompt.
 
 ## Hard rules
 
