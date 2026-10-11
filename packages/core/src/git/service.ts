@@ -510,6 +510,19 @@ export function createGitService({
     },
 
     /**
+     * URL of the remote used for fetch and push (`git remote get-url`), or
+     * `null` when the repo has none.
+     */
+    async remoteUrl(cwd: string): Promise<string | null> {
+      try {
+        return (await runGit(cwd, ["remote", "get-url", remote])) || null;
+      } catch (error) {
+        if (error instanceof GitError) return null;
+        throw error;
+      }
+    },
+
+    /**
      * Removes the task's worktree (forcing past uncommitted changes) and prunes
      * stale entries, optionally deleting its local branch. Safe to call when
      * the folder is already gone.

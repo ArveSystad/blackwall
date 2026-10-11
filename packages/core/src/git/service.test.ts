@@ -571,6 +571,19 @@ describe("push", () => {
   });
 });
 
+describe("remoteUrl", () => {
+  it("reads origin's current URL, or null when there is none", async () => {
+    git(repo, "remote", "remove", "origin");
+    await expect(service.remoteUrl(repo)).resolves.toBeNull();
+
+    git(repo, "remote", "add", "origin", "https://github.com/acme/app.git");
+    await expect(service.remoteUrl(repo)).resolves.toBe("https://github.com/acme/app.git");
+
+    git(repo, "remote", "set-url", "origin", "git@github.com:acme/app.git");
+    await expect(service.remoteUrl(repo)).resolves.toBe("git@github.com:acme/app.git");
+  });
+});
+
 describe("removeWorktree", () => {
   it("removes a dirty worktree and its branch, and tolerates a missing folder", async () => {
     const path = worktreePathFor(repo, "t1");

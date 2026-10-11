@@ -92,7 +92,14 @@ export interface DeliveryPorts {
 
 export type DeliveryGit = Pick<
   GitService,
-  "mainBranch" | "isProtected" | "mergeBase" | "commitsSince" | "squash" | "push" | "finishIntoMain"
+  | "mainBranch"
+  | "isProtected"
+  | "mergeBase"
+  | "commitsSince"
+  | "squash"
+  | "push"
+  | "remoteUrl"
+  | "finishIntoMain"
 >;
 
 /** What the engine hands delivery when the user confirms. */
@@ -216,7 +223,13 @@ export function createDeliverer({
     return { commits, base, message: task.squashMessage ?? prTitle(task) };
   }
 
-  function actions(task: Task): DeliveryAction[] {
+  /** The origin git reports now, so a remote added or changed after registration counts. */
+  async function liveRemote(task: Task): Promise<string | null> {
+    const cwd = task.worktreePath ?? r.repos.get(task.repoId)?.path;
+    return cwd ? git.remoteUrl(cwd) : null;
+  }
+
+  async function actions(task: Task): Promise<DeliveryAction[]> {
     const { origin, branch } = task;
     if (pipelineKind(task.mode) === "review") {
       if (origin.kind !== "github-pr") return [];
@@ -224,8 +237,9 @@ export function createDeliverer({
       return [{ kind: "pr-review", url: origin.url, findingIds }];
     }
     if (!branch) return [];
+    if (origin.kind === "free-text") return [{ kind: "merge-main", branch, into: git.mainBranch }];
     const body = task.summary?.trim() || task.title;
-    const remoteUrl = r.repos.get(task.repoId)?.remoteUrl ?? null;
+    const remoteUrl = await liveRemote(task);
     // The harness never pushes a protected branch, so it is not offered.
     const push: DeliveryAction[] =
       remoteUrl && !git.isProtected(branch)
@@ -250,8 +264,6 @@ export function createDeliverer({
     };
 
     switch (origin.kind) {
-      case "free-text":
-        return [{ kind: "merge-main", branch, into: git.mainBranch }];
       case "github-pr":
         return [...push, { kind: "pr-comment", url: origin.url, body }];
       case "jira-issue":
@@ -284,7 +296,7 @@ export function createDeliverer({
 
   async function plan(task: Task, completed: readonly DeliveryStep[]): Promise<DeliveryPlan> {
     const review = pipelineKind(task.mode) === "review";
-    let offered = actions(task);
+    let offered = await actions(task);
     const codeStarted = CODE_ACTIONS.some((a) => completed.includes(a));
     if (!review && task.origin.kind !== "github-pr" && !codeStarted && !(await hasCommits(task))) {
       offered = offered.filter((a) => !CODE_ACTIONS.includes(a.kind));

@@ -93,13 +93,27 @@ function fakePorts(overrides: Partial<DeliveryPorts> = {}) {
   } satisfies DeliveryPorts;
 }
 
-/** A task with its worktree on `branch`, and `commits` commits made on it. */
+/** Has origin report `url` while pushes still land in the local bare repo. */
+function fakeOrigin(url: string): void {
+  run(repoPath, "remote", "set-url", "origin", url);
+  run(repoPath, "remote", "set-url", "--push", "origin", originPath);
+}
+
+/**
+ * A task with its worktree on `branch`, and `commits` commits made on it.
+ * `remoteUrl` is what the repo row caches and, unless `null`, what origin reports.
+ */
 async function seed(
   patch: Partial<Parameters<Repositories["tasks"]["create"]>[0]> & { branch: string },
-  { commits = 2, remoteUrl = originPath, existing = false } = {},
+  {
+    commits = 2,
+    remoteUrl = originPath,
+    existing = false,
+  }: { commits?: number; remoteUrl?: string | null; existing?: boolean } = {},
 ): Promise<{ task: Task; run: Run }> {
   const repo =
     r.repos.getByPath(repoPath) ?? r.repos.create({ path: repoPath, name: "app", remoteUrl });
+  if (remoteUrl !== null && remoteUrl !== originPath) fakeOrigin(remoteUrl);
   const created = r.tasks.create({
     title: "Fix login",
     origin: { kind: "free-text" },
@@ -369,6 +383,52 @@ describe("Jira tasks", () => {
     await expect(
       deliver(missing.deliverer, task, runRow, { actions: ["jira-comment"] }),
     ).rejects.toThrow(MissingCredentialError);
+  });
+
+  describe("live origin", () => {
+    const github = "https://github.com/acme/app.git";
+
+    it("offers push and PR for an origin added after the repo was registered", async () => {
+      const { task, run: runRow } = await seed(jira, { remoteUrl: null });
+      run(repoPath, "remote", "remove", "origin");
+      run(repoPath, "remote", "add", "origin", github);
+      fakeOrigin(github);
+      const { deliverer: d } = deliverer();
+
+      const plan = await d.plan(task, []);
+      expect(plan.actions[0]).toEqual({
+        kind: "push-branch",
+        branch: "feature/abc-1-fix-login",
+        remote: github,
+      });
+      expect(plan.actions.map((a) => a.kind)).toEqual(["push-branch", "open-pr", "jira-comment"]);
+
+      await deliver(d, task, runRow, { actions: ["push-branch"] });
+      expect(run(originPath, "rev-parse", "feature/abc-1-fix-login")).toBe(
+        run(task.worktreePath!, "rev-parse", "HEAD"),
+      );
+    });
+
+    it("offers no push or PR once origin is removed, whatever the repo row caches", async () => {
+      const { task, run: runRow } = await seed(jira);
+      run(repoPath, "remote", "remove", "origin");
+      const { deliverer: d } = deliverer();
+
+      expect((await d.plan(task, [])).actions.map((a) => a.kind)).toEqual(["jira-comment"]);
+      await expect(deliver(d, task, runRow, { actions: ["push-branch"] })).rejects.toThrow(
+        InvalidGateResponseError,
+      );
+    });
+
+    it("follows an origin URL changed after the repo was registered", async () => {
+      const { task } = await seed(jira);
+      fakeOrigin(github);
+      const { deliverer: d } = deliverer();
+
+      const { actions } = await d.plan(task, []);
+      expect(actions[0]).toMatchObject({ kind: "push-branch", remote: github });
+      expect(actions.map((a) => a.kind)).toEqual(["push-branch", "open-pr", "jira-comment"]);
+    });
   });
 });
 

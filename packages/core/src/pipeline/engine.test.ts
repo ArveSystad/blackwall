@@ -1633,6 +1633,7 @@ describe("summarize and finish", () => {
           commitsSince: unused,
           squash: unused,
           push: unused,
+          remoteUrl: unused,
           finishIntoMain: unused,
         },
         repositories: r,
