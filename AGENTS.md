@@ -43,6 +43,7 @@ This file plus the code are the design reference. User-facing docs are in [`READ
 - A DB schema change needs a new Drizzle migration (`packages/core/drizzle.config.ts`).
 - Match the surrounding comment density and naming.
 - UI work follows [`.claude/skills/blackwall-design/SKILL.md`](.claude/skills/blackwall-design/SKILL.md).
+- Conventional commits, for example "feat(feature-name): description of feature" or "chore(skills): remove obsolete skill"
 
 ## Design rules
 

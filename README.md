@@ -4,9 +4,9 @@ A local, single-user, browser-based control room for coding agents. blackwall ru
 
 Agents plan, grill, implement and review each other's work, on either CLI. You approve the plan, answer the questions only you can answer, triage the findings and confirm every outbound action.
 
-The name comes from the Blackwall in Cyberpunk 2077, the barrier that keeps rogue AIs contained. Here you are the wall: agents work freely inside their worktrees, but nothing leaves the machine without your say-so.
+![blackwall screenshot](docs/screenshot.png)
 
-> Status: in active development; the v1 pipeline works. See [`AGENTS.md`](AGENTS.md) for architecture and design rules, [`tasks/done.md`](tasks/done.md) for what's built and [`docs/design/`](docs/design/README.md) for the UI mockups.
+Tasks can be picked up from Jira, Github Issues (or PRs for review), or the internal task-system in blackwall itself.
 
 ## How it works
 
@@ -41,10 +41,6 @@ Implementers may save screenshots (PNG, JPEG, GIF or WebP) to `.blackwall/artifa
 - Needs-you inbox, with the count in the tab title
 - Dark and light themes
 - Keyboard shortcuts
-
-## Not yet
-
-Interactive PTY take-over of an agent session, cloning repos from the tool, npm distribution, Jira transitions and Jira Data Center, desktop notifications and more CLIs.
 
 ## Requirements
 
@@ -105,5 +101,3 @@ pnpm typecheck
 pnpm lint
 pnpm format:check
 ```
-
-See [`AGENTS.md`](AGENTS.md) for the layout, conventions and design rules.
