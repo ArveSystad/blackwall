@@ -20,7 +20,7 @@ Inform ──► Plan review / grill ──► [human plan approval] ──► I
 ```
 
 - Review PR mode runs Inform → review panel → triage → inline PR review comments.
-- GitHub issue tasks work on a new `feature/<n>-…` branch and finish by pushing it, opening a PR that closes the issue and commenting on the issue. You can also opt in to a comment on the issue when work starts and when you approve the plan; you see and edit each one first.
+- GitHub issue tasks work on a new `feature/<n>-…` branch and finish by pushing it, opening a PR that closes the issue and commenting on the issue. The PR body and comments carry a brief description of the change; the detailed summary stays in blackwall. You can also opt in to a comment on the issue when work starts and when you approve the plan; you see and edit each one first.
 - Each task gets its own git worktree at `../<repo>.worktrees/<task>`.
 - The harness commits after each implement or fix round. Agents never push. `main` is pushed only when you click Push on a repo's Backlog and confirm it; the pipeline never pushes it.
 - Critical and High findings loop back to the implementer, for at most 3 fix rounds before escalating to you.

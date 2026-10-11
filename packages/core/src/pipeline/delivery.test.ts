@@ -119,6 +119,7 @@ async function seed(
     origin: { kind: "free-text" },
     repoId: repo.id,
     summary: "Compared passwords strictly.",
+    shortSummary: "Logins reject wrong passwords.",
     squashMessage: "Fix login",
     ...patch,
   });
@@ -284,13 +285,13 @@ describe("Jira tasks", () => {
         head: "feature/abc-1-fix-login",
         base: "main",
         title: "ABC-1 Fix login",
-        body: "Compared passwords strictly.",
+        body: "Logins reject wrong passwords.",
       },
       {
         kind: "jira-comment",
         key: "ABC-1",
         url: "https://acme.atlassian.net/browse/ABC-1",
-        body: "Compared passwords strictly.",
+        body: "Logins reject wrong passwords.",
       },
     ]);
   });
@@ -320,7 +321,7 @@ describe("Jira tasks", () => {
       task,
       expect.objectContaining({ head: "feature/abc-1-fix-login", base: "main" }),
     );
-    expect(ports.commentOnJiraIssue).toHaveBeenCalledWith(task, "Compared passwords strictly.");
+    expect(ports.commentOnJiraIssue).toHaveBeenCalledWith(task, "Logins reject wrong passwords.");
   });
 
   it("performs only the confirmed actions", async () => {
@@ -462,14 +463,37 @@ describe("GitHub issue tasks", () => {
         head: "feature/7-fix-login",
         base: "main",
         title: "Fix login",
-        body: "Compared passwords strictly.\n\nCloses acme/app#7",
+        body: "Logins reject wrong passwords.\n\nCloses acme/app#7",
       },
       {
         kind: "issue-comment",
         url: "https://github.com/acme/app/issues/7",
-        body: "Compared passwords strictly.",
+        body: "Logins reject wrong passwords.",
       },
     ]);
+  });
+
+  it("falls back to the summary without the findings left open when there is no short summary", async () => {
+    const { task } = await seed(
+      {
+        ...issue,
+        summary: "Compared passwords strictly.\n\n### Left open\n\n- **[low] Naming**: Rename it.",
+        shortSummary: null,
+      },
+      { remoteUrl: "https://github.com/acme/app.git" },
+    );
+    const { deliverer: d } = deliverer();
+    const actions = (await d.plan(task, [])).actions;
+    expect(JSON.stringify(actions)).not.toContain("### Left open");
+    expect(actions).toContainEqual(
+      expect.objectContaining({
+        kind: "open-pr",
+        body: "Compared passwords strictly.\n\nCloses acme/app#7",
+      }),
+    );
+    expect(actions).toContainEqual(
+      expect.objectContaining({ kind: "issue-comment", body: "Compared passwords strictly." }),
+    );
   });
 
   it("pushes the branch, then opens the PR and comments on the issue", async () => {
@@ -497,9 +521,9 @@ describe("GitHub issue tasks", () => {
     ]);
     expect(ports.openPullRequest).toHaveBeenCalledWith(
       task,
-      expect.objectContaining({ body: "Compared passwords strictly.\n\nCloses acme/app#7" }),
+      expect.objectContaining({ body: "Logins reject wrong passwords.\n\nCloses acme/app#7" }),
     );
-    expect(ports.commentOnGitHubIssue).toHaveBeenCalledWith(task, "Compared passwords strictly.");
+    expect(ports.commentOnGitHubIssue).toHaveBeenCalledWith(task, "Logins reject wrong passwords.");
   });
 
   it("comments on the issue alone when only that is confirmed", async () => {
@@ -582,13 +606,13 @@ describe("pull request tasks", () => {
     const plan = await d.plan(task, []);
     expect(plan.actions).toEqual([
       { kind: "push-branch", branch: "feature/pr", remote: originPath },
-      { kind: "pr-comment", url: pr.url, body: "Compared passwords strictly." },
+      { kind: "pr-comment", url: pr.url, body: "Logins reject wrong passwords." },
     ]);
     expect(plan.squash).toMatchObject({ commits: 2 });
 
     await deliver(d, task, runRow, { actions: ["push-branch", "pr-comment"], squash: true });
     expect(subjects(originPath, "feature/pr")).toEqual(["Fix login", "author's work", "initial"]);
-    expect(ports.commentOnPullRequest).toHaveBeenCalledWith(task, "Compared passwords strictly.");
+    expect(ports.commentOnPullRequest).toHaveBeenCalledWith(task, "Logins reject wrong passwords.");
   });
 
   it("offers no push when the PR's head branch is main", async () => {
@@ -601,7 +625,7 @@ describe("pull request tasks", () => {
     const { deliverer: d, ports } = deliverer();
     const plan = await d.plan(task, []);
     expect(plan.actions).toEqual([
-      { kind: "pr-comment", url: pr.url, body: "Compared passwords strictly." },
+      { kind: "pr-comment", url: pr.url, body: "Logins reject wrong passwords." },
     ]);
 
     await expect(
@@ -623,7 +647,7 @@ describe("pull request tasks", () => {
     );
     const plan = await d.plan(task, []);
     expect(plan.actions).toEqual([
-      { kind: "pr-comment", url: pr.url, body: "Compared passwords strictly." },
+      { kind: "pr-comment", url: pr.url, body: "Logins reject wrong passwords." },
     ]);
   });
 

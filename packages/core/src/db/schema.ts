@@ -163,6 +163,8 @@ export const tasks = sqliteTable(
     plan: text("plan"),
     /** The summarizer's final summary; null until Summarize. */
     summary: text("summary"),
+    /** Brief, outward summary for PR bodies and comments at finish; null until Summarize. */
+    shortSummary: text("short_summary"),
     /** Commit message for the optional squash at finish. */
     squashMessage: text("squash_message"),
     /** Follow-up tasks the summarizer proposed, offered at finish. */

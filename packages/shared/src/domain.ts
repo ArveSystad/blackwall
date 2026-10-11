@@ -650,6 +650,8 @@ export const taskSchema = z
     plan: z.string().nullable(),
     /** The summarizer's final summary (changes, decisions, leftover findings); null until Summarize. */
     summary: z.string().nullable(),
+    /** Brief, outward summary of the behavioural/visual change; the body of PRs and comments at finish. Null until Summarize. */
+    shortSummary: z.string().nullable(),
     /** Commit message for the optional squash at finish, written with the summary. */
     squashMessage: z.string().nullable(),
     /** Follow-up tasks the summarizer proposed; offered at finish as `create-tasks`. */
@@ -1227,21 +1229,30 @@ export function planAnswersOutputJsonSchema(): Record<string, unknown> {
 
 /**
  * The summary and squash message of the summarizer's answer. Not strict, so a
- * bad `followUps` value never discards them.
+ * bad `shortSummary` or `followUps` value never discards them.
  */
 export const summaryCoreSchema = z.object({
   summary: z.string().trim().min(1),
   commitMessage: z.string().trim().min(1),
 });
 
+/** The short summary of the summarizer's answer, parsed apart from {@link summaryCoreSchema}. */
+export const shortSummarySchema = z.object({
+  shortSummary: z.string().trim().min(1),
+});
+
 /**
  * The summarizer's final answer: the task summary in markdown, a commit
- * message for squashing the task's commits into one, and optional follow-up
- * tasks. The follow-ups are only checked for shape here (the CLI enforces this
- * schema); {@link parseFollowUps} drops the invalid ones.
+ * message for squashing the task's commits into one, a short outward summary
+ * for PR bodies and comments, and optional follow-up tasks. The follow-ups are
+ * only checked for shape here (the CLI enforces this schema);
+ * {@link parseFollowUps} drops the invalid ones.
  */
 export const summaryOutputSchema = summaryCoreSchema
-  .extend({ followUps: z.array(followUpWireSchema).optional() })
+  .extend({
+    shortSummary: z.string().trim().min(1),
+    followUps: z.array(followUpWireSchema).optional(),
+  })
   .strict();
 export type SummaryOutput = z.infer<typeof summaryOutputSchema>;
 

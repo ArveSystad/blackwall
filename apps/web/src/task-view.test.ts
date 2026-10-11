@@ -519,12 +519,11 @@ describe("GitHub issue tasks", () => {
     expect(originUrl(makeTask({ origin }), [])).toBe("https://github.com/acme/web/issues/7");
   });
 
-  it("drafts the plan approval comment with the branch and the plan folded away", () => {
-    expect(planApprovalComment({ branch: "feature/7-export", plan: "1. Fix it\n" })).toBe(
-      "The plan is approved. Implementation is starting on branch `feature/7-export`.\n\n" +
-        "<details>\n<summary>Plan</summary>\n\n1. Fix it\n\n</details>",
+  it("drafts the plan approval comment as one sentence with the branch", () => {
+    expect(planApprovalComment({ branch: "feature/7-export" })).toBe(
+      "The plan is approved. Implementation is starting on branch `feature/7-export`.",
     );
-    expect(planApprovalComment({ branch: null, plan: null })).toBe(
+    expect(planApprovalComment({ branch: null })).toBe(
       "The plan is approved. Implementation is starting.",
     );
   });

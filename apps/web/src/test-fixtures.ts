@@ -30,6 +30,7 @@ export function makeTask(overrides: Partial<Task> = {}): Task {
     freeText: "",
     plan: null,
     summary: null,
+    shortSummary: null,
     squashMessage: null,
     followUps: [],
     archivedAt: null,

@@ -8,6 +8,7 @@ import {
   reviewOutputJsonSchema,
   reviewOutputSchema,
   parseFollowUps,
+  shortSummarySchema,
   summaryCoreSchema,
   summaryOutputJsonSchema,
   SEVERITIES,
@@ -686,24 +687,34 @@ function describeLeftover(f: Finding): string {
   return `- **[${f.severity}] ${f.title}**${where}: ${f.explanation.trim().split("\n")[0]}`;
 }
 
+const LEFT_OPEN = "\n\n### Left open\n\n";
+
 /**
- * The summary as delivered: the summarizer's text, then the findings left
- * open (Medium/Low, or blockers accepted as is), listed by the harness so none
- * goes missing.
+ * The summary as shown in blackwall: the summarizer's text, then the findings
+ * left open (Medium/Low, or blockers accepted as is), listed by the harness so
+ * none goes missing.
  */
 export function finalSummary(text: string, findings: readonly Finding[]): string {
   const leftovers = leftoverFindings(findings);
   if (leftovers.length === 0) return text.trim();
-  return `${text.trim()}\n\n### Left open\n\n${leftovers.map(describeLeftover).join("\n")}`;
+  return `${text.trim()}${LEFT_OPEN}${leftovers.map(describeLeftover).join("\n")}`;
+}
+
+/** A {@link finalSummary} without the findings left open, for outbound text. */
+export function withoutLeftovers(summary: string): string {
+  const at = summary.indexOf(LEFT_OPEN);
+  return (at === -1 ? summary : summary.slice(0, at)).trim();
 }
 
 /**
  * Summarize: the summarizer writes the final summary (changes, decisions,
- * ignored findings), a commit message for the optional squash at finish and
- * any follow-up tasks, offered at finish as `create-tasks`. The harness
- * appends the findings left open. A reply that misses the output contract
- * still counts: its text becomes the summary. Invalid follow-ups are dropped
- * without losing the summary, and each visit replaces the stored ones.
+ * ignored findings), a short outward summary for PR bodies and comments, a
+ * commit message for the optional squash at finish and any follow-up tasks,
+ * offered at finish as `create-tasks`. The harness appends the findings left
+ * open to the full summary only. A reply that misses the output contract
+ * still counts: its text becomes the summary. An invalid short summary is
+ * stored as null and invalid follow-ups are dropped, without losing the
+ * summary; each visit replaces the stored ones.
  */
 async function summarize(ctx: StageContext): Promise<void> {
   const { task } = ctx;
@@ -727,7 +738,8 @@ async function summarize(ctx: StageContext): Promise<void> {
         "Propose follow-up tasks only for work the plan or the analysis calls for, following the rules above; otherwise leave `followUps` empty.",
         "Also write one commit message for squashing the branch into a single commit: a summary line of at most 72 characters in the imperative mood, a blank line, then a short body.",
         key ? `Do not mention ${key} in the commit summary line; the harness prefixes it.` : "",
-        'Reply with a JSON object `{ "summary": "<markdown>", "commitMessage": "<message>", "followUps": [{ "title": "<short title>", "description": "<what to do and why>", "repoId": null }] }`.',
+        "Also write `shortSummary`: a brief description for the pull request and the issue comments, in 1–3 sentences or a few bullets, of the behavioural or visual change as users or reviewers see it. Leave out implementation details (files, functions, findings, design decisions) unless the task asks for them. No headings.",
+        'Reply with a JSON object `{ "summary": "<markdown>", "commitMessage": "<message>", "shortSummary": "<markdown>", "followUps": [{ "title": "<short title>", "description": "<what to do and why>", "repoId": null }] }`.',
       ]
         .filter(Boolean)
         .join("\n"),
@@ -737,9 +749,11 @@ async function summarize(ctx: StageContext): Promise<void> {
   const parsed = summaryCoreSchema.safeParse(result.structured);
   const text = parsed.success ? parsed.data.summary : result.text;
   const squash = parsed.success ? parsed.data.commitMessage : task.title;
+  const short = shortSummarySchema.safeParse(result.structured);
   const structured = result.structured as { followUps?: unknown } | null | undefined;
   ctx.updateTask({
     summary: finalSummary(text, findings),
+    shortSummary: short.success ? short.data.shortSummary : null,
     squashMessage: commitMessage(squash, key),
     followUps: parseFollowUps(structured?.followUps),
   });

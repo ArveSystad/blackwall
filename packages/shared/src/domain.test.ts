@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   deliveryConfirmationSchema,
   gateResponseInputSchema,
+  shortSummarySchema,
   summaryCoreSchema,
   summaryOutputJsonSchema,
   summaryOutputSchema,
@@ -54,6 +55,7 @@ const task = {
   freeText: "",
   plan: null,
   summary: null,
+  shortSummary: null,
   squashMessage: null,
   followUps: [],
   archivedAt: null,
@@ -449,15 +451,24 @@ describe("delivery", () => {
   });
 
   it("validates the summarizer's output", () => {
-    const output = { summary: "Did it", commitMessage: "Do it" };
+    const output = { summary: "Did it", commitMessage: "Do it", shortSummary: "It works" };
     expect(summaryOutputSchema.parse(output)).toEqual(output);
     expect(summaryOutputSchema.safeParse({ summary: "Did it" }).success).toBe(false);
-    expect(summaryOutputJsonSchema().required).toEqual(["summary", "commitMessage"]);
+    expect(summaryOutputJsonSchema().required).toEqual([
+      "summary",
+      "commitMessage",
+      "shortSummary",
+    ]);
   });
 
   it("takes optional follow-ups in the summarizer's output", () => {
     const followUps = [{ title: "Add tests", description: "Cover login", repoId: null }];
-    const output = { summary: "Did it", commitMessage: "Do it", followUps };
+    const output = {
+      summary: "Did it",
+      commitMessage: "Do it",
+      shortSummary: "It works",
+      followUps,
+    };
     expect(summaryOutputSchema.parse(output)).toEqual(output);
     expect(summaryOutputSchema.safeParse({ ...output, followUps: "oops" }).success).toBe(false);
     expect(summaryOutputSchema.safeParse({ ...output, extra: 1 }).success).toBe(false);
@@ -477,6 +488,15 @@ describe("delivery", () => {
   it("keeps the summary when the follow-ups are invalid", () => {
     const output = { summary: "Did it", commitMessage: "Do it", followUps: "oops" };
     expect(summaryCoreSchema.parse(output)).toEqual({ summary: "Did it", commitMessage: "Do it" });
+  });
+
+  it("parses the short summary apart, so a missing one keeps the summary", () => {
+    expect(shortSummarySchema.safeParse({ shortSummary: "  " }).success).toBe(false);
+    expect(shortSummarySchema.parse({ shortSummary: " It works " })).toEqual({
+      shortSummary: "It works",
+    });
+    const output = { summary: "Did it", commitMessage: "Do it" };
+    expect(summaryCoreSchema.parse(output)).toEqual(output);
   });
 });
 

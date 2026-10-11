@@ -1556,14 +1556,19 @@ describe("summarize and finish", () => {
     return seeded;
   }
 
-  it("stores the summary with the open findings appended and the squash message", async () => {
+  it("stores the summary with the open findings appended, the short summary and the squash message", async () => {
     const h = harness((stage, options) => {
       if (stage === "code-review") return { structured: { findings: [mediumFinding] } };
       if (stage === "summarize") {
         expect(options.prompt).toContain("Error message leaks the user name");
         expect(options.prompt).toContain("Do not mention ABC-1");
+        expect(options.prompt).toContain("Also write `shortSummary`");
         return {
-          structured: { summary: "Compared passwords strictly.", commitMessage: "Fix login" },
+          structured: {
+            summary: "Compared passwords strictly.",
+            commitMessage: "Fix login",
+            shortSummary: "Logins now reject wrong passwords.",
+          },
         };
       }
       return {};
@@ -1571,11 +1576,26 @@ describe("summarize and finish", () => {
     const seeded = await atFinish(h, {
       origin: { kind: "jira-issue", key: "ABC-1", connectionId: null },
     });
-    const { summary, squashMessage } = task(seeded.id);
+    const { summary, shortSummary, squashMessage } = task(seeded.id);
     expect(summary).toBe(
       "Compared passwords strictly.\n\n### Left open\n\n- **[medium] Error message leaks the user name** (`src/login.ts:12`): Type coercion lets an empty password through.",
     );
+    expect(shortSummary).toBe("Logins now reject wrong passwords.");
     expect(squashMessage).toBe("ABC-1 Fix login");
+  });
+
+  it("stores no short summary when it is missing, without losing the summary", async () => {
+    const h = harness((stage) =>
+      stage === "summarize"
+        ? { structured: { summary: "Compared passwords strictly.", commitMessage: "Fix login" } }
+        : {},
+    );
+    const seeded = await atFinish(h);
+    expect(task(seeded.id)).toMatchObject({
+      summary: "Compared passwords strictly.",
+      shortSummary: null,
+      squashMessage: "Fix login",
+    });
   });
 
   describe("follow-ups", () => {

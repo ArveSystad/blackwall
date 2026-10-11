@@ -13,7 +13,7 @@ import { MissingCredentialError } from "../connections/service.js";
 import type { Repositories } from "../db/repositories.js";
 import type { GitService } from "../git/service.js";
 import { createFollowUpTasks, resolveFollowUps } from "./follow-ups.js";
-import { commitKey } from "./stages.js";
+import { commitKey, withoutLeftovers } from "./stages.js";
 import { InvalidGateResponseError, pipelineKind } from "./transitions.js";
 
 /** A confirmed delivery action failed. The message is safe to show the user. */
@@ -176,7 +176,9 @@ export function conflictResolutionPrompt(
  * its exact target: a PR task pushes its branch and comments on the PR, a
  * Jira task pushes its branch, opens a PR and comments on the issue (no
  * transitions), a GitHub issue task does the same with a PR body that ends
- * `Closes owner/repo#n`, a free-text task rebases onto local main, resolving conflicts
+ * `Closes owner/repo#n`. PR bodies and comments carry the short summary,
+ * falling back to the full one without the findings left open for tasks
+ * summarized without it. A free-text task rebases onto local main, resolving conflicts
  * with the implementer, and fast-forwards it (main is never pushed), and a
  * Review PR task posts the selected findings
  * as a review. Any task with follow-ups the summarizer proposed also offers
@@ -238,7 +240,8 @@ export function createDeliverer({
     }
     if (!branch) return [];
     if (origin.kind === "free-text") return [{ kind: "merge-main", branch, into: git.mainBranch }];
-    const body = task.summary?.trim() || task.title;
+    const body =
+      task.shortSummary?.trim() || (task.summary && withoutLeftovers(task.summary)) || task.title;
     const remoteUrl = await liveRemote(task);
     // The harness never pushes a protected branch, so it is not offered.
     const push: DeliveryAction[] =

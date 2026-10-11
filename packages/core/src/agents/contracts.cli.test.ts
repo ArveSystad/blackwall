@@ -187,13 +187,13 @@ describe.runIf(process.env.BLACKWALL_TEST_CLIS === "1")("seed prompt output cont
       );
 
       it(
-        "summarizer writes a summary and commit message",
+        "summarizer writes a summary, short summary and commit message",
         async () => {
           const result = await run(
             cli,
             "Summarizer",
             "summarize",
-            `${TASK}\n\n## Plan\n\n${PLAN}\n\nSummarize the changes on this branch and write one commit message for squashing it.\nReply with a JSON object \`{ "summary": "<markdown>", "commitMessage": "<message>" }\`.`,
+            `${TASK}\n\n## Plan\n\n${PLAN}\n\nSummarize the changes on this branch, write a one-sentence \`shortSummary\` of the change for the pull request and write one commit message for squashing it.\nReply with a JSON object \`{ "summary": "<markdown>", "commitMessage": "<message>", "shortSummary": "<markdown>" }\`.`,
             summaryOutputJsonSchema(),
           );
           expect(summaryOutputSchema.safeParse(result.structured).success).toBe(true);

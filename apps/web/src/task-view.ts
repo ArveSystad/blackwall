@@ -653,16 +653,12 @@ export function deliveryActionCopy(action: DeliveryAction, picked: number): Acti
 export const START_COMMENT_DRAFT = "Work on this issue has started in blackwall.";
 
 /**
- * The draft plan-approval comment for a GitHub issue task: the branch work
- * goes on and the approved plan, folded away.
+ * The draft plan-approval comment for a GitHub issue task: one sentence naming
+ * the branch work goes on. The plan stays in blackwall.
  */
-export function planApprovalComment(task: Pick<Task, "branch" | "plan">): string {
+export function planApprovalComment(task: Pick<Task, "branch">): string {
   const branch = task.branch ? ` on branch \`${task.branch}\`` : "";
-  const plan = task.plan?.trim();
-  return [
-    `The plan is approved. Implementation is starting${branch}.`,
-    ...(plan ? [`<details>\n<summary>Plan</summary>\n\n${plan}\n\n</details>`] : []),
-  ].join("\n\n");
+  return `The plan is approved. Implementation is starting${branch}.`;
 }
 
 /** `merge-main` and `create-tasks` never leave the machine; every other action does. */
