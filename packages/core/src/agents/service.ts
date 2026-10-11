@@ -116,7 +116,7 @@ export function resolveClis(roles: RoleAgents, agentClis: AgentClis, cli: AgentC
 }
 
 const TWIN_NAME = new RegExp(
-  String.raw`^(.*) \((${AGENT_CLIS.map((cli) => CLI_TWIN_SUFFIX[cli]).join("|")})(?: (\d+))?\)$`,
+  String.raw`^(.*) \((${Object.values(CLI_TWIN_SUFFIX).join("|")})(?: (\d+))?\)$`,
 );
 
 /**
@@ -128,7 +128,9 @@ function twinBase(name: string): { base: string; side: AgentCli; n: number } | u
   const match = TWIN_NAME.exec(name);
   if (!match) return undefined;
   const [, base, suffix, n] = match;
-  const side = AGENT_CLIS.find((cli) => CLI_TWIN_SUFFIX[cli] === suffix);
+  const side = (Object.entries(CLI_TWIN_SUFFIX) as [AgentCli, string][]).find(
+    ([, value]) => value === suffix,
+  )?.[0];
   if (base === undefined || side === undefined) return undefined;
   return { base, side, n: n === undefined ? 1 : Number(n) };
 }

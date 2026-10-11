@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { permissionArgs } from "../permissions.js";
 import { copilotRateLimitFromText } from "./rate-limit.js";
 import { runAgentProcess, type LineParser } from "./run-process.js";
-import { structuredOutputContract, withStructuredOutput } from "./structured-output.js";
+import { inlinePrompt, withStructuredOutput } from "./structured-output.js";
 import type { AgentAdapter, AgentEvent, AgentRunOptions } from "./types.js";
 import { emptyUsage } from "./types.js";
 
@@ -136,18 +136,12 @@ export function createCopilotParser({
 
 /**
  * Prompt body for Copilot, which has neither a system-prompt nor a JSON-schema
- * flag: the role prompt goes first and the structured-output contract last.
+ * flag: see {@link inlinePrompt}.
  */
-export function copilotPrompt({
-  prompt,
-  systemPrompt,
-  jsonSchema,
-}: Pick<AgentRunOptions, "prompt" | "systemPrompt" | "jsonSchema">): string {
-  return [
-    ...(systemPrompt ? [`<role>\n${systemPrompt}\n</role>`] : []),
-    prompt,
-    ...(jsonSchema ? [structuredOutputContract(jsonSchema)] : []),
-  ].join("\n\n");
+export function copilotPrompt(
+  options: Pick<AgentRunOptions, "prompt" | "systemPrompt" | "jsonSchema">,
+): string {
+  return inlinePrompt(options);
 }
 
 export interface CopilotArgsOptions extends Pick<AgentRunOptions, "cwd" | "model" | "permissions"> {

@@ -4,7 +4,7 @@ Guidance for coding agents working in this repo.
 
 ## What this is
 
-blackwall is a local, single-user, browser-based control room that runs Claude Code and GitHub Copilot CLI as headless subprocesses against the user's git repos. Agents run on either CLI and plan, grill, implement and review each other's work on tasks from Jira Cloud, GitHub/GHE PRs and issues, or Blackwall tasks you write yourself (free text); the user approves plans, answers questions, triages findings and confirms every outbound action.
+blackwall is a local, single-user, browser-based control room that runs Claude Code, GitHub Copilot CLI and OpenCode as headless subprocesses against the user's git repos. Agents run on any of the CLIs and plan, grill, implement and review each other's work on tasks from Jira Cloud, GitHub/GHE PRs and issues, or Blackwall tasks you write yourself (free text); the user approves plans, answers questions, triages findings and confirms every outbound action.
 
 This file plus the code are the design reference. User-facing docs are in [`README.md`](README.md).
 

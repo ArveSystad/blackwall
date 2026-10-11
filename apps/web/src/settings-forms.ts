@@ -25,12 +25,21 @@ export function errorMessage(error: unknown): string {
 export const CLI_NAMES: Record<AgentCli, string> = {
   claude: "Claude Code",
   copilot: "Copilot CLI",
+  opencode: "OpenCode",
 };
 
 /** Common models per CLI for the agent editor's picker; any other id goes in Custom. */
 export const MODEL_PRESETS: Record<AgentCli, readonly string[]> = {
   claude: ["opus", "sonnet", "haiku"],
   copilot: ["claude-sonnet-5.5", "claude-opus-5.5", "claude-haiku-5.5", "gpt-5"],
+  opencode: ["anthropic/claude-sonnet-5-5", "anthropic/claude-opus-5-5", "openai/gpt-5"],
+};
+
+/** An example permission rule per CLI, in its own syntax, for the agent editor. */
+export const OVERRIDE_EXAMPLES: Record<AgentCli, string> = {
+  claude: "Bash(npm test:*)",
+  copilot: "shell(npm test)",
+  opencode: "bash(npm test*)",
 };
 
 export function isPresetModel(cli: AgentCli, model: string): boolean {

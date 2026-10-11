@@ -9,6 +9,7 @@ import {
   claudeRateLimitFromEvent,
   claudeRateLimitFromText,
   copilotRateLimitFromText,
+  opencodeRateLimitFromText,
 } from "./rate-limit.js";
 import type { AgentEvent } from "./types.js";
 
@@ -94,6 +95,34 @@ describe("copilotRateLimitFromText", () => {
 
   it("leaves other failures alone", () => {
     expect(copilotRateLimitFromText("Error: not authenticated", now)).toBeUndefined();
+  });
+});
+
+describe("opencodeRateLimitFromText", () => {
+  it("recognises provider rate limits and quota errors", () => {
+    expect(opencodeRateLimitFromText("AI_APICallError: 429 Too Many Requests", now)).toEqual({});
+    expect(opencodeRateLimitFromText("rate_limit_error: Rate limit exceeded", now)).toEqual({});
+    expect(opencodeRateLimitFromText("too many requests", now)).toEqual({});
+    expect(
+      opencodeRateLimitFromText("You exceeded your current quota (insufficient_quota)", now),
+    ).toEqual({});
+    expect(opencodeRateLimitFromText("Claude AI usage limit reached", now)).toEqual({});
+  });
+
+  it("honours a relative retry time", () => {
+    expect(opencodeRateLimitFromText("insufficient_quota. Try again in 20 minutes.", now)).toEqual({
+      resetsAt: new Date(now.getTime() + 20 * 60_000).toISOString(),
+    });
+    expect(opencodeRateLimitFromText("429: rate limited, retry after 30 seconds", now)).toEqual({
+      resetsAt: new Date(now.getTime() + 30_000).toISOString(),
+    });
+  });
+
+  it("leaves other failures alone", () => {
+    expect(
+      opencodeRateLimitFromText("Unexpected server error. Check server logs for details.", now),
+    ).toBeUndefined();
+    expect(opencodeRateLimitFromText("Session not found", now)).toBeUndefined();
   });
 });
 

@@ -7,6 +7,7 @@ describe("parseCliVersion", () => {
     expect(
       parseCliVersion("GitHub Copilot CLI 1.0.93.\nRun 'copilot update' to check for updates.\n"),
     ).toBe("1.0.93");
+    expect(parseCliVersion("1.18.30\n")).toBe("1.18.30");
     expect(parseCliVersion("v1.2.3-beta.1")).toBe("1.2.3-beta.1");
     expect(parseCliVersion("unknown")).toBeNull();
   });
@@ -24,8 +25,8 @@ describe("detectCli", () => {
   });
 
   it("reports a missing CLI", async () => {
-    const status = await detectCli("copilot", { command: "blackwall-no-such-cli" });
-    expect(status).toMatchObject({ cli: "copilot", installed: false, version: null });
+    const status = await detectCli("opencode", { command: "blackwall-no-such-cli" });
+    expect(status).toMatchObject({ cli: "opencode", installed: false, version: null });
     expect(status.error).toContain("not found");
   });
 

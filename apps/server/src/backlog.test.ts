@@ -545,6 +545,7 @@ describe("backlog mount", () => {
     expect(state.map((s) => [s.cli, s.pausedUntil !== null])).toEqual([
       ["claude", false],
       ["copilot", true],
+      ["opencode", false],
     ]);
   });
 });

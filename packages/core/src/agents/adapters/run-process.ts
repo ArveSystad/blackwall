@@ -15,6 +15,12 @@ const STDERR_LIMIT = 64 * 1024;
 /** Turns a CLI's JSONL output into normalized events, one line at a time. */
 export interface LineParser {
   push(line: string): AgentEvent[];
+  /**
+   * For CLIs without a closing result line: called once after the process
+   * exits (unless aborted or never started), before the outcome is decided, so
+   * its events count like line events, e.g. a `result` built from the stream.
+   */
+  end?(exitCode: number | null): AgentEvent[];
 }
 
 export interface RunProcessOptions {
@@ -91,6 +97,13 @@ export function runAgentProcess({
     let completed = false;
     let rateLimited = false;
 
+    const handle = (event: AgentEvent) => {
+      if (event.type === "result") final = event.result;
+      if (event.type === "error") cliError = event.message;
+      if (event.type === "rate-limit") rateLimited = true;
+      emit(event);
+    };
+
     const onAbort = () => {
       aborted = true;
       void killTree(child);
@@ -114,12 +127,7 @@ export function runAgentProcess({
       const lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
       lines.on("line", (line) => {
         if (!line.trim()) return;
-        for (const event of parser.push(line)) {
-          if (event.type === "result") final = event.result;
-          if (event.type === "error") cliError = event.message;
-          if (event.type === "rate-limit") rateLimited = true;
-          emit(event);
-        }
+        for (const event of parser.push(line)) handle(event);
       });
     }
 
@@ -130,6 +138,7 @@ export function runAgentProcess({
       if (completed) return;
       completed = true;
       signal?.removeEventListener("abort", onAbort);
+      if (!aborted && !spawnError) for (const event of parser.end?.(exitCode) ?? []) handle(event);
       const tail = stderr.trim();
       if (!aborted && !spawnError && !final && !rateLimited && detectRateLimit) {
         const hit = detectRateLimit(`${cliError ?? ""}

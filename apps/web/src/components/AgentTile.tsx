@@ -5,9 +5,10 @@ import { CLI_NAMES } from "../settings-forms";
 const TILES: Record<AgentCli, { mark: string; tone: string }> = {
   claude: { mark: "CC", tone: "text-claude bg-claude/18 border-claude/40" },
   copilot: { mark: "CP", tone: "text-copilot bg-copilot/18 border-copilot/40" },
+  opencode: { mark: "OC", tone: "text-opencode bg-opencode/18 border-opencode/40" },
 };
 
-/** Agent identity tile. CC/CP are placeholders until the real CLI marks are added. */
+/** Agent identity tile. CC/CP/OC are placeholders until the real CLI marks are added. */
 export function AgentTile({
   cli,
   size = "md",
