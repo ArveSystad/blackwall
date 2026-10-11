@@ -30,6 +30,11 @@ export const STATUS_LABELS: Record<TaskStatus, string> = {
   done: "Done",
 };
 
+/** The status pill's label: "Finishing" while a needs-you task delivers, else the status label. */
+export function statusLabel(task: Pick<Task, "status" | "delivering">): string {
+  return task.status === "needs-you" && task.delivering ? "Finishing" : STATUS_LABELS[task.status];
+}
+
 /** Short origin label: Jira key, `owner/repo#42`, or "blackwall". */
 export function originKey(task: Pick<Task, "origin">): string {
   const { origin } = task;

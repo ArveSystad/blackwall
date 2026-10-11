@@ -1,7 +1,7 @@
 import { MAX_FIX_ROUNDS, type Agent, type Task } from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { originKey, relativeTime } from "../../inbox";
+import { originKey, relativeTime, statusLabel } from "../../inbox";
 import { useAgentLibrary } from "../../hooks";
 import { connectionsQuery, queryKeys, reposQuery } from "../../query";
 import {
@@ -165,7 +165,7 @@ export function TaskHeader({
             <TrashIcon size="sm" />
           </Button>
         </span>
-        <StatusBadge status={task.status} />
+        <StatusBadge status={task.status} label={statusLabel(task)} />
       </div>
       <div className="flex items-baseline gap-1.5">
         {repo?.exists && (

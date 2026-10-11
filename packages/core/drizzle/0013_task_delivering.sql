@@ -1,0 +1,1 @@
+ALTER TABLE `tasks` ADD `delivering` integer DEFAULT false NOT NULL;

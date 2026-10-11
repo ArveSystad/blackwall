@@ -159,6 +159,8 @@ export const tasks = sqliteTable(
       .$type<DeliveryTarget[]>()
       .notNull()
       .default(sql`'[]'`),
+    /** True while delivery runs at finish. */
+    delivering: integer("delivering", { mode: "boolean" }).notNull().default(false),
     freeText: text("free_text").notNull().default(""),
     plan: text("plan"),
     /** The summarizer's final summary; null until Summarize. */

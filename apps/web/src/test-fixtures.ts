@@ -27,6 +27,7 @@ export function makeTask(overrides: Partial<Task> = {}): Task {
     cli: "claude",
     agentClis: {},
     deliveryTargets: [],
+    delivering: false,
     freeText: "",
     plan: null,
     summary: null,

@@ -7,6 +7,7 @@ import {
   needsYouCount,
   originKey,
   relativeTime,
+  statusLabel,
   uiStageIndex,
 } from "./inbox";
 import { makeTask } from "./test-fixtures";
@@ -31,6 +32,14 @@ describe("groupTasks", () => {
     const listed = makeTask({ status: "done" });
     const archived = makeTask({ status: "done", archivedAt: new Date("2026-10-08T12:00:00Z") });
     expect(groupTasks([listed, archived]).recent).toEqual([listed]);
+  });
+});
+
+describe("statusLabel", () => {
+  it("reads Finishing while a needs-you task delivers", () => {
+    expect(statusLabel({ status: "needs-you", delivering: true })).toBe("Finishing");
+    expect(statusLabel({ status: "needs-you", delivering: false })).toBe("Needs you");
+    expect(statusLabel({ status: "running", delivering: false })).toBe("Running");
   });
 });
 

@@ -1,7 +1,7 @@
 import type { AgentCli, Task } from "@blackwall/shared";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { originKey, relativeTime } from "../inbox";
+import { originKey, relativeTime, statusLabel } from "../inbox";
 import { cn } from "../lib/utils";
 import { deleteBlockedReason, GATE_REASONS } from "../task-view";
 import { AgentTile } from "./AgentTile";
@@ -14,7 +14,8 @@ import { Button } from "./ui/button";
 
 /**
  * Inbox card linking to the task. Needs-you tasks get the magenta rail and
- * wash, and say why they wait. Undelivered tasks show a delete button on
+ * wash, and say why they wait unless they are finishing (delivering), when
+ * the pill reads "Finishing". Undelivered tasks show a delete button on
  * hover or focus, in place of the time.
  */
 export function TaskCard({
@@ -69,7 +70,7 @@ export function TaskCard({
         >
           {task.title}
         </span>
-        {needsYou && task.gate && (
+        {needsYou && task.gate && !task.delivering && (
           <span className="flex items-center gap-1.5 text-meta font-medium text-magenta">
             <WarnIcon size="sm" />
             {GATE_REASONS[task.gate]}
@@ -88,7 +89,7 @@ export function TaskCard({
               ))}
             </span>
           )}
-          <StatusBadge status={task.status} />
+          <StatusBadge status={task.status} label={statusLabel(task)} />
         </span>
       </Link>
       {deletable && (

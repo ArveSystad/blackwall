@@ -646,6 +646,8 @@ export const taskSchema = z
     /** Agents run on another CLI than `cli`, chosen on the new task form. */
     agentClis: agentClisSchema,
     deliveryTargets: z.array(deliveryTargetSchema),
+    /** True while the confirmed delivery actions run at finish (or a Review PR's review posts); the task stays `needs-you` at its gate meanwhile. */
+    delivering: z.boolean(),
     freeText: z.string(),
     plan: z.string().nullable(),
     /** The summarizer's final summary (changes, decisions, leftover findings); null until Summarize. */

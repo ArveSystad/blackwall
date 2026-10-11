@@ -710,7 +710,11 @@ export function createPipelineEngine({
     }
   }
 
-  /** Moves a task past the gate it waits on, per an answer {@link respond} accepted. */
+  /**
+   * Moves a task past the gate it waits on, per an answer {@link respond}
+   * accepted. While delivery runs the task carries `delivering`, cleared
+   * however delivery ends.
+   */
   async function answerGate(
     task: Task,
     { gate, decision, message, delivery: confirmed }: GateResponse,
@@ -728,10 +732,12 @@ export function createPipelineEngine({
       // Nothing leaves the machine unless the user confirmed that action.
       const confirmation = confirmed ?? deliveryConfirmationSchema.parse({});
       delivering.add(taskId);
+      saveTask(taskId, { delivering: true });
       try {
         await runDelivery(task, run, confirmation);
       } finally {
         delivering.delete(taskId);
+        saveTask(taskId, { delivering: false });
       }
       saveRun(run.id, "succeeded", new Date());
       const delivered = [...new Set([...completedDeliveries(run), ...confirmation.actions])];
@@ -957,13 +963,15 @@ export function createPipelineEngine({
 
     /**
      * Startup recovery: steps and tasks a previous process left running become
-     * `interrupted` (the user resumes them), and queued tasks are scheduled.
+     * `interrupted` (the user resumes them), queued tasks are scheduled, and a
+     * `delivering` flag left by a delivery cut short is cleared.
      */
     recover(): void {
       for (const step of r.steps.interruptRunning()) {
         publish({ type: "step.upserted", payload: { step } });
       }
       for (const task of r.tasks.list()) {
+        if (task.delivering) saveTask(task.id, { delivering: false });
         if (task.status === "running") {
           saveTask(task.id, { status: "interrupted" });
           const run = latestRun(task.id);

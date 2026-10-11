@@ -722,6 +722,19 @@ describe("pipeline engine", () => {
     expect(() => h.engine.enqueue(running.id)).toThrow(TaskStateError);
   });
 
+  it("clears a delivering flag a delivery cut short left on recovery", async () => {
+    const seeded = seedTask();
+    r.tasks.update(seeded.id, { status: "needs-you", gate: "finish", delivering: true });
+
+    harness().engine.recover();
+
+    expect(task(seeded.id)).toMatchObject({
+      status: "needs-you",
+      gate: "finish",
+      delivering: false,
+    });
+  });
+
   it("adds the origin context to the Inform prompt once the worktree exists", async () => {
     const seeded = seedTask({
       origin: { kind: "jira-issue", key: "ABC-123", connectionId: null },
@@ -1777,6 +1790,7 @@ describe("summarize and finish", () => {
       status: "needs-you",
       gate: "finish",
       error: "GitHub said no",
+      delivering: false,
     });
     expect(lastStep(seeded.id)).toMatchObject({ status: "failed", error: "GitHub said no" });
     expect((await h.engine.deliveryPlan(seeded.id)).completed).toEqual(["push-branch"]);
@@ -1925,9 +1939,11 @@ describe("summarize and finish", () => {
     await expect(
       h.engine.respond(seeded.id, { gate: "finish", decision: "approve" }),
     ).rejects.toThrow(TaskStateError);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", delivering: true });
     release();
     await first;
     expect(h.deliveries).toHaveLength(1);
+    expect(task(seeded.id)).toMatchObject({ status: "done", delivering: false });
   });
 
   it("posts a Review PR task's selected findings at triage", async () => {

@@ -363,12 +363,19 @@ describe("tabs and banner", () => {
 
   it("says why the task waits", () => {
     const counts = { openQuestions: 2, blocking: 1, round: 1 };
-    expect(gateBanner({ gate: "questions", mode: null }, counts).title).toBe(
+    expect(gateBanner({ gate: "questions", mode: null, delivering: false }, counts).title).toBe(
       "2 questions need your decision",
     );
-    const triage = gateBanner({ gate: "triage", mode: null }, counts);
+    const triage = gateBanner({ gate: "triage", mode: null, delivering: false }, counts);
     expect(triage.title).toBe("Fix round 1 paused for your triage");
     expect(triage.detail).toContain("start fix round 2");
+  });
+
+  it("says a delivering task is finishing", () => {
+    const counts = { openQuestions: 0, blocking: 0, round: 1 };
+    const finishing = gateBanner({ gate: "finish", mode: null, delivering: true }, counts);
+    expect(finishing.title).toBe("Finishing");
+    expect(finishing.detail).toContain("actions you confirmed");
   });
 });
 

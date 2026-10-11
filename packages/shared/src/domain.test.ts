@@ -52,6 +52,7 @@ const task = {
   cli: "copilot",
   agentClis: { a2: "claude" },
   deliveryTargets: ["push-branch", "open-pr", "jira-comment"],
+  delivering: false,
   freeText: "",
   plan: null,
   summary: null,

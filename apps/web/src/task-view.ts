@@ -114,11 +114,18 @@ export interface BannerCopy {
   detail: string;
 }
 
-/** Why a needs-you task waits on the user, and what resolves it. */
+/** Why a needs-you task waits on the user, and what resolves it; or that it is finishing. */
 export function gateBanner(
-  task: Pick<Task, "gate" | "mode">,
+  task: Pick<Task, "gate" | "mode" | "delivering">,
   { openQuestions, blocking, round }: { openQuestions: number; blocking: number; round: number },
 ): BannerCopy {
+  if (task.delivering) {
+    return {
+      title: "Finishing",
+      detail:
+        "Carrying out the actions you confirmed. Rebase conflicts go to the implementer, so this can take a while.",
+    };
+  }
   switch (task.gate) {
     case "questions":
       return {

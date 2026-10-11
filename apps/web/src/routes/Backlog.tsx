@@ -55,7 +55,7 @@ import { ErrorText } from "../components/ui/field";
 import { Input } from "../components/ui/input";
 import { Kbd } from "../components/ui/kbd";
 import { useNow } from "../hooks";
-import { originKey } from "../inbox";
+import { originKey, statusLabel } from "../inbox";
 import { cn } from "../lib/utils";
 import {
   backlogQuery,
@@ -284,7 +284,7 @@ function StateChip({ state }: { state: BacklogItemState }) {
           className="inline-flex items-center gap-1.5 text-label whitespace-nowrap no-underline hover:no-underline"
         >
           <span className="text-muted-foreground">Promoted →</span>
-          <StatusBadge status={state.task.status} />
+          <StatusBadge status={state.task.status} label={statusLabel(state.task)} />
         </Link>
       ) : (
         <span className="text-label whitespace-nowrap text-faint">Promoted · task removed</span>
@@ -490,7 +490,7 @@ function TaskRow({
             {fromBacklog && <span className="whitespace-nowrap">from backlog</span>}
           </span>
         </span>
-        <StatusBadge status={task.status} />
+        <StatusBadge status={task.status} label={statusLabel(task)} />
       </Link>
       {action && <span className="flex flex-none items-center pr-2">{action}</span>}
     </li>
