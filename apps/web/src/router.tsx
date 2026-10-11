@@ -23,8 +23,11 @@ const rootRoute = createRootRoute({
     // App-wide shortcuts that must work on every route, Settings included.
     useThemeHotkey();
     return (
-      <div className="h-full min-h-0 bg-background">
-        <Outlet />
+      <div className="flex h-full min-h-0 flex-col bg-background">
+        <div className="bw-titlebar" aria-hidden />
+        <div className="min-h-0 flex-1">
+          <Outlet />
+        </div>
       </div>
     );
   },
