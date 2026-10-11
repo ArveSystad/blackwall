@@ -20,6 +20,7 @@ import { resolveLoginEnv } from "./login-env.js";
 import { checkNode, MIN_NODE_MAJOR } from "./node.js";
 import { desktopPort, isPortFree } from "./port.js";
 import { createQuitFlow } from "./quit-flow.js";
+import { titleBarOverlay } from "./title-bar.js";
 import { loadBounds, saveBounds, visibleBounds, type Bounds } from "./window-state.js";
 
 type Env = Record<string, string | undefined>;
@@ -142,6 +143,8 @@ function createWindow(launchUrl: string, port: number): BrowserWindow {
     icon: windowIcon,
     backgroundColor: "#0a0918",
     autoHideMenuBar: true,
+    titleBarStyle: "hidden",
+    titleBarOverlay: process.platform === "darwin" ? true : titleBarOverlay(null),
     webPreferences: {
       partition: "persist:blackwall",
       contextIsolation: true,
@@ -184,6 +187,10 @@ function createWindow(launchUrl: string, port: number): BrowserWindow {
     if (route === "external") void shell.openExternal(event.url);
   });
   window.on("page-title-updated", (_event, title) => updateBadge(needsYouCountFromTitle(title)));
+  // The page drives the button colours through its `theme-color` meta tag.
+  window.webContents.on("did-change-theme-color", (_event, color) => {
+    if (process.platform !== "darwin") window.setTitleBarOverlay(titleBarOverlay(color));
+  });
 
   void window.loadURL(launchUrl);
   return window;

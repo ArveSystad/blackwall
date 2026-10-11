@@ -4,11 +4,17 @@ import { isPlainKey, isTypingTarget, useWindowKeydown } from "./keyboard";
 /**
  * Dark is blackwall's theme; light is opt-in per browser. The OS color-scheme preference is
  * ignored on purpose. The pre-paint script in index.html applies a stored `light` before React
- * loads, using the same storage key.
+ * loads, using the same storage key, and sets the `theme-color` meta tag to match.
  */
 export type Theme = "dark" | "light";
 
 export const THEME_STORAGE_KEY = "blackwall.theme";
+
+/**
+ * The canvas colour per theme, matching `--bg-0` in styles.css. Published as `theme-color`: the
+ * desktop title bar reads it, and browsers may tint their toolbar with it.
+ */
+export const THEME_COLORS: Record<Theme, string> = { dark: "#0a0918", light: "#f3f3f6" };
 
 const listeners = new Set<() => void>();
 let current: Theme | undefined;
@@ -39,6 +45,9 @@ export function setTheme(theme: Theme): void {
   if (typeof document !== "undefined") {
     if (theme === "light") document.documentElement.setAttribute("data-theme", "light");
     else document.documentElement.removeAttribute("data-theme");
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute("content", THEME_COLORS[theme]);
   }
   for (const listener of listeners) listener();
 }

@@ -72,7 +72,7 @@ For headless use, set `BLACKWALL_TOKEN_<CONNECTION>` to override a connection's 
 pnpm desktop        # builds if output is missing or stale, then opens blackwall in its own window
 ```
 
-The desktop app is an Electron window around the same server, run from a source checkout after `pnpm install`. There are no installers yet.
+The desktop app is an Electron window around the same server that draws its own title bar that follows the theme, run from a source checkout after `pnpm install`. There are no installers yet.
 
 - **Requirements:** everything browser mode needs. Node.js 22+ must be on `PATH`, because the server runs on your system Node, not Electron's. On macOS and Linux the app reads `PATH` from your login shell, so CLIs installed by a version manager are found even when launched from Finder or a desktop launcher.
 - **Port:** 4712 (`BLACKWALL_DESKTOP_PORT` overrides it). The port stays fixed so the theme and selected repo are kept between launches. `BLACKWALL_PORT` and `BLACKWALL_WEB_PORT` are ignored in desktop mode.

@@ -5,11 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>blackwall</title>
+    <meta name="theme-color" content="#0a0918" />
     <script>
       // Apply a chosen light theme before first paint. Dark is the default (see src/theme.ts).
       try {
         if (localStorage.getItem("blackwall.theme") === "light") {
           document.documentElement.setAttribute("data-theme", "light");
+          document.querySelector('meta[name="theme-color"]')?.setAttribute("content", "#f3f3f6");
         }
       } catch {}
     </script>
