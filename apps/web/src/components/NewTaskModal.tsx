@@ -579,7 +579,7 @@ function NewTaskForm({
 
   return (
     <form
-      className="flex max-h-[calc(100vh-48px)] flex-col"
+      className="flex max-h-[calc(100vh_-_48px_-_var(--bw-titlebar-h))] flex-col"
       onSubmit={(event) => {
         event.preventDefault();
         void submit();

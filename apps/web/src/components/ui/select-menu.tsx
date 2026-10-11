@@ -44,7 +44,7 @@ export function SelectMenuContent({
         position="popper"
         sideOffset={4}
         className={cn(
-          "z-50 max-h-[var(--radix-select-content-available-height)] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg bg-popover p-1 shadow-pop",
+          "bw-no-drag z-50 max-h-[var(--radix-select-content-available-height)] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg bg-popover p-1 shadow-pop",
           className,
         )}
         {...props}

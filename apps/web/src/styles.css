@@ -80,6 +80,9 @@
   /* Empty-pane and Stats backdrop only: the decorative use of glow (see GridBackdrop). */
   --grid-line: color-mix(in oklab, var(--primary) 44%, transparent);
   --grid-glow: color-mix(in oklab, var(--cyan) 24%, transparent);
+  /* Height of the desktop title bar strip: 0 outside the desktop shell, the OS button
+   * overlay + 1px for the hairline inside it. */
+  --bw-titlebar-h: calc(env(titlebar-area-height, -1px) + 1px);
 
   color-scheme: dark;
 }
@@ -415,6 +418,24 @@
 }
 
 @layer components {
+  /* ---------- desktop title bar (router.tsx) ----------
+   * The draggable strip the OS window buttons sit in. Invisible at height 0
+   * (any browser); the +1px keeps its hairline below the OS button overlay.
+   */
+  .bw-titlebar {
+    flex: none;
+    height: var(--bw-titlebar-h);
+    box-shadow: inset 0 -1px 0 var(--border);
+    -webkit-app-region: drag;
+    app-region: drag;
+  }
+
+  /* Layers that can cover the title bar need this, or clicks there drag the window. */
+  .bw-no-drag {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
+
   .bw-grid {
     position: absolute;
     inset: 0;

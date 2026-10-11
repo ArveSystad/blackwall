@@ -11,7 +11,7 @@ This file plus the code are the design reference. User-facing docs are in [`READ
 ## Layout
 
 - `apps/server`: Hono HTTP + WebSocket on 127.0.0.1 with launch-token auth (`auth.ts`). Serves the built SPA; routes are wired in `app.ts`. `start.ts` holds the startup shared by both entries: `index.ts` (`pnpm start`) and `desktop-entry.ts` (the desktop shell's child).
-- `apps/desktop`: Electron main process: forks the server (`apps/server/src/desktop-entry.ts`) on system Node, tray, badge, quit prompt. Electron-free logic sits in its own modules so Vitest can test it; `main.ts` only wires Electron to them.
+- `apps/desktop`: Electron main process: forks the server (`apps/server/src/desktop-entry.ts`) on system Node, tray, badge, quit prompt; draws its own title bar that follows the theme (`title-bar.ts`, the page's `theme-color` meta tag). Electron-free logic sits in its own modules so Vitest can test it; `main.ts` only wires Electron to them. In `apps/web`, layers that can cover the top of the window (portals, fixed overlays, popovers) need `bw-no-drag`, and fixed or full-height layouts must leave `var(--bw-titlebar-h)` free at the top.
 - `apps/web`: React + Vite, TanStack Router + Query, Tailwind v4 + shadcn/ui.
 - `packages/core`:
   - `pipeline/`: engine, transitions, scheduler, backlog runner, delivery.

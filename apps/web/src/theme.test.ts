@@ -78,4 +78,29 @@ describe("theme", () => {
     expect(toggleTheme()).toBe("light");
     expect(toggleTheme()).toBe("dark");
   });
+
+  it("publishes the canvas colour as theme-color", async () => {
+    const meta = { setAttribute: vi.fn() };
+    vi.stubGlobal("document", stubDocument(meta));
+    const { setTheme } = await loadTheme();
+    setTheme("light");
+    expect(meta.setAttribute).toHaveBeenLastCalledWith("content", "#f3f3f6");
+    setTheme("dark");
+    expect(meta.setAttribute).toHaveBeenLastCalledWith("content", "#0a0918");
+  });
+
+  it("switches theme without a theme-color tag", async () => {
+    vi.stubGlobal("document", stubDocument(null));
+    const { setTheme, currentTheme } = await loadTheme();
+    expect(() => setTheme("light")).not.toThrow();
+    expect(currentTheme()).toBe("light");
+  });
 });
+
+/** Just enough of `document` for `setTheme`: <html> attributes and the theme-color tag. */
+function stubDocument(meta: { setAttribute: (name: string, value: string) => void } | null) {
+  return {
+    documentElement: { setAttribute: vi.fn(), removeAttribute: vi.fn() },
+    querySelector: (selector: string) => (selector === 'meta[name="theme-color"]' ? meta : null),
+  };
+}
