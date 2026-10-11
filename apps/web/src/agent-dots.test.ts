@@ -106,13 +106,25 @@ describe("gridDots", () => {
     ]);
   });
 
-  it("leaves out failed, interrupted and archived tasks", () => {
+  it("gives failed and interrupted unarchived tasks one dot each on the running dot's key", () => {
+    const failed = makeTask({ status: "failed", error: "boom" });
+    const interrupted = makeTask({
+      status: "interrupted",
+      createdAt: new Date("2026-10-08T11:00:00.000Z"),
+    });
+    expect(gridDots([interrupted, failed], []).map((d) => [d.key, d.state])).toEqual([
+      [`${failed.id}:0`, "failed"],
+      [`${interrupted.id}:0`, "interrupted"],
+    ]);
+  });
+
+  it("leaves out archived tasks", () => {
     const archivedAt = new Date("2026-10-08T12:00:00.000Z");
     const tasks = [
-      makeTask({ status: "failed" }),
-      makeTask({ status: "interrupted" }),
       makeTask({ status: "running", archivedAt }),
       makeTask({ status: "done", archivedAt }),
+      makeTask({ status: "failed", archivedAt }),
+      makeTask({ status: "interrupted", archivedAt }),
     ];
     expect(gridDots(tasks, [])).toEqual([]);
   });
@@ -124,6 +136,17 @@ describe("gridDots", () => {
     expect(gridDots([last, done, first], []).map((d) => [d.taskId, d.state])).toEqual([
       [first.id, "running"],
       [done.id, "done"],
+      [last.id, "running"],
+    ]);
+  });
+
+  it("keeps a failed task in creation order among running tasks", () => {
+    const first = makeTask({ status: "running", createdAt: new Date("2026-10-08T09:00:00.000Z") });
+    const failed = makeTask({ status: "failed", createdAt: new Date("2026-10-08T10:00:00.000Z") });
+    const last = makeTask({ status: "running", createdAt: new Date("2026-10-08T11:00:00.000Z") });
+    expect(gridDots([last, failed, first], []).map((d) => [d.taskId, d.state])).toEqual([
+      [first.id, "running"],
+      [failed.id, "failed"],
       [last.id, "running"],
     ]);
   });

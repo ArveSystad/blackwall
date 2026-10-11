@@ -153,8 +153,9 @@ function Message({
 }
 
 /**
- * Main pane with no task selected: first-run setup, or the active agents and
- * the done tasks waiting to be archived as dots on the grid. With nothing on
+ * Main pane with no task selected: first-run setup, or the active agents, the
+ * done tasks waiting to be archived and the interrupted and failed tasks
+ * waiting to be resumed as dots on the grid. With nothing on
  * the grid it prompts to pick or create a task; when the tasks or agents
  * cannot load it says so, with Retry.
  */
@@ -181,7 +182,8 @@ export function Home() {
   const tasksFailed = tasks.isError && !tasks.data;
   const activeFailed = active.isError && !active.data;
   const loaded = !!tasks.data && !!active.data;
-  // The agents view (active and done tasks) has no centred text, so the grid runs
+  // The agents view (active and done tasks, and interrupted and failed tasks
+  // waiting to be resumed) has no centred text, so the grid runs
   // full width behind it. It stays up until an archived dot's launch lands, even
   // when that was the last dot.
   const showAgents =

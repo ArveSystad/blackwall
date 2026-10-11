@@ -651,6 +651,23 @@
     display: none;
   }
 
+  /* One boom as an interrupted or failed dot is resumed or retried: cyan by
+   * default, red with .bw-revive-failed when the request fails. It ends
+   * transparent, and gets reduced motion and the light theme through .bw-boom.
+   * useResumeBursts drops it after REVIVE_MS: 1200ms here. Change them together.
+   */
+  .bw-revive::before,
+  .bw-revive::after {
+    animation-duration: 1.2s;
+    animation-iteration-count: 1;
+    animation-fill-mode: forwards;
+    animation-delay: 0s;
+  }
+
+  .bw-revive-failed {
+    --boom-color: var(--st-failed);
+  }
+
   /* Glow is dark only: light keeps the ring and drops the bloom. */
   :root[data-theme="light"] .bw-boom::before {
     display: none;

@@ -13,6 +13,8 @@ export interface ArchiveLaunches {
   /** The spot each archived dot launched from, by task id, until it lands. */
   launches: ReadonlyMap<string, { x: number; y: number }>;
   error: string | null;
+  /** Clears the last archive error, as another grid action starts. */
+  clearError: () => void;
   /** Archives a done task and launches its dot from `x`, `y`. */
   archive: (task: Task, x: number, y: number) => void;
 }
@@ -37,6 +39,8 @@ export function useArchiveLaunches(): ArchiveLaunches {
       pending.clear();
     };
   }, []);
+
+  const clearError = useCallback(() => setError(null), []);
 
   const land = useCallback((taskId: string) => {
     window.clearTimeout(timers.current.get(taskId));
@@ -70,5 +74,8 @@ export function useArchiveLaunches(): ArchiveLaunches {
     [land, queryClient],
   );
 
-  return useMemo(() => ({ launches, error, archive }), [launches, error, archive]);
+  return useMemo(
+    () => ({ launches, error, clearError, archive }),
+    [launches, error, clearError, archive],
+  );
 }

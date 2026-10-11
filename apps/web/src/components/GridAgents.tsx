@@ -16,15 +16,18 @@ import { originKey } from "../inbox";
 import { isMac } from "../keyboard";
 import { cn } from "../lib/utils";
 import { stepEventsQuery } from "../query";
-import { GATE_REASONS, STAGE_LABELS, currentActivity } from "../task-view";
+import { GATE_REASONS, STAGE_LABELS, currentActivity, isStoppedByUser } from "../task-view";
 import { AgentTile } from "./AgentTile";
 import type { ArchiveLaunches } from "./use-archive-launches";
+import { useResumeBursts } from "./use-resume-bursts";
 
 const STATE_LABELS: Record<GridDot["state"], string> = {
   running: "running",
   "needs-you": "needs you",
   queued: "queued",
   done: "done",
+  interrupted: "stopped mid-step",
+  failed: "failed",
 };
 
 /** Card width and the margin it keeps from the overlay's edges and the dot. */
@@ -53,7 +56,8 @@ function AgentDot({
   overlayWidth,
   lasers,
   delay,
-  onArchive,
+  onModClick,
+  waiting = false,
 }: {
   dot: GridDot;
   task: Task;
@@ -64,8 +68,10 @@ function AgentDot({
   lasers: number;
   /** The task's pulse delay in seconds, shared with its boom. */
   delay: number;
-  /** Archives a done dot's task, on Ctrl+click (⌘+click on macOS). */
-  onArchive?: () => void;
+  /** Archives a done dot's task or resumes a stopped one, on Ctrl+click (⌘+click on macOS). */
+  onModClick?: (() => void) | undefined;
+  /** The task's resume was asked for and it has not run yet: a faint cyan ring. */
+  waiting?: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -80,11 +86,18 @@ function AgentDot({
 
   const stage = task.stage ? STAGE_LABELS[task.stage] : null;
   const done = dot.state === "done";
+  const interrupted = dot.state === "interrupted";
+  const failed = dot.state === "failed";
+  const stopped = interrupted && isStoppedByUser(task);
+  const stateWord = stopped ? "stopped" : STATE_LABELS[dot.state];
   const label = done
     ? `${task.title}: ${STATE_LABELS.done}`
-    : `${task.title}: ${stage ? `${stage}, ` : ""}${STATE_LABELS[dot.state]}`;
+    : `${task.title}: ${stage ? `${stage}, ` : ""}${stateWord}`;
   const width = Math.min(CARD_WIDTH, overlayWidth - 2 * CARD_MARGIN);
   const needs = dot.state === "needs-you";
+  const still = dot.state === "queued" || interrupted || failed;
+  const detail = failed ? (task.error ?? "No error was recorded.") : stopped ? null : task.error;
+  const modClick = isMac() ? "⌘+click" : "Ctrl+click";
 
   return (
     <>
@@ -99,12 +112,12 @@ function AgentDot({
           open ? "z-20" : needs ? "z-[2]" : dot.state === "running" ? "z-[1]" : "z-0",
         )}
         onClick={
-          done && onArchive
+          onModClick
             ? (event) => {
                 // The Link skips navigation on modified clicks; this also stops a new tab.
                 if ((isMac() ? event.metaKey : event.ctrlKey) && !event.altKey) {
                   event.preventDefault();
-                  onArchive();
+                  onModClick();
                 }
               }
             : undefined
@@ -130,13 +143,16 @@ function AgentDot({
       >
         <span
           aria-hidden="true"
-          style={dot.state === "queued" ? undefined : { animationDelay: `${delay}s` }}
+          style={still ? undefined : { animationDelay: `${delay}s` }}
           className={cn(
             "rounded-full",
             dot.state === "running" && "size-2 animate-pulse-running bg-running shadow-glow-cyan",
             needs && "size-2.5 animate-pulse-needs bg-needs shadow-glow-needs",
             dot.state === "queued" && "size-2 bg-faint opacity-60",
             done && "size-2 animate-pulse-done bg-done shadow-glow-done",
+            interrupted && "size-2 bg-interrupted",
+            failed && "size-2 bg-failed",
+            waiting && still && "ring-1 ring-running/50",
           )}
         />
         {lasers > 0 && <span key={lasers} className="bw-laser" aria-hidden="true" />}
@@ -159,8 +175,25 @@ function AgentDot({
           {done ? (
             <>
               <span className="label text-done">Done</span>
+              <span className="text-meta text-muted-foreground">{modClick} to archive</span>
+            </>
+          ) : interrupted || failed ? (
+            <>
+              <span className="label">
+                <span className={failed ? "text-failed" : "text-interrupted"}>
+                  {failed ? "Failed" : stopped ? "Stopped" : "Stopped mid-step"}
+                </span>
+                {stage && <span className="text-muted-foreground"> · {stage}</span>}
+              </span>
+              {detail && (
+                <span className="mono truncate text-meta text-muted-foreground">{detail}</span>
+              )}
               <span className="text-meta text-muted-foreground">
-                {isMac() ? "⌘+click" : "Ctrl+click"} to archive
+                {waiting
+                  ? failed
+                    ? "Retrying…"
+                    : "Resuming…"
+                  : `${modClick} to ${failed ? "retry" : "resume"}`}
               </span>
             </>
           ) : (
@@ -187,6 +220,9 @@ function AgentDot({
           {dot.state === "queued" && (
             <span className="text-meta text-muted-foreground">Queued</span>
           )}
+          {dot.state === "queued" && waiting && (
+            <span className="text-meta text-muted-foreground">Resuming…</span>
+          )}
         </div>
       )}
     </>
@@ -200,8 +236,11 @@ function AgentDot({
  * ring and their task a bloom (`.bw-boom`), drawn under the dots and sharing
  * each task's pulse delay. Done tasks wait as calm green dots; Ctrl+click
  * (⌘+click on macOS) archives one through `launch`, and its dot flies off
- * toward the horizon (`.bw-launch`). Lay it over `GridBackdrop` in a
- * `relative` parent.
+ * toward the horizon (`.bw-launch`). Interrupted and failed tasks wait as
+ * still gray and red dots; Ctrl+click resumes or retries one through
+ * `useResumeBursts`, which booms it cyan once (`.bw-revive`, red when the
+ * request fails) and rings it faintly until it runs. Lay it over
+ * `GridBackdrop` in a `relative` parent.
  */
 export function GridAgents({
   dots,
@@ -229,6 +268,7 @@ export function GridAgents({
     () => (size ? layoutDots(dots, size.width, size.height) : null),
     [dots, size],
   );
+  const revive = useResumeBursts(tasks);
 
   // Stages seen so far, compared on each tasks update; a change fires that task's lasers.
   const [seenTasks, setSeenTasks] = useState(tasks);
@@ -260,6 +300,8 @@ export function GridAgents({
               if (
                 dot.state === "queued" ||
                 dot.state === "done" ||
+                dot.state === "interrupted" ||
+                dot.state === "failed" ||
                 launch.launches.has(dot.taskId) ||
                 !tasks.has(dot.taskId) ||
                 !spot
@@ -278,6 +320,18 @@ export function GridAgents({
                   style={
                     { left: spot.x, top: spot.y, "--pulse-delay": `${delay}s` } as CSSProperties
                   }
+                />
+              );
+            })}
+            {/* Resume and retry booms; prefixed keys, so they never collide with the looping booms. */}
+            {[...revive.bursts].map(([taskId, { count, tone }]) => {
+              const spot = layout.get(`${taskId}:0`);
+              if (!spot) return null;
+              return (
+                <span
+                  key={`revive:${taskId}:${count}`}
+                  className={cn("bw-boom bw-revive", tone === "failed" && "bw-revive-failed")}
+                  style={{ left: spot.x, top: spot.y }}
                 />
               );
             })}
@@ -303,7 +357,20 @@ export function GridAgents({
                 overlayWidth={size.width}
                 lasers={lasers.get(dot.taskId) ?? 0}
                 delay={pulseDelay(dot.taskId, period)}
-                onArchive={() => launch.archive(task, spot.x, spot.y)}
+                onModClick={
+                  dot.state === "done"
+                    ? () => {
+                        revive.clearError();
+                        launch.archive(task, spot.x, spot.y);
+                      }
+                    : dot.state === "interrupted" || dot.state === "failed"
+                      ? () => {
+                          launch.clearError();
+                          revive.resume(task);
+                        }
+                      : undefined
+                }
+                waiting={revive.waiting.has(dot.taskId)}
               />
             );
           })}
@@ -325,14 +392,17 @@ export function GridAgents({
           ))}
         </>
       )}
-      {launch.error && (
+      {(launch.error ?? revive.error) && (
         <p
           role="alert"
           className="pointer-events-auto absolute inset-x-0 bottom-4 m-0 text-center text-meta text-destructive"
         >
-          {launch.error}
+          {launch.error ?? revive.error}
         </p>
       )}
+      <p role="status" className="sr-only">
+        {revive.announcement}
+      </p>
     </nav>
   );
 }
