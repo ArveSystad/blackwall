@@ -5,6 +5,7 @@ import { BacklogSection } from "../components/settings/BacklogSection";
 import { AgentLibrary } from "../components/settings/AgentLibrary";
 import { ConnectionsSection } from "../components/settings/ConnectionsSection";
 import { DefaultsSection } from "../components/settings/DefaultsSection";
+import { NotificationsSection } from "../components/settings/NotificationsSection";
 import { RepositoriesSection } from "../components/settings/RepositoriesSection";
 import { TagsSection } from "../components/settings/TagsSection";
 import { StatusBadge } from "../components/StatusBadge";
@@ -60,6 +61,8 @@ function SectionBody({ section }: { section: SettingsSection }) {
       return <DefaultsSection />;
     case "backlog":
       return <BacklogSection />;
+    case "notifications":
+      return <NotificationsSection />;
   }
 }
 

@@ -38,7 +38,7 @@ Implementers may save screenshots (PNG, JPEG, GIF or WebP) to `.blackwall/artifa
 - Connections to GitHub.com, GHE and Jira Cloud, with tokens in the OS keychain
 - Repo registry with auto-suggested check commands
 - Live agent output and per-round diffs
-- Needs-you inbox, with the count in the tab title
+- Needs-you inbox, with the count in the tab title and optional desktop notifications (Settings → Notifications)
 - Dark and light themes
 - Keyboard shortcuts
 
