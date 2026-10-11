@@ -296,6 +296,7 @@ function BacklogRow({
   item,
   state,
   dependsOn,
+  sourceTask,
   dragging,
   onDragStart,
   onDragEnd,
@@ -313,6 +314,8 @@ function BacklogRow({
   state: BacklogItemState;
   /** Titles of the items it depends on. */
   dependsOn: string[];
+  /** Title of the task that proposed this follow-up, once tasks have loaded. */
+  sourceTask: string | undefined;
   dragging: BacklogItemView | null;
   onDragStart: () => void;
   onDragEnd: () => void;
@@ -411,10 +414,12 @@ function BacklogRow({
             <Link
               to="/tasks/$taskId"
               params={{ taskId: item.sourceTaskId }}
-              className="whitespace-nowrap text-muted-foreground"
-              title="The task that proposed this follow-up"
+              className="min-w-0 truncate text-muted-foreground"
+              title={
+                sourceTask ? `Proposed by: ${sourceTask}` : "The task that proposed this follow-up"
+              }
             >
-              From task
+              {sourceTask ? `From ${sourceTask}` : "From task"}
             </Link>
           )}
         </span>
@@ -619,6 +624,11 @@ export function Backlog({ repoId }: { repoId: string }) {
     [items],
   );
   const titles = useMemo(() => new Map(items.map((i) => [i.id, i.title])), [items]);
+  // Across all repos: a follow-up can land in a different repo from its source task.
+  const taskTitles = useMemo(
+    () => new Map((tasks.data ?? []).map((t) => [t.id, t.title])),
+    [tasks.data],
+  );
   const clisFor = (item: BacklogItemView) =>
     backlogAgentClis(
       resolvedRoles(item.agents, roleDefaults.data ?? {}),
@@ -819,6 +829,7 @@ export function Backlog({ repoId }: { repoId: string }) {
                       item={item}
                       state={state}
                       dependsOn={item.dependsOn.map((id) => titles.get(id) ?? "a deleted item")}
+                      sourceTask={item.sourceTaskId ? taskTitles.get(item.sourceTaskId) : undefined}
                       dragging={dragging}
                       onDragStart={() => setDragging(item)}
                       onDragEnd={() => setDragging(null)}
