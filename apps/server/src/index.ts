@@ -1,4 +1,5 @@
 import {
+  acquireDataDirLock,
   createAgentService,
   createBacklogRunner,
   createClaudeAdapter,
@@ -29,7 +30,7 @@ import { parseConfig } from "./config.js";
 import { createGitHubOrigin, firstBranchFor, firstOriginContext } from "./github.js";
 import { createJiraOrigin } from "./jira.js";
 import { openBrowser } from "./open-browser.js";
-import { startServer } from "./server.js";
+import { HOSTNAME, startServer } from "./server.js";
 import { createShutdown } from "./shutdown.js";
 
 const config = parseConfig(process.argv.slice(2), process.env);
@@ -42,6 +43,12 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 }
 
 try {
+  // First: a second instance would otherwise interrupt this one's steps through `recover()`.
+  const lock = acquireDataDirLock(
+    config.dataDir,
+    config.dev ? config.webDevOrigin : `http://${HOSTNAME}:${config.port}`,
+  );
+  shutdown.onShutdown(() => lock.release());
   // Runs in the background; the Settings screen shows the result.
   const clis = detectClis();
   const database = openDatabase(config.dataDir);
