@@ -23,6 +23,7 @@ import {
   pullRequestLookupSchema,
   quotaStateSchema,
   repoBacklogRunnerSchema,
+  repoIssuesSchema,
   reviewRequestsSchema,
   repoScanResultSchema,
   repoSchema,
@@ -60,10 +61,12 @@ import {
   type HealthResponse,
   type MissingCredential,
   type NewBacklogItemInput,
+  type NewTaskInput,
   type IssueLookup,
   type PullRequestLookup,
   type QuotaState,
   type RepoBacklogRunner,
+  type RepoIssues,
   type ResolveConnectionInput,
   type Repo,
   type RepoInput,
@@ -173,6 +176,11 @@ export function getTask(id: string): Promise<Task> {
   return request(`/api/tasks/${encodeURIComponent(id)}`, taskSchema);
 }
 
+/** Creates and queues a task right away, outside the backlog. */
+export function createTask(input: NewTaskInput): Promise<Task> {
+  return request("/api/tasks", taskSchema, { method: "POST", body: input });
+}
+
 /** Resolves a pasted PR link to a task origin and the registered repo it belongs to. */
 export function lookupPullRequest(url: string): Promise<PullRequestLookup> {
   return request("/api/pull-requests/lookup", pullRequestLookupSchema, {
@@ -189,6 +197,11 @@ export function listReviewRequests(): Promise<ReviewRequests> {
 /** Open issues assigned to the user on every GitHub host, and the hosts that failed. */
 export function listAssignedIssues(): Promise<AssignedIssues> {
   return request("/api/issues/assigned", assignedIssuesSchema);
+}
+
+/** The repo's open GitHub issues, whoever they are assigned to, and the host when it failed. */
+export function listRepoIssues(repoId: string): Promise<RepoIssues> {
+  return request(at("/api/issues/repo", repoId), repoIssuesSchema);
 }
 
 export function lookupIssue(url: string): Promise<IssueLookup> {

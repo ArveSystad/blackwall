@@ -1,25 +1,23 @@
 import type { AssignedIssue, BacklogItemView, Task } from "@blackwall/shared";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { MissingCredentialError, createBacklogItem } from "../api";
 import { issueOrigin, issueWork, type IssueWork } from "../assigned-issues";
 import { paneBody, paneHeader, paneTitle } from "../components/classes";
 import { EmptyState } from "../components/EmptyState";
-import { ORIGIN_ICONS } from "../components/origins";
+import { IssueRow, IssueWorkLink } from "../components/IssueRow";
 import { Section } from "../components/Section";
 import { Button } from "../components/ui/button";
 import { ErrorText } from "../components/ui/field";
 import { useWithCredential } from "../credentials";
 import { useNow } from "../hooks";
-import { originKey, relativeTime } from "../inbox";
+import { originKey } from "../inbox";
 import { useEscapeTo } from "../keyboard";
 import { cn } from "../lib/utils";
 import { assignedIssuesQuery, backlogQuery, queryKeys, taskQuery, tasksQuery } from "../query";
 import { groupByHost } from "../review-requests";
 import { errorMessage } from "../settings-forms";
-
-const IssueIcon = ORIGIN_ICONS["github-issue"];
 
 /**
  * Adds the issue with defaults to its repo's backlog; the server starts it at
@@ -69,26 +67,7 @@ function WorkOnTask({ issue, repoId }: { issue: AssignedIssue; repoId: string })
 
 /** The row's trailing action: a link to the work on the issue, else "Work on task". */
 function IssueAction({ issue, work }: { issue: AssignedIssue; work: IssueWork }) {
-  if (work?.kind === "task")
-    return (
-      <Link
-        to="/tasks/$taskId"
-        params={{ taskId: work.taskId }}
-        className="text-body whitespace-nowrap"
-      >
-        Open task
-      </Link>
-    );
-  if (work?.kind === "backlog")
-    return (
-      <Link
-        to="/repos/$repoId/backlog"
-        params={{ repoId: work.repoId }}
-        className="text-body whitespace-nowrap"
-      >
-        In backlog
-      </Link>
-    );
+  if (work) return <IssueWorkLink work={work} />;
   if (issue.repoId === null)
     return (
       <Button
@@ -101,37 +80,6 @@ function IssueAction({ issue, work }: { issue: AssignedIssue; work: IssueWork })
       </Button>
     );
   return <WorkOnTask issue={issue} repoId={issue.repoId} />;
-}
-
-/** One open issue assigned to the user; the row opens it on GitHub, except for its trailing action. */
-function IssueRow({ issue, work, now }: { issue: AssignedIssue; work: IssueWork; now: Date }) {
-  return (
-    <li className="flex items-center gap-1 rounded-lg hover:bg-card">
-      <a
-        href={issue.url}
-        target="_blank"
-        rel="noreferrer"
-        className="flex min-h-10 min-w-0 flex-1 items-center gap-2.5 rounded-lg border border-transparent py-1.5 pr-2 pl-1.5 text-foreground no-underline hover:no-underline focus-visible:border-cyan focus-visible:shadow-ring focus-visible:outline-none"
-      >
-        <IssueIcon size="sm" className="text-muted-foreground" />
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate font-medium text-foreground-strong">{issue.title}</span>
-          <span className="flex min-w-0 items-center gap-2 text-label text-faint">
-            <span className="mono truncate">
-              {issue.owner}/{issue.repo}#{issue.number}
-            </span>
-            {issue.author && <span className="mono truncate">{issue.author}</span>}
-            <time className="whitespace-nowrap" dateTime={issue.updatedAt.toISOString()}>
-              {relativeTime(issue.updatedAt, now)}
-            </time>
-          </span>
-        </span>
-      </a>
-      <span className="flex flex-none items-center pr-2">
-        <IssueAction issue={issue} work={work} />
-      </span>
-    </li>
-  );
 }
 
 /**
@@ -213,8 +161,13 @@ export function AssignedIssues() {
                       <IssueRow
                         key={issue.url}
                         issue={issue}
-                        work={issueWork(issue, tasks.data ?? [], backlogItems)}
                         now={now}
+                        action={
+                          <IssueAction
+                            issue={issue}
+                            work={issueWork(issue, tasks.data ?? [], backlogItems)}
+                          />
+                        }
                       />
                     ))}
                   </Section>

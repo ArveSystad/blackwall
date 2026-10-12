@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assignedIssuesSchema,
+  repoIssuesSchema,
   deliveryConfirmationSchema,
   gateResponseInputSchema,
   shortSummarySchema,
@@ -162,6 +163,36 @@ describe("newTaskInputSchema", () => {
       newTaskInputSchema.safeParse({ origin: issue, repoId: "r1", startComment: { body: " " } })
         .success,
     ).toBe(false);
+  });
+
+  it("assigns the issue to the user for GitHub issue tasks only", () => {
+    const issue = {
+      kind: "github-issue",
+      url: "https://github.com/acme/web/issues/7",
+      owner: "acme",
+      repo: "web",
+      number: 7,
+      connectionId: null,
+    };
+    expect(
+      newTaskInputSchema.parse({ origin: issue, repoId: "r1", assignToMe: true }).assignToMe,
+    ).toBe(true);
+    const freeText = newTaskInputSchema.safeParse({
+      origin: { kind: "free-text" },
+      freeText: "Fix it",
+      repoId: "r1",
+      assignToMe: true,
+    });
+    expect(freeText.success).toBe(false);
+    expect(freeText.error?.issues[0]?.message).toBe("Only GitHub issue tasks can be assigned");
+    expect(
+      newTaskInputSchema.safeParse({
+        origin: { kind: "free-text" },
+        freeText: "Fix it",
+        repoId: "r1",
+        assignToMe: false,
+      }).success,
+    ).toBe(true);
   });
 });
 
@@ -371,6 +402,32 @@ describe("assignedIssuesSchema", () => {
     });
     expect(parsed.issues[0]!.repoId).toBeNull();
     expect(parsed.issues[0]!.connectionId).toBeNull();
+  });
+});
+
+describe("repoIssuesSchema", () => {
+  it("parses a repo's issues with their assignees", () => {
+    const parsed = repoIssuesSchema.parse({
+      issues: [
+        {
+          host: "github.com",
+          owner: "acme",
+          repo: "shop",
+          number: 7,
+          title: "Totals drift by a cent",
+          url: "https://github.com/acme/shop/issues/7",
+          author: "kari",
+          updatedAt: now,
+          repoId: "r1",
+          connectionId: "c1",
+          assignees: ["ola"],
+        },
+      ],
+      errors: [],
+    });
+    expect(parsed.issues[0]!.assignees).toEqual(["ola"]);
+    expect(parsed.issues[0]!.updatedAt).toEqual(new Date(now));
+    expect(repoIssuesSchema.safeParse({ issues: [{}], errors: [] }).success).toBe(false);
   });
 });
 

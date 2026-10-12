@@ -589,6 +589,118 @@ describe("assigned issues search", () => {
   });
 });
 
+describe("repository issues search", () => {
+  const node = (number: number, patch: Record<string, unknown> = {}) => ({
+    url: `https://acme.ghe.com/acme/shop/issues/${number}`,
+    number,
+    title: `Issue ${number}`,
+    updatedAt: "2026-10-01T10:00:00Z",
+    author: { login: "kari" },
+    repository: { name: "shop", owner: { login: "acme" } },
+    assignees: { nodes: [{ login: "ola" }, { login: "kari" }] },
+    ...patch,
+  });
+  const answering = (body: unknown) =>
+    vi.fn<typeof fetch>(() => Promise.resolve(json(JSON.stringify(body))));
+
+  it("posts one search for the repository's open issues, most recently updated first", async () => {
+    const github = answering({ data: { search: { nodes: [] } } });
+    await createGitHubClient(GHE, github).searchRepoIssues({ owner: "acme", repo: "shop" });
+    expect(github).toHaveBeenCalledTimes(1);
+    const [url, init] = github.mock.calls[0]!;
+    expect(String(url)).toBe("https://api.acme.ghe.com/graphql");
+    const { query, variables } = JSON.parse(String(init?.body)) as {
+      query: string;
+      variables: { search: string };
+    };
+    expect(query).toContain("assignees(first: 10)");
+    expect(variables.search).toBe(
+      "repo:acme/shop is:issue is:open archived:false sort:updated-desc",
+    );
+  });
+
+  it("maps issues with their assignees and drops empty nodes", async () => {
+    const github = answering({
+      data: {
+        search: {
+          nodes: [node(1), node(2, { assignees: { nodes: [] } }), node(3, { assignees: null }), {}],
+        },
+      },
+    });
+    const rows = await createGitHubClient(GHE, github).searchRepoIssues({
+      owner: "acme",
+      repo: "shop",
+    });
+    expect(rows).toEqual([
+      {
+        host: "acme.ghe.com",
+        owner: "acme",
+        repo: "shop",
+        number: 1,
+        title: "Issue 1",
+        url: "https://acme.ghe.com/acme/shop/issues/1",
+        author: "kari",
+        updatedAt: "2026-10-01T10:00:00Z",
+        assignees: ["ola", "kari"],
+      },
+      expect.objectContaining({ number: 2, assignees: [] }),
+      expect.objectContaining({ number: 3, assignees: [] }),
+    ]);
+  });
+
+  it("reports GraphQL errors with the host and without the token", async () => {
+    const github = answering({
+      data: null,
+      errors: [{ type: "FORBIDDEN", message: `SAML SSO enforced for ${TOKEN}` }],
+    });
+    const error = await createGitHubClient(GHE, github)
+      .searchRepoIssues({ owner: "acme", repo: "shop" })
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitHubError);
+    expect((error as GitHubError).message).toMatch(/^acme\.ghe\.com: SAML SSO enforced/);
+    expect((error as GitHubError).message).not.toContain(TOKEN);
+  });
+});
+
+describe("assignToViewer", () => {
+  it("assigns the issue to the token's user", async () => {
+    const fetchImpl = vi.fn<typeof fetch>((input) =>
+      Promise.resolve(
+        new URL(String(input)).pathname === "/user"
+          ? json('{"login":"kari"}')
+          : json('{"number":7,"assignees":[{"login":"kari"}]}', 201),
+      ),
+    );
+    const result = await createGitHubClient(GHE, fetchImpl).assignToViewer(ISSUE);
+    expect(result).toEqual({ login: "kari" });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const [userUrl, userInit] = fetchImpl.mock.calls[0]!;
+    expect(String(userUrl)).toBe("https://api.acme.ghe.com/user");
+    expect(userInit?.method).toBe("GET");
+    const [url, init] = fetchImpl.mock.calls[1]!;
+    expect(String(url)).toBe("https://api.acme.ghe.com/repos/acme/shop/issues/7/assignees");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({ assignees: ["kari"] });
+  });
+
+  it("reports a refusal without the token", async () => {
+    const fetchImpl = vi.fn<typeof fetch>((input) =>
+      Promise.resolve(
+        new URL(String(input)).pathname === "/user"
+          ? json('{"login":"kari"}')
+          : json(`{"message":"Resource not accessible by ${TOKEN}"}`, 403),
+      ),
+    );
+    const error = await createGitHubClient(GHE, fetchImpl)
+      .assignToViewer(ISSUE)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitHubError);
+    expect((error as GitHubError).status).toBe(403);
+    expect((error as GitHubError).message).toMatch(/^acme\.ghe\.com: access denied/);
+    expect((error as GitHubError).message).not.toContain(TOKEN);
+  });
+});
+
 const finding = (patch: Partial<ReviewFinding>): ReviewFinding => ({
   severity: "Medium",
   tags: [],

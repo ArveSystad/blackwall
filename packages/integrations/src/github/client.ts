@@ -210,6 +210,33 @@ const ASSIGNED_ISSUES_QUERY = `query AssignedIssues($search: String!) {
   }
 }`;
 
+/** An open issue in one repository, whoever it is assigned to. */
+export interface GitHubRepoIssue extends GitHubAssignedIssue {
+  /** Logins of the issue's assignees (at most 10). */
+  assignees: string[];
+}
+
+/** An `Issue` node of the repository issues search. */
+interface RepoIssueNode extends AssignedIssueNode {
+  assignees?: { nodes?: ({ login: string } | null)[] } | null;
+}
+
+const REPO_ISSUES_QUERY = `query RepoIssues($search: String!) {
+  search(type: ISSUE, query: $search, first: 100) {
+    nodes {
+      ... on Issue {
+        url
+        number
+        title
+        updatedAt
+        author { login }
+        repository { name owner { login } }
+        assignees(first: 10) { nodes { login } }
+      }
+    }
+  }
+}`;
+
 const TIMEOUT_MS = 30_000;
 const PER_PAGE = 100;
 
@@ -476,6 +503,52 @@ export function createGitHubClient(credentials: GitHubCredentials, fetchImpl: Fe
             },
           ];
         });
+      });
+    },
+
+    /**
+     * Open issues in the repository, whoever they are assigned to, at most
+     * 100, most recently updated first.
+     */
+    searchRepoIssues(repository: { owner: string; repo: string }, signal?: AbortSignal) {
+      const search = `repo:${repository.owner}/${repository.repo} is:issue is:open archived:false sort:updated-desc`;
+      return call(`${repository.owner}/${repository.repo}`, signal, async () => {
+        const res = await octokit.graphql<{ search: { nodes: RepoIssueNode[] } }>(
+          REPO_ISSUES_QUERY,
+          { search, request: requestOptions(signal) },
+        );
+        return res.search.nodes.flatMap((node): GitHubRepoIssue[] => {
+          if (!node.url || !node.repository || node.number === undefined) return [];
+          return [
+            {
+              host,
+              owner: node.repository.owner.login,
+              repo: node.repository.name,
+              number: node.number,
+              title: node.title ?? "",
+              url: node.url,
+              author: node.author?.login ?? null,
+              updatedAt: node.updatedAt ?? new Date(0).toISOString(),
+              assignees: (node.assignees?.nodes ?? []).flatMap((a) => (a ? [a.login] : [])),
+            },
+          ];
+        });
+      });
+    },
+
+    /** Assigns the issue to the token's user; already assigned is fine. Returns the user's login. */
+    assignToViewer(issue: PullRequestCoordinates) {
+      return call(prName(issue), undefined, async () => {
+        const user = await octokit.rest.users.getAuthenticated({ request: requestOptions() });
+        const login = user.data.login;
+        await octokit.rest.issues.addAssignees({
+          owner: issue.owner,
+          repo: issue.repo,
+          issue_number: issue.number,
+          assignees: [login],
+          request: requestOptions(),
+        });
+        return { login };
       });
     },
 

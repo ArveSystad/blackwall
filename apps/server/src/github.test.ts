@@ -6,6 +6,7 @@ import type {
   Finding,
   IssueLookup,
   PullRequestLookup,
+  RepoIssues,
   ReviewRequests,
   Task,
 } from "@blackwall/shared";
@@ -247,6 +248,22 @@ describe("GitHub issue origin", () => {
     const github = createGitHubOrigin({ connections: list, fetch: fakeIssues().fetchImpl });
     await expect(github.titleFor(issueOrigin)).rejects.toThrow(MissingCredentialError);
     await expect(github.commentOnIssue(issueOrigin, "x")).rejects.toThrow(MissingCredentialError);
+    await expect(github.assignIssue(issueOrigin)).rejects.toThrow(MissingCredentialError);
+  });
+
+  it("assigns the issue to the token's user", async () => {
+    const fetchImpl = vi.fn<typeof fetch>((input) => {
+      const path = new URL(String(input)).pathname;
+      const body = path === "/user" ? { login: "kari" } : { number: 7 };
+      return Promise.resolve(
+        new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } }),
+      );
+    });
+    const github = createGitHubOrigin({ connections: connections([ghe]), fetch: fetchImpl });
+    expect(await github.assignIssue(issueOrigin)).toEqual({ login: "kari" });
+    const [url, init] = fetchImpl.mock.calls[1]!;
+    expect(new URL(String(url)).pathname).toBe("/repos/acme/shop/issues/7/assignees");
+    expect(JSON.parse(String(init?.body))).toEqual({ assignees: ["kari"] });
   });
 });
 
@@ -575,6 +592,127 @@ describe("assigned issues route", () => {
   it("returns nothing without connections", async () => {
     const res = await setup([]).routes.request("/assigned");
     expect(await res.json()).toEqual({ issues: [], errors: [] });
+  });
+});
+
+describe("repo issues route", () => {
+  const conn = (id: string, kind: Connection["kind"], baseUrl: string, hasToken = true) =>
+    ({ id, name: id, kind, baseUrl, authMeta: {}, hasToken }) as unknown as ConnectionView;
+  const node = (number: number, updatedAt: string, assignees: string[]) => ({
+    url: `https://acme.ghe.com/acme/shop/issues/${number}`,
+    number,
+    title: `Issue ${number}`,
+    updatedAt,
+    author: { login: "kari" },
+    repository: { name: "shop", owner: { login: "acme" } },
+    assignees: { nodes: assignees.map((login) => ({ login })) },
+  });
+  const repos = [
+    { id: "r1", remoteUrl: "git@acme.ghe.com:acme/shop.git" },
+    { id: "r2", remoteUrl: null },
+    { id: "r3", remoteUrl: "https://gitlab.com/acme/shop.git" },
+    { id: "r4", remoteUrl: "C:\\Code\\shop" },
+  ];
+
+  function setup(list: ConnectionView[], { fail = false } = {}) {
+    const fetchImpl = vi.fn<typeof fetch>(() => {
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "content-type": "application/json" },
+        });
+      if (fail) return Promise.resolve(json({ message: "Bad credentials" }, 401));
+      const nodes = [
+        node(1, "2026-09-30T10:00:00Z", []),
+        node(2, "2026-10-03T10:00:00Z", ["ola"]),
+        node(3, "2026-10-01T10:00:00Z", ["kari", "ola"]),
+      ];
+      return Promise.resolve(json({ data: { search: { nodes } } }));
+    });
+    const credentialById = vi.fn(async (id: string) => ({
+      connection: list.find((c) => c.id === id) as unknown as Connection,
+      token: TOKEN,
+    }));
+    const resolve: IssueRoutesOptions["connections"]["resolve"] = (target) =>
+      list.find(
+        (c) =>
+          c.kind === target.kind &&
+          "remote" in target &&
+          target.remote.includes(new URL(c.baseUrl).host),
+      ) as unknown as Connection | undefined;
+    const routes = issueRoutes({
+      connections: { resolve, list: () => list, credentialById },
+      repos: { list: () => repos as never },
+      fetch: fetchImpl,
+    });
+    return { routes, fetchImpl, credentialById };
+  }
+
+  const acme = conn("c2", "github", "https://acme.ghe.com");
+
+  it("lists the repository's open issues, most recently updated first", async () => {
+    const { routes, fetchImpl } = setup([acme]);
+    const res = await routes.request("/repo/r1");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as RepoIssues;
+    expect(body.errors).toEqual([]);
+    expect(body.issues.map((issue) => [issue.number, issue.assignees])).toEqual([
+      [2, ["ola"]],
+      [3, ["kari", "ola"]],
+      [1, []],
+    ]);
+    expect(body.issues[0]).toEqual({
+      host: "acme.ghe.com",
+      owner: "acme",
+      repo: "shop",
+      number: 2,
+      title: "Issue 2",
+      url: "https://acme.ghe.com/acme/shop/issues/2",
+      author: "kari",
+      updatedAt: "2026-10-03T10:00:00.000Z",
+      assignees: ["ola"],
+      repoId: "r1",
+      connectionId: "c2",
+    });
+    const { variables } = JSON.parse(String(fetchImpl.mock.calls[0]![1]?.body)) as {
+      variables: { search: string };
+    };
+    expect(variables.search).toBe(
+      "repo:acme/shop is:issue is:open archived:false sort:updated-desc",
+    );
+  });
+
+  it("answers 404 for an unknown repo", async () => {
+    const res = await setup([acme]).routes.request("/repo/nope");
+    expect(res.status).toBe(404);
+  });
+
+  it("lists nothing, without asking GitHub, when the repo has no GitHub remote or token", async () => {
+    for (const [list, repoId] of [
+      [[acme], "r2"],
+      [[acme], "r3"],
+      [[acme], "r4"],
+      [[conn("c2", "github", "https://acme.ghe.com", false)], "r1"],
+      [[conn("j1", "jira", "https://acme.ghe.com")], "r1"],
+    ] as const) {
+      const { routes, fetchImpl, credentialById } = setup([...list]);
+      const res = await routes.request(`/repo/${repoId}`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ issues: [], errors: [] });
+      expect(fetchImpl).not.toHaveBeenCalled();
+      expect(credentialById).not.toHaveBeenCalled();
+    }
+  });
+
+  it("lists a host failure in errors", async () => {
+    const res = await setup([acme], { fail: true }).routes.request("/repo/r1");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as RepoIssues;
+    expect(body).toEqual({
+      issues: [],
+      errors: [{ host: "acme.ghe.com", message: "acme.ghe.com: token rejected" }],
+    });
+    expect(JSON.stringify(body)).not.toContain(TOKEN);
   });
 });
 

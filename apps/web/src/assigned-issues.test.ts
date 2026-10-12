@@ -1,4 +1,4 @@
-import type { AssignedIssue } from "@blackwall/shared";
+import type { AssignedIssue, RepoIssue } from "@blackwall/shared";
 import { describe, expect, it } from "vitest";
 import { issueOrigin, issuePillLabel, issueWork } from "./assigned-issues";
 import { makeBacklogItem, makeTask } from "./test-fixtures";
@@ -41,6 +41,12 @@ describe("issueOrigin", () => {
 describe("issueWork", () => {
   it("returns null when nothing works on the issue", () => {
     expect(issueWork(issue, [makeTask()], [makeBacklogItem()])).toBeNull();
+  });
+
+  it("accepts a repo issue with its assignees", () => {
+    const repoIssue: RepoIssue = { ...issue, assignees: ["ola"] };
+    const task = makeTask({ origin: issueOrigin(repoIssue) });
+    expect(issueWork(repoIssue, [task], [])).toEqual({ kind: "task", taskId: task.id });
   });
 
   it("finds a task for the issue", () => {

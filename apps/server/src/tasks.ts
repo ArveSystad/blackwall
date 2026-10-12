@@ -70,6 +70,8 @@ export interface NewTaskServices {
   originTitle?: (origin: TaskOrigin) => Promise<string | undefined>;
   /** Posts a comment the user confirmed on a GitHub issue, for the start comment. */
   commentOnIssue?: (origin: GitHubIssueOrigin, body: string) => Promise<{ url: string }>;
+  /** Assigns a GitHub issue to the token's user, for `assignToMe`. */
+  assignIssue?: (origin: GitHubIssueOrigin) => Promise<unknown>;
 }
 
 type GitHubIssueOrigin = Extract<TaskOrigin, { kind: "github-issue" }>;
@@ -126,6 +128,8 @@ export type ParsedNewTaskInput = Omit<QueuedTaskInput, "title"> & {
   title?: string | undefined;
   /** GitHub issue tasks: a comment the user confirmed, posted when the task is created. */
   startComment?: { body: string } | undefined;
+  /** GitHub issue tasks: assign the issue to the token's user when the task is created. */
+  assignToMe?: boolean | undefined;
 };
 
 /**
@@ -133,17 +137,20 @@ export type ParsedNewTaskInput = Omit<QueuedTaskInput, "title"> & {
  * agents on top of the role defaults and, without a title, uses the Jira
  * issue's summary, the PR's or GitHub issue's title, or a fallback. A GitHub
  * issue task's confirmed start comment is posted before the task exists, so
- * a failed post creates nothing and a retry leaves no duplicate task.
+ * a failed post creates nothing and a retry leaves no duplicate task. With
+ * `assignToMe` the issue is assigned to the user the same way, before the
+ * task exists; assigning again on a retry is harmless.
  */
 export async function createTaskFromInput(
   pipeline: Pick<TaskPipeline, "createTask">,
   newTask: NewTaskServices,
   input: ParsedNewTaskInput,
 ): Promise<Task> {
-  const { origin, freeText, startComment } = input;
+  const { origin, freeText, startComment, assignToMe } = input;
   newTask.repos.use(input.repoId);
   const title = input.title ?? (await titleFor(origin, freeText, newTask.originTitle));
   if (startComment) await postStartComment(newTask, origin, startComment);
+  if (assignToMe) await assignIssueToUser(newTask, origin);
   return queueTask(pipeline, newTask, { ...input, title });
 }
 
@@ -163,6 +170,27 @@ export async function postStartComment(
   if (!newTask.commentOnIssue) throw new Error("Commenting on GitHub issues is not set up");
   try {
     await newTask.commentOnIssue(origin, body);
+  } catch (error) {
+    if (error instanceof MissingCredentialError) throw error;
+    throw new DeliveryError(error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Assigns a GitHub issue task's issue to the token's user. A missing token
+ * surfaces as is (the token modal asks for one); other failures carry the
+ * host's own message.
+ */
+export async function assignIssueToUser(
+  newTask: Pick<NewTaskServices, "assignIssue">,
+  origin: TaskOrigin,
+): Promise<void> {
+  if (origin.kind !== "github-issue") {
+    throw new InvalidGateResponseError("Only GitHub issue tasks can be assigned");
+  }
+  if (!newTask.assignIssue) throw new Error("Assigning GitHub issues is not set up");
+  try {
+    await newTask.assignIssue(origin);
   } catch (error) {
     if (error instanceof MissingCredentialError) throw error;
     throw new DeliveryError(error instanceof Error ? error.message : String(error));

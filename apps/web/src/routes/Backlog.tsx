@@ -1,6 +1,7 @@
 import {
   AGENT_ROLES,
   type BacklogItemView,
+  type RepoIssue,
   type RepoSync,
   type RoleAgents,
   type Task,
@@ -9,8 +10,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
+  MissingCredentialError,
   archiveTask,
   createBacklogItem,
+  createTask,
   deleteBacklogItem,
   pushRepo,
   reorderBacklog,
@@ -36,9 +39,11 @@ import {
   type BacklogItemState,
   type RunnerStatus,
 } from "../backlog";
+import { issueOrigin, issueWork, type IssueWork } from "../assigned-issues";
 import { paneBody, paneHeader, paneTitle } from "../components/classes";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { EmptyState } from "../components/EmptyState";
+import { IssueRow, IssueWorkLink } from "../components/IssueRow";
 import {
   BacklogIcon,
   FailedIcon,
@@ -56,6 +61,7 @@ import { Button } from "../components/ui/button";
 import { ErrorText } from "../components/ui/field";
 import { Input } from "../components/ui/input";
 import { Kbd } from "../components/ui/kbd";
+import { useWithCredential } from "../credentials";
 import { useNow } from "../hooks";
 import { useEscapeTo } from "../keyboard";
 import { matchesFilter, originKey, statusLabel } from "../inbox";
@@ -65,6 +71,7 @@ import {
   backlogRunnerQuery,
   queryKeys,
   quotaQuery,
+  repoIssuesQuery,
   repoSyncQuery,
   reposQuery,
   roleDefaultsQuery,
@@ -500,6 +507,65 @@ function TaskRow({
   );
 }
 
+/**
+ * Assigns the issue to the user on GitHub and creates its task at once, even
+ * with the runner off. The row then links to the task.
+ */
+function WorkOnIssue({ issue, repoId }: { issue: RepoIssue; repoId: string }) {
+  const queryClient = useQueryClient();
+  const withCredential = useWithCredential();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function work() {
+    if (pending) return;
+    setPending(true);
+    setError(null);
+    const origin = issueOrigin(issue);
+    try {
+      const task = await withCredential(
+        { label: "Work on issue", target: originKey({ origin }) },
+        () => createTask({ origin, repoId, assignToMe: true }),
+      );
+      queryClient.setQueryData<Task[]>(queryKeys.tasks, (tasks) =>
+        tasks && !tasks.some((t) => t.id === task.id) ? [...tasks, task] : tasks,
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.repoIssues(repoId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.assignedIssues }),
+      ]);
+    } catch (cause) {
+      setError(
+        cause instanceof MissingCredentialError ? "Cancelled: no token saved" : errorMessage(cause),
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <span className="flex flex-col items-end gap-0.5">
+      <Button size="sm" variant="ghost" disabled={pending} onClick={() => void work()}>
+        Work on issue
+      </Button>
+      {error && <ErrorText className="max-w-60 text-right">{error}</ErrorText>}
+    </span>
+  );
+}
+
+/** A GitHub issue row's trailing action: a link to the work on it, else "Work on issue". */
+function RepoIssueAction({
+  issue,
+  repoId,
+  work,
+}: {
+  issue: RepoIssue;
+  repoId: string;
+  work: IssueWork;
+}) {
+  return work ? <IssueWorkLink work={work} /> : <WorkOnIssue issue={issue} repoId={repoId} />;
+}
+
 /** Title-only Blackwall items, added with Enter. */
 function QuickAdd({ repoId, onError }: { repoId: string; onError: (error: string) => void }) {
   const queryClient = useQueryClient();
@@ -567,6 +633,7 @@ export function Backlog({ repoId }: { repoId: string }) {
   const quota = useQuery(quotaQuery);
   const roleDefaults = useQuery(roleDefaultsQuery);
   const sync = useQuery(repoSyncQuery(repoId));
+  const repoIssues = useQuery(repoIssuesQuery(repoId));
   const [dialog, setDialog] = useState<Dialog>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState<BacklogItemView | null>(null);
@@ -610,6 +677,7 @@ export function Backlog({ repoId }: { repoId: string }) {
     () => new Set(items.flatMap((i) => (i.taskId ? [i.taskId] : []))),
     [items],
   );
+  const issues = repoIssues.data?.issues ?? [];
   const titles = useMemo(() => new Map(items.map((i) => [i.id, i.title])), [items]);
   // Across all repos: a follow-up can land in a different repo from its source task.
   const taskTitles = useMemo(
@@ -788,6 +856,7 @@ export function Backlog({ repoId }: { repoId: string }) {
             {items.length === 0 &&
               sections.active.length === 0 &&
               sections.earlier.length === 0 &&
+              issues.length === 0 &&
               !(showArchive && sections.archived.length > 0) && (
                 <EmptyState title="Nothing waiting">
                   Park work here and the runner starts it when the repo is idle. Quick add a line
@@ -864,6 +933,36 @@ export function Backlog({ repoId }: { repoId: string }) {
                 })}
               </Section>
             ))}
+            {repoIssues.data?.errors.map((issuesError) => (
+              <EmptyState
+                key={`issues-error:${issuesError.host}`}
+                role="alert"
+                title={`Could not load GitHub issues from ${issuesError.host}`}
+                className="flex-none"
+                onRetry={() => void repoIssues.refetch()}
+              >
+                {issuesError.message}
+              </EmptyState>
+            ))}
+            {issues.length > 0 && (
+              <Section label="GitHub issues" ariaLabel="GitHub issues" count={issues.length}>
+                {issues.map((issue) => (
+                  <IssueRow
+                    key={issue.url}
+                    issue={issue}
+                    now={now}
+                    assignees={issue.assignees}
+                    action={
+                      <RepoIssueAction
+                        issue={issue}
+                        repoId={repoId}
+                        work={issueWork(issue, tasks.data ?? [], items)}
+                      />
+                    }
+                  />
+                ))}
+              </Section>
+            )}
             {sections.earlier.length > 0 && (
               <Section label="Other tasks" ariaLabel="Other tasks" count={sections.earlier.length}>
                 {sections.earlier.map((task) => (

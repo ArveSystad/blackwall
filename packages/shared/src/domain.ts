@@ -741,6 +741,20 @@ function checkStartComment(
   }
 }
 
+/** Only GitHub issue tasks assign their issue to the user. */
+function checkAssignToMe(
+  value: { origin: TaskOrigin; assignToMe?: boolean | undefined },
+  ctx: z.RefinementCtx,
+): void {
+  if (value.assignToMe && value.origin.kind !== "github-issue") {
+    ctx.addIssue({
+      code: "custom",
+      path: ["assignToMe"],
+      message: "Only GitHub issue tasks can be assigned",
+    });
+  }
+}
+
 /** New task form / `POST /api/tasks` body. */
 export const newTaskInputSchema = z
   .object({
@@ -759,6 +773,8 @@ export const newTaskInputSchema = z
      * issue when the task is created. Omitted: nothing is posted.
      */
     startComment: issueCommentInputSchema.optional(),
+    /** GitHub issue tasks only: assign the issue to the token's user when the task is created. */
+    assignToMe: z.boolean().optional(),
   })
   .superRefine((value, ctx) => {
     checkMode(value, ctx);
@@ -766,6 +782,7 @@ export const newTaskInputSchema = z
       ctx.addIssue({ code: "custom", path: ["freeText"], message: "Describe the task" });
     }
     checkStartComment(value, ctx);
+    checkAssignToMe(value, ctx);
   });
 export type NewTaskInput = z.input<typeof newTaskInputSchema>;
 
@@ -988,6 +1005,23 @@ export const assignedIssuesSchema = z.object({
   errors: z.object({ host: z.string(), message: z.string() }).array(),
 });
 export type AssignedIssues = z.infer<typeof assignedIssuesSchema>;
+
+/** An open issue in a repo's GitHub/GHE repository, whoever it is assigned to. */
+export const repoIssueSchema = assignedIssueSchema.extend({
+  /** Logins of the issue's assignees; empty when unassigned. */
+  assignees: z.string().array(),
+});
+export type RepoIssue = z.infer<typeof repoIssueSchema>;
+
+/**
+ * `GET /api/issues/repo/:repoId`: the repo's open issues, at most the 100 most
+ * recently updated, newest first, and the host when it failed.
+ */
+export const repoIssuesSchema = z.object({
+  issues: repoIssueSchema.array(),
+  errors: z.object({ host: z.string(), message: z.string() }).array(),
+});
+export type RepoIssues = z.infer<typeof repoIssuesSchema>;
 
 /**
  * One round's changes on the task branch: the range Code review reviewed in

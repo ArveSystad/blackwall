@@ -594,7 +594,7 @@ describe("new tasks", () => {
     expect(await missing.json()).toMatchObject({ error: "MissingCredential" });
   });
 
-  describe("GitHub issue start comments", () => {
+  describe("GitHub issue start comments and assignment", () => {
     const issueOrigin = {
       kind: "github-issue",
       url: "https://github.com/acme/web/issues/7",
@@ -606,6 +606,7 @@ describe("new tasks", () => {
     let commentOnIssue: ReturnType<
       typeof vi.fn<(origin: unknown, body: string) => Promise<{ url: string }>>
     >;
+    let assignIssue: ReturnType<typeof vi.fn<(origin: unknown) => Promise<unknown>>>;
     let order: string[];
 
     beforeEach(() => {
@@ -613,6 +614,10 @@ describe("new tasks", () => {
       commentOnIssue = vi.fn(async () => {
         order.push("comment");
         return { url: "https://github.com/acme/web/issues/7#issuecomment-1" };
+      });
+      assignIssue = vi.fn(async () => {
+        order.push("assign");
+        return { login: "kari" };
       });
       vi.mocked(pipeline.createTask).mockImplementation((values) => {
         order.push("create");
@@ -630,6 +635,7 @@ describe("new tasks", () => {
             resolveClis,
             originTitle,
             commentOnIssue,
+            assignIssue,
           },
         },
       }).app;
@@ -687,6 +693,59 @@ describe("new tasks", () => {
       });
       expect(pr.status).toBe(400);
       expect(commentOnIssue).not.toHaveBeenCalled();
+    });
+
+    it("assigns the issue to the user before creating the task", async () => {
+      const res = await request("/api/tasks", {
+        method: "POST",
+        body: {
+          origin: issueOrigin,
+          repoId,
+          startComment: { body: "Started." },
+          assignToMe: true,
+        },
+      });
+      expect(res.status).toBe(201);
+      expect(assignIssue).toHaveBeenCalledTimes(1);
+      expect(assignIssue).toHaveBeenCalledWith(issueOrigin);
+      expect(order).toEqual(["comment", "assign", "create"]);
+      expect(vi.mocked(pipeline.createTask).mock.calls[0]![0]).not.toHaveProperty("assignToMe");
+    });
+
+    it("creates no task when assigning fails, and surfaces a missing token", async () => {
+      assignIssue.mockRejectedValueOnce(new Error("github.com: access denied"));
+      const failed = await request("/api/tasks", {
+        method: "POST",
+        body: { origin: issueOrigin, repoId, assignToMe: true },
+      });
+      expect(failed.status).toBe(502);
+      expect(await failed.json()).toEqual({ error: "github.com: access denied" });
+
+      assignIssue.mockRejectedValueOnce(new MissingCredentialError("github", "github.com", null));
+      const missing = await request("/api/tasks", {
+        method: "POST",
+        body: { origin: issueOrigin, repoId, assignToMe: true },
+      });
+      expect(missing.status).toBe(409);
+      expect(await missing.json()).toMatchObject({ error: "MissingCredential" });
+      expect(pipeline.createTask).not.toHaveBeenCalled();
+      expect(repositories.tasks.list()).toEqual([]);
+    });
+
+    it("assigns nothing without assignToMe, and refuses it on other origins", async () => {
+      const res = await request("/api/tasks", {
+        method: "POST",
+        body: { origin: issueOrigin, repoId },
+      });
+      expect(res.status).toBe(201);
+      expect(assignIssue).not.toHaveBeenCalled();
+
+      const freeText = await request("/api/tasks", {
+        method: "POST",
+        body: { origin: { kind: "free-text" }, freeText: "Fix it", repoId, assignToMe: true },
+      });
+      expect(freeText.status).toBe(400);
+      expect(assignIssue).not.toHaveBeenCalled();
     });
   });
 
