@@ -350,10 +350,27 @@ function Outbound({
   );
 }
 
+/** The pull request delivery opened, one click away once the task is done. */
+function Delivered({ url }: { url: string }) {
+  return (
+    <div className="flex flex-col gap-2 px-4 pt-3 pb-3.5">
+      <Button variant="needs" asChild className="h-9 justify-center text-body">
+        <a href={url} target="_blank" rel="noreferrer">
+          Open pull request
+        </a>
+      </Button>
+      <span className="mono truncate text-meta text-muted-foreground" title={url}>
+        {url}
+      </span>
+    </div>
+  );
+}
+
 /**
  * Finish: the summary on the left, and on the right every outbound action
  * as a pre-ticked checkbox showing exactly what is sent. Nothing leaves the
- * machine until the user confirms here.
+ * machine until the user confirms here. Once done, a delivered pull request
+ * stays linked from the same panel.
  */
 export function FinishPanel({
   task,
@@ -370,11 +387,12 @@ export function FinishPanel({
   const plan = useQuery({ ...taskDeliveryQuery(task.id), enabled: atGate });
   const resolving =
     data.deliveryStep?.status === "running" ? data.deliveryConflicts.at(-1) : undefined;
+  const delivered = task.status === "done" ? data.pullRequestUrl : undefined;
 
   return (
     <div className="flex min-h-0 flex-1 flex-wrap">
       <Summary task={task} data={data} />
-      {atGate && (
+      {(atGate || delivered) && (
         <aside
           aria-label="Outbound actions"
           className="flex h-full max-w-[500px] min-w-0 flex-[1_1_440px] flex-col border-l border-border bg-sidebar"
@@ -382,13 +400,18 @@ export function FinishPanel({
           <div className="flex flex-col gap-1 border-b border-border px-[18px] pt-3.5 pb-3">
             <span className="flex items-center gap-2">
               <WallIcon size="lg" className="text-magenta" />
-              <span className="label text-magenta">Outbound · crosses the wall</span>
+              <span className="label text-magenta">
+                {atGate ? "Outbound · crosses the wall" : "Outbound · crossed the wall"}
+              </span>
             </span>
             <span className="text-[12.5px] text-foreground">
-              Nothing leaves this machine until you confirm. Untick anything you want to keep local.
+              {atGate
+                ? "Nothing leaves this machine until you confirm. Untick anything you want to keep local."
+                : "Delivered. Your pull request is open."}
             </span>
           </div>
-          {resolving && (
+          {!atGate && delivered && <Delivered url={delivered} />}
+          {atGate && resolving && (
             <p
               role="status"
               className="m-0 border-b border-magenta/45 bg-needs-wash px-[18px] py-2.5 text-[12.5px] text-needs"
@@ -399,7 +422,7 @@ export function FinishPanel({
               resolving them; the merge continues on its own.
             </p>
           )}
-          {plan.isPending ? (
+          {!atGate ? null : plan.isPending ? (
             <p className="m-0 px-[18px] py-3 text-muted-foreground">Working out what to send…</p>
           ) : plan.isError ? (
             <div className="flex flex-col items-start gap-2 px-[18px] py-3">

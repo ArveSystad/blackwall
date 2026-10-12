@@ -37,6 +37,7 @@ import {
   originUrl,
   parseJiraInput,
   planApprovalComment,
+  pullRequestUrl,
   sortFindings,
   stepModel,
   subagentStatus,
@@ -565,6 +566,50 @@ describe("runs and steps", () => {
       { branch: "agent/t1", into: "main", files: ["b.tsx"] },
     ]);
     expect(deliveryConflicts([event(1, "message", { text: "hi" })])).toEqual([]);
+  });
+
+  it("finds the pull request a delivery opened", () => {
+    const url = "https://github.com/acme/app/pull/12";
+    expect(
+      pullRequestUrl([
+        event(1, "delivery.done", { action: "push-branch", detail: "agent/t1" }),
+        event(2, "delivery.done", { action: "open-pr", detail: url }),
+        event(3, "delivery.done", { action: "issue-comment", detail: "https://x.test/c/1" }),
+      ]),
+    ).toBe(url);
+  });
+
+  it("ignores other delivery actions and other events when finding the pull request", () => {
+    expect(
+      pullRequestUrl([
+        event(1, "delivery.done", { action: "push-branch", detail: "https://x.test/b" }),
+        event(2, "delivery.done", { action: "issue-comment", detail: "https://x.test/c" }),
+        event(3, "message", { action: "open-pr", detail: "https://x.test/p" }),
+      ]),
+    ).toBeUndefined();
+  });
+
+  it("takes the last pull request a delivery opened", () => {
+    expect(
+      pullRequestUrl([
+        event(1, "delivery.done", { action: "open-pr", detail: "https://x.test/pull/1" }),
+        event(2, "delivery.done", { action: "open-pr", detail: "https://x.test/pull/2" }),
+      ]),
+    ).toBe("https://x.test/pull/2");
+  });
+
+  it("has no pull request without a valid link", () => {
+    expect(pullRequestUrl([])).toBeUndefined();
+    expect(
+      pullRequestUrl([event(1, "delivery.done", { action: "open-pr", detail: "" })]),
+    ).toBeUndefined();
+    expect(
+      pullRequestUrl([event(1, "delivery.done", { action: "open-pr", detail: "abc123" })]),
+    ).toBeUndefined();
+    expect(
+      pullRequestUrl([event(1, "delivery.done", { action: "open-pr", detail: "javascript:x" })]),
+    ).toBeUndefined();
+    expect(pullRequestUrl([event(1, "delivery.done", { action: "open-pr" })])).toBeUndefined();
   });
 
   it("counts the user's open grill questions", () => {
