@@ -39,6 +39,7 @@ import {
   planApprovalComment,
   sortFindings,
   stepModel,
+  subagentStatus,
   TASK_TABS,
   toolTarget,
   visibleFindings,
@@ -318,6 +319,102 @@ describe("buildTranscript", () => {
       { command: "pnpm lint", exitCode: 0, output: "ok", timedOut: false, running: false },
       { command: "pnpm test", exitCode: null, output: "", timedOut: false, running: true },
     ]);
+  });
+
+  it("nests a sub-agent's messages and tool calls under its Agent call", () => {
+    const input = {
+      subagent_type: "blackwall-worker",
+      description: "Read a.txt",
+      prompt: "Read it",
+    };
+    const items = buildTranscript([
+      event(1, "message", { text: "Handing off." }),
+      event(2, "tool-call-start", { id: "t1", name: "Agent", input }),
+      event(3, "subagent-start", { id: "t1", agentType: "blackwall-worker", description: null }),
+      event(4, "message", { text: "Reading.", parentId: "t1" }),
+      event(5, "tool-call-start", {
+        id: "c1",
+        name: "Read",
+        input: { file_path: "a.txt" },
+        parentId: "t1",
+      }),
+      event(6, "tool-call-end", { id: "c1", output: "hello", isError: false, parentId: "t1" }),
+      event(7, "tool-call-end", { id: "t1", output: "It says hello.", isError: false }),
+      event(8, "subagent-end", { id: "t1" }),
+      event(9, "message", { text: "Done." }),
+    ]);
+    expect(items.map((item) => item.kind)).toEqual(["message", "subagent", "message"]);
+    expect(items[1]).toEqual({
+      kind: "subagent",
+      key: "s1:2",
+      id: "t1",
+      name: "Agent",
+      target: "Read a.txt",
+      agentType: "blackwall-worker",
+      description: "Read a.txt",
+      input,
+      output: "It says hello.",
+      isError: false,
+      items: [
+        { kind: "message", key: "s1:4", text: "Reading." },
+        {
+          kind: "tool",
+          key: "s1:5",
+          name: "Read",
+          target: "a.txt",
+          input: { file_path: "a.txt" },
+          output: "hello",
+          isError: false,
+        },
+      ],
+    });
+  });
+
+  it("groups by parentId without a subagent-start, naming the group from the call's input", () => {
+    const items = buildTranscript([
+      event(1, "tool-call-start", {
+        id: "t1",
+        name: "Agent",
+        input: { subagent_type: "Explore", description: "Find tests" },
+      }),
+      event(2, "message", { text: "Looking.", parentId: "t1" }),
+    ]);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      kind: "subagent",
+      agentType: "Explore",
+      description: "Find tests",
+      output: null,
+      items: [{ kind: "message", text: "Looking." }],
+    });
+  });
+
+  it("keeps interleaved sub-agents' children apart", () => {
+    const items = buildTranscript([
+      event(1, "tool-call-start", { id: "t1", name: "Agent", input: { description: "One" } }),
+      event(2, "tool-call-start", { id: "t2", name: "Agent", input: { description: "Two" } }),
+      event(3, "message", { text: "first", parentId: "t1" }),
+      event(4, "message", { text: "second", parentId: "t2" }),
+      event(5, "message", { text: "first again", parentId: "t1" }),
+    ]);
+    const texts = items.map((item) =>
+      item.kind === "subagent"
+        ? item.items.map((child) => (child.kind === "message" ? child.text : ""))
+        : [],
+    );
+    expect(texts).toEqual([["first", "first again"], ["second"]]);
+  });
+
+  it("keeps events whose parent never showed up at the top level", () => {
+    const items = buildTranscript([event(1, "message", { text: "Orphan.", parentId: "t9" })]);
+    expect(items).toEqual([{ kind: "message", key: "s1:1", text: "Orphan." }]);
+  });
+
+  it("derives a sub-agent's status from its call's result", () => {
+    expect(subagentStatus({ output: null, isError: false }, true)).toBe("running");
+    expect(subagentStatus({ output: "ok", isError: false }, true)).toBe("done");
+    expect(subagentStatus({ output: "boom", isError: true }, false)).toBe("failed");
+    expect(subagentStatus({ output: null, isError: false }, false)).toBe("stopped");
   });
 
   it("names a tool call by its file, command or pattern", () => {

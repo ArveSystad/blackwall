@@ -32,7 +32,7 @@ Inform ──► Plan review / grill ──► [human plan approval] ──► I
 - The harness commits after each implement or fix round. Agents never push. `main` is pushed only when you click Push on a repo's Backlog and confirm it; the pipeline never pushes it.
 - Critical and High findings loop back to the implementer, for at most 3 fix rounds before escalating to you.
 - Reviewers are read-only. Implementers can edit and use the shell but cannot reach remotes.
-- Claude Code implementers can hand narrow jobs to a cheaper `blackwall-worker` sub-agent (Haiku) that gets only a short brief. Running sub-agents show as small dots beside their task's dot on the home grid.
+- Claude Code implementers can hand narrow jobs to a cheaper `blackwall-worker` sub-agent (Haiku) that gets only a short brief. Running sub-agents show as small dots beside their task's dot on the home grid, and their work shows nested, collapsed, under the call that started them in Agent output.
 - A per-repo backlog with an auto-runner that respects concurrency caps and CLI usage limits. When local `main` has commits `origin/main` doesn't (for example after free-text tasks merge into it), the Backlog header offers a confirmed "Push N commits to main". It never fetches or forces.
 - A task can propose follow-up tasks, in its own repo or another registered one. You pick which to create at finish; they land in the backlog as waiting items. An analysis-only task can deliver just these follow-ups.
 - Interrupted steps resume the same CLI session, or start afresh with their original prompt if Claude Code no longer has it.

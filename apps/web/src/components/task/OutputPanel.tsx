@@ -11,11 +11,12 @@ import {
   defaultStepId,
   effectiveModel,
   modelTitle,
+  subagentStatus,
   type TranscriptItem,
 } from "../../task-view";
 import { AgentTile } from "../AgentTile";
 import { panelNote } from "../classes";
-import { CheckIcon, FailedIcon, PausedIcon } from "../icons";
+import { CheckIcon, ChevronRightIcon, FailedIcon, PausedIcon } from "../icons";
 import { ToolCall } from "../ToolCall";
 import { ErrorText } from "../ui/field";
 
@@ -53,10 +54,85 @@ function StepStatusIcon({ step }: { step: Step }) {
   }
 }
 
+/** A collapsible sub-agent run: its brief, its own messages and tool calls, and its report. */
+function SubagentCall({
+  item,
+  live,
+}: {
+  item: Extract<TranscriptItem, { kind: "subagent" }>;
+  live: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const status = subagentStatus(item, live);
+  const brief = (item.input as { prompt?: unknown } | null | undefined)?.prompt;
+  return (
+    <div
+      className={cn(
+        "flex flex-col overflow-hidden rounded-md border border-border bg-card",
+        status === "running" && "border-cyan/50 shadow-glow-cyan",
+      )}
+    >
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="flex h-7 min-w-0 cursor-pointer items-center gap-2 bg-transparent px-2.5 text-left text-meta"
+      >
+        <ChevronRightIcon size="sm" className={cn("text-muted-foreground", open && "rotate-90")} />
+        <span className="text-muted-foreground">Sub-agent</span>
+        <span className="min-w-0 truncate text-foreground-strong">
+          {item.description ?? item.agentType}
+        </span>
+        {item.description !== null && (
+          <span className="mono text-[11px] text-faint">{item.agentType}</span>
+        )}
+        <span className="flex-1" />
+        {status === "running" ? (
+          <span className="mono text-[11px] text-cyan">running…</span>
+        ) : status === "done" ? (
+          <CheckIcon size="sm" className="text-done" aria-label="Done" role="img" />
+        ) : status === "failed" ? (
+          <FailedIcon size="sm" className="text-failed" aria-label="Failed" role="img" />
+        ) : (
+          <PausedIcon size="sm" className="text-interrupted" aria-label="Stopped" role="img" />
+        )}
+      </button>
+      {open && (
+        <div className="flex flex-col gap-2 border-t border-border px-3 py-2">
+          {typeof brief === "string" && (
+            <pre className="m-0 max-h-60 overflow-auto font-mono text-code whitespace-pre-wrap text-muted-foreground">
+              {brief}
+            </pre>
+          )}
+          {item.items.length === 0 ? (
+            <p className="m-0 text-muted-foreground">
+              {status === "running" ? "No output yet." : "The sub-agent produced no output."}
+            </p>
+          ) : (
+            item.items.map((child) => <TranscriptEntry key={child.key} item={child} live={live} />)
+          )}
+          {item.output !== null && (
+            <pre
+              className={cn(
+                "m-0 max-h-80 overflow-auto rounded-md bg-code px-3 py-2 font-mono text-code whitespace-pre-wrap",
+                item.isError ? "text-failed" : "text-foreground",
+              )}
+            >
+              {item.output || "(no output)"}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TranscriptEntry({ item, live }: { item: TranscriptItem; live: boolean }) {
   switch (item.kind) {
     case "message":
       return <p className="m-0 whitespace-pre-wrap text-foreground">{item.text}</p>;
+    case "subagent":
+      return <SubagentCall item={item} live={live} />;
     case "tool":
       return (
         <ToolCall

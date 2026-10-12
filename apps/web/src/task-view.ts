@@ -274,9 +274,27 @@ export type TranscriptItem =
       output: string | null;
       isError: boolean;
     }
+  | {
+      kind: "subagent";
+      key: string;
+      /** The id of the `Agent` tool call that started the sub-agent. */
+      id: string;
+      name: string;
+      target: string;
+      agentType: string;
+      description: string | null;
+      input: unknown;
+      /** The sub-agent's report: the `Agent` call's result, null while it runs. */
+      output: string | null;
+      isError: boolean;
+      items: TranscriptItem[];
+    }
   | { kind: "error"; key: string; message: string }
   | { kind: "check"; key: string; check: CheckRun }
   | { kind: "note"; key: string; text: string };
+
+type ToolItem = Extract<TranscriptItem, { kind: "tool" }>;
+type SubagentItem = Extract<TranscriptItem, { kind: "subagent" }>;
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
@@ -299,19 +317,51 @@ export function toolTarget(input: unknown): string {
 /**
  * Folds a step's event log into what the transcript shows: assistant text,
  * tool calls paired with their results, errors and check commands. Session,
- * usage and result bookkeeping is left out.
+ * usage and result bookkeeping is left out. A sub-agent's messages and tool
+ * calls (those with a `parentId`) nest under the `Agent` call that started
+ * it; ones whose parent never showed up stay at the top level.
  */
 export function buildTranscript(events: readonly StepEvent[]): TranscriptItem[] {
   const items: TranscriptItem[] = [];
-  const tools = new Map<string, Extract<TranscriptItem, { kind: "tool" }>>();
+  // Each tool call with the list that holds it, so it can become a sub-agent group in place.
+  const tools = new Map<string, { item: ToolItem | SubagentItem; list: TranscriptItem[] }>();
+  const groups = new Map<string, SubagentItem>();
   const checks = new Map<string, Extract<TranscriptItem, { kind: "check" }>>();
+
+  const groupFor = (id: string): SubagentItem | undefined => {
+    const existing = groups.get(id);
+    if (existing) return existing;
+    const tool = tools.get(id);
+    if (!tool || tool.item.kind !== "tool") return undefined;
+    const input = record(tool.item.input);
+    const group: SubagentItem = {
+      kind: "subagent",
+      key: tool.item.key,
+      id,
+      name: tool.item.name,
+      target: tool.item.target,
+      agentType: typeof input.subagent_type === "string" ? input.subagent_type : "general-purpose",
+      description: typeof input.description === "string" ? input.description : null,
+      input: tool.item.input,
+      output: tool.item.output,
+      isError: tool.item.isError,
+      items: [],
+    };
+    tool.list[tool.list.indexOf(tool.item)] = group;
+    tools.set(id, { item: group, list: tool.list });
+    groups.set(id, group);
+    return group;
+  };
+  const listFor = (parentId: unknown): TranscriptItem[] =>
+    (typeof parentId === "string" ? groupFor(parentId)?.items : undefined) ?? items;
+
   for (const event of events) {
     const payload = record(event.payload);
     const key = `${event.stepId}:${event.seq}`;
     switch (event.type) {
       case "message":
         if (typeof payload.text === "string" && payload.text.trim()) {
-          items.push({ kind: "message", key, text: payload.text });
+          listFor(payload.parentId).push({ kind: "message", key, text: payload.text });
         }
         break;
       case "tool-call-start": {
@@ -324,12 +374,21 @@ export function buildTranscript(events: readonly StepEvent[]): TranscriptItem[] 
           output: null,
           isError: false,
         };
-        if (typeof payload.id === "string") tools.set(payload.id, item);
-        items.push(item);
+        const list = listFor(payload.parentId);
+        if (typeof payload.id === "string") tools.set(payload.id, { item, list });
+        list.push(item);
+        break;
+      }
+      case "subagent-start": {
+        const group = typeof payload.id === "string" ? groupFor(payload.id) : undefined;
+        if (group) {
+          if (typeof payload.agentType === "string") group.agentType = payload.agentType;
+          if (typeof payload.description === "string") group.description = payload.description;
+        }
         break;
       }
       case "tool-call-end": {
-        const item = typeof payload.id === "string" ? tools.get(payload.id) : undefined;
+        const item = typeof payload.id === "string" ? tools.get(payload.id)?.item : undefined;
         if (item) {
           item.output = typeof payload.output === "string" ? payload.output : "";
           item.isError = payload.isError === true;
@@ -377,6 +436,18 @@ export function buildTranscript(events: readonly StepEvent[]): TranscriptItem[] 
   return items;
 }
 
+export type SubagentStatus = "running" | "done" | "failed" | "stopped";
+
+/** A sub-agent group's status, from its `Agent` call's result and whether the step still runs. */
+export function subagentStatus(
+  item: Pick<SubagentItem, "output" | "isError">,
+  live: boolean,
+): SubagentStatus {
+  if (item.isError) return "failed";
+  if (item.output !== null) return "done";
+  return live ? "running" : "stopped";
+}
+
 const ACTIVITY_CHARS = 120;
 
 /**
@@ -398,10 +469,19 @@ export function currentActivity(
           return parentId === null ? typeof own !== "string" : own === parentId;
         });
   const item = buildTranscript(scoped).at(-1);
-  if (!item) return null;
+  return item ? activityText(item) : null;
+}
+
+/** One transcript item as a line of activity; a sub-agent group reads as its latest item. */
+function activityText(item: TranscriptItem): string {
   switch (item.kind) {
     case "tool":
       return item.target ? `${item.name} ${item.target}` : item.name;
+    case "subagent": {
+      const last = item.items.at(-1);
+      if (last) return activityText(last);
+      return item.target ? `${item.name} ${item.target}` : item.name;
+    }
     case "message": {
       const line =
         item.text
