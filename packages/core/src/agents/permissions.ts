@@ -5,7 +5,7 @@ import {
   type PermissionOverrides,
   type PermissionProfile,
 } from "@blackwall/shared";
-import { SUBAGENT_NAME } from "./subagents.js";
+import { opencodeSubagent, SUBAGENT_NAME } from "./subagents.js";
 
 /**
  * An agent's permissions for one step, as rules in its CLI's own syntax. Deny
@@ -95,18 +95,20 @@ const copilotShell = (command: string) =>
 /** OpenCode matches a bash command against globs; the `*` also covers a bare stem. */
 const opencodeBash = (command: string) => `bash(${command}*)`;
 
-/**
- * OpenCode tools no profile allows: web access, subagents (own config, not yet
- * harness-defined as for Claude), skills, other dirs.
- */
+/** OpenCode tools no profile allows: web access, skills, other dirs. */
 const OPENCODE_DENIED = [
-  "task",
   "webfetch",
   "websearch",
   "codesearch",
   "skill",
   "external_directory",
 ] as const;
+
+/**
+ * OpenCode's built-in sub-agents, all denied: they run on the parent's model,
+ * and a user's bare `task` allow must not open them.
+ */
+const OPENCODE_BUILTIN_SUBAGENTS = ["general", "explore"] as const;
 
 const PROFILE_RULES: Record<
   AgentCli,
@@ -120,7 +122,6 @@ const PROFILE_RULES: Record<
     implement: {
       // Only the harness-defined worker, never the built-in sub-agents (which
       // run on the parent's model). The deny rules bind the worker too.
-      // OpenCode implementers get no sub-agents yet.
       allow: [
         "Read",
         "Grep",
@@ -151,11 +152,26 @@ const PROFILE_RULES: Record<
   opencode: {
     "read-only": {
       allow: ["read", "grep", "glob", "list", ...SAFE_GIT_COMMANDS.map(opencodeBash)],
-      deny: ["edit", ...OPENCODE_DENIED, ...REMOTE_COMMANDS.map(opencodeBash)],
+      deny: ["edit", "task", ...OPENCODE_DENIED, ...REMOTE_COMMANDS.map(opencodeBash)],
     },
     implement: {
-      allow: ["read", "grep", "glob", "list", "edit", "todowrite", "todoread", "bash(*)"],
-      deny: [...OPENCODE_DENIED, ...REMOTE_COMMANDS.map(opencodeBash)],
+      // As for Claude: only the harness-defined worker, never the built-in sub-agents.
+      allow: [
+        "read",
+        "grep",
+        "glob",
+        "list",
+        "edit",
+        "todowrite",
+        "todoread",
+        "bash(*)",
+        `task(${SUBAGENT_NAME})`,
+      ],
+      deny: [
+        ...OPENCODE_DENIED,
+        ...OPENCODE_BUILTIN_SUBAGENTS.map((name) => `task(${name})`),
+        ...REMOTE_COMMANDS.map(opencodeBash),
+      ],
     },
   },
 };
@@ -222,68 +238,99 @@ export function permissionArgs(permissions: AgentPermissions): string[] {
 
 type OpencodeAction = "allow" | "deny";
 
-/** OpenCode's permission config: a top-level action per tool, and a pattern map for `bash`. */
+/**
+ * OpenCode's permission config: a top-level action per tool, and a pattern map
+ * for `bash` (commands) and `task` (sub-agent names).
+ */
 export type OpencodePermission = Record<string, OpencodeAction | Record<string, OpencodeAction>>;
 
 /** OpenCode config injected for a run (`OPENCODE_CONFIG_CONTENT`). */
 export interface OpencodeConfig {
   permission: OpencodePermission;
-  agent: { blackwall: { mode: "primary"; permission: OpencodePermission } };
+  agent: {
+    blackwall: { mode: "primary"; permission: OpencodePermission };
+    "blackwall-worker"?: ReturnType<typeof opencodeSubagent>;
+  };
   mcp: Record<string, never>;
   plugin: string[];
   share: "disabled";
 }
 
-/** A rule's bash glob, `null` for a bare tool key; throws on a rule outside the grammar. */
-function opencodeRule(rule: string): { tool: string; pattern: string | null } {
+interface OpencodeRule {
+  tool: string;
+  pattern: string | null;
+}
+
+/** OpenCode tools whose rules may take a pattern: command globs and sub-agent names. */
+const OPENCODE_PATTERN_TOOLS = ["bash", "task"] as const;
+
+/** A rule's pattern, `null` for a bare tool key; throws on a rule outside the grammar. */
+function opencodeRule(rule: string): OpencodeRule {
   if (!opencodeRuleSchema.safeParse(rule).success) {
     throw new Error(`Not an OpenCode permission rule: ${rule}`);
   }
-  const bash = /^bash\((.+)\)$/.exec(rule);
-  return bash ? { tool: "bash", pattern: bash[1]! } : { tool: rule, pattern: null };
+  const match = /^(bash|task)\((.+)\)$/.exec(rule);
+  return match ? { tool: match[1]!, pattern: match[2]! } : { tool: rule, pattern: null };
+}
+
+/**
+ * A tool's pattern map. OpenCode applies the last matching pattern, so the
+ * default comes first, then the allowed patterns, then every denied one: a deny
+ * always wins, even over a bare allow of the tool.
+ */
+function patternMap(
+  tool: string,
+  allowed: readonly OpencodeRule[],
+  denied: readonly OpencodeRule[],
+): Record<string, OpencodeAction> {
+  const bareDenied = denied.some((r) => r.tool === tool && r.pattern === null);
+  const map: Record<string, OpencodeAction> = {
+    "*":
+      !bareDenied && allowed.some((r) => r.tool === tool && r.pattern === null) ? "allow" : "deny",
+  };
+  for (const { tool: name, pattern } of allowed) {
+    if (name === tool && pattern !== null && !bareDenied) map[pattern] = "allow";
+  }
+  for (const { tool: name, pattern } of denied) {
+    if (name !== tool || pattern === null) continue;
+    // Re-inserted so it lands after any allow of the same pattern.
+    delete map[pattern];
+    map[pattern] = "deny";
+  }
+  return map;
 }
 
 /**
  * OpenCode config enforcing the permissions. Everything starts denied (a
  * headless run never asks); a tool key is allowed only if an allow names it and
- * no deny does. In the `bash` map OpenCode applies the last matching pattern,
- * so the default comes first, then the allowed patterns, then every denied one:
- * a deny always wins, even over a bare `bash` allow. The run pins the injected
- * `blackwall` agent, so the built-in agents' permissions never apply.
+ * no deny does. `bash` and `task` get pattern maps (see {@link patternMap}),
+ * but a bare `task` deny stays a plain deny. The run pins the injected
+ * `blackwall` agent, so the built-in agents' permissions never apply. When the
+ * `task` map allows the worker, the config defines it, on `subagentModel` if
+ * given and otherwise on the parent's model.
  */
-export function opencodeConfig({ cli, allow, deny }: AgentPermissions): OpencodeConfig {
+export function opencodeConfig(
+  { cli, allow, deny }: AgentPermissions,
+  { subagentModel }: { subagentModel?: string | undefined } = {},
+): OpencodeConfig {
   if (cli !== "opencode") throw new Error(`Permissions for ${cli} are not OpenCode rules`);
   const allowed = allow.map(opencodeRule);
   const denied = deny.map(opencodeRule);
   const permission: OpencodePermission = { "*": "deny" };
   for (const tool of OPENCODE_TOOLS) {
-    if (tool === "bash") continue;
+    if ((OPENCODE_PATTERN_TOOLS as readonly string[]).includes(tool)) continue;
     const allows = allowed.some((r) => r.tool === tool && r.pattern === null);
     const denies = denied.some((r) => r.tool === tool);
     if (allows || denies) permission[tool] = allows && !denies ? "allow" : "deny";
   }
-  const bareBashDenied = denied.some((r) => r.tool === "bash" && r.pattern === null);
-  const bash: Record<string, OpencodeAction> = {
-    "*":
-      !bareBashDenied && allowed.some((r) => r.tool === "bash" && r.pattern === null)
-        ? "allow"
-        : "deny",
-  };
-  for (const { tool, pattern } of allowed) {
-    if (tool === "bash" && pattern !== null && !bareBashDenied) bash[pattern] = "allow";
+  const task = denied.some((r) => r.tool === "task" && r.pattern === null)
+    ? "deny"
+    : patternMap("task", allowed, denied);
+  permission.task = task;
+  permission.bash = patternMap("bash", allowed, denied);
+  const agent: OpencodeConfig["agent"] = { blackwall: { mode: "primary", permission } };
+  if (task !== "deny" && (task[SUBAGENT_NAME] ?? task["*"]) === "allow") {
+    agent[SUBAGENT_NAME] = opencodeSubagent(permission, subagentModel);
   }
-  for (const { tool, pattern } of denied) {
-    if (tool !== "bash" || pattern === null) continue;
-    // Re-inserted so it lands after any allow of the same pattern.
-    delete bash[pattern];
-    bash[pattern] = "deny";
-  }
-  permission.bash = bash;
-  return {
-    permission,
-    agent: { blackwall: { mode: "primary", permission } },
-    mcp: {},
-    plugin: [],
-    share: "disabled",
-  };
+  return { permission, agent, mcp: {}, plugin: [], share: "disabled" };
 }

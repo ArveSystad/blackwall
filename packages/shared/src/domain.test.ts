@@ -420,11 +420,15 @@ describe("agents", () => {
   it("checks OpenCode permission rules against OpenCode's grammar", () => {
     const opencode = (rules: string[]) =>
       agentPermissionOverridesSchema.safeParse({ opencode: { allow: rules, deny: rules } });
-    expect(opencode(["bash(npm test*)", "bash", "webfetch", "read"]).success).toBe(true);
-    for (const rule of ["Bash(npm test:*)", "shell(npm test)", "foo", "bash()"]) {
+    expect(
+      opencode(["bash(npm test*)", "bash", "webfetch", "read", "task(blackwall-worker)"]).success,
+    ).toBe(true);
+    for (const rule of ["Bash(npm test:*)", "shell(npm test)", "foo", "bash()", "Task(x)"]) {
       const result = opencode([rule]);
       expect(result.success).toBe(false);
-      expect(result.error?.issues[0]?.message).toMatch(/bash\(<glob>\), e\.g\. bash\(npm test\*\)/);
+      expect(result.error?.issues[0]?.message).toMatch(
+        /bash\(<glob>\) or task\(<agent>\), e\.g\. bash\(npm test\*\)/,
+      );
       expect(result.error?.issues.map((issue) => issue.path)).toEqual([
         ["opencode", "allow", 0],
         ["opencode", "deny", 0],

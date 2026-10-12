@@ -27,8 +27,8 @@ export type AgentEvent =
   | { type: "session"; sessionId: string; model?: string }
   /**
    * Assistant text. `parentId` on this and the tool-call events: the id of the
-   * sub-agent tool call they ran under, when a sub-agent produced them. Claude
-   * and Copilot report sub-agents; OpenCode runs none.
+   * sub-agent tool call they ran under, when a sub-agent produced them. Claude,
+   * Copilot and OpenCode all report sub-agents.
    */
   | { type: "message"; text: string; parentId?: string }
   | { type: "tool-call-start"; id: string; name: string; input: unknown; parentId?: string }
