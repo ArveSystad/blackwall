@@ -22,6 +22,7 @@ import {
   listBacklog,
   listConnections,
   listRepos,
+  listReviewRequests,
   listTags,
   listTasks,
 } from "./api";
@@ -62,6 +63,7 @@ export const queryKeys = {
    */
   repoSync: (repoId: string) => ["backlog", repoId, "sync"] as const,
   quota: ["quota"] as const,
+  reviewRequests: ["review-requests"] as const,
 };
 
 export const tasksQuery = queryOptions({ queryKey: queryKeys.tasks, queryFn: listTasks });
@@ -158,6 +160,18 @@ export const repoSyncQuery = (repoId: string) =>
 
 /** Written in place by `quota.changed`. */
 export const quotaQuery = queryOptions({ queryKey: queryKeys.quota, queryFn: getQuota });
+
+/**
+ * Open PRs waiting on the user's review. GitHub sends no live events, so it
+ * polls, and re-reads on window focus.
+ */
+export const reviewRequestsQuery = queryOptions({
+  queryKey: queryKeys.reviewRequests,
+  queryFn: listReviewRequests,
+  staleTime: 120_000,
+  refetchInterval: 300_000,
+  refetchOnWindowFocus: "always",
+});
 
 export function createQueryClient(): QueryClient {
   return new QueryClient({

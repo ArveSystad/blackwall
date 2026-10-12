@@ -22,6 +22,7 @@ import {
   pullRequestLookupSchema,
   quotaStateSchema,
   repoBacklogRunnerSchema,
+  reviewRequestsSchema,
   repoScanResultSchema,
   repoSchema,
   repoSyncSchema,
@@ -68,6 +69,7 @@ import {
   type RepoScanResult,
   type RepoUpdate,
   type RepoView,
+  type ReviewRequests,
   type RoleAgents,
   type Run,
   type StaleRepo,
@@ -175,6 +177,11 @@ export function lookupPullRequest(url: string): Promise<PullRequestLookup> {
     method: "POST",
     body: { url },
   });
+}
+
+/** Open PRs waiting on the user's review on every GitHub host, and the hosts that failed. */
+export function listReviewRequests(): Promise<ReviewRequests> {
+  return request("/api/pull-requests/review-requests", reviewRequestsSchema);
 }
 
 export function lookupIssue(url: string): Promise<IssueLookup> {

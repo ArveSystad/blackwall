@@ -38,6 +38,7 @@ Implementers may save screenshots (PNG, JPEG, GIF or WebP) to `.blackwall/artifa
 - Connections to GitHub.com, GHE and Jira Cloud, with tokens in the OS keychain
 - Repo registry with auto-suggested check commands
 - Live agent output and per-round diffs
+- Review requests: a pill on the home screen counts the open pull requests waiting on your review across every GitHub/GHE connection (requests to you or one of your teams, not drafts, not yet approved), and opens a list grouped by host at `/reviews`. Private PRs only appear if the token has `repo` scope (classic) or read access to pull requests on those repos (fine-grained).
 - Needs-you inbox, with the count in the tab title (and on the dock or taskbar badge in the desktop app) and optional desktop notifications (Settings → Notifications)
 - Optional desktop window with a tray icon (`pnpm desktop`)
 - Dark and light themes

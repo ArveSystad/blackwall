@@ -81,7 +81,9 @@ Rules:
   under reduced motion). Each dot is a 24px link to its task, centres are at least 28px apart, and
   needs-you dots stack above running and queued ones; hover or focus shows a card with the task,
   stage and current work. "No active tasks" and Create task show only when nothing is active; if the
-  tasks or agents cannot load, the pane says so with Retry instead.
+  tasks or agents cannot load, the pane says so with Retry instead. The home grid also has a
+  review-requests pill at the bottom, under the floor: magenta (count and blinking dot) while pull
+  requests need the user, muted otherwise; it is a solid popover pill, not a glow.
 - The Stats screen (`/stats`) is the second sanctioned exception. It may use `GridBackdrop` behind
   its content (the backdrop's parent does not scroll; content scrolls in a sibling and stays within
   the ~520px faded column), and the done-tinted glow (`--glow-done` / `--glow-text-done`, i.e.

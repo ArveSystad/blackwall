@@ -106,6 +106,65 @@ export interface PullRequestCoordinates {
   number: number;
 }
 
+/**
+ * An open pull request waiting on the user's review, as
+ * {@link createGitHubClient}'s `searchReviewRequests` returns it.
+ */
+export interface GitHubReviewRequest {
+  /** The connection's host (`github.com`, `acme.ghe.com`). */
+  host: string;
+  owner: string;
+  repo: string;
+  number: number;
+  title: string;
+  url: string;
+  author: string | null;
+  /** ISO 8601. */
+  updatedAt: string;
+  reviewDecision: "review-required" | "changes-requested" | null;
+}
+
+/** A `PullRequest` node of the review requests search. */
+interface ReviewRequestNode {
+  url?: string;
+  number?: number;
+  title?: string;
+  updatedAt?: string;
+  isDraft?: boolean;
+  reviewDecision?: "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED" | null;
+  author?: { login: string } | null;
+  repository?: { name: string; owner: { login: string } };
+}
+
+/**
+ * Open, non-draft PRs whose review is requested from the user or one of their
+ * teams (`review-requested:@me` matches both), and that nobody has approved.
+ */
+const REVIEW_REQUESTS_SEARCH =
+  "is:pr is:open archived:false draft:false review-requested:@me -review:approved";
+
+const REVIEW_REQUESTS_QUERY = `query ReviewRequests($search: String!) {
+  search(type: ISSUE, query: $search, first: 100) {
+    nodes {
+      ... on PullRequest {
+        url
+        number
+        title
+        updatedAt
+        isDraft
+        reviewDecision
+        author { login }
+        repository { name owner { login } }
+      }
+    }
+  }
+}`;
+
+const REVIEW_DECISIONS = {
+  REVIEW_REQUIRED: "review-required",
+  CHANGES_REQUESTED: "changes-requested",
+} as const;
+
 const TIMEOUT_MS = 30_000;
 const PER_PAGE = 100;
 
@@ -116,6 +175,14 @@ function statusOf(error: unknown): number | undefined {
   // Octokit reports network failures as status 500 without a response.
   const { status, response } = (error ?? {}) as { status?: unknown; response?: unknown };
   return response !== undefined && typeof status === "number" ? status : undefined;
+}
+
+/** The errors of a GraphQL response GitHub answered with 200; Octokit throws those without a status. */
+function graphqlErrors(error: unknown): { message?: unknown }[] | undefined {
+  const { name, errors } = (error ?? {}) as { name?: unknown; errors?: unknown };
+  return name === "GraphqlResponseError" && Array.isArray(errors) && errors.length > 0
+    ? (errors as { message?: unknown }[])
+    : undefined;
 }
 
 /**
@@ -141,6 +208,12 @@ export function createGitHubClient(credentials: GitHubCredentials, fetchImpl: Fe
   });
 
   function failure(error: unknown, what: string): GitHubError {
+    const errors = graphqlErrors(error);
+    if (errors) {
+      const message = typeof errors[0]?.message === "string" ? errors[0].message : "";
+      const reason = message.replaceAll(credentials.token, "***").trim() || "query failed";
+      return new GitHubError(`${host}: ${reason}`);
+    }
     const status = statusOf(error);
     if (status === undefined) {
       const timedOut =
@@ -300,6 +373,36 @@ export function createGitHubClient(credentials: GitHubCredentials, fetchImpl: Fe
           request: requestOptions(),
         });
         return { id: res.data.id, url: res.data.html_url };
+      });
+    },
+
+    /**
+     * Open PRs on this host waiting on the user's review (see
+     * {@link REVIEW_REQUESTS_SEARCH}), at most 100, as GitHub's search orders them.
+     */
+    searchReviewRequests(signal?: AbortSignal) {
+      return call("Review requests", signal, async () => {
+        const res = await octokit.graphql<{ search: { nodes: ReviewRequestNode[] } }>(
+          REVIEW_REQUESTS_QUERY,
+          { search: REVIEW_REQUESTS_SEARCH, request: requestOptions(signal) },
+        );
+        return res.search.nodes.flatMap((node): GitHubReviewRequest[] => {
+          if (!node.url || !node.repository || node.number === undefined) return [];
+          if (node.isDraft || node.reviewDecision === "APPROVED") return [];
+          return [
+            {
+              host,
+              owner: node.repository.owner.login,
+              repo: node.repository.name,
+              number: node.number,
+              title: node.title ?? "",
+              url: node.url,
+              author: node.author?.login ?? null,
+              updatedAt: node.updatedAt ?? new Date(0).toISOString(),
+              reviewDecision: node.reviewDecision ? REVIEW_DECISIONS[node.reviewDecision] : null,
+            },
+          ];
+        });
       });
     },
 

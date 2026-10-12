@@ -936,6 +936,34 @@ export const issueLookupSchema = z.object({
 export type IssueLookup = z.infer<typeof issueLookupSchema>;
 
 /**
+ * An open pull request waiting on the user's review on one GitHub/GHE host:
+ * review requested from the user or one of their teams, not a draft and not
+ * approved by anyone.
+ */
+export const reviewRequestSchema = z.object({
+  /** Host of the connection it came from (`github.com`, `acme.ghe.com`). */
+  host: z.string(),
+  owner: z.string(),
+  repo: z.string(),
+  number: z.int(),
+  title: z.string(),
+  url: z.url(),
+  /** Author's login; null for a deleted account. */
+  author: z.string().nullable(),
+  updatedAt: timestamp,
+  /** GitHub's review decision; null when the repo requires no reviews. */
+  reviewDecision: z.enum(["review-required", "changes-requested"]).nullable(),
+});
+export type ReviewRequest = z.infer<typeof reviewRequestSchema>;
+
+/** `GET /api/pull-requests/review-requests`: every host's rows, newest first, and the hosts that failed. */
+export const reviewRequestsSchema = z.object({
+  pullRequests: reviewRequestSchema.array(),
+  errors: z.object({ host: z.string(), message: z.string() }).array(),
+});
+export type ReviewRequests = z.infer<typeof reviewRequestsSchema>;
+
+/**
  * One round's changes on the task branch: the range Code review reviewed in
  * that round, or (`reviewed: false`) commits made since the last review.
  */

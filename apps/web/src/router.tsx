@@ -12,6 +12,7 @@ import { RepoContextBar } from "./components/RepoContextBar";
 import { ActiveAgents } from "./routes/ActiveAgents";
 import { Backlog } from "./routes/Backlog";
 import { Home } from "./routes/Home";
+import { ReviewRequests } from "./routes/ReviewRequests";
 import { Settings } from "./routes/Settings";
 import { Stats } from "./routes/Stats";
 import { TaskView } from "./routes/TaskView";
@@ -85,6 +86,12 @@ const activeRoute = createRoute({
   component: ActiveAgents,
 });
 
+const reviewsRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: "/reviews",
+  component: ReviewRequests,
+});
+
 const settingsIndexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
@@ -113,7 +120,7 @@ const statsRoute = createRoute({
 });
 
 const routeTree = rootRoute.addChildren([
-  shellRoute.addChildren([homeRoute, taskRoute, backlogRoute, activeRoute]),
+  shellRoute.addChildren([homeRoute, taskRoute, backlogRoute, activeRoute, reviewsRoute]),
   settingsIndexRoute,
   settingsRoute,
   statsRoute,

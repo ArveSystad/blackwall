@@ -30,6 +30,7 @@ import {
   repoUpdateSchema,
   reviewOutputJsonSchema,
   reviewOutputSchema,
+  reviewRequestsSchema,
   settingsSchema,
   stagePermissionProfile,
   taskSchema,
@@ -299,6 +300,39 @@ describe("connectionViewSchema", () => {
     expect(connectionViewSchema.parse(view).hasToken).toBe(true);
     expect(connectionViewSchema.safeParse({ ...view, token: "secret" }).success).toBe(false);
     expect(connectionViewSchema.safeParse({ ...view, tokenSet: true }).success).toBe(false);
+  });
+});
+
+describe("reviewRequestsSchema", () => {
+  const pr = {
+    host: "acme.ghe.com",
+    owner: "acme",
+    repo: "shop",
+    number: 42,
+    title: "Round invoice totals once",
+    url: "https://acme.ghe.com/acme/shop/pull/42",
+    author: null,
+    updatedAt: now,
+    reviewDecision: null,
+  };
+
+  it("coerces dates and allows a null author and decision", () => {
+    const parsed = reviewRequestsSchema.parse({
+      pullRequests: [pr, { ...pr, author: "kari", reviewDecision: "changes-requested" }],
+      errors: [{ host: "github.com", message: "github.com: token rejected" }],
+    });
+    expect(parsed.pullRequests[0]!.updatedAt).toEqual(new Date(now));
+    expect(parsed.pullRequests[0]!.reviewDecision).toBeNull();
+    expect(parsed.pullRequests[1]!.reviewDecision).toBe("changes-requested");
+    expect(parsed.errors).toHaveLength(1);
+  });
+
+  it("rejects an unknown decision", () => {
+    const parsed = reviewRequestsSchema.safeParse({
+      pullRequests: [{ ...pr, reviewDecision: "APPROVED" }],
+      errors: [],
+    });
+    expect(parsed.success).toBe(false);
   });
 });
 

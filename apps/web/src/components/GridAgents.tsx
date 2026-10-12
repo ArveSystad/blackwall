@@ -395,7 +395,7 @@ export function GridAgents({
       {(launch.error ?? revive.error) && (
         <p
           role="alert"
-          className="pointer-events-auto absolute inset-x-0 bottom-4 m-0 text-center text-meta text-destructive"
+          className="pointer-events-auto absolute inset-x-0 bottom-16 m-0 text-center text-meta text-destructive"
         >
           {launch.error ?? revive.error}
         </p>

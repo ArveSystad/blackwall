@@ -1,5 +1,6 @@
 import {
   branchForTask,
+  connectionHost,
   type ConnectionService,
   type OpenPullRequestAction,
   type OriginContextProvider,
@@ -27,6 +28,8 @@ import {
   type Finding,
   type IssueLookup,
   type PullRequestLookup,
+  type ReviewRequest,
+  type ReviewRequests,
   type Task,
 } from "@blackwall/shared";
 import { Hono } from "hono";
@@ -228,17 +231,54 @@ export function firstOriginContext(...providers: OriginContextProvider[]): Origi
 }
 
 export interface PullRequestRoutesOptions {
-  connections: Pick<ConnectionService, "resolve">;
+  connections: Pick<ConnectionService, "resolve" | "list" | "credentialById">;
   repos: Pick<RepoService, "list">;
+  fetch?: Fetch;
 }
 
 /**
  * `POST /lookup`: resolves a pasted PR link to a task origin (with the
  * host's connection) and the registered repo. A null `repoId` tells the new
  * task form to offer registering the repo first.
+ *
+ * `GET /review-requests`: the open PRs waiting on the user's review on every
+ * GitHub/GHE connection with a token, newest first. A host that fails is
+ * listed in `errors`; the other hosts' PRs still come back.
  */
-export function pullRequestRoutes({ connections, repos }: PullRequestRoutesOptions): Hono {
+export function pullRequestRoutes({
+  connections,
+  repos,
+  fetch: fetchImpl,
+}: PullRequestRoutesOptions): Hono {
   const routes = new Hono();
+
+  routes.get("/review-requests", async (c) => {
+    const github = connections.list().filter((conn) => conn.kind === "github" && conn.hasToken);
+    const results = await Promise.allSettled(
+      github.map(async (conn) => {
+        const { connection, token } = await connections.credentialById(conn.id);
+        return createGitHubClient(
+          { baseUrl: connection.baseUrl, token },
+          fetchImpl,
+        ).searchReviewRequests();
+      }),
+    );
+    const pullRequests: ReviewRequest[] = [];
+    const errors: ReviewRequests["errors"] = [];
+    results.forEach((result, i) => {
+      if (result.status === "fulfilled") {
+        pullRequests.push(
+          ...result.value.map((pr) => ({ ...pr, updatedAt: new Date(pr.updatedAt) })),
+        );
+      } else {
+        const message =
+          result.reason instanceof Error ? result.reason.message : String(result.reason);
+        errors.push({ host: connectionHost(github[i]!), message });
+      }
+    });
+    pullRequests.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+    return c.json<ReviewRequests>({ pullRequests, errors });
+  });
 
   routes.post("/lookup", async (c) => {
     const input = pullRequestLookupInputSchema.safeParse(await c.req.json().catch(() => undefined));
