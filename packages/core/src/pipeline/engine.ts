@@ -608,7 +608,17 @@ export function createPipelineEngine({
         resuming = false;
         instructions = undefined;
 
-        const next: Transition = afterStage(stage, result, position(task, round));
+        let next: Transition = afterStage(stage, result, position(task, round));
+        // A force-fix the user clicked after the last Aggregate (say, while
+        // Summarize ran) gets its fix round before the task stops at Finish.
+        if (
+          next.kind === "gate" &&
+          next.gate === "finish" &&
+          pipelineKind(task.mode) === "work" &&
+          blocking(taskId).some((f) => f.status === "force-fix")
+        ) {
+          next = afterGate("finish", "revise", position(task, round));
+        }
         if (next.kind === "stage") {
           stage = next.stage;
           round = next.round;
@@ -767,7 +777,15 @@ export function createPipelineEngine({
       });
     }
     if (next.kind !== "stage") throw new Error(`Unexpected transition ${next.kind}`);
+    return queueStage(taskId, next, message);
+  }
 
+  /** Queues a task to continue at `next`, with the user's instructions if any. */
+  function queueStage(
+    taskId: string,
+    next: { stage: Stage; round: number },
+    message?: string,
+  ): Task {
     pending.set(taskId, { round: next.round, ...(message ? { instructions: message } : {}) });
     const queued = saveTask(taskId, { status: "queued", gate: null, stage: next.stage });
     enqueueTask(queued);
@@ -857,7 +875,9 @@ export function createPipelineEngine({
      * The user's force-fix or force-ignore on a finding, at any severity and
      * at any time. It applies from the next aggregation: a force-ignored
      * blocker stops gating, and a force-fixed finding is fixed in the next
-     * fix round (at the finish gate, revise to run that round).
+     * fix round. A force-fix while the task waits at the finish gate starts
+     * that round straight away; one arriving after the last Aggregate (say,
+     * during Summarize) runs it before the task reaches the finish gate.
      */
     overrideFinding(taskId: string, findingId: string, input: FindingOverrideInput): Finding {
       const parsed = findingOverrideInputSchema.safeParse(input);
@@ -872,6 +892,21 @@ export function createPipelineEngine({
       }
       const finding = r.findings.setStatus(findingId, parsed.data.status);
       publish({ type: "finding.upserted", payload: { finding } });
+
+      const task = getTask(taskId);
+      if (
+        finding.status === "force-fix" &&
+        existing.status !== "force-fix" &&
+        task.status === "needs-you" &&
+        task.gate === "finish" &&
+        pipelineKind(task.mode) === "work" &&
+        !delivering.has(taskId) &&
+        !commenting.has(taskId)
+      ) {
+        const next = afterGate("finish", "revise", position(task, currentRound(latestRun(taskId))));
+        if (next.kind !== "stage") throw new Error(`Unexpected transition ${next.kind}`);
+        queueStage(taskId, next);
+      }
       return finding;
     },
 

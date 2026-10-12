@@ -1522,13 +1522,12 @@ describe("code review panel and triage", () => {
     expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
     expect(h.calls.filter((c) => c.stage === "implement")).toHaveLength(1);
 
+    // Force-fixing at the finish gate starts the fix round straight away.
     const [low] = r.findings.listByTask(seeded.id);
     h.engine.overrideFinding(seeded.id, low!.id, { status: "force-fix" });
-    await expect(
-      h.engine.respond(seeded.id, { gate: "finish", decision: "approve" }),
-    ).rejects.toThrow(/force-fixed finding is not fixed yet/);
+    // A free slot picks the queued task up at once.
+    expect(task(seeded.id)).toMatchObject({ status: "running", gate: null, stage: "implement" });
 
-    await h.engine.respond(seeded.id, { gate: "finish", decision: "revise" });
     await settle(h.engine);
     const fixes = h.calls.filter((c) => c.stage === "implement");
     expect(fixes).toHaveLength(2);
@@ -1538,6 +1537,100 @@ describe("code review panel and triage", () => {
 
     await h.engine.respond(seeded.id, { gate: "finish", decision: "approve" });
     expect(h.delivered).toEqual([seeded.id]);
+  });
+
+  it("runs a fix round before finish for a finding force-fixed during Summarize", async () => {
+    let reviews = 0;
+    let summaries = 0;
+    let taskId = "";
+    const h: Harness = harness((stage) => {
+      if (stage === "code-review") {
+        return { structured: { findings: reviews++ === 0 ? [lowFinding] : [] } };
+      }
+      // The user force-fixes the Low finding while the first summary is written.
+      if (stage === "summarize" && ++summaries === 1) {
+        const low = r.findings.listByTask(taskId).find((f) => f.status === "open");
+        h.engine.overrideFinding(taskId, low!.id, { status: "force-fix" });
+      }
+      return {};
+    });
+    const seeded = seedTask();
+    taskId = seeded.id;
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    await h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" });
+    await settle(h.engine);
+
+    expect(h.calls.filter((c) => c.stage === "implement")).toHaveLength(2);
+    const [low] = r.findings.listByTask(seeded.id).filter((f) => f.title === lowFinding.title);
+    expect(low!.status).toBe("fixed");
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
+    expect(h.calls.filter((c) => c.stage === "summarize")).toHaveLength(2);
+  });
+
+  it("refuses to finish with a force-fixed finding not yet fixed", async () => {
+    let reviews = 0;
+    const h = harness((stage) =>
+      stage === "code-review"
+        ? { structured: { findings: reviews++ === 0 ? [lowFinding] : [] } }
+        : {},
+    );
+    const seeded = await approved(h);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
+
+    // Bypasses the engine, so no fix round starts.
+    const [low] = r.findings.listByTask(seeded.id);
+    r.findings.setStatus(low!.id, "force-fix");
+    await expect(
+      h.engine.respond(seeded.id, { gate: "finish", decision: "approve" }),
+    ).rejects.toThrow(/force-fixed finding is not fixed yet/);
+  });
+
+  it("keeps waiting at the finish gate when a finding is force-ignored", async () => {
+    let reviews = 0;
+    const h = harness((stage) =>
+      stage === "code-review"
+        ? { structured: { findings: reviews++ === 0 ? [lowFinding] : [] } }
+        : {},
+    );
+    const seeded = await approved(h);
+
+    const [low] = r.findings.listByTask(seeded.id);
+    h.engine.overrideFinding(seeded.id, low!.id, { status: "force-ignore" });
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
+    expect(h.calls.filter((c) => c.stage === "implement")).toHaveLength(1);
+  });
+
+  it("keeps waiting at a paused triage when a finding is force-fixed", async () => {
+    const h = harness((stage) =>
+      stage === "code-review" ? { structured: { findings: [highFinding] } } : {},
+    );
+    const seeded = await approved(h, { triageMode: "pause" });
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "triage" });
+
+    const [blocker] = r.findings.listByTask(seeded.id);
+    h.engine.overrideFinding(seeded.id, blocker!.id, { status: "force-fix" });
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "triage" });
+    expect(h.calls.filter((c) => c.stage === "implement")).toHaveLength(1);
+  });
+
+  it("queues one fix round when a finding is force-fixed twice at the finish gate", async () => {
+    let reviews = 0;
+    const h = harness((stage) =>
+      stage === "code-review"
+        ? { structured: { findings: reviews++ === 0 ? [lowFinding] : [] } }
+        : {},
+    );
+    const seeded = await approved(h);
+
+    const [low] = r.findings.listByTask(seeded.id);
+    h.engine.overrideFinding(seeded.id, low!.id, { status: "force-fix" });
+    h.engine.overrideFinding(seeded.id, low!.id, { status: "force-fix" });
+    await settle(h.engine);
+    expect(h.calls.filter((c) => c.stage === "implement")).toHaveLength(2);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
   });
 
   it("rejects overrides on unknown or merged findings", () => {

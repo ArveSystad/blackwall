@@ -42,7 +42,7 @@ Implementers may save screenshots (PNG, JPEG, GIF or WebP) to `.blackwall/artifa
 ## Features
 
 - Agent library with role defaults per stage. Agents are not tied to a CLI: each repo picks the CLI its tasks run on, and a task can run single agents on the other one.
-- Finding tags and severities, with force-fix and force-ignore on any finding
+- Finding tags and severities, with force-fix and force-ignore on any finding; force-fixing at the finish gate, or while the summary is being written, runs one more fix round right away
 - Connections to GitHub.com, GHE and Jira Cloud, with tokens in the OS keychain
 - Repo registry with auto-suggested check commands
 - Live agent output and per-round diffs

@@ -383,7 +383,7 @@ export function taskRoutes(
       return c.json<GrillAnswerResult>(await pipeline.answerQuestion(id, questionId, input.data));
     });
 
-    /** Force-fixes or force-ignores a finding, at any time; it applies from the next round. */
+    /** Force-fixes or force-ignores a finding, at any time; it applies from the next round, and at the finish gate a force-fix starts the fix round. */
     routes.post("/:id/findings/:findingId", async (c) => {
       const input = findingOverrideInputSchema.safeParse(await c.req.json().catch(() => undefined));
       if (!input.success) {
