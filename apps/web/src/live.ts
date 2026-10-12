@@ -165,6 +165,10 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       client.setQueryData<StepEvent[]>(queryKeys.stepEvents(entry.stepId), (log) =>
         log ? [...log, entry] : log,
       );
+      // A sub-agent starting or returning adds or removes its grid dot.
+      if (entry.type === "subagent-start" || entry.type === "subagent-end") {
+        void client.invalidateQueries({ queryKey: queryKeys.activeAgents });
+      }
       break;
     }
     case "finding.upserted":

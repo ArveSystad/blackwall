@@ -51,6 +51,25 @@ describe("Claude Code permissions", () => {
     );
   });
 
+  it("lets implementers start only the harness-defined sub-agent", () => {
+    const args = permissionArgs(permissionsFor("claude", "implement"));
+    expect(listAfter(args, "--tools")).toContain("Agent");
+    const allow = listAfter(args, "--allowedTools");
+    expect(allow).toContain("Agent(blackwall-worker)");
+    expect(allow).not.toContain("Agent");
+    expect(listAfter(args, "--disallowedTools")).toEqual(
+      expect.arrayContaining(["Agent(general-purpose)", "Agent(Explore)", "Agent(Plan)"]),
+    );
+    expect(listAfter(args, "--disallowedTools")).not.toContain("Agent(blackwall-worker)");
+  });
+
+  it("gives reviewers no sub-agents", () => {
+    const permissions = permissionsFor("claude", "read-only");
+    const args = permissionArgs(permissions);
+    expect(listAfter(args, "--tools")).not.toContain("Agent");
+    expect(permissions.allow.some((rule) => rule.startsWith("Agent"))).toBe(false);
+  });
+
   it("adds an agent's overrides without lifting a deny or adding edit tools", () => {
     const permissions = permissionsFor("claude", "read-only", {
       allow: ["Bash(npm test:*)", "Edit"],

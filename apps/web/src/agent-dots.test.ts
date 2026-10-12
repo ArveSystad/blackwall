@@ -32,6 +32,19 @@ function makeStep(taskId: string, id: string, createdAt: string): ActiveAgentSte
     createdAt: new Date(createdAt),
     startedAt: null,
     finishedAt: null,
+    subagents: [],
+  };
+}
+
+function withSubagents(step: ActiveAgentStep, ...starts: [string, string][]): ActiveAgentStep {
+  return {
+    ...step,
+    subagents: starts.map(([id, startedAt]) => ({
+      id,
+      agentType: "blackwall-worker",
+      description: `Job ${id}`,
+      startedAt: new Date(startedAt),
+    })),
   };
 }
 
@@ -44,6 +57,7 @@ function dot(taskId: string, slot = 0): GridDot {
     cli: null,
     slot,
     state: "running",
+    subagent: null,
   };
 }
 
@@ -69,6 +83,33 @@ describe("gridDots", () => {
     ]);
   });
 
+  it("puts open sub-agents after the step dots, oldest first, on their own keys", () => {
+    const task = makeTask({ status: "running", stage: "implement" });
+    const first = withSubagents(makeStep(task.id, "s1", "2026-10-08T10:01:00.000Z"), [
+      "t2",
+      "2026-10-08T10:07:00.000Z",
+    ]);
+    const second = withSubagents(makeStep(task.id, "s2", "2026-10-08T10:05:00.000Z"), [
+      "t1",
+      "2026-10-08T10:06:00.000Z",
+    ]);
+    const dots = gridDots([task], [second, first]);
+    expect(dots.map((d) => [d.key, d.stepId, d.slot, d.subagent?.id ?? null])).toEqual([
+      [`${task.id}:0`, "s1", 0, null],
+      [`${task.id}:1`, "s2", 1, null],
+      [`${task.id}:sub:t1`, "s2", 2, "t1"],
+      [`${task.id}:sub:t2`, "s1", 3, "t2"],
+    ]);
+    expect(dots[2]).toMatchObject({
+      state: "running",
+      agentId: "a1",
+      subagent: { id: "t1", agentType: "blackwall-worker", description: "Job t1" },
+    });
+    expect(runningTaskCount(dots)).toBe(1);
+    const layout = layoutDots(dots, 600, 400);
+    expect(minDistance([...layout.values()])).toBeGreaterThanOrEqual(DOT_SPACING - 1e-6);
+  });
+
   it("gives a running task between steps one dot with no step", () => {
     const task = makeTask({ status: "running", stage: "inform" });
     expect(gridDots([task], [])).toEqual([
@@ -80,6 +121,7 @@ describe("gridDots", () => {
         cli: null,
         slot: 0,
         state: "running",
+        subagent: null,
       },
     ]);
   });
@@ -104,6 +146,7 @@ describe("gridDots", () => {
         cli: null,
         slot: 0,
         state: "done",
+        subagent: null,
       },
     ]);
   });

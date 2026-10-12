@@ -25,10 +25,17 @@ export interface AgentResult {
 export type AgentEvent =
   /** The session id is known; persist it to resume after a crash. */
   | { type: "session"; sessionId: string; model?: string }
-  /** Assistant text. */
-  | { type: "message"; text: string }
-  | { type: "tool-call-start"; id: string; name: string; input: unknown }
-  | { type: "tool-call-end"; id: string; output: string; isError: boolean }
+  /**
+   * Assistant text. `parentId` on this and the tool-call events: the id of the
+   * sub-agent tool call they ran under, when a sub-agent produced them.
+   */
+  | { type: "message"; text: string; parentId?: string }
+  | { type: "tool-call-start"; id: string; name: string; input: unknown; parentId?: string }
+  | { type: "tool-call-end"; id: string; output: string; isError: boolean; parentId?: string }
+  /** A sub-agent started; `id` is the tool call that runs it. */
+  | { type: "subagent-start"; id: string; agentType: string; description: string | null }
+  /** The sub-agent of tool call `id` returned. */
+  | { type: "subagent-end"; id: string }
   /** Usage of one model call. */
   | { type: "usage"; usage: AgentUsage }
   /**

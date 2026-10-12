@@ -1,4 +1,5 @@
 import { permissionArgs } from "../permissions.js";
+import { claudeSubagents } from "../subagents.js";
 import { claudeRateLimitFromEvent, claudeRateLimitFromText } from "./rate-limit.js";
 import { runAgentProcess, type LineParser } from "./run-process.js";
 import type { AgentAdapter, AgentEvent, AgentRunOptions, AgentUsage } from "./types.js";
@@ -9,6 +10,9 @@ import { emptyUsage } from "./types.js";
  * result's `structured_output`, so the call is not shown as a tool call.
  */
 const STRUCTURED_OUTPUT_TOOL = "StructuredOutput";
+
+/** The tool that runs a sub-agent; `Task` is its name before Claude Code 2.1. */
+const SUBAGENT_TOOLS = new Set(["Agent", "Task"]);
 
 type Json = Record<string, unknown>;
 
@@ -45,12 +49,15 @@ function toolOutput(content: unknown): string {
  * Parses `claude -p --output-format stream-json --verbose` output. Hook and
  * other bookkeeping lines are dropped, as are thinking blocks and
  * `rate_limit_event` usage reports; a rejected one (the usage limit is hit)
- * becomes a `rate-limit` event, as does a usage-limit error result.
+ * becomes a `rate-limit` event, as does a usage-limit error result. A
+ * sub-agent's tool call also emits `subagent-start` and `subagent-end`, and
+ * the sub-agent's own messages and tool calls carry its call's id as `parentId`.
  */
 export function createClaudeParser(now: () => Date = () => new Date()): LineParser {
   /** Assistant messages arrive one content block per line, each repeating the usage. */
   const counted = new Set<string>();
   const hidden = new Set<string>();
+  const subagents = new Set<string>();
   let sessionId: string | undefined;
   let limited = false;
 
@@ -64,6 +71,8 @@ export function createClaudeParser(now: () => Date = () => new Date()): LinePars
       }
       if (!isObject(parsed)) return [];
       const events: AgentEvent[] = [];
+      const parentId = str(parsed.parent_tool_use_id);
+      const nested = parentId ? { parentId } : {};
 
       switch (parsed.type) {
         case "rate_limit_event": {
@@ -91,7 +100,7 @@ export function createClaudeParser(now: () => Date = () => new Date()): LinePars
             if (!isObject(block)) continue;
             if (block.type === "text") {
               const text = str(block.text);
-              if (text?.trim()) events.push({ type: "message", text });
+              if (text?.trim()) events.push({ type: "message", text, ...nested });
             } else if (block.type === "tool_use") {
               const id = str(block.id) ?? "";
               const name = str(block.name) ?? "unknown";
@@ -99,7 +108,18 @@ export function createClaudeParser(now: () => Date = () => new Date()): LinePars
                 hidden.add(id);
                 continue;
               }
-              events.push({ type: "tool-call-start", id, name, input: block.input ?? {} });
+              const input = block.input ?? {};
+              events.push({ type: "tool-call-start", id, name, input, ...nested });
+              if (SUBAGENT_TOOLS.has(name) && !parentId) {
+                subagents.add(id);
+                const fields = isObject(input) ? input : {};
+                events.push({
+                  type: "subagent-start",
+                  id,
+                  agentType: str(fields.subagent_type) ?? "general-purpose",
+                  description: str(fields.description) ?? null,
+                });
+              }
             }
           }
           const messageId = str(message.id);
@@ -121,7 +141,9 @@ export function createClaudeParser(now: () => Date = () => new Date()): LinePars
               id,
               output: toolOutput(block.content),
               isError: block.is_error === true,
+              ...nested,
             });
+            if (subagents.delete(id)) events.push({ type: "subagent-end", id });
           }
           break;
         }
@@ -192,6 +214,7 @@ export function claudeArgs(options: Omit<AgentRunOptions, "cwd" | "prompt" | "si
     ...(systemPrompt ? ["--append-system-prompt", systemPrompt] : []),
     ...(jsonSchema ? ["--json-schema", JSON.stringify(withoutDialect(jsonSchema))] : []),
     ...(maxTurns !== undefined ? ["--max-turns", String(maxTurns)] : []),
+    ...(permissions.profile === "implement" ? ["--agents", claudeSubagents()] : []),
     ...permissionArgs(permissions),
   ];
 }

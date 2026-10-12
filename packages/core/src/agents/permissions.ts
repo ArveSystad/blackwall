@@ -5,6 +5,7 @@ import {
   type PermissionOverrides,
   type PermissionProfile,
 } from "@blackwall/shared";
+import { SUBAGENT_NAME } from "./subagents.js";
 
 /**
  * An agent's permissions for one step, as rules in its CLI's own syntax. Deny
@@ -40,11 +41,38 @@ export const REMOTE_COMMANDS = [
   "gh",
 ] as const;
 
-/** Claude Code built-in tools available per profile (`--tools`); anything else is removed. */
+/**
+ * Claude Code built-in tools available per profile (`--tools`); anything else is
+ * removed. Implementers get `Agent` for the harness-defined worker only: see
+ * {@link CLAUDE_BUILTIN_SUBAGENTS}.
+ */
 const CLAUDE_TOOLS: Record<PermissionProfile, readonly string[]> = {
   "read-only": ["Read", "Grep", "Glob", "Bash"],
-  implement: ["Read", "Grep", "Glob", "Edit", "Write", "NotebookEdit", "Bash", "TodoWrite"],
+  implement: [
+    "Read",
+    "Grep",
+    "Glob",
+    "Edit",
+    "Write",
+    "NotebookEdit",
+    "Bash",
+    "TodoWrite",
+    "Agent",
+  ],
 };
+
+/**
+ * Claude Code's built-in sub-agent types (as listed in its `init` line), all
+ * denied. Claude Code runs any sub-agent type without an allow rule, so an
+ * `Agent(<name>)` allow alone does not keep implementers to the worker.
+ */
+const CLAUDE_BUILTIN_SUBAGENTS = [
+  "general-purpose",
+  "Explore",
+  "Plan",
+  "claude",
+  "statusline-setup",
+] as const;
 
 const claudeBash = (command: string) => `Bash(${command}:*)`;
 
@@ -55,7 +83,10 @@ const copilotShell = (command: string) =>
 /** OpenCode matches a bash command against globs; the `*` also covers a bare stem. */
 const opencodeBash = (command: string) => `bash(${command}*)`;
 
-/** OpenCode tools no profile allows: web access, subagents (own config), skills, other dirs. */
+/**
+ * OpenCode tools no profile allows: web access, subagents (own config, not yet
+ * harness-defined as for Claude), skills, other dirs.
+ */
 const OPENCODE_DENIED = [
   "task",
   "webfetch",
@@ -75,8 +106,24 @@ const PROFILE_RULES: Record<
       deny: ["Edit", "Write", "NotebookEdit", ...REMOTE_COMMANDS.map(claudeBash)],
     },
     implement: {
-      allow: [...CLAUDE_TOOLS.implement],
-      deny: REMOTE_COMMANDS.map(claudeBash),
+      // Only the harness-defined worker, never the built-in sub-agents (which
+      // run on the parent's model). The deny rules bind the worker too.
+      // Copilot and OpenCode implementers get no sub-agents yet.
+      allow: [
+        "Read",
+        "Grep",
+        "Glob",
+        "Edit",
+        "Write",
+        "NotebookEdit",
+        "Bash",
+        "TodoWrite",
+        `Agent(${SUBAGENT_NAME})`,
+      ],
+      deny: [
+        ...CLAUDE_BUILTIN_SUBAGENTS.map((name) => `Agent(${name})`),
+        ...REMOTE_COMMANDS.map(claudeBash),
+      ],
     },
   },
   copilot: {

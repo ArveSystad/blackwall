@@ -82,7 +82,9 @@ function AgentDot({
     ...stepEventsQuery(task.id, dot.stepId ?? ""),
     enabled: open && dot.stepId !== null,
   });
-  const activity = events.data ? currentActivity(events.data) : null;
+  // A step's own dot shows its agent's activity, a sub-agent's dot the sub-agent's.
+  const activity = events.data ? currentActivity(events.data, dot.subagent?.id ?? null) : null;
+  const subagent = dot.subagent;
 
   const stage = task.stage ? STAGE_LABELS[task.stage] : null;
   const done = dot.state === "done";
@@ -90,9 +92,11 @@ function AgentDot({
   const failed = dot.state === "failed";
   const stopped = interrupted && isStoppedByUser(task);
   const stateWord = stopped ? "stopped" : STATE_LABELS[dot.state];
-  const label = done
-    ? `${task.title}: ${STATE_LABELS.done}`
-    : `${task.title}: ${stage ? `${stage}, ` : ""}${stateWord}`;
+  const label = subagent
+    ? `${task.title}: sub-agent, ${subagent.description ?? subagent.agentType}`
+    : done
+      ? `${task.title}: ${STATE_LABELS.done}`
+      : `${task.title}: ${stage ? `${stage}, ` : ""}${stateWord}`;
   const width = Math.min(CARD_WIDTH, overlayWidth - 2 * CARD_MARGIN);
   const needs = dot.state === "needs-you";
   const still = dot.state === "queued" || interrupted || failed;
@@ -146,7 +150,8 @@ function AgentDot({
           style={still ? undefined : { animationDelay: `${delay}s` }}
           className={cn(
             "rounded-full",
-            dot.state === "running" && "size-2 animate-pulse-running bg-running shadow-glow-cyan",
+            dot.state === "running" && "animate-pulse-running bg-running shadow-glow-cyan",
+            dot.state === "running" && (subagent ? "size-1.5" : "size-2"),
             needs && "size-2.5 animate-pulse-needs bg-needs shadow-glow-needs",
             dot.state === "queued" && "size-2 bg-faint opacity-60",
             done && "size-2 animate-pulse-done bg-done shadow-glow-done",
@@ -196,12 +201,23 @@ function AgentDot({
                   : `${modClick} to ${failed ? "retry" : "resume"}`}
               </span>
             </>
+          ) : subagent ? (
+            <>
+              <span className="label text-cyan">Sub-agent</span>
+              <span className="truncate text-meta text-foreground-strong">
+                {subagent.description ?? subagent.agentType}
+              </span>
+              {agent && <span className="text-meta text-muted-foreground">via {agent.name}</span>}
+              <span className="mono truncate text-meta text-foreground">
+                {activity ?? "Starting…"}
+              </span>
+            </>
           ) : (
             stage && (
               <span className={cn("label", needs ? "text-magenta" : "text-cyan")}>{stage}</span>
             )
           )}
-          {dot.state === "running" && (
+          {dot.state === "running" && !subagent && (
             <>
               {agent && (
                 <span className="flex items-center gap-2 text-meta">
@@ -234,7 +250,8 @@ function AgentDot({
  * `agent-dots.ts`): a link to each task with a hover/focus card, and a laser
  * fired upward when a task changes stage. Running and needs-you dots send a
  * ring and their task a bloom (`.bw-boom`), drawn under the dots and sharing
- * each task's pulse delay. Done tasks wait as calm green dots; Ctrl+click
+ * each task's pulse delay. A running sub-agent is a smaller cyan dot beside
+ * its task's, with no bloom. Done tasks wait as calm green dots; Ctrl+click
  * (⌘+click on macOS) archives one through `launch`, and its dot flies off
  * toward the horizon (`.bw-launch`). Interrupted and failed tasks wait as
  * still gray and red dots; Ctrl+click resumes or retries one through
@@ -302,6 +319,7 @@ export function GridAgents({
                 dot.state === "done" ||
                 dot.state === "interrupted" ||
                 dot.state === "failed" ||
+                dot.subagent ||
                 launch.launches.has(dot.taskId) ||
                 !tasks.has(dot.taskId) ||
                 !spot

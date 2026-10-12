@@ -110,6 +110,61 @@ describe("createClaudeParser", () => {
     expect(events.some((e) => e.type === "result")).toBe(false);
   });
 
+  it("reports a sub-agent and tags its events with the parent call", () => {
+    const events = parse("subagent.jsonl");
+    const agentId = "toolu_01SNs8DrwmmKhdJqmyBUpmd4";
+    expect(events.filter((e) => e.type !== "usage").map((e) => e.type)).toEqual([
+      "session",
+      "message",
+      "tool-call-start",
+      "subagent-start",
+      "tool-call-start",
+      "tool-call-end",
+      "tool-call-end",
+      "subagent-end",
+      "message",
+      "result",
+    ]);
+    expect(events).toContainEqual({
+      type: "subagent-start",
+      id: agentId,
+      agentType: "blackwall-worker",
+      description: "Read a.txt and report contents",
+    });
+    const nested = events.filter((e) => "parentId" in e);
+    expect(nested.map((e) => e.type)).toEqual(["tool-call-start", "tool-call-end"]);
+    expect(nested.every((e) => "parentId" in e && e.parentId === agentId)).toBe(true);
+    expect(events.find((e) => e.type === "tool-call-start")).not.toHaveProperty("parentId");
+    expect(events.at(-1)).toMatchObject({ type: "result", result: { text: "hello" } });
+  });
+
+  it("handles the legacy Task tool name", () => {
+    const parser = createClaudeParser();
+    const start = parser.push(
+      JSON.stringify({
+        type: "assistant",
+        parent_tool_use_id: null,
+        message: {
+          content: [{ type: "tool_use", id: "t1", name: "Task", input: { subagent_type: "x" } }],
+        },
+      }),
+    );
+    expect(start).toContainEqual({
+      type: "subagent-start",
+      id: "t1",
+      agentType: "x",
+      description: null,
+    });
+    const end = parser.push(
+      JSON.stringify({
+        type: "user",
+        parent_tool_use_id: null,
+        message: { content: [{ type: "tool_result", tool_use_id: "t1", content: "done" }] },
+      }),
+    );
+    expect(end.map((e) => e.type)).toEqual(["tool-call-end", "subagent-end"]);
+  });
+
   it("ignores lines that are not JSON objects", () => {
     const parser = createClaudeParser();
     expect(parser.push("not json")).toEqual([]);
@@ -162,6 +217,18 @@ describe("claudeArgs", () => {
       expect(args).not.toContain(flag);
     }
     expect(args).not.toContain("--max-turns");
+  });
+
+  it("defines the worker sub-agent for implementers only", () => {
+    const args = claudeArgs({ permissions: permissionsFor("claude", "implement") });
+    const agents = JSON.parse(args[args.indexOf("--agents") + 1] ?? "{}");
+    expect(agents["blackwall-worker"]).toMatchObject({
+      model: "haiku",
+      tools: ["Read", "Grep", "Glob", "Edit", "Write", "Bash"],
+    });
+    expect(agents["blackwall-worker"].prompt).not.toContain("\n");
+    expect(agents["blackwall-worker"].prompt).toContain("Do not commit, push");
+    expect(claudeArgs({ permissions: readOnly })).not.toContain("--agents");
   });
 
   it("refuses permissions built for another CLI", () => {

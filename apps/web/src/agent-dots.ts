@@ -5,7 +5,10 @@ import type { ActiveAgentStep, AgentCli, Stage, Task } from "@blackwall/shared";
  * task, or an interrupted or failed task waiting to be resumed.
  */
 export interface GridDot {
-  /** `${taskId}:${slot}`, so a dot stays mounted as its task moves from step to step. */
+  /**
+   * `${taskId}:${slot}`, so a dot stays mounted as its task moves from step to
+   * step; `${taskId}:sub:${id}` for a sub-agent, so each mounts on its own.
+   */
   key: string;
   taskId: string;
   /** The running step; null between steps and for tasks that are not running. */
@@ -13,9 +16,11 @@ export interface GridDot {
   agentId: string | null;
   /** The CLI the running step's agent runs on; null without a running agent step. */
   cli: AgentCli | null;
-  /** Index among the task's running steps, oldest first. */
+  /** Index among the task's running steps, oldest first, then its open sub-agents. */
   slot: number;
   state: "running" | "needs-you" | "queued" | "done" | "interrupted" | "failed";
+  /** The sub-agent this dot shows, started by the step `stepId`; null for a step's own dot. */
+  subagent: { id: string; agentType: string; description: string | null } | null;
 }
 
 /** Minimum distance between dot centres: the 24px hit target plus a 4px gap. */
@@ -35,7 +40,8 @@ function byCreated(a: { createdAt: Date; id: string }, b: { createdAt: Date; id:
  * The dots for the active tasks, oldest task first, then by slot: one per
  * running step of a running task (one with no step between steps), one
  * for a needs-you, queued, done, interrupted or failed task. Archived tasks
- * get none.
+ * get none. A running task's step dots are followed by one dot per open
+ * sub-agent of those steps, oldest first, in the next slots beside them.
  */
 export function gridDots(tasks: readonly Task[], active: readonly ActiveAgentStep[]): GridDot[] {
   const dots: GridDot[] = [];
@@ -48,6 +54,7 @@ export function gridDots(tasks: readonly Task[], active: readonly ActiveAgentSte
       cli: null,
       slot: 0,
       key: `${task.id}:0`,
+      subagent: null,
     };
     if (task.status !== "running") {
       dots.push({ ...base, state: task.status });
@@ -67,6 +74,26 @@ export function gridDots(tasks: readonly Task[], active: readonly ActiveAgentSte
         cli: step.cli,
         slot,
         state: "running",
+        subagent: null,
+      }),
+    );
+    const subagents = steps
+      .flatMap((step) => step.subagents.map((subagent) => ({ step, subagent })))
+      .sort(
+        (a, b) =>
+          a.subagent.startedAt.getTime() - b.subagent.startedAt.getTime() ||
+          a.subagent.id.localeCompare(b.subagent.id),
+      );
+    subagents.forEach(({ step, subagent: { id, agentType, description } }, index) =>
+      dots.push({
+        key: `${task.id}:sub:${id}`,
+        taskId: task.id,
+        stepId: step.id,
+        agentId: step.agentId,
+        cli: step.cli,
+        slot: steps.length + index,
+        state: "running",
+        subagent: { id, agentType, description },
       }),
     );
   }

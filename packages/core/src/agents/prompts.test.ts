@@ -9,6 +9,7 @@ describe("buildSystemPrompt", () => {
       agent,
       stage: "code-review",
       profile: "read-only",
+      cli: "claude",
       tags: ["security", "ux"],
     });
     expect(prompt.startsWith("You are the security reviewer.")).toBe(true);
@@ -23,6 +24,7 @@ describe("buildSystemPrompt", () => {
       agent: { prompt: "You are the implementer." },
       stage: "implement",
       profile: "implement",
+      cli: "claude",
       tags: ["security"],
     });
     expect(prompt).not.toContain("Findings output contract");
@@ -36,6 +38,7 @@ describe("buildSystemPrompt", () => {
       agent,
       stage: "code-review",
       profile: "read-only",
+      cli: "claude",
       tags: [],
     });
     expect(prompt).not.toContain(".blackwall/artifacts/");
@@ -46,6 +49,7 @@ describe("buildSystemPrompt", () => {
       agent: { prompt: "You are the planner." },
       stage: "inform",
       profile: "read-only",
+      cli: "claude",
       tags: [],
     });
     expect(prompt).toContain("## Plan output contract");
@@ -57,12 +61,31 @@ describe("buildSystemPrompt", () => {
       agent: { prompt: "You are the plan reviewer." },
       stage: "plan-review",
       profile: "read-only",
+      cli: "claude",
       tags: [],
     });
     expect(prompt).toContain("## Plan output contract");
     expect(prompt).toContain("## Questions output contract");
     expect(prompt).toContain('"needsHuman"');
     expect(prompt).not.toContain("Findings output contract");
+  });
+
+  it("guides only implementers on Claude Code to the sub-agent", () => {
+    const implementer = { agent, stage: "implement", profile: "implement", tags: [] } as const;
+    const onClaude = buildSystemPrompt({ ...implementer, cli: "claude" });
+    expect(onClaude).toContain("## Sub-agents");
+    expect(onClaude).toContain("`blackwall-worker`");
+    expect(buildSystemPrompt({ ...implementer, cli: "copilot" })).not.toContain("## Sub-agents");
+    expect(buildSystemPrompt({ ...implementer, cli: "opencode" })).not.toContain("## Sub-agents");
+    expect(
+      buildSystemPrompt({
+        agent,
+        stage: "code-review",
+        profile: "read-only",
+        cli: "claude",
+        tags: [],
+      }),
+    ).not.toContain("## Sub-agents");
   });
 
   it("says when no tags are defined", () => {

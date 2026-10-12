@@ -1,6 +1,7 @@
-import { and, asc, desc, eq, gt, isNotNull, max, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, max, sql } from "drizzle-orm";
 import type {
   ActiveAgentStep,
+  ActiveSubagent,
   Agent,
   BacklogItem,
   Connection,
@@ -395,18 +396,55 @@ export function createStepsRepository(db: Db) {
         .all();
     },
     /** Running agent steps (harness steps left out) with their task, oldest first. */
+    /**
+     * Running agent steps with their open sub-agents: started and not yet
+     * ended, counting only events of the current attempt (a resumed step
+     * keeps its id, and a killed attempt's sub-agents never end).
+     */
     listActiveAgents(): ActiveAgentStep[] {
-      return (
-        db
-          .select({ step: steps, taskId: runs.taskId })
-          .from(steps)
-          .innerJoin(runs, eq(steps.runId, runs.id))
-          .where(and(eq(steps.status, "running"), isNotNull(steps.agentId)))
-          // The bare `rowid` is ambiguous in a join, so it is qualified here.
-          .orderBy(asc(steps.createdAt), asc(sql`${steps}.rowid`))
-          .all()
-          .map(({ step, taskId }) => ({ ...step, taskId }))
-      );
+      const running = db
+        .select({ step: steps, taskId: runs.taskId })
+        .from(steps)
+        .innerJoin(runs, eq(steps.runId, runs.id))
+        .where(and(eq(steps.status, "running"), isNotNull(steps.agentId)))
+        // The bare `rowid` is ambiguous in a join, so it is qualified here.
+        .orderBy(asc(steps.createdAt), asc(sql`${steps}.rowid`))
+        .all();
+      if (running.length === 0) return [];
+      const events = db
+        .select()
+        .from(stepEvents)
+        .where(
+          and(
+            inArray(
+              stepEvents.stepId,
+              running.map(({ step }) => step.id),
+            ),
+            inArray(stepEvents.type, ["subagent-start", "subagent-end"]),
+          ),
+        )
+        .orderBy(asc(stepEvents.stepId), asc(stepEvents.seq))
+        .all();
+      return running.map(({ step, taskId }) => {
+        const open = new Map<string, ActiveSubagent>();
+        for (const event of events) {
+          if (event.stepId !== step.id) continue;
+          if (step.startedAt && event.createdAt < step.startedAt) continue;
+          const payload = (event.payload ?? {}) as Record<string, unknown>;
+          if (typeof payload.id !== "string") continue;
+          if (event.type === "subagent-end") {
+            open.delete(payload.id);
+          } else {
+            open.set(payload.id, {
+              id: payload.id,
+              agentType: typeof payload.agentType === "string" ? payload.agentType : "unknown",
+              description: typeof payload.description === "string" ? payload.description : null,
+              startedAt: event.createdAt,
+            });
+          }
+        }
+        return { ...step, taskId, subagents: [...open.values()] };
+      });
     },
     get(id: string): Step | undefined {
       return db.select().from(steps).where(eq(steps.id, id)).get();

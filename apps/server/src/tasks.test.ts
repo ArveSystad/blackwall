@@ -174,11 +174,25 @@ describe("task routes", () => {
       agentId: agent.id,
       status: "running",
     });
+    repositories.stepEvents.append(step.id, "subagent-start", {
+      type: "subagent-start",
+      id: "t1",
+      agentType: "blackwall-worker",
+      description: "Run the tests",
+    });
 
     const res = await request("/api/tasks/active-agents");
     expect(res.status).toBe(200);
     const active = activeAgentStepSchema.array().parse(await res.json());
     expect(active.map((s) => [s.id, s.taskId])).toEqual([[step.id, task.id]]);
+    expect(active[0]?.subagents).toEqual([
+      expect.objectContaining({
+        id: "t1",
+        agentType: "blackwall-worker",
+        description: "Run the tests",
+      }),
+    ]);
+    expect(active[0]?.subagents[0]?.startedAt).toBeInstanceOf(Date);
   });
 
   it("lists when each done task was resolved", async () => {

@@ -1180,8 +1180,24 @@ export const stepSchema = z.object({
 });
 export type Step = z.infer<typeof stepSchema>;
 
-/** A running agent step with the task it works on, for the active agents view. */
-export const activeAgentStepSchema = stepSchema.extend({ taskId: id });
+/** A sub-agent a running step started and that has not returned yet. */
+export const activeSubagentSchema = z.object({
+  /** The id of the tool call that runs it. */
+  id: z.string().min(1),
+  agentType: z.string().min(1),
+  description: z.string().nullable(),
+  startedAt: timestamp,
+});
+export type ActiveSubagent = z.infer<typeof activeSubagentSchema>;
+
+/**
+ * A running agent step with the task it works on and its open sub-agents
+ * (oldest first), for the active agents view.
+ */
+export const activeAgentStepSchema = stepSchema.extend({
+  taskId: id,
+  subagents: activeSubagentSchema.array(),
+});
 export type ActiveAgentStep = z.infer<typeof activeAgentStepSchema>;
 
 /** When a done task was resolved: the time its delivery run finished, for the stats view. */

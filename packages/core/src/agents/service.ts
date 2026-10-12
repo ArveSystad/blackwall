@@ -454,7 +454,7 @@ export function createAgentService({
         stage,
         cli,
         model: agent.models[cli] ?? null,
-        systemPrompt: buildSystemPrompt({ agent, stage, profile, tags: tags.names() }),
+        systemPrompt: buildSystemPrompt({ agent, stage, profile, cli, tags: tags.names() }),
         permissions: permissionsFor(cli, profile, agent.permissionOverrides[cli]),
       };
     },

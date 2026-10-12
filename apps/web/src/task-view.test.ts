@@ -155,6 +155,27 @@ describe("currentActivity", () => {
       "rate limited",
     );
   });
+
+  it("scopes to the step's own agent or one sub-agent when asked", () => {
+    const events = [
+      event(1, "tool-call-start", {
+        id: "t1",
+        name: "Agent",
+        input: { description: "Run the tests" },
+      }),
+      event(2, "subagent-start", { id: "t1", agentType: "blackwall-worker", description: null }),
+      event(3, "tool-call-start", {
+        id: "c2",
+        name: "Bash",
+        input: { command: "pnpm test" },
+        parentId: "t1",
+      }),
+    ];
+    expect(currentActivity(events)).toBe("Bash pnpm test");
+    expect(currentActivity(events, null)).toBe("Agent Run the tests");
+    expect(currentActivity(events, "t1")).toBe("Bash pnpm test");
+    expect(currentActivity(events, "t9")).toBeNull();
+  });
 });
 
 describe("stepModel", () => {

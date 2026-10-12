@@ -454,6 +454,16 @@ describe("invocation", () => {
     expect(permissions.deny).toContain("Bash(git push:*)");
   });
 
+  it("tells implementers on Claude Code only about the sub-agent", () => {
+    const implementer = byName("Implementer").id;
+    expect(service.invocation(implementer, "implement", "claude").systemPrompt).toContain(
+      "## Sub-agents",
+    );
+    expect(service.invocation(implementer, "implement", "copilot").systemPrompt).not.toContain(
+      "## Sub-agents",
+    );
+  });
+
   it("uses the agent's model and permission overrides for the CLI it runs on", () => {
     const reviewer = byName("Code-quality reviewer");
     service.update(reviewer.id, {

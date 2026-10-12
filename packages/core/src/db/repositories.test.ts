@@ -301,6 +301,59 @@ describe("tasks, runs and steps", () => {
     expect(active[0]).toMatchObject({ taskId: task.id, agentId: agent.id, stage: "implement" });
   });
 
+  describe("active sub-agents", () => {
+    function runningStep(startedAt: Date | null = new Date("2026-01-01T00:00:00Z")) {
+      const run = r.runs.create(seedTask().id);
+      const agent = r.agents.create({ name: "coder", eligibleStages: ["implement"] });
+      return r.steps.create({
+        runId: run.id,
+        stage: "implement",
+        agentId: agent.id,
+        status: "running",
+        startedAt,
+      });
+    }
+    const start = (stepId: string, id: string, description: string | null = null) =>
+      r.stepEvents.append(stepId, "subagent-start", {
+        type: "subagent-start",
+        id,
+        agentType: "blackwall-worker",
+        description,
+      });
+
+    it("lists none when no sub-agent started", () => {
+      runningStep();
+      expect(r.steps.listActiveAgents()[0]?.subagents).toEqual([]);
+    });
+
+    it("lists the open sub-agents, oldest first, without ended ones", () => {
+      const step = runningStep();
+      const first = start(step.id, "t1", "Run the tests");
+      start(step.id, "t2");
+      start(step.id, "t3");
+      r.stepEvents.append(step.id, "subagent-end", { type: "subagent-end", id: "t2" });
+      r.stepEvents.append(step.id, "message", { type: "message", text: "hi" });
+
+      expect(r.steps.listActiveAgents()[0]?.subagents).toEqual([
+        {
+          id: "t1",
+          agentType: "blackwall-worker",
+          description: "Run the tests",
+          startedAt: first.createdAt,
+        },
+        expect.objectContaining({ id: "t3", description: null }),
+      ]);
+    });
+
+    it("ignores sub-agents started before the step's current attempt", () => {
+      const step = runningStep(null);
+      const stale = start(step.id, "t1");
+      r.steps.update(step.id, { startedAt: new Date(stale.createdAt.getTime() + 1) });
+
+      expect(r.steps.listActiveAgents()[0]?.subagents).toEqual([]);
+    });
+  });
+
   it("orders active agent steps oldest first, then by insertion", () => {
     const run = r.runs.create(seedTask().id);
     const agent = r.agents.create({ name: "rev", eligibleStages: ["code-review"] });

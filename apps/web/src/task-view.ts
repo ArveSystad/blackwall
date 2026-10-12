@@ -382,10 +382,22 @@ const ACTIVITY_CHARS = 120;
 /**
  * What a running step is doing now, from its latest transcript item: a tool
  * call's name and target, a message's first line or an error. Null before
- * the first item.
+ * the first item. `parentId` scopes it to one agent of the step: left out,
+ * every event counts, sub-agents' included; `null`, only the step's own
+ * agent's events; a sub-agent's tool call id, only that sub-agent's events.
  */
-export function currentActivity(events: readonly StepEvent[]): string | null {
-  const item = buildTranscript(events).at(-1);
+export function currentActivity(
+  events: readonly StepEvent[],
+  parentId?: string | null,
+): string | null {
+  const scoped =
+    parentId === undefined
+      ? events
+      : events.filter((event) => {
+          const own = record(event.payload).parentId;
+          return parentId === null ? typeof own !== "string" : own === parentId;
+        });
+  const item = buildTranscript(scoped).at(-1);
   if (!item) return null;
   switch (item.kind) {
     case "tool":

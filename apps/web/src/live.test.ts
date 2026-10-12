@@ -187,6 +187,25 @@ describe("applyServerEvent", () => {
     expect(stale()).toBe(true);
   });
 
+  it("refetches the active agents when a sub-agent starts or ends, not on other output", () => {
+    const stale = () => client.getQueryState(queryKeys.activeAgents)?.isInvalidated;
+    const step = (type: string) =>
+      applyServerEvent(client, {
+        type: "step.event",
+        payload: { event: { stepId: "s1", seq: 1, type } as unknown as StepEvent },
+      });
+
+    client.setQueryData(queryKeys.activeAgents, []);
+    step("message");
+    expect(stale()).toBe(false);
+    step("subagent-start");
+    expect(stale()).toBe(true);
+
+    client.setQueryData(queryKeys.activeAgents, []);
+    step("subagent-end");
+    expect(stale()).toBe(true);
+  });
+
   it("refetches a task's artifacts when it changes, and every task's when a step changes", () => {
     const stale = (key: readonly unknown[]) => client.getQueryState(key)?.isInvalidated;
     const task = makeTask();

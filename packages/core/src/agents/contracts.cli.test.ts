@@ -121,7 +121,13 @@ function run(
   return adapter.run({
     cwd: repo,
     prompt,
-    systemPrompt: buildSystemPrompt({ agent: persona(name), stage, profile, tags: DEFAULT_TAGS }),
+    systemPrompt: buildSystemPrompt({
+      agent: persona(name),
+      stage,
+      profile,
+      cli,
+      tags: DEFAULT_TAGS,
+    }),
     permissions: permissionsFor(cli, profile),
     ...(jsonSchema ? { jsonSchema } : {}),
   }).result;

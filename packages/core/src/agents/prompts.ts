@@ -1,4 +1,11 @@
-import { SEVERITIES, type Agent, type PermissionProfile, type Stage } from "@blackwall/shared";
+import {
+  SEVERITIES,
+  type Agent,
+  type AgentCli,
+  type PermissionProfile,
+  type Stage,
+} from "@blackwall/shared";
+import { SUBAGENT_NAME } from "./subagents.js";
 
 const WORKSPACE_RULES: Record<PermissionProfile, string> = {
   "read-only": [
@@ -13,6 +20,11 @@ const WORKSPACE_RULES: Record<PermissionProfile, string> = {
     "When the task changes something visual and you can render it with the repo's own tooling, you may save PNG, JPEG, GIF or WebP screenshots to `.blackwall/artifacts/`: they show in the task's Artifacts tab and are never committed.",
   ].join("\n"),
 };
+
+/** The workspace rules for a permission profile, one rule per line. */
+export function workspaceRules(profile: PermissionProfile): string {
+  return WORKSPACE_RULES[profile];
+}
 
 /** The sections every plan has, in order, as `## <section>` headings. */
 export const PLAN_SECTIONS = ["Goal", "Approach", "Changes", "Risks", "Verification"] as const;
@@ -124,6 +136,8 @@ export interface SystemPromptContext {
   agent: Pick<Agent, "prompt">;
   stage: Stage;
   profile: PermissionProfile;
+  /** The CLI the agent runs on: only Claude implementers get the sub-agent guide. */
+  cli: AgentCli;
   /** Current finding tags, in display order. */
   tags: readonly string[];
 }
@@ -143,16 +157,41 @@ function contractsFor(stage: Stage, tags: readonly string[]): string[] {
 }
 
 /**
+ * How an implementer hands narrow jobs to the harness-defined sub-agent, and
+ * how lean its briefs must be: the worker sees only the brief.
+ */
+export function subagentGuide(): string {
+  return [
+    "## Sub-agents",
+    "",
+    `A cheaper, faster sub-agent, \`${SUBAGENT_NAME}\`, is available through the Agent tool. It follows the same workspace rules.`,
+    "",
+    "- Delegate mechanical, self-contained jobs to it: an edit across named files, a search, running a build or test and reporting the result.",
+    "- Keep design decisions, tricky logic and the final check of the worker's changes for yourself.",
+    "- Brief it with only the exact files, the change or command, and what to report back. Never paste the plan, the task context or the conversation: it sees only the brief.",
+    "- Run independent jobs in parallel, never in the background. Skip delegation when doing the job yourself is quicker.",
+  ].join("\n");
+}
+
+/**
  * The system prompt for one step: the agent's persona, the workspace rules for
  * its permission profile and the output contracts of the stage: the plan
  * contract for Inform, plan and questions for Plan review, and the tag list and
- * findings contract for Code review.
+ * findings contract for Code review. Implementers on Claude Code also get the
+ * sub-agent guide.
  */
-export function buildSystemPrompt({ agent, stage, profile, tags }: SystemPromptContext): string {
+export function buildSystemPrompt({
+  agent,
+  stage,
+  profile,
+  cli,
+  tags,
+}: SystemPromptContext): string {
   const parts = [
     agent.prompt.trim(),
     `## Workspace rules\n\n${WORKSPACE_RULES[profile]}`,
     ...contractsFor(stage, tags),
+    ...(profile === "implement" && cli === "claude" ? [subagentGuide()] : []),
   ];
   return parts.filter((part) => part !== "").join("\n\n");
 }
