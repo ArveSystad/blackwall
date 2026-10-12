@@ -1,10 +1,14 @@
-import type { GeneralSettings } from "@blackwall/shared";
+import {
+  MAX_GITHUB_ISSUES_REFRESH_SECONDS,
+  MIN_GITHUB_ISSUES_REFRESH_SECONDS,
+  type GeneralSettings,
+} from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { updateSettings } from "../../api";
 import { cn } from "../../lib/utils";
 import { queryKeys, settingsQuery } from "../../query";
-import { errorMessage, parseCap } from "../../settings-forms";
+import { errorMessage, parseCap, parseRefreshSeconds } from "../../settings-forms";
 import { editorBody, sectionLegend } from "../classes";
 import { fieldLabel } from "../ui/field";
 import { Input } from "../ui/input";
@@ -15,19 +19,28 @@ function BacklogEditor({ saved }: { saved: GeneralSettings }) {
   const [runner, setRunner] = useState(saved.backlogRunner);
   const [cap, setCap] = useState(String(saved.maxBacklogTasksPerRepo));
   const [stopOnNeeds, setStopOnNeeds] = useState(saved.stopBacklogOnNeedsYou);
+  const [refresh, setRefresh] = useState(String(saved.githubIssuesRefreshSeconds));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const capValue = parseCap(cap);
+  const refreshValue = parseRefreshSeconds(refresh);
   const dirty =
     runner !== saved.backlogRunner ||
     capValue !== saved.maxBacklogTasksPerRepo ||
-    stopOnNeeds !== saved.stopBacklogOnNeedsYou;
+    stopOnNeeds !== saved.stopBacklogOnNeedsYou ||
+    refreshValue !== saved.githubIssuesRefreshSeconds;
 
   async function save() {
     if (!dirty || saving) return;
     if (capValue === null) {
       setError("Backlog tasks per repo must be a whole number from 1 to 20");
+      return;
+    }
+    if (refreshValue === null) {
+      setError(
+        `Refresh interval must be a whole number of seconds from ${MIN_GITHUB_ISSUES_REFRESH_SECONDS} to ${MAX_GITHUB_ISSUES_REFRESH_SECONDS}`,
+      );
       return;
     }
     setSaving(true);
@@ -39,6 +52,7 @@ function BacklogEditor({ saved }: { saved: GeneralSettings }) {
           backlogRunner: runner,
           maxBacklogTasksPerRepo: capValue,
           stopBacklogOnNeedsYou: stopOnNeeds,
+          githubIssuesRefreshSeconds: refreshValue,
         }),
       );
     } catch (cause) {
@@ -110,6 +124,37 @@ function BacklogEditor({ saved }: { saved: GeneralSettings }) {
             </span>
           </label>
         </fieldset>
+        <fieldset className="m-0 flex max-w-[720px] flex-col gap-4 border-none p-0">
+          <legend className={sectionLegend}>GitHub issues</legend>
+          <p className="m-0 text-meta text-muted-foreground">
+            How often each backlog&apos;s GitHub issues and the assigned issues re-read GitHub, so
+            closed issues drop off.
+          </p>
+          <div className="grid grid-cols-[180px_minmax(0,1fr)] items-center gap-3">
+            <label htmlFor="github-issues-refresh-seconds" className={fieldLabel}>
+              Refresh every (seconds)
+            </label>
+            <div className="flex items-center gap-3">
+              <Input
+                id="github-issues-refresh-seconds"
+                type="number"
+                min={MIN_GITHUB_ISSUES_REFRESH_SECONDS}
+                max={MAX_GITHUB_ISSUES_REFRESH_SECONDS}
+                className="mono w-20"
+                aria-invalid={refreshValue === null}
+                aria-describedby="github-issues-refresh-seconds-hint"
+                value={refresh}
+                onChange={(event) => setRefresh(event.target.value)}
+              />
+              <span
+                id="github-issues-refresh-seconds-hint"
+                className="text-meta text-muted-foreground"
+              >
+                Seconds between refreshes while the window is focused.
+              </span>
+            </div>
+          </div>
+        </fieldset>
       </div>
       <SaveBar
         dirty={dirty}
@@ -119,6 +164,7 @@ function BacklogEditor({ saved }: { saved: GeneralSettings }) {
           setRunner(saved.backlogRunner);
           setCap(String(saved.maxBacklogTasksPerRepo));
           setStopOnNeeds(saved.stopBacklogOnNeedsYou);
+          setRefresh(String(saved.githubIssuesRefreshSeconds));
           setError(null);
         }}
         onSave={() => void save()}
@@ -128,8 +174,9 @@ function BacklogEditor({ saved }: { saved: GeneralSettings }) {
 }
 
 /**
- * Global backlog runner settings; the per-repo switch lives on each backlog
- * view and the per-repo cap on each repo's settings.
+ * Global backlog runner settings and the GitHub issues refresh interval; the
+ * per-repo switch lives on each backlog view and the per-repo cap on each
+ * repo's settings.
  */
 export function BacklogSection() {
   const settings = useQuery(settingsQuery);

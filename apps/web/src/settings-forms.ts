@@ -2,6 +2,8 @@ import {
   AGENT_CLIS,
   AGENT_ROLES,
   JIRA_EMAIL_META,
+  MAX_GITHUB_ISSUES_REFRESH_SECONDS,
+  MIN_GITHUB_ISSUES_REFRESH_SECONDS,
   PANEL_ROLES,
   ROLE_STAGES,
   tagNameSchema,
@@ -200,6 +202,17 @@ export const TRIAGE_OPTIONS: { value: TriageMode; title: string; detail: string 
 export function parseCap(text: string): number | null {
   const value = Number(text);
   return text.trim() !== "" && Number.isInteger(value) && value >= 1 && value <= 20 ? value : null;
+}
+
+/** A GitHub issues refresh interval typed into a settings field: whole seconds in range, else null. */
+export function parseRefreshSeconds(text: string): number | null {
+  const value = Number(text);
+  return text.trim() !== "" &&
+    Number.isInteger(value) &&
+    value >= MIN_GITHUB_ISSUES_REFRESH_SECONDS &&
+    value <= MAX_GITHUB_ISSUES_REFRESH_SECONDS
+    ? value
+    : null;
 }
 
 export type TagEdit = { ok: true; tags: string[] } | { ok: false; error: string };

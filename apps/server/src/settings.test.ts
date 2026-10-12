@@ -65,6 +65,7 @@ describe("settings routes", () => {
       backlogRunner: true,
       maxBacklogTasksPerRepo: 1,
       stopBacklogOnNeedsYou: true,
+      githubIssuesRefreshSeconds: 60,
     });
   });
 
@@ -82,6 +83,25 @@ describe("settings routes", () => {
 
   it("rejects an out-of-range cap", async () => {
     const res = await request("/api/settings", { method: "PATCH", body: { maxTasksPerRepo: 0 } });
+    expect(res.status).toBe(400);
+  });
+
+  it("updates the GitHub issues refresh interval", async () => {
+    const res = await request("/api/settings", {
+      method: "PATCH",
+      body: { githubIssuesRefreshSeconds: 30 },
+    });
+    expect(await res.json()).toMatchObject({ githubIssuesRefreshSeconds: 30 });
+    expect(await (await request("/api/settings")).json()).toMatchObject({
+      githubIssuesRefreshSeconds: 30,
+    });
+  });
+
+  it("rejects an out-of-range refresh interval", async () => {
+    const res = await request("/api/settings", {
+      method: "PATCH",
+      body: { githubIssuesRefreshSeconds: 5 },
+    });
     expect(res.status).toBe(400);
   });
 });
