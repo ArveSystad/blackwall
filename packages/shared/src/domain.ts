@@ -975,6 +975,10 @@ export const assignedIssueSchema = z.object({
   /** Author's login; null for a deleted account. */
   author: z.string().nullable(),
   updatedAt: timestamp,
+  /** The registered repo whose `origin` remote is the issue's repository; null: not registered. */
+  repoId: id.nullable(),
+  /** The connection for the issue's host; null when none matches. */
+  connectionId: id.nullable(),
 });
 export type AssignedIssue = z.infer<typeof assignedIssueSchema>;
 

@@ -347,6 +347,8 @@ describe("assignedIssuesSchema", () => {
     url: "https://acme.ghe.com/acme/shop/issues/7",
     author: null,
     updatedAt: now,
+    repoId: "r1",
+    connectionId: "c1",
   };
 
   it("coerces dates, allows a null author and keeps errors", () => {
@@ -358,6 +360,17 @@ describe("assignedIssuesSchema", () => {
     expect(parsed.issues[0]!.author).toBeNull();
     expect(parsed.issues[1]!.author).toBe("kari");
     expect(parsed.errors).toEqual([{ host: "github.com", message: "github.com: token rejected" }]);
+    expect(parsed.issues[0]!.repoId).toBe("r1");
+    expect(parsed.issues[0]!.connectionId).toBe("c1");
+  });
+
+  it("allows an unregistered repo and no connection", () => {
+    const parsed = assignedIssuesSchema.parse({
+      issues: [{ ...issue, repoId: null, connectionId: null }],
+      errors: [],
+    });
+    expect(parsed.issues[0]!.repoId).toBeNull();
+    expect(parsed.issues[0]!.connectionId).toBeNull();
   });
 });
 

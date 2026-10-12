@@ -340,15 +340,24 @@ export interface IssueRoutesOptions {
  *
  * `GET /assigned`: the open issues assigned to the user on every GitHub/GHE
  * connection with a token, newest first. A host that fails is listed in
- * `errors`; the other hosts' issues still come back.
+ * `errors`; the other hosts' issues still come back. Each issue carries its
+ * registered repo (`repoId`, null when no repo's `origin` is the issue's
+ * repository) and its host's connection (`connectionId`), resolved as `/lookup` does.
  */
 export function issueRoutes({ connections, repos, fetch: fetchImpl }: IssueRoutesOptions): Hono {
   const routes = new Hono();
 
   routes.get("/assigned", async (c) => {
-    const { rows: issues, errors } = await searchEveryGitHubHost(connections, fetchImpl, (client) =>
+    const { rows, errors } = await searchEveryGitHubHost(connections, fetchImpl, (client) =>
       client.searchAssignedIssues(),
     );
+    const registered = repos.list();
+    const issues = rows.map((issue) => {
+      const ref = parseIssueUrl(issue.url);
+      const repo = ref && findRepoForPullRequest(registered, ref);
+      const connection = connections.resolve({ kind: "github", remote: issue.url });
+      return { ...issue, repoId: repo?.id ?? null, connectionId: connection?.id ?? null };
+    });
     return c.json<AssignedIssues>({ issues, errors });
   });
 

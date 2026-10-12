@@ -16,6 +16,7 @@ import {
   firstOriginContext,
   issueRoutes,
   pullRequestRoutes,
+  type IssueRoutesOptions,
 } from "./github.js";
 
 const TOKEN = "ghp_secret_token";
@@ -457,7 +458,17 @@ describe("assigned issues route", () => {
     repository: { name: "shop", owner: { login: "acme" } },
   });
 
-  function setup(list: ConnectionView[], fail: string[] = []) {
+  function setup(
+    list: ConnectionView[],
+    fail: string[] = [],
+    {
+      repos = [],
+      resolve = () => undefined,
+    }: {
+      repos?: { id: string; remoteUrl: string | null }[];
+      resolve?: IssueRoutesOptions["connections"]["resolve"];
+    } = {},
+  ) {
     const fetchImpl = vi.fn<typeof fetch>((input) => {
       const url = new URL(String(input));
       const json = (body: unknown, status = 200) =>
@@ -481,8 +492,8 @@ describe("assigned issues route", () => {
       token: TOKEN,
     }));
     const routes = issueRoutes({
-      connections: { resolve: () => undefined, list: () => list, credentialById },
-      repos: { list: () => [] },
+      connections: { resolve, list: () => list, credentialById },
+      repos: { list: () => repos as never },
       fetch: fetchImpl,
     });
     return { routes, fetchImpl, credentialById };
@@ -511,7 +522,30 @@ describe("assigned issues route", () => {
       url: "https://acme.ghe.com/acme/shop/issues/2",
       author: "kari",
       updatedAt: "2026-10-03T10:00:00.000Z",
+      repoId: null,
+      connectionId: null,
     });
+  });
+
+  it("adds the registered repo and the host's connection to each issue", async () => {
+    const { routes } = setup([github, acme], [], {
+      repos: [
+        { id: "r1", remoteUrl: "git@acme.ghe.com:acme/shop.git" },
+        { id: "r2", remoteUrl: null },
+      ],
+      resolve: ({ kind, ...target }) =>
+        kind === "github" && "remote" in target && target.remote.includes("acme.ghe.com")
+          ? acme
+          : github,
+    });
+    const body = (await (await routes.request("/assigned")).json()) as AssignedIssues;
+    expect(
+      body.issues.map((issue) => [issue.host, issue.number, issue.repoId, issue.connectionId]),
+    ).toEqual([
+      ["acme.ghe.com", 2, "r1", "c2"],
+      ["github.com", 1, null, "c1"],
+      ["acme.ghe.com", 3, "r1", "c2"],
+    ]);
   });
 
   it("skips Jira connections and GitHub connections without a token", async () => {

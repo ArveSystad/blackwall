@@ -1,25 +1,112 @@
-import type { AssignedIssue } from "@blackwall/shared";
-import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
-import { useMemo } from "react";
+import type { AssignedIssue, BacklogItemView, Task } from "@blackwall/shared";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
+import { MissingCredentialError, createBacklogItem } from "../api";
+import { issueOrigin, issueWork, type IssueWork } from "../assigned-issues";
 import { paneBody, paneHeader, paneTitle } from "../components/classes";
 import { EmptyState } from "../components/EmptyState";
 import { ORIGIN_ICONS } from "../components/origins";
 import { Section } from "../components/Section";
 import { Button } from "../components/ui/button";
+import { ErrorText } from "../components/ui/field";
+import { useWithCredential } from "../credentials";
 import { useNow } from "../hooks";
-import { relativeTime } from "../inbox";
+import { originKey, relativeTime } from "../inbox";
 import { useEscapeTo } from "../keyboard";
 import { cn } from "../lib/utils";
-import { assignedIssuesQuery } from "../query";
+import { assignedIssuesQuery, backlogQuery, queryKeys, taskQuery, tasksQuery } from "../query";
 import { groupByHost } from "../review-requests";
+import { errorMessage } from "../settings-forms";
 
 const IssueIcon = ORIGIN_ICONS["github-issue"];
 
-/** One open issue assigned to the user; the row opens it on GitHub. */
-function IssueRow({ issue, now }: { issue: AssignedIssue; now: Date }) {
+/**
+ * Adds the issue with defaults to its repo's backlog; the server starts it at
+ * once when that backlog runs. The row then links to what was created.
+ */
+function WorkOnTask({ issue, repoId }: { issue: AssignedIssue; repoId: string }) {
+  const queryClient = useQueryClient();
+  const withCredential = useWithCredential();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function work() {
+    if (pending) return;
+    setPending(true);
+    setError(null);
+    const origin = issueOrigin(issue);
+    try {
+      const created = await withCredential(
+        { label: "Work on task", target: originKey({ origin }) },
+        () => createBacklogItem(repoId, { origin, start: true }),
+      );
+      await queryClient.invalidateQueries({ queryKey: queryKeys.backlog(repoId) });
+      if (created.taskId) {
+        const task = await queryClient.fetchQuery(taskQuery(created.taskId));
+        queryClient.setQueryData<Task[]>(queryKeys.tasks, (tasks) =>
+          tasks && !tasks.some((t) => t.id === task.id) ? [...tasks, task] : tasks,
+        );
+      }
+    } catch (cause) {
+      setError(
+        cause instanceof MissingCredentialError ? "Cancelled: no token saved" : errorMessage(cause),
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
   return (
-    <li className="flex items-center rounded-lg hover:bg-card">
+    <span className="flex flex-col items-end gap-0.5">
+      <Button size="sm" variant="ghost" disabled={pending} onClick={() => void work()}>
+        Work on task
+      </Button>
+      {error && <ErrorText className="max-w-60 text-right">{error}</ErrorText>}
+    </span>
+  );
+}
+
+/** The row's trailing action: a link to the work on the issue, else "Work on task". */
+function IssueAction({ issue, work }: { issue: AssignedIssue; work: IssueWork }) {
+  if (work?.kind === "task")
+    return (
+      <Link
+        to="/tasks/$taskId"
+        params={{ taskId: work.taskId }}
+        className="text-body whitespace-nowrap"
+      >
+        Open task
+      </Link>
+    );
+  if (work?.kind === "backlog")
+    return (
+      <Link
+        to="/repos/$repoId/backlog"
+        params={{ repoId: work.repoId }}
+        className="text-body whitespace-nowrap"
+      >
+        In backlog
+      </Link>
+    );
+  if (issue.repoId === null)
+    return (
+      <Button
+        size="sm"
+        variant="ghost"
+        disabled
+        title={`Register ${issue.owner}/${issue.repo} to work on it`}
+      >
+        Work on task
+      </Button>
+    );
+  return <WorkOnTask issue={issue} repoId={issue.repoId} />;
+}
+
+/** One open issue assigned to the user; the row opens it on GitHub, except for its trailing action. */
+function IssueRow({ issue, work, now }: { issue: AssignedIssue; work: IssueWork; now: Date }) {
+  return (
+    <li className="flex items-center gap-1 rounded-lg hover:bg-card">
       <a
         href={issue.url}
         target="_blank"
@@ -40,6 +127,9 @@ function IssueRow({ issue, now }: { issue: AssignedIssue; now: Date }) {
           </span>
         </span>
       </a>
+      <span className="flex flex-none items-center pr-2">
+        <IssueAction issue={issue} work={work} />
+      </span>
     </li>
   );
 }
@@ -53,6 +143,13 @@ export function AssignedIssues() {
   const issues = useQuery(assignedIssuesQuery);
   const now = useNow();
   const groups = useMemo(() => groupByHost(issues.data?.issues ?? []), [issues.data?.issues]);
+  const tasks = useQuery(tasksQuery);
+  const repoIds = useMemo(
+    () => [...new Set((issues.data?.issues ?? []).flatMap((issue) => issue.repoId ?? []))],
+    [issues.data?.issues],
+  );
+  const backlogs = useQueries({ queries: repoIds.map((repoId) => backlogQuery(repoId)) });
+  const backlogItems: BacklogItemView[] = backlogs.flatMap((backlog) => backlog.data ?? []);
 
   useEscapeTo(() => void navigate({ to: "/" }));
 
@@ -113,7 +210,12 @@ export function AssignedIssues() {
                     count={group.rows.length}
                   >
                     {group.rows.map((issue) => (
-                      <IssueRow key={issue.url} issue={issue} now={now} />
+                      <IssueRow
+                        key={issue.url}
+                        issue={issue}
+                        work={issueWork(issue, tasks.data ?? [], backlogItems)}
+                        now={now}
+                      />
                     ))}
                   </Section>
                 ))}
