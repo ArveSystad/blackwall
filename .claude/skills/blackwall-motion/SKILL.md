@@ -21,13 +21,14 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
 
 1. `apps/web/src/styles.css`: the `--animate-*` tokens in `@theme inline`, the `@keyframes bw-*`
    rules after it, and the commented `.bw-*` blocks in `@layer components` (`bw-grid*` for
-   GridBackdrop.tsx, `.bw-stream` for TaskHeader.tsx, `.bw-laser`, `.bw-boom` and `.bw-launch` for
-   GridAgents.tsx, `.bw-running*` for RunningHeadline.tsx).
+   GridBackdrop.tsx, `.bw-stream` for TaskHeader.tsx, `.bw-laser`, `.bw-boom`,
+   `.bw-revive`/`.bw-revive-failed` and `.bw-launch` for GridAgents.tsx, `.bw-running*` for
+   RunningHeadline.tsx).
 2. `.claude/skills/blackwall-design/SKILL.md` § Color semantics / Rules: the state-only rule and its
    two decorative exceptions (GridBackdrop, Stats).
 3. Reference code: `apps/web/src/components/GridBackdrop.tsx`, `apps/web/src/components/GridAgents.tsx`,
    `apps/web/src/components/RunningHeadline.tsx`, `apps/web/src/routes/Stats.tsx`, `apps/web/src/routes/Backlog.tsx`, `apps/web/src/agent-dots.ts`,
-   `apps/web/src/components/use-archive-launches.ts`.
+   `apps/web/src/components/use-archive-launches.ts`, `apps/web/src/components/use-resume-bursts.ts`.
 
 Code wins over this skill. Flag any conflict instead of silently picking one.
 
@@ -49,7 +50,8 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
 6. Handle reduced motion. Loops are stopped by the base rule (`animation: none !important;
    transition: none !important`). An effect whose resting state is transparent, or that would freeze
    mid-flight, goes into the components-layer `@media (prefers-reduced-motion: reduce)`
-   `display: none` list next to `.bw-laser`, `.bw-boom` and `.bw-launch`.
+   `display: none` list next to `.bw-laser`, `.bw-boom` and `.bw-launch` (modifiers of `.bw-boom`,
+   e.g. `.bw-revive`, inherit it and need no entry).
 7. If a duration or delay is mirrored elsewhere (another CSS rule or a TS constant), state the
    pairing in the CSS comment and next to the constant.
 8. Run the Checks.
@@ -68,10 +70,17 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
   - Boom period = 2 × pulse period (3.2s/2.8s vs 1.6s/1.4s); boom delay = `--pulse-delay`.
   - `--animate-pulse-running` 1.6s ↔ `PULSE_RUNNING_S`, `--animate-pulse-needs` 1.4s ↔
     `PULSE_NEEDS_S`, `--animate-pulse-done` 2.4s ↔ `PULSE_DONE_S` (all in `agent-dots.ts`).
-  - `.bw-launch` 900ms ↔ `LAUNCH_MS` in `use-archive-launches.ts`.
+  - JS timeouts that mirror a CSS duration and drop the element (reduced motion turns the
+    animation off, so no `animationend`): `.bw-launch` 900ms ↔ `LAUNCH_MS` in
+    `use-archive-launches.ts`; `.bw-revive` 1.2s ↔ `REVIVE_MS` (1200) in `use-resume-bursts.ts`.
 - Retrigger a one-shot by changing its React `key` (a counter or timestamp) so it remounts, as in
-  `GridAgents.tsx` (`<span key={lasers} className="bw-laser" />`) and `Backlog.tsx`
-  (`<span key={note.at} className="animate-pushed-glow">`). Never toggle classes with timers.
+  `GridAgents.tsx` (`<span key={lasers} className="bw-laser" />`), `Backlog.tsx`
+  (`<span key={note.at} className="animate-pushed-glow">`) and the `GridAgents.tsx` revive booms
+  (``key={`revive:${taskId}:${count}`}``, `use-resume-bursts.ts`). Never toggle classes with timers.
+  A resume booms cyan; if the request fails, `bump` raises `count` and sets tone `failed`, so the new
+  key remounts the boom red (`.bw-revive-failed`, `--st-failed`) instead of recolouring one still
+  playing. Prefix one-shot keys (`revive:`) when they share a container with keyed looping elements
+  (`.bw-boom`, keyed by `dot.key`), so the keys never collide.
 - Mount-only animations follow `animate-bar-grow` (Stats.tsx: `origin-bottom animate-bar-grow`):
   fill mode `both`, set `transform-origin`, and don't animate later value changes.
 - GridBackdrop:
