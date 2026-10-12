@@ -148,13 +148,68 @@ describe("OpenCode permissions", () => {
     );
   });
 
-  it("lets implementers edit and use bash but never push, use gh or start subagents", () => {
+  it("lets implementers edit, use bash and start only the worker, but never push or use gh", () => {
     const { allow, deny } = permissionsFor("opencode", "implement");
-    expect(allow).toEqual(expect.arrayContaining(["edit", "bash(*)", "todowrite"]));
+    expect(allow).toEqual(
+      expect.arrayContaining(["edit", "bash(*)", "todowrite", "task(blackwall-worker)"]),
+    );
     expect(deny).toEqual(
-      expect.arrayContaining(["task", "bash(git push*)", "bash(git -C*)", "bash(gh*)"]),
+      expect.arrayContaining([
+        "task(general)",
+        "task(explore)",
+        "bash(git push*)",
+        "bash(git -C*)",
+        "bash(gh*)",
+      ]),
     );
     expect(deny).not.toContain("edit");
+    expect(deny).not.toContain("task");
+  });
+
+  it("gives reviewers no sub-agents", () => {
+    const config = opencodeConfig(permissionsFor("opencode", "read-only"));
+    expect(config.permission.task).toBe("deny");
+    expect(config.agent["blackwall-worker"]).toBeUndefined();
+  });
+
+  it("defines the worker for implementers, bound by the run's denies", () => {
+    const config = opencodeConfig(permissionsFor("opencode", "implement"));
+    const task = config.permission.task as Record<string, string>;
+    expect(Object.entries(task)).toEqual([
+      ["*", "deny"],
+      ["blackwall-worker", "allow"],
+      ["general", "deny"],
+      ["explore", "deny"],
+    ]);
+    const worker = config.agent["blackwall-worker"];
+    expect(worker).toMatchObject({ mode: "subagent" });
+    expect(worker).not.toHaveProperty("model");
+    expect(worker?.prompt).toContain("Do not commit, push, fetch");
+    expect(worker?.permission.task).toBe("deny");
+    expect(worker?.permission.bash).toEqual(config.permission.bash);
+    expect(worker?.permission.bash).toMatchObject({ "git push*": "deny", "gh*": "deny" });
+  });
+
+  it("runs the worker on the given sub-agent model", () => {
+    const config = opencodeConfig(permissionsFor("opencode", "implement"), {
+      subagentModel: "anthropic/claude-haiku-5-5",
+    });
+    expect(config.agent["blackwall-worker"]?.model).toBe("anthropic/claude-haiku-5-5");
+  });
+
+  it("never opens the built-in sub-agents, even to a bare task allow", () => {
+    const task = opencodeConfig(permissionsFor("opencode", "implement", { allow: ["task"] }))
+      .permission.task as Record<string, string>;
+    expect(task).toMatchObject({ "*": "allow", general: "deny", explore: "deny" });
+    expect(Object.keys(task).slice(-2)).toEqual(["general", "explore"]);
+  });
+
+  it("drops the worker when a deny override names it", () => {
+    const config = opencodeConfig(
+      permissionsFor("opencode", "implement", { deny: ["task(blackwall-worker)"] }),
+    );
+    expect((config.permission.task as Record<string, string>)["blackwall-worker"]).toBe("deny");
+    expect(config.agent["blackwall-worker"]).toBeUndefined();
   });
 
   it("has no flags: the rules go in through config", () => {

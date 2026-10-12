@@ -232,6 +232,171 @@ describe("createOpencodeParser", () => {
     const claude = parseWith(createClaudeParser(), join(fixtures, "claude", "tool-call.jsonl"));
     expect(normalized(parse("tool-call.jsonl"))).toEqual(normalized(claude));
   });
+
+  it("reports a task call as a sub-agent, keeping its result out of the final text", () => {
+    const events = parse("subagent.jsonl");
+    const id = "toolu_01ECi1PeAAfF3woTTM5Qkg3y";
+    expect(events.filter((e) => e.type !== "usage")).toEqual([
+      { type: "session", sessionId: "ses_ecf8cec5fffeipUqwTiIxZW7fZ" },
+      {
+        type: "tool-call-start",
+        id,
+        name: "task",
+        input: expect.objectContaining({ subagent_type: "blackwall-worker" }),
+      },
+      {
+        type: "subagent-start",
+        id,
+        agentType: "blackwall-worker",
+        description: "Read notes.txt secret word",
+      },
+      {
+        type: "tool-call-end",
+        id,
+        output: expect.stringContaining("zebra-42"),
+        isError: false,
+      },
+      { type: "subagent-end", id },
+      { type: "message", text: "The secret word is `zebra-42`." },
+      {
+        type: "result",
+        result: {
+          sessionId: "ses_ecf8cec5fffeipUqwTiIxZW7fZ",
+          text: "The secret word is `zebra-42`.",
+          usage: expect.any(Object),
+        },
+      },
+    ]);
+  });
+
+  /** A parser fed synthetic lines; the first line's session is the main one. */
+  function synthetic() {
+    const parser = createOpencodeParser();
+    const events: AgentEvent[] = [];
+    const push = (sessionID: string, type: string, part: object) =>
+      events.push(...parser.push(JSON.stringify({ type, sessionID, part })));
+    const task = (status: string, extra: object = {}) =>
+      push("ses_main", "tool_use", {
+        tool: "task",
+        callID: "call_1",
+        state: {
+          status,
+          input: { description: "Find it", subagent_type: "blackwall-worker" },
+          ...extra,
+        },
+      });
+    return { parser, events, push, task };
+  }
+
+  it("starts a running sub-agent once and nests its session's lines under the task call", () => {
+    const { parser, events, push, task } = synthetic();
+    push("ses_main", "step_start", {});
+    push("ses_main", "text", { text: "Delegating." });
+    task("running", { metadata: { sessionId: "ses_child" } });
+    task("running", { metadata: { sessionId: "ses_child" } });
+    push("ses_child", "step_start", {});
+    push("ses_child", "text", { text: "Reading." });
+    push("ses_child", "tool_use", {
+      tool: "read",
+      callID: "call_2",
+      state: { status: "completed", input: { filePath: "a.txt" }, output: "hello" },
+    });
+    push("ses_child", "step_finish", { tokens: { input: 10, output: 5 }, cost: 0.01 });
+    task("completed", {
+      output: "hello",
+      metadata: { sessionId: "ses_child", summary: [{ tool: "read", state: {} }] },
+    });
+    push("ses_main", "step_finish", { tokens: { input: 1, output: 2 }, cost: 0.02 });
+
+    expect(events.filter((e) => e.type !== "usage" && e.type !== "session")).toEqual([
+      { type: "message", text: "Delegating." },
+      { type: "tool-call-start", id: "call_1", name: "task", input: expect.any(Object) },
+      {
+        type: "subagent-start",
+        id: "call_1",
+        agentType: "blackwall-worker",
+        description: "Find it",
+      },
+      { type: "message", text: "Reading.", parentId: "call_1" },
+      {
+        type: "tool-call-start",
+        id: "call_2",
+        name: "read",
+        input: { filePath: "a.txt" },
+        parentId: "call_1",
+      },
+      { type: "tool-call-end", id: "call_2", output: "hello", isError: false, parentId: "call_1" },
+      { type: "tool-call-end", id: "call_1", output: "hello", isError: false },
+      { type: "subagent-end", id: "call_1" },
+    ]);
+    expect(events.filter((e) => e.type === "session")).toHaveLength(1);
+    expect(parser.end?.(0)).toMatchObject([
+      {
+        type: "result",
+        result: {
+          sessionId: "ses_main",
+          text: "Delegating.",
+          usage: { inputTokens: 11, outputTokens: 7, costUsd: expect.closeTo(0.03, 10) },
+        },
+      },
+    ]);
+  });
+
+  it("nests an unlinked session's lines under the one open sub-agent and drops them otherwise", () => {
+    const { events, push, task } = synthetic();
+    push("ses_main", "step_start", {});
+    push("ses_other", "text", { text: "Nobody's." });
+    task("running");
+    push("ses_child", "text", { text: "Mine." });
+    expect(events.filter((e) => e.type === "message")).toEqual([
+      { type: "message", text: "Mine.", parentId: "call_1" },
+    ]);
+  });
+
+  it("stands in the summary for a sub-agent whose lines never appeared", () => {
+    const { events, task } = synthetic();
+    task("completed", {
+      output: "done",
+      metadata: {
+        summary: [
+          { tool: "read", state: { status: "completed", title: "a.txt" } },
+          { tool: "bash", state: { status: "error", title: "git push" } },
+        ],
+      },
+    });
+    expect(events.filter((e) => e.type !== "session")).toEqual([
+      { type: "tool-call-start", id: "call_1", name: "task", input: expect.any(Object) },
+      expect.objectContaining({ type: "subagent-start", id: "call_1" }),
+      { type: "tool-call-start", id: "call_1:0", name: "read", input: {}, parentId: "call_1" },
+      {
+        type: "tool-call-end",
+        id: "call_1:0",
+        output: "a.txt",
+        isError: false,
+        parentId: "call_1",
+      },
+      { type: "tool-call-start", id: "call_1:1", name: "bash", input: {}, parentId: "call_1" },
+      {
+        type: "tool-call-end",
+        id: "call_1:1",
+        output: "git push",
+        isError: true,
+        parentId: "call_1",
+      },
+      { type: "tool-call-end", id: "call_1", output: "done", isError: false },
+      { type: "subagent-end", id: "call_1" },
+    ]);
+  });
+
+  it("ends a sub-agent whose task call failed", () => {
+    const { events, task } = synthetic();
+    task("running");
+    task("error", { error: "denied" });
+    expect(events.slice(-2)).toEqual([
+      { type: "tool-call-end", id: "call_1", output: "denied", isError: true },
+      { type: "subagent-end", id: "call_1" },
+    ]);
+  });
 });
 
 describe("opencodeArgs", () => {
@@ -371,6 +536,35 @@ describe("createOpencodeAdapter", () => {
     };
     expect(config.permission).toMatchObject({ "*": "deny", read: "allow", edit: "deny" });
     expect(config.agent.blackwall.permission).toEqual(config.permission);
+    expect(config.agent).not.toHaveProperty("blackwall-worker");
+  });
+
+  it("defines the worker for an implementer on the provider's cheap model", async () => {
+    const events = await collect(
+      fake("opencode-echo").run({
+        cwd,
+        prompt: "x",
+        permissions: permissionsFor("opencode", "implement"),
+        model: "anthropic/claude-sonnet-5-5",
+      }),
+    );
+    const config = JSON.parse(echoed(events).OPENCODE_CONFIG_CONTENT!) as {
+      agent: Record<string, { mode: string; model?: string }>;
+    };
+    expect(config.agent["blackwall-worker"]).toMatchObject({
+      mode: "subagent",
+      model: "anthropic/claude-haiku-5-5",
+    });
+  });
+
+  it("runs the worker on the parent's model for an unknown provider", () => {
+    const implement = permissionsFor("opencode", "implement");
+    const env = opencodeEnv(implement, { cwd: "/wt", configHome: "/mirror", model: "acme/big" });
+    const config = JSON.parse(env.OPENCODE_CONFIG_CONTENT!) as {
+      agent: Record<string, object>;
+    };
+    expect(config.agent["blackwall-worker"]).toBeDefined();
+    expect(config.agent["blackwall-worker"]).not.toHaveProperty("model");
   });
 
   it("does not pass on OpenCode config variables from the environment", () => {

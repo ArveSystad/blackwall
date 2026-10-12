@@ -1,5 +1,5 @@
 import type { Task } from "@blackwall/shared";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import {
   runStepsQuery,
   stepEventsQuery,
@@ -15,13 +15,15 @@ import {
   deliveryConflicts,
   latestHarnessStep,
   latestStep,
+  pullRequestUrl,
   visibleFindings,
 } from "../../task-view";
 
 /**
  * Everything the task view reads besides the task itself: runs and the latest
  * run's steps, grill questions, findings, per-round diffs, the artifacts, the latest Checks
- * step's commands and the rebase conflicts of the latest delivery. Each panel
+ * step's commands, the rebase conflicts of the latest delivery and the pull
+ * request any delivery attempt at the task's stage opened. Each panel
  * reads the slice it needs; the header, banner and tab counts read the rest.
  */
 export function useTaskData(task: Task) {
@@ -51,6 +53,13 @@ export function useTaskData(task: Task) {
     ...stepEventsQuery(task.id, deliveryStep?.id ?? ""),
     enabled: deliveryStep !== undefined,
   });
+  // A retried delivery skips what already went out, so the PR may sit in an earlier attempt.
+  const deliverySteps = stepList.filter(
+    (s) => s.agentId === null && s.stage === (task.stage ?? "summarize"),
+  );
+  const allDeliveryEvents = useQueries({
+    queries: deliverySteps.map((s) => stepEventsQuery(task.id, s.id)),
+  });
 
   return {
     runs,
@@ -68,6 +77,7 @@ export function useTaskData(task: Task) {
     checksQuery: checkEvents,
     deliveryStep,
     deliveryConflicts: deliveryStep ? deliveryConflicts(deliveryEvents.data ?? []) : [],
+    pullRequestUrl: pullRequestUrl(allDeliveryEvents.flatMap((q) => q.data ?? [])),
   };
 }
 

@@ -438,16 +438,18 @@ export const OPENCODE_TOOLS = [
 ] as const;
 
 /**
- * One OpenCode permission rule: a tool key from {@link OPENCODE_TOOLS}, or
- * `bash(<glob>)` for matching shell commands. OpenCode rules become config, not
- * flags, so unlike Claude's and Copilot's they are checked here.
+ * One OpenCode permission rule: a tool key from {@link OPENCODE_TOOLS},
+ * `bash(<glob>)` for matching shell commands, or `task(<glob>)` for matching
+ * sub-agent names. OpenCode rules become config, not flags, so unlike Claude's
+ * and Copilot's they are checked here.
  */
 export const opencodeRuleSchema = z.union([
   z.enum(OPENCODE_TOOLS),
   z.string().regex(/^bash\(.+\)$/),
+  z.string().regex(/^task\(.+\)$/),
 ]);
 
-const OPENCODE_RULE_HELP = `OpenCode rules are a tool name (${OPENCODE_TOOLS.join(", ")}) or bash(<glob>), e.g. bash(npm test*)`;
+const OPENCODE_RULE_HELP = `OpenCode rules are a tool name (${OPENCODE_TOOLS.join(", ")}) bash(<glob>) or task(<agent>), e.g. bash(npm test*) or task(blackwall-worker)`;
 
 /** Permission overrides per CLI, since each CLI has its own rule syntax. */
 export const agentPermissionOverridesSchema = z

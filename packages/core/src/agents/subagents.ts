@@ -1,15 +1,16 @@
 import type { AgentCli } from "@blackwall/shared";
+import type { OpencodePermission } from "./permissions.js";
 import { workspaceRules } from "./prompts.js";
 
 /** The one sub-agent an implementer may start: a cheap worker for narrow jobs. */
 export const SUBAGENT_NAME = "blackwall-worker";
 
-/** CLIs whose implementers get the worker. OpenCode's subagents stay disabled. */
-export const SUBAGENT_CLIS: readonly AgentCli[] = ["claude", "copilot"];
+/** CLIs whose implementers get the worker. */
+export const SUBAGENT_CLIS: readonly AgentCli[] = ["claude", "copilot", "opencode"];
 
 /** The tool an implementer starts the worker with, per CLI. */
 export function subagentTool(cli: AgentCli): string {
-  return cli === "copilot" ? "task" : "Agent";
+  return cli === "claude" ? "Agent" : "task";
 }
 
 const SUBAGENT_DESCRIPTION =
@@ -63,4 +64,34 @@ export function copilotSubagentFile(): string {
     subagentPrompt(),
     "",
   ].join("\n");
+}
+
+/**
+ * The cheap model OpenCode runs the worker on, per provider of the run's
+ * `provider/model` id. Other providers (or no run model) get none: the worker
+ * then runs on the parent's model.
+ */
+const OPENCODE_SUBAGENT_MODELS = new Map([
+  ["anthropic", "anthropic/claude-haiku-5-5"],
+  ["github-copilot", "github-copilot/claude-haiku-5.5"],
+]);
+
+/** The model OpenCode runs the worker on for a run on `runModel`, if one is known. */
+export function opencodeSubagentModel(runModel?: string): string | undefined {
+  const provider = runModel?.split("/")[0];
+  return provider ? OPENCODE_SUBAGENT_MODELS.get(provider) : undefined;
+}
+
+/**
+ * OpenCode's agent config defining the worker: the run's permissions, with
+ * `task` denied so it cannot start sub-agents of its own.
+ */
+export function opencodeSubagent(permission: OpencodePermission, model?: string) {
+  return {
+    mode: "subagent" as const,
+    description: SUBAGENT_DESCRIPTION,
+    prompt: subagentPrompt(),
+    permission: { ...permission, task: "deny" as const },
+    ...(model ? { model } : {}),
+  };
 }

@@ -2,6 +2,7 @@ import { mkdtemp, readdir, rm, stat, symlink } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { opencodeConfig } from "../permissions.js";
+import { opencodeSubagentModel } from "../subagents.js";
 import { deferredRun, emittingRun } from "./deferred-run.js";
 import { opencodeRateLimitFromText } from "./rate-limit.js";
 import { runAgentProcess, type LineParser } from "./run-process.js";
@@ -28,6 +29,31 @@ const num = (value: unknown): number => (typeof value === "number" ? value : 0);
 /** The name of the agent injected through config; the run pins it with `--agent`. */
 export const OPENCODE_AGENT = "blackwall";
 
+/** OpenCode's tool that starts a sub-agent. */
+const SUBAGENT_TOOL = "task";
+
+/**
+ * A finished task call's `metadata.summary` (the sub-agent's tool calls, by
+ * name and title) as nested tool calls. The summary carries no ids or inputs.
+ */
+function summaryEvents(metadata: Json, parentId: string): AgentEvent[] {
+  const summary = Array.isArray(metadata.summary) ? metadata.summary : [];
+  return summary.filter(isObject).flatMap((item, index): AgentEvent[] => {
+    const state = isObject(item.state) ? item.state : {};
+    const id = str(item.id) ?? `${parentId}:${index}`;
+    return [
+      { type: "tool-call-start", id, name: str(item.tool) ?? "unknown", input: {}, parentId },
+      {
+        type: "tool-call-end",
+        id,
+        output: str(state.title) ?? "",
+        isError: state.status === "error",
+        parentId,
+      },
+    ];
+  });
+}
+
 export interface OpencodeParserOptions {
   /** Model the run was started with; OpenCode's events do not name it. */
   model?: string;
@@ -42,6 +68,14 @@ export interface OpencodeParserOptions {
  * is reported only once it finished, so it yields its start and end together.
  * `step_finish` reports each model call's tokens and cost. OpenCode prints no
  * closing line, so `end` builds the result when the process exited cleanly.
+ *
+ * A `task` tool call (a sub-agent) also emits `subagent-start` and
+ * `subagent-end`: the start when it is first seen, running or finished. Lines
+ * from another session are the sub-agent's own (`state.metadata.sessionId`
+ * links it to the call, else the one open sub-agent): they become messages and
+ * tool calls with the task call's id as `parentId`, their usage counts, and
+ * their text is never the final text. Without such lines, the finished call's
+ * `metadata.summary` stands in for the sub-agent's tool calls.
  */
 export function createOpencodeParser({
   model,
@@ -53,6 +87,37 @@ export function createOpencodeParser({
   let errored = false;
   let limited = false;
   const usage = emptyUsage();
+  /** Open sub-agents, by task call id. */
+  const subagents = new Set<string>();
+  /** Sub-agent session → its task call id. */
+  const childToCall = new Map<string, string>();
+  /** Task calls whose sub-agent's own lines were seen. */
+  const withChildEvents = new Set<string>();
+
+  /** Emits a task call's `tool-call-start` and `subagent-start`, once. */
+  const startSubagent = (events: AgentEvent[], callId: string, input: Json) => {
+    if (subagents.has(callId)) return;
+    subagents.add(callId);
+    events.push(
+      { type: "tool-call-start", id: callId, name: SUBAGENT_TOOL, input },
+      {
+        type: "subagent-start",
+        id: callId,
+        agentType: str(input.subagent_type) || "general",
+        description: str(input.description) ?? null,
+      },
+    );
+  };
+
+  /** The task call a sub-agent session belongs to, if known. */
+  const parentOf = (child: string): string | undefined => {
+    const known = childToCall.get(child);
+    if (known) return known;
+    if (subagents.size !== 1) return undefined;
+    const [only] = subagents;
+    childToCall.set(child, only!);
+    return only;
+  };
 
   return {
     push(line) {
@@ -71,39 +136,63 @@ export function createOpencodeParser({
         sessionId = id;
         events.push({ type: "session", sessionId: id, ...(model ? { model } : {}) });
       }
+      let parentId: string | undefined;
+      if (id && id !== sessionId) {
+        parentId = parentOf(id);
+        if (!parentId) return events;
+        withChildEvents.add(parentId);
+      }
+      const nested = parentId ? { parentId } : {};
 
       switch (parsed.type) {
         case "step_start":
-          step = [];
+          if (!parentId) step = [];
           break;
         case "text": {
           const content = str(part.text);
           if (content?.trim()) {
-            step.push(content);
-            text = step.join("\n\n");
-            events.push({ type: "message", text: content });
+            if (!parentId) {
+              step.push(content);
+              text = step.join("\n\n");
+            }
+            events.push({ type: "message", text: content, ...nested });
           }
           break;
         }
         case "tool_use": {
           const state = isObject(part.state) ? part.state : {};
-          if (state.status !== "completed" && state.status !== "error") break;
           const callId = str(part.callID) ?? str(part.id) ?? "";
+          const finished = state.status === "completed" || state.status === "error";
+          const input = isObject(state.input) ? state.input : {};
+          if (part.tool === SUBAGENT_TOOL && !parentId) {
+            const metadata = isObject(state.metadata) ? state.metadata : {};
+            const child = str(metadata.sessionId);
+            if (child) childToCall.set(child, callId);
+            startSubagent(events, callId, input);
+            if (!finished) break;
+            if (!withChildEvents.has(callId)) events.push(...summaryEvents(metadata, callId));
+          }
+          if (!finished) break;
           const ok = state.status === "completed";
-          events.push(
-            {
+          if (part.tool !== SUBAGENT_TOOL || parentId) {
+            events.push({
               type: "tool-call-start",
               id: callId,
               name: str(part.tool) ?? "unknown",
               input: state.input ?? {},
-            },
-            {
-              type: "tool-call-end",
-              id: callId,
-              output: (ok ? str(state.output) : str(state.error)) ?? "",
-              isError: !ok,
-            },
-          );
+              ...nested,
+            });
+          }
+          events.push({
+            type: "tool-call-end",
+            id: callId,
+            output: (ok ? str(state.output) : str(state.error)) ?? "",
+            isError: !ok,
+            ...nested,
+          });
+          if (!parentId && subagents.delete(callId)) {
+            events.push({ type: "subagent-end", id: callId });
+          }
           break;
         }
         case "step_finish": {
@@ -126,6 +215,8 @@ export function createOpencodeParser({
           break;
         }
         case "error": {
+          // A sub-agent's error reaches the parent as its task call's result.
+          if (parentId) break;
           errored = true;
           const error = isObject(parsed.error) ? parsed.error : {};
           const data = isObject(error.data) ? error.data : {};
@@ -225,15 +316,16 @@ const INHERITED_CONFIG_VARS = ["OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR", "OPENCO
  */
 export function opencodeEnv(
   permissions: AgentRunOptions["permissions"],
-  { cwd, configHome }: { cwd: string; configHome: string },
+  { cwd, configHome, model }: { cwd: string; configHome: string; model?: string | undefined },
   base: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...base };
   for (const name of INHERITED_CONFIG_VARS) delete env[name];
+  const config = opencodeConfig(permissions, { subagentModel: opencodeSubagentModel(model) });
   return {
     ...env,
     PWD: cwd,
-    OPENCODE_CONFIG_CONTENT: JSON.stringify(opencodeConfig(permissions)),
+    OPENCODE_CONFIG_CONTENT: JSON.stringify(config),
     OPENCODE_DISABLE_PROJECT_CONFIG: "1",
     XDG_CONFIG_HOME: configHome,
   };
@@ -321,7 +413,7 @@ export function createOpencodeAdapter({
       const base = env ?? process.env;
       return deferredRun("OpenCode", async () => {
         const home = await prepareConfigHome(base);
-        const runEnv = opencodeEnv(permissions, { cwd, configHome: home.dir }, base);
+        const runEnv = opencodeEnv(permissions, { cwd, configHome: home.dir, model }, base);
         const spawn = (input: string, sessionId: string | undefined) =>
           retryWhileLocked(
             () =>

@@ -610,6 +610,18 @@ export function deliveryConflicts(events: readonly StepEvent[]): DeliveryConflic
   });
 }
 
+/** The pull request a delivery opened, from its last `open-pr` outcome. */
+export function pullRequestUrl(events: readonly StepEvent[]): string | undefined {
+  return events
+    .flatMap((event) => {
+      if (event.type !== "delivery.done") return [];
+      const payload = record(event.payload);
+      if (payload.action !== "open-pr" || typeof payload.detail !== "string") return [];
+      return /^https?:\/\/\S+$/.test(payload.detail) ? [payload.detail] : [];
+    })
+    .at(-1);
+}
+
 // ---------------------------------------------------------------------------
 // Diffs
 // ---------------------------------------------------------------------------
