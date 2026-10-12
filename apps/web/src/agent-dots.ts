@@ -73,6 +73,16 @@ export function gridDots(tasks: readonly Task[], active: readonly ActiveAgentSte
   return dots;
 }
 
+/** The number of running tasks among the dots; a task's parallel steps count once. */
+export function runningTaskCount(dots: readonly GridDot[]): number {
+  return new Set(dots.filter((d) => d.state === "running").map((d) => d.taskId)).size;
+}
+
+/** The grid's running headline: "1 task running", "2 tasks running". */
+export function runningLabel(count: number): string {
+  return count === 1 ? "1 task running" : `${count} tasks running`;
+}
+
 /** FNV-1a hash of a string, as an unsigned 32-bit integer. */
 function fnv1a(text: string): number {
   let hash = 0x811c9dc5;

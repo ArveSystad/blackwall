@@ -22,11 +22,11 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
 1. `apps/web/src/styles.css`: the `--animate-*` tokens in `@theme inline`, the `@keyframes bw-*`
    rules after it, and the commented `.bw-*` blocks in `@layer components` (`bw-grid*` for
    GridBackdrop.tsx, `.bw-stream` for TaskHeader.tsx, `.bw-laser`, `.bw-boom` and `.bw-launch` for
-   GridAgents.tsx).
+   GridAgents.tsx, `.bw-running*` for RunningHeadline.tsx).
 2. `.claude/skills/blackwall-design/SKILL.md` § Color semantics / Rules: the state-only rule and its
    two decorative exceptions (GridBackdrop, Stats).
 3. Reference code: `apps/web/src/components/GridBackdrop.tsx`, `apps/web/src/components/GridAgents.tsx`,
-   `apps/web/src/routes/Stats.tsx`, `apps/web/src/routes/Backlog.tsx`, `apps/web/src/agent-dots.ts`,
+   `apps/web/src/components/RunningHeadline.tsx`, `apps/web/src/routes/Stats.tsx`, `apps/web/src/routes/Backlog.tsx`, `apps/web/src/agent-dots.ts`,
    `apps/web/src/components/use-archive-launches.ts`.
 
 Code wins over this skill. Flag any conflict instead of silently picking one.
@@ -80,7 +80,8 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
   - Centred content stays within the ~520px faded column (`calc(50% ± 260px)`, Stats uses
     `max-w-[520px]`) unless `fade={false}`.
   - Never put it behind a task view, Settings or modals.
-  - The only JS is the pointer spotlight's `--mx`/`--my`.
+  - The only JS is the pointer spotlight's `--mx`/`--my`, and RunningHeadline's own `--mx`/`--my`
+    and `data-hover` for its local hover glow.
 - Neon and motion mark state only (`blackwall-design` § Color semantics / Rules). GridBackdrop and
   Stats are the only sanctioned decorative exceptions.
 - When a motion pattern, token or pairing changes, update this skill in the same commit.

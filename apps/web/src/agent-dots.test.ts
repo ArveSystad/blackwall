@@ -9,6 +9,8 @@ import {
   PULSE_RUNNING_S,
   pulseDelay,
   pulsePhase,
+  runningLabel,
+  runningTaskCount,
   stageChanges,
   type GridDot,
 } from "./agent-dots";
@@ -149,6 +151,46 @@ describe("gridDots", () => {
       [failed.id, "failed"],
       [last.id, "running"],
     ]);
+  });
+});
+
+describe("runningTaskCount", () => {
+  it("counts a task's parallel running steps once", () => {
+    const task = makeTask({ status: "running", stage: "implement" });
+    const steps = [
+      makeStep(task.id, "s1", "2026-10-08T10:01:00.000Z"),
+      makeStep(task.id, "s2", "2026-10-08T10:05:00.000Z"),
+    ];
+    expect(runningTaskCount(gridDots([task], steps))).toBe(1);
+  });
+
+  it("counts a running task between steps", () => {
+    const task = makeTask({ status: "running", stage: "inform" });
+    expect(runningTaskCount(gridDots([task], []))).toBe(1);
+  });
+
+  it("leaves out needs-you, queued, done, interrupted and failed tasks", () => {
+    const tasks = [
+      makeTask({ status: "running" }),
+      makeTask({ status: "needs-you", gate: "plan-approval" }),
+      makeTask({ status: "queued" }),
+      makeTask({ status: "done" }),
+      makeTask({ status: "interrupted" }),
+      makeTask({ status: "failed", error: "boom" }),
+      makeTask({ status: "running" }),
+    ];
+    expect(runningTaskCount(gridDots(tasks, []))).toBe(2);
+  });
+
+  it("is 0 with no dots", () => {
+    expect(runningTaskCount([])).toBe(0);
+  });
+});
+
+describe("runningLabel", () => {
+  it("is singular for one task and plural otherwise", () => {
+    expect(runningLabel(1)).toBe("1 task running");
+    expect(runningLabel(2)).toBe("2 tasks running");
   });
 });
 

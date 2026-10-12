@@ -1,12 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState, type ReactNode } from "react";
-import { gridDots } from "../agent-dots";
+import { gridDots, runningTaskCount } from "../agent-dots";
 import { GridAgents } from "../components/GridAgents";
 import { GridBackdrop } from "../components/GridBackdrop";
 import { CheckIcon, PlusIcon, WallIcon } from "../components/icons";
 import { NewTaskModal } from "../components/NewTaskModal";
 import { ReviewPill } from "../components/ReviewPill";
+import { RunningHeadline } from "../components/RunningHeadline";
 import { useArchiveLaunches } from "../components/use-archive-launches";
 import { Button } from "../components/ui/button";
 import { Kbd } from "../components/ui/kbd";
@@ -172,6 +173,7 @@ export function Home() {
     () => gridDots(tasks.data ?? [], active.data ?? []),
     [tasks.data, active.data],
   );
+  const running = useMemo(() => runningTaskCount(dots), [dots]);
   const taskById = useMemo(
     () => new Map((tasks.data ?? []).map((task) => [task.id, task])),
     [tasks.data],
@@ -185,8 +187,8 @@ export function Home() {
   const activeFailed = active.isError && !active.data;
   const loaded = !!tasks.data && !!active.data;
   // The agents view (active and done tasks, and interrupted and failed tasks
-  // waiting to be resumed) has no centred text, so the grid runs
-  // full width behind it. It stays up until an archived dot's launch lands, even
+  // waiting to be resumed) has only the short running headline centred, so the
+  // grid runs full width behind it. It stays up until an archived dot's launch lands, even
   // when that was the last dot.
   const showAgents =
     !firstRun &&
@@ -228,7 +230,10 @@ export function Home() {
           <span className="text-meta text-muted-foreground">Why don't you create one?</span>
         </Message>
       ) : (
-        <GridAgents dots={dots} tasks={taskById} agents={library} launch={launch} />
+        <>
+          <RunningHeadline count={running} />
+          <GridAgents dots={dots} tasks={taskById} agents={library} launch={launch} />
+        </>
       )}
       {!firstRun && <ReviewPill />}
       <NewTaskModal open={creating} onClose={() => setCreating(false)} />

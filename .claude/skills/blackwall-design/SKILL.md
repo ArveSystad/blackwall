@@ -68,7 +68,8 @@ dropdown on the popover surface (`bg-4`) and marks favourites with a filled prim
 
 Rules:
 - Neon and glow mark **state**, never decoration. Allowed on focus rings, the needs-you rail, banner
-  and CTA, running dots, the active tab underline, and the current stepper node.
+  and CTA, running dots, the grid's running headline, the active tab underline, and the current
+  stepper node.
 - One deliberate exception: the empty-pane backdrop (`GridBackdrop`, an animated perspective grid) is
   the only decorative use of glow. It is the main pane's resting background whenever no task is
   selected (first-run setup or the active agents). It stays low-opacity, uses primary/cyan only (via
@@ -78,7 +79,9 @@ Rules:
   state, so they follow the state rule: cyan with `animate-pulse-running` while an agent runs (one dot
   per running step), magenta with `animate-pulse-needs` when the task needs you, faint and static
   when queued. A dot fires a short cyan laser upward when its task changes stage (`.bw-laser`, hidden
-  under reduced motion). Each dot is a 24px link to its task, centres are at least 28px apart, and
+  under reduced motion). While any task runs, a centred "N tasks running" headline (`RunningHeadline`,
+  Geist semibold uppercase, not Chakra Petch) in running cyan with `--glow-text-cyan` sits above the
+  horizon, and the pointer brightens it locally. Each dot is a 24px link to its task, centres are at least 28px apart, and
   needs-you dots stack above running and queued ones; hover or focus shows a card with the task,
   stage and current work. "No active tasks" and Create task show only when nothing is active; if the
   tasks or agents cannot load, the pane says so with Retry instead. The home grid also has a

@@ -723,6 +723,59 @@
     filter: none;
   }
 
+  /* ---------- running headline (RunningHeadline.tsx) ----------
+   * The agents view's centred "N tasks running". Its glow marks the running
+   * state. A brighter, wider-glowing copy stacked on top shows only in a circle
+   * around the pointer (--mx/--my and data-hover, set from JS). Only opacity
+   * transitions; the shadows are static. Glow is dark only: in light the copy
+   * darkens the text locally instead. Reduced motion drops the transitions via
+   * the base rule; nothing runs once, so nothing can freeze.
+   */
+  .bw-running {
+    display: grid;
+  }
+
+  .bw-running-base,
+  .bw-running-hot {
+    grid-area: 1 / 1;
+  }
+
+  .bw-running-base {
+    color: var(--st-running);
+    text-shadow: var(--glow-text-cyan);
+    opacity: 0.85;
+    transition: opacity 300ms ease-out;
+  }
+
+  .bw-running[data-hover] .bw-running-base {
+    opacity: 1;
+  }
+
+  .bw-running-hot {
+    color: color-mix(in oklab, var(--st-running) 60%, var(--fg-strong));
+    text-shadow:
+      0 0 6px color-mix(in oklab, var(--st-running) 90%, transparent),
+      0 0 18px color-mix(in oklab, var(--st-running) 70%, transparent),
+      0 0 40px color-mix(in oklab, var(--st-running) 45%, transparent);
+    opacity: 0;
+    transition: opacity 300ms ease-out;
+    mask-image: radial-gradient(
+      circle 120px at var(--mx, -999px) var(--my, -999px),
+      #000,
+      transparent 70%
+    );
+  }
+
+  .bw-running[data-hover] .bw-running-hot {
+    opacity: 1;
+  }
+
+  /* Glow is dark only. */
+  :root[data-theme="light"] .bw-running-hot {
+    text-shadow: none;
+    color: var(--fg-strong);
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .bw-laser,
     .bw-boom,
