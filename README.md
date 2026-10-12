@@ -8,6 +8,13 @@ Agents plan, grill, implement and review each other's work, on any of the CLIs. 
 
 Tasks can be picked up from Jira, Github Issues (or PRs for review), or the internal task-system in blackwall itself.
 
+
+## How to run: Quickstart
+
+1. Clone repo
+2. `pnpm install`
+3. `pnpm start` (or `pnpm desktop` to run as a desktop app (Elecetron app))
+
 ## How it works
 
 ```
