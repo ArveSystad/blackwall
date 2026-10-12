@@ -1,4 +1,5 @@
 import {
+  assignedIssuesSchema,
   roleAgentsSchema,
   JIRA_EMAIL_META,
   MISSING_CREDENTIAL_STATUS,
@@ -37,6 +38,7 @@ import {
   taskDoneTimeSchema,
   taskSchema,
   type ActiveAgentStep,
+  type AssignedIssues,
   type Agent,
   type AgentInput,
   type AgentUpdate,
@@ -182,6 +184,11 @@ export function lookupPullRequest(url: string): Promise<PullRequestLookup> {
 /** Open PRs waiting on the user's review on every GitHub host, and the hosts that failed. */
 export function listReviewRequests(): Promise<ReviewRequests> {
   return request("/api/pull-requests/review-requests", reviewRequestsSchema);
+}
+
+/** Open issues assigned to the user on every GitHub host, and the hosts that failed. */
+export function listAssignedIssues(): Promise<AssignedIssues> {
+  return request("/api/issues/assigned", assignedIssuesSchema);
 }
 
 export function lookupIssue(url: string): Promise<IssueLookup> {

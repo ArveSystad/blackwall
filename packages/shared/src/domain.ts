@@ -963,6 +963,28 @@ export const reviewRequestsSchema = z.object({
 });
 export type ReviewRequests = z.infer<typeof reviewRequestsSchema>;
 
+/** An open issue assigned to the user on one GitHub/GHE host. */
+export const assignedIssueSchema = z.object({
+  /** Host of the connection it came from (`github.com`, `acme.ghe.com`). */
+  host: z.string(),
+  owner: z.string(),
+  repo: z.string(),
+  number: z.int(),
+  title: z.string(),
+  url: z.url(),
+  /** Author's login; null for a deleted account. */
+  author: z.string().nullable(),
+  updatedAt: timestamp,
+});
+export type AssignedIssue = z.infer<typeof assignedIssueSchema>;
+
+/** `GET /api/issues/assigned`: every host's rows, newest first, and the hosts that failed. */
+export const assignedIssuesSchema = z.object({
+  issues: assignedIssueSchema.array(),
+  errors: z.object({ host: z.string(), message: z.string() }).array(),
+});
+export type AssignedIssues = z.infer<typeof assignedIssuesSchema>;
+
 /**
  * One round's changes on the task branch: the range Code review reviewed in
  * that round, or (`reviewed: false`) commits made since the last review.

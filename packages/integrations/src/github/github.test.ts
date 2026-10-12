@@ -508,6 +508,87 @@ describe("review requests search", () => {
   });
 });
 
+describe("assigned issues search", () => {
+  const node = (number: number, patch: Record<string, unknown> = {}) => ({
+    url: `https://acme.ghe.com/acme/shop/issues/${number}`,
+    number,
+    title: `Issue ${number}`,
+    updatedAt: "2026-10-01T10:00:00Z",
+    author: { login: "kari" },
+    repository: { name: "shop", owner: { login: "acme" } },
+    ...patch,
+  });
+  const answering = (body: unknown) =>
+    vi.fn<typeof fetch>(() => Promise.resolve(json(JSON.stringify(body))));
+
+  it("posts one search to the host's GraphQL endpoint", async () => {
+    const empty = { data: { search: { nodes: [] } } };
+    const github = answering(empty);
+    await createGitHubClient(
+      { baseUrl: "https://github.com", token: TOKEN },
+      github,
+    ).searchAssignedIssues();
+    const [url, init] = github.mock.calls[0]!;
+    expect(String(url)).toBe("https://api.github.com/graphql");
+    expect(init?.method).toBe("POST");
+    expect(new Headers(init?.headers).get("authorization")).toBe(`token ${TOKEN}`);
+    const { query, variables } = JSON.parse(String(init?.body)) as {
+      query: string;
+      variables: { search: string };
+    };
+    expect(query).toContain("search(type: ISSUE");
+    expect(query).toContain("... on Issue");
+    expect(variables.search).toContain("is:issue");
+    expect(variables.search).toContain("is:open");
+    expect(variables.search).toContain("assignee:@me");
+
+    const ghe = answering(empty);
+    await createGitHubClient(GHE, ghe).searchAssignedIssues();
+    expect(String(ghe.mock.calls[0]![0])).toBe("https://api.acme.ghe.com/graphql");
+    expect(new Headers(ghe.mock.calls[0]![1]?.headers).get("authorization")).toBe(`token ${TOKEN}`);
+
+    const server = answering(empty);
+    await createGitHubClient(
+      { baseUrl: "https://git.acme.test", token: TOKEN },
+      server,
+    ).searchAssignedIssues();
+    expect(String(server.mock.calls[0]![0])).toBe("https://git.acme.test/api/graphql");
+  });
+
+  it("maps issues and drops empty nodes", async () => {
+    const github = answering({
+      data: { search: { nodes: [node(1), node(2, { author: null }), {}] } },
+    });
+    const rows = await createGitHubClient(GHE, github).searchAssignedIssues();
+    expect(rows).toEqual([
+      {
+        host: "acme.ghe.com",
+        owner: "acme",
+        repo: "shop",
+        number: 1,
+        title: "Issue 1",
+        url: "https://acme.ghe.com/acme/shop/issues/1",
+        author: "kari",
+        updatedAt: "2026-10-01T10:00:00Z",
+      },
+      expect.objectContaining({ number: 2, author: null }),
+    ]);
+  });
+
+  it("reports GraphQL errors with the host and without the token", async () => {
+    const github = answering({
+      data: null,
+      errors: [{ type: "FORBIDDEN", message: `SAML SSO enforced for ${TOKEN}` }],
+    });
+    const error = await createGitHubClient(GHE, github)
+      .searchAssignedIssues()
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitHubError);
+    expect((error as GitHubError).message).toMatch(/^acme\.ghe\.com: SAML SSO enforced/);
+    expect((error as GitHubError).message).not.toContain(TOKEN);
+  });
+});
+
 const finding = (patch: Partial<ReviewFinding>): ReviewFinding => ({
   severity: "Medium",
   tags: [],

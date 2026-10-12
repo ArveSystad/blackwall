@@ -18,6 +18,7 @@ import {
   parsePullRequestUrl,
   signComment,
   type Fetch,
+  type GitHubClient,
   type GitHubCredentials,
   type JiraCredentials,
 } from "@blackwall/integrations";
@@ -25,10 +26,10 @@ import {
   JIRA_EMAIL_META,
   issueLookupInputSchema,
   pullRequestLookupInputSchema,
+  type AssignedIssues,
   type Finding,
   type IssueLookup,
   type PullRequestLookup,
-  type ReviewRequest,
   type ReviewRequests,
   type Task,
 } from "@blackwall/shared";
@@ -230,6 +231,41 @@ export function firstOriginContext(...providers: OriginContextProvider[]): Origi
   };
 }
 
+/**
+ * Runs `search` on every GitHub/GHE connection with a token in parallel and
+ * merges the rows, newest first. A host that fails is listed in `errors`; the
+ * other hosts' rows still come back.
+ */
+async function searchEveryGitHubHost<T extends { updatedAt: string }>(
+  connections: Pick<ConnectionService, "list" | "credentialById">,
+  fetchImpl: Fetch | undefined,
+  search: (client: GitHubClient) => Promise<T[]>,
+): Promise<{
+  rows: (Omit<T, "updatedAt"> & { updatedAt: Date })[];
+  errors: { host: string; message: string }[];
+}> {
+  const github = connections.list().filter((conn) => conn.kind === "github" && conn.hasToken);
+  const results = await Promise.allSettled(
+    github.map(async (conn) => {
+      const { connection, token } = await connections.credentialById(conn.id);
+      return search(createGitHubClient({ baseUrl: connection.baseUrl, token }, fetchImpl));
+    }),
+  );
+  const rows: (Omit<T, "updatedAt"> & { updatedAt: Date })[] = [];
+  const errors: { host: string; message: string }[] = [];
+  results.forEach((result, i) => {
+    if (result.status === "fulfilled") {
+      rows.push(...result.value.map((row) => ({ ...row, updatedAt: new Date(row.updatedAt) })));
+    } else {
+      const message =
+        result.reason instanceof Error ? result.reason.message : String(result.reason);
+      errors.push({ host: connectionHost(github[i]!), message });
+    }
+  });
+  rows.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+  return { rows, errors };
+}
+
 export interface PullRequestRoutesOptions {
   connections: Pick<ConnectionService, "resolve" | "list" | "credentialById">;
   repos: Pick<RepoService, "list">;
@@ -253,30 +289,11 @@ export function pullRequestRoutes({
   const routes = new Hono();
 
   routes.get("/review-requests", async (c) => {
-    const github = connections.list().filter((conn) => conn.kind === "github" && conn.hasToken);
-    const results = await Promise.allSettled(
-      github.map(async (conn) => {
-        const { connection, token } = await connections.credentialById(conn.id);
-        return createGitHubClient(
-          { baseUrl: connection.baseUrl, token },
-          fetchImpl,
-        ).searchReviewRequests();
-      }),
+    const { rows: pullRequests, errors } = await searchEveryGitHubHost(
+      connections,
+      fetchImpl,
+      (client) => client.searchReviewRequests(),
     );
-    const pullRequests: ReviewRequest[] = [];
-    const errors: ReviewRequests["errors"] = [];
-    results.forEach((result, i) => {
-      if (result.status === "fulfilled") {
-        pullRequests.push(
-          ...result.value.map((pr) => ({ ...pr, updatedAt: new Date(pr.updatedAt) })),
-        );
-      } else {
-        const message =
-          result.reason instanceof Error ? result.reason.message : String(result.reason);
-        errors.push({ host: connectionHost(github[i]!), message });
-      }
-    });
-    pullRequests.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
     return c.json<ReviewRequests>({ pullRequests, errors });
   });
 
@@ -310,8 +327,9 @@ export function pullRequestRoutes({
 }
 
 export interface IssueRoutesOptions {
-  connections: Pick<ConnectionService, "resolve">;
+  connections: Pick<ConnectionService, "resolve" | "list" | "credentialById">;
   repos: Pick<RepoService, "list">;
+  fetch?: Fetch;
 }
 
 /**
@@ -319,9 +337,20 @@ export interface IssueRoutesOptions {
  * the host's connection) and the registered repo of the issue's repository.
  * A null `repoId` leaves the repo to the user, since an issue can be worked
  * on in another repo.
+ *
+ * `GET /assigned`: the open issues assigned to the user on every GitHub/GHE
+ * connection with a token, newest first. A host that fails is listed in
+ * `errors`; the other hosts' issues still come back.
  */
-export function issueRoutes({ connections, repos }: IssueRoutesOptions): Hono {
+export function issueRoutes({ connections, repos, fetch: fetchImpl }: IssueRoutesOptions): Hono {
   const routes = new Hono();
+
+  routes.get("/assigned", async (c) => {
+    const { rows: issues, errors } = await searchEveryGitHubHost(connections, fetchImpl, (client) =>
+      client.searchAssignedIssues(),
+    );
+    return c.json<AssignedIssues>({ issues, errors });
+  });
 
   routes.post("/lookup", async (c) => {
     const input = issueLookupInputSchema.safeParse(await c.req.json().catch(() => undefined));

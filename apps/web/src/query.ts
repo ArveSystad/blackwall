@@ -20,6 +20,7 @@ import {
   listSteps,
   listAgents,
   listBacklog,
+  listAssignedIssues,
   listConnections,
   listRepos,
   listReviewRequests,
@@ -64,6 +65,7 @@ export const queryKeys = {
   repoSync: (repoId: string) => ["backlog", repoId, "sync"] as const,
   quota: ["quota"] as const,
   reviewRequests: ["review-requests"] as const,
+  assignedIssues: ["assigned-issues"] as const,
 };
 
 export const tasksQuery = queryOptions({ queryKey: queryKeys.tasks, queryFn: listTasks });
@@ -168,6 +170,18 @@ export const quotaQuery = queryOptions({ queryKey: queryKeys.quota, queryFn: get
 export const reviewRequestsQuery = queryOptions({
   queryKey: queryKeys.reviewRequests,
   queryFn: listReviewRequests,
+  staleTime: 120_000,
+  refetchInterval: 300_000,
+  refetchOnWindowFocus: "always",
+});
+
+/**
+ * Open issues assigned to the user. GitHub sends no live events, so it polls,
+ * and re-reads on window focus.
+ */
+export const assignedIssuesQuery = queryOptions({
+  queryKey: queryKeys.assignedIssues,
+  queryFn: listAssignedIssues,
   staleTime: 120_000,
   refetchInterval: 300_000,
   refetchOnWindowFocus: "always",

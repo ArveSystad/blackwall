@@ -1,5 +1,6 @@
 import { MissingCredentialError } from "@blackwall/core";
 import type {
+  AssignedIssues,
   Connection,
   ConnectionView,
   Finding,
@@ -255,6 +256,8 @@ describe("issueRoutes", () => {
         kind === "github" && "remote" in target && target.remote.includes("acme.ghe.com")
           ? ghe
           : undefined,
+      list: () => [],
+      credentialById: () => Promise.reject(new Error("no connection")),
     },
     repos: {
       list: () =>
@@ -439,6 +442,105 @@ describe("review requests route", () => {
   it("returns nothing without connections", async () => {
     const res = await setup([]).routes.request("/review-requests");
     expect(await res.json()).toEqual({ pullRequests: [], errors: [] });
+  });
+});
+
+describe("assigned issues route", () => {
+  const conn = (id: string, kind: Connection["kind"], baseUrl: string, hasToken = true) =>
+    ({ id, name: id, kind, baseUrl, authMeta: {}, hasToken }) as unknown as ConnectionView;
+  const node = (host: string, number: number, updatedAt: string) => ({
+    url: `https://${host}/acme/shop/issues/${number}`,
+    number,
+    title: `Issue ${number}`,
+    updatedAt,
+    author: { login: "kari" },
+    repository: { name: "shop", owner: { login: "acme" } },
+  });
+
+  function setup(list: ConnectionView[], fail: string[] = []) {
+    const fetchImpl = vi.fn<typeof fetch>((input) => {
+      const url = new URL(String(input));
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "content-type": "application/json" },
+        });
+      if (fail.includes(url.host))
+        return Promise.resolve(json({ message: "Bad credentials" }, 401));
+      const nodes =
+        url.host === "api.github.com"
+          ? [node("github.com", 1, "2026-10-01T10:00:00Z")]
+          : [
+              node("acme.ghe.com", 2, "2026-10-03T10:00:00Z"),
+              node("acme.ghe.com", 3, "2026-09-30T10:00:00Z"),
+            ];
+      return Promise.resolve(json({ data: { search: { nodes } } }));
+    });
+    const credentialById = vi.fn(async (id: string) => ({
+      connection: list.find((c) => c.id === id) as unknown as Connection,
+      token: TOKEN,
+    }));
+    const routes = issueRoutes({
+      connections: { resolve: () => undefined, list: () => list, credentialById },
+      repos: { list: () => [] },
+      fetch: fetchImpl,
+    });
+    return { routes, fetchImpl, credentialById };
+  }
+
+  const github = conn("c1", "github", "https://github.com");
+  const acme = conn("c2", "github", "https://acme.ghe.com");
+
+  it("merges every GitHub host's issues, newest first", async () => {
+    const { routes } = setup([github, acme]);
+    const res = await routes.request("/assigned");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as AssignedIssues;
+    expect(body.errors).toEqual([]);
+    expect(body.issues.map((issue) => [issue.host, issue.number])).toEqual([
+      ["acme.ghe.com", 2],
+      ["github.com", 1],
+      ["acme.ghe.com", 3],
+    ]);
+    expect(body.issues[0]).toEqual({
+      host: "acme.ghe.com",
+      owner: "acme",
+      repo: "shop",
+      number: 2,
+      title: "Issue 2",
+      url: "https://acme.ghe.com/acme/shop/issues/2",
+      author: "kari",
+      updatedAt: "2026-10-03T10:00:00.000Z",
+    });
+  });
+
+  it("skips Jira connections and GitHub connections without a token", async () => {
+    const { routes, fetchImpl, credentialById } = setup([
+      github,
+      conn("j1", "jira", "https://acme.atlassian.net"),
+      conn("c3", "github", "https://other.ghe.com", false),
+    ]);
+    const body = (await (await routes.request("/assigned")).json()) as AssignedIssues;
+    expect(body.issues).toHaveLength(1);
+    expect(credentialById.mock.calls).toEqual([["c1"]]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("lists a failing host in errors and still returns the others", async () => {
+    const { routes } = setup([github, acme], ["api.acme.ghe.com"]);
+    const res = await routes.request("/assigned");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as AssignedIssues;
+    expect(body.issues.map((issue) => issue.number)).toEqual([1]);
+    expect(body.errors).toEqual([
+      { host: "acme.ghe.com", message: "acme.ghe.com: token rejected" },
+    ]);
+    expect(JSON.stringify(body)).not.toContain(TOKEN);
+  });
+
+  it("returns nothing without connections", async () => {
+    const res = await setup([]).routes.request("/assigned");
+    expect(await res.json()).toEqual({ issues: [], errors: [] });
   });
 });
 

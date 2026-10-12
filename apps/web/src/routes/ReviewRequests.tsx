@@ -120,9 +120,9 @@ export function ReviewRequests() {
                     key={group.host}
                     label={group.host}
                     ariaLabel={group.host}
-                    count={group.pullRequests.length}
+                    count={group.rows.length}
                   >
-                    {group.pullRequests.map((pr) => (
+                    {group.rows.map((pr) => (
                       <ReviewRow key={pr.url} pr={pr} now={now} />
                     ))}
                   </Section>

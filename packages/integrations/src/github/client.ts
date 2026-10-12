@@ -165,6 +165,51 @@ const REVIEW_DECISIONS = {
   CHANGES_REQUESTED: "changes-requested",
 } as const;
 
+/**
+ * An open issue assigned to the user, as {@link createGitHubClient}'s
+ * `searchAssignedIssues` returns it.
+ */
+export interface GitHubAssignedIssue {
+  /** The connection's host (`github.com`, `acme.ghe.com`). */
+  host: string;
+  owner: string;
+  repo: string;
+  number: number;
+  title: string;
+  url: string;
+  author: string | null;
+  /** ISO 8601. */
+  updatedAt: string;
+}
+
+/** An `Issue` node of the assigned issues search. */
+interface AssignedIssueNode {
+  url?: string;
+  number?: number;
+  title?: string;
+  updatedAt?: string;
+  author?: { login: string } | null;
+  repository?: { name: string; owner: { login: string } };
+}
+
+/** Open issues assigned to the user, outside archived repos. */
+const ASSIGNED_ISSUES_SEARCH = "is:issue is:open archived:false assignee:@me";
+
+const ASSIGNED_ISSUES_QUERY = `query AssignedIssues($search: String!) {
+  search(type: ISSUE, query: $search, first: 100) {
+    nodes {
+      ... on Issue {
+        url
+        number
+        title
+        updatedAt
+        author { login }
+        repository { name owner { login } }
+      }
+    }
+  }
+}`;
+
 const TIMEOUT_MS = 30_000;
 const PER_PAGE = 100;
 
@@ -400,6 +445,34 @@ export function createGitHubClient(credentials: GitHubCredentials, fetchImpl: Fe
               author: node.author?.login ?? null,
               updatedAt: node.updatedAt ?? new Date(0).toISOString(),
               reviewDecision: node.reviewDecision ? REVIEW_DECISIONS[node.reviewDecision] : null,
+            },
+          ];
+        });
+      });
+    },
+
+    /**
+     * Open issues on this host assigned to the user (see
+     * {@link ASSIGNED_ISSUES_SEARCH}), at most 100, as GitHub's search orders them.
+     */
+    searchAssignedIssues(signal?: AbortSignal) {
+      return call("Assigned issues", signal, async () => {
+        const res = await octokit.graphql<{ search: { nodes: AssignedIssueNode[] } }>(
+          ASSIGNED_ISSUES_QUERY,
+          { search: ASSIGNED_ISSUES_SEARCH, request: requestOptions(signal) },
+        );
+        return res.search.nodes.flatMap((node): GitHubAssignedIssue[] => {
+          if (!node.url || !node.repository || node.number === undefined) return [];
+          return [
+            {
+              host,
+              owner: node.repository.owner.login,
+              repo: node.repository.name,
+              number: node.number,
+              title: node.title ?? "",
+              url: node.url,
+              author: node.author?.login ?? null,
+              updatedAt: node.updatedAt ?? new Date(0).toISOString(),
             },
           ];
         });

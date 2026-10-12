@@ -39,8 +39,8 @@ describe("groupByHost", () => {
       pr("acme.ghe.com", 4),
     ]);
     expect(groups.map((g) => g.host)).toEqual(["acme.ghe.com", "github.com"]);
-    expect(groups[0]!.pullRequests.map((p) => p.number)).toEqual([1, 4]);
-    expect(groups[1]!.pullRequests.map((p) => p.number)).toEqual([3, 2]);
+    expect(groups[0]!.rows.map((p) => p.number)).toEqual([1, 4]);
+    expect(groups[1]!.rows.map((p) => p.number)).toEqual([3, 2]);
   });
 
   it("gives no groups for no PRs", () => {

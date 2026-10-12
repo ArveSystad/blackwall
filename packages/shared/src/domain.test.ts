@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  assignedIssuesSchema,
   deliveryConfirmationSchema,
   gateResponseInputSchema,
   shortSummarySchema,
@@ -333,6 +334,30 @@ describe("reviewRequestsSchema", () => {
       errors: [],
     });
     expect(parsed.success).toBe(false);
+  });
+});
+
+describe("assignedIssuesSchema", () => {
+  const issue = {
+    host: "acme.ghe.com",
+    owner: "acme",
+    repo: "shop",
+    number: 7,
+    title: "Totals drift by a cent",
+    url: "https://acme.ghe.com/acme/shop/issues/7",
+    author: null,
+    updatedAt: now,
+  };
+
+  it("coerces dates, allows a null author and keeps errors", () => {
+    const parsed = assignedIssuesSchema.parse({
+      issues: [issue, { ...issue, number: 8, author: "kari" }],
+      errors: [{ host: "github.com", message: "github.com: token rejected" }],
+    });
+    expect(parsed.issues[0]!.updatedAt).toEqual(new Date(now));
+    expect(parsed.issues[0]!.author).toBeNull();
+    expect(parsed.issues[1]!.author).toBe("kari");
+    expect(parsed.errors).toEqual([{ host: "github.com", message: "github.com: token rejected" }]);
   });
 });
 

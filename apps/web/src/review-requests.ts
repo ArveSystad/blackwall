@@ -14,19 +14,19 @@ export function reviewStatusLabel(decision: ReviewDecision): string {
   return decision ? REVIEW_STATUS_LABELS[decision] : "Awaiting review";
 }
 
-/** PRs per host, hosts by name; each host keeps the server's newest-first order. */
-export function groupByHost(
-  pullRequests: readonly ReviewRequest[],
-): { host: string; pullRequests: ReviewRequest[] }[] {
-  const byHost = new Map<string, ReviewRequest[]>();
-  for (const pr of pullRequests) {
-    const list = byHost.get(pr.host);
-    if (list) list.push(pr);
-    else byHost.set(pr.host, [pr]);
+/** Rows per host, hosts by name; each host keeps the server's newest-first order. */
+export function groupByHost<T extends { host: string }>(
+  rows: readonly T[],
+): { host: string; rows: T[] }[] {
+  const byHost = new Map<string, T[]>();
+  for (const row of rows) {
+    const list = byHost.get(row.host);
+    if (list) list.push(row);
+    else byHost.set(row.host, [row]);
   }
   return [...byHost]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([host, list]) => ({ host, pullRequests: list }));
+    .map(([host, list]) => ({ host, rows: list }));
 }
 
 /** The home pill's full label, also its accessible name. */

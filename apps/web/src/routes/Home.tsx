@@ -4,6 +4,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { gridDots, runningTaskCount } from "../agent-dots";
 import { GridAgents } from "../components/GridAgents";
 import { GridBackdrop } from "../components/GridBackdrop";
+import { IssuePill } from "../components/IssuePill";
 import { CheckIcon, PlusIcon, WallIcon } from "../components/icons";
 import { NewTaskModal } from "../components/NewTaskModal";
 import { ReviewPill } from "../components/ReviewPill";
@@ -159,8 +160,9 @@ function Message({
  * done tasks waiting to be archived and the interrupted and failed tasks
  * waiting to be resumed as dots on the grid. With nothing on
  * the grid it prompts to pick or create a task; when the tasks or agents
- * cannot load it says so, with Retry. Past first run, a pill at the bottom
- * counts the pull requests waiting on the user's review.
+ * cannot load it says so, with Retry. Past first run, two pills at the
+ * bottom count the pull requests waiting on the user's review and the issues
+ * assigned to them.
  */
 export function Home() {
   const tasks = useQuery(tasksQuery);
@@ -235,7 +237,12 @@ export function Home() {
           <GridAgents dots={dots} tasks={taskById} agents={library} launch={launch} />
         </>
       )}
-      {!firstRun && <ReviewPill />}
+      {!firstRun && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex flex-wrap justify-center gap-3 px-4">
+          <ReviewPill />
+          <IssuePill />
+        </div>
+      )}
       <NewTaskModal open={creating} onClose={() => setCreating(false)} />
     </div>
   );
