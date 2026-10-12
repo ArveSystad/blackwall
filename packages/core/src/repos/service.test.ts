@@ -226,9 +226,7 @@ describe("repo service", () => {
   });
 });
 
-// Each test clones, pushes and fetches real repos, which can pass 5s on Windows
-// when the whole suite runs in parallel.
-describe("pushing main", { timeout: 20_000 }, () => {
+describe("pushing main", () => {
   let origin: string;
   let path: string;
 
