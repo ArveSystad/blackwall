@@ -454,7 +454,7 @@ describe("invocation", () => {
     expect(permissions.deny).toContain("Bash(git push:*)");
   });
 
-  it("tells implementers on Claude Code and Copilot only about the sub-agent", () => {
+  it("tells implementers on Claude Code, Copilot and OpenCode only about the sub-agent", () => {
     const implementer = byName("Implementer").id;
     expect(service.invocation(implementer, "implement", "claude").systemPrompt).toContain(
       "## Sub-agents",
@@ -462,7 +462,11 @@ describe("invocation", () => {
     expect(service.invocation(implementer, "implement", "copilot").systemPrompt).toContain(
       "## Sub-agents",
     );
-    expect(service.invocation(implementer, "implement", "opencode").systemPrompt).not.toContain(
+    expect(service.invocation(implementer, "implement", "opencode").systemPrompt).toContain(
+      "through the task tool",
+    );
+    const reviewer = byName("Code-quality reviewer").id;
+    expect(service.invocation(reviewer, "code-review", "opencode").systemPrompt).not.toContain(
       "## Sub-agents",
     );
   });
