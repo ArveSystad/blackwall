@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { GridBackdrop } from "../components/GridBackdrop";
 import { BackIcon, RepoIcon, WallIcon } from "../components/icons";
 import { ORIGINS } from "../components/origins";
@@ -8,7 +8,7 @@ import { ThemeToggle } from "../components/ThemeToggle";
 import { Button } from "../components/ui/button";
 import { Kbd } from "../components/ui/kbd";
 import { Wordmark } from "../components/Wordmark";
-import { isPlainKey, isTypingTarget } from "../keyboard";
+import { useEscapeTo } from "../keyboard";
 import { cn } from "../lib/utils";
 import { doneTimesQuery, reposQuery, tasksQuery } from "../query";
 import {
@@ -110,15 +110,7 @@ export function Stats() {
     return { now, stats: tasks.data && taskStats(tasks.data, doneTimes.data, now) };
   }, [tasks.data, doneTimes.data]);
 
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.defaultPrevented || event.key !== "Escape" || !isPlainKey(event)) return;
-      if (isTypingTarget(event.target) || document.querySelector("[role=dialog]")) return;
-      void navigate({ to: "/" });
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [navigate]);
+  useEscapeTo(() => void navigate({ to: "/" }));
 
   return (
     <div className="relative isolate flex h-full flex-col overflow-hidden">

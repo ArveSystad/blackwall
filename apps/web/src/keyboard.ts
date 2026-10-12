@@ -47,3 +47,21 @@ export function useWindowKeydown(handler: (event: KeyboardEvent) => void, enable
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [enabled]);
 }
+
+/** A plain Escape no other handler claimed and not aimed at a text field or select menu. */
+export function isEscapeToLeave(event: KeyboardEvent): boolean {
+  return (
+    !event.defaultPrevented &&
+    event.key === "Escape" &&
+    isPlainKey(event) &&
+    !isTypingTarget(event.target)
+  );
+}
+
+/** Calls the latest `onEscape` when Escape should leave the page: no dialog open, no field focused. */
+export function useEscapeTo(onEscape: () => void, enabled = true): void {
+  useWindowKeydown((event) => {
+    if (!isEscapeToLeave(event) || document.querySelector("[role=dialog]")) return;
+    onEscape();
+  }, enabled);
+}

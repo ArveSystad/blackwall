@@ -29,7 +29,7 @@ import { TaskHeader } from "../components/task/TaskHeader";
 import { useTaskAction } from "../components/task/use-task-action";
 import { useTaskData, type TaskData } from "../components/task/use-task-data";
 import { uiStageIndex } from "../inbox";
-import { isPlainKey, isTypingTarget, useWindowKeydown } from "../keyboard";
+import { isPlainKey, isTypingTarget, useEscapeTo, useWindowKeydown } from "../keyboard";
 import { cn } from "../lib/utils";
 import { queryKeys, reposQuery, taskQuery } from "../query";
 import { resolveSelectedRepo, useSelectedRepoId } from "../selected-repo";
@@ -300,9 +300,7 @@ function useEscapeToBacklog() {
   const navigate = useNavigate();
   const repos = useQuery(reposQuery);
   const repoId = resolveSelectedRepo(useSelectedRepoId(), repos.data)?.id;
-  useWindowKeydown((event) => {
-    if (event.defaultPrevented || event.key !== "Escape" || !isPlainKey(event)) return;
-    if (isTypingTarget(event.target) || document.querySelector("[role=dialog]")) return;
+  useEscapeTo(() => {
     void (repoId
       ? navigate({ to: "/repos/$repoId/backlog", params: { repoId } })
       : navigate({ to: "/" }));

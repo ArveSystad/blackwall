@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { isTypingTarget } from "./keyboard";
+import { isEscapeToLeave, isTypingTarget } from "./keyboard";
 
 /** Fake element; the web tests run without a DOM. `inside` lists the roles of its ancestors (or itself). */
 function element(tagName: string, { inside = [] as string[], editable = false } = {}) {
@@ -35,5 +35,45 @@ describe("isTypingTarget", () => {
   it("is false for other elements", () => {
     expect(isTypingTarget(element("BUTTON"))).toBe(false);
     expect(isTypingTarget(element("DIV", { inside: ["dialog"] }))).toBe(false);
+  });
+});
+
+describe("isEscapeToLeave", () => {
+  beforeEach(() => vi.stubGlobal("HTMLElement", class {}));
+  afterEach(() => vi.unstubAllGlobals());
+
+  /** Fake key event: a plain Escape on a div unless overridden. */
+  function keyEvent(overrides: Partial<KeyboardEvent> = {}) {
+    return {
+      key: "Escape",
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      defaultPrevented: false,
+      target: element("DIV"),
+      ...overrides,
+    } as KeyboardEvent;
+  }
+
+  it("is true for a plain Escape on the page", () => {
+    expect(isEscapeToLeave(keyEvent())).toBe(true);
+  });
+
+  it("is false when another handler already claimed the key", () => {
+    expect(isEscapeToLeave(keyEvent({ defaultPrevented: true }))).toBe(false);
+  });
+
+  it("is false for other keys and with modifiers held", () => {
+    expect(isEscapeToLeave(keyEvent({ key: "Enter" }))).toBe(false);
+    expect(isEscapeToLeave(keyEvent({ ctrlKey: true }))).toBe(false);
+    expect(isEscapeToLeave(keyEvent({ metaKey: true }))).toBe(false);
+    expect(isEscapeToLeave(keyEvent({ altKey: true }))).toBe(false);
+  });
+
+  it("is false in a text field or select menu", () => {
+    expect(isEscapeToLeave(keyEvent({ target: element("INPUT") }))).toBe(false);
+    expect(isEscapeToLeave(keyEvent({ target: element("DIV", { inside: ["listbox"] }) }))).toBe(
+      false,
+    );
   });
 });

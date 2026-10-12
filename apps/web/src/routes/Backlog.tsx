@@ -57,6 +57,7 @@ import { ErrorText } from "../components/ui/field";
 import { Input } from "../components/ui/input";
 import { Kbd } from "../components/ui/kbd";
 import { useNow } from "../hooks";
+import { useEscapeTo } from "../keyboard";
 import { matchesFilter, originKey, statusLabel } from "../inbox";
 import { cn } from "../lib/utils";
 import {
@@ -569,6 +570,8 @@ export function Backlog({ repoId }: { repoId: string }) {
   const [dialog, setDialog] = useState<Dialog>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState<BacklogItemView | null>(null);
+
+  useEscapeTo(() => void navigate({ to: "/" }));
   const [showArchive, setShowArchive] = useState(false);
   const [archiveFilter, setArchiveFilter] = useState("");
   const focusAfter = useRef<string | null>(null);

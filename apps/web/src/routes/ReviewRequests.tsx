@@ -1,5 +1,6 @@
 import type { ReviewRequest } from "@blackwall/shared";
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { paneBody, paneHeader, paneTitle } from "../components/classes";
 import { EmptyState } from "../components/EmptyState";
@@ -9,6 +10,7 @@ import { pill } from "../components/StatusBadge";
 import { Button } from "../components/ui/button";
 import { useNow } from "../hooks";
 import { relativeTime } from "../inbox";
+import { useEscapeTo } from "../keyboard";
 import { cn } from "../lib/utils";
 import { reviewRequestsQuery } from "../query";
 import { groupByHost, reviewStatusLabel } from "../review-requests";
@@ -51,12 +53,15 @@ function ReviewRow({ pr, now }: { pr: ReviewRequest; now: Date }) {
  * grouped by host. Polled, since GitHub sends no live events.
  */
 export function ReviewRequests() {
+  const navigate = useNavigate();
   const reviews = useQuery(reviewRequestsQuery);
   const now = useNow();
   const groups = useMemo(
     () => groupByHost(reviews.data?.pullRequests ?? []),
     [reviews.data?.pullRequests],
   );
+
+  useEscapeTo(() => void navigate({ to: "/" }));
 
   return (
     <div className="flex h-full min-w-0 flex-col">
