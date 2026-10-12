@@ -70,12 +70,16 @@ describe("buildSystemPrompt", () => {
     expect(prompt).not.toContain("Findings output contract");
   });
 
-  it("guides only implementers on Claude Code to the sub-agent", () => {
+  it("guides only implementers on Claude Code and Copilot to the sub-agent", () => {
     const implementer = { agent, stage: "implement", profile: "implement", tags: [] } as const;
     const onClaude = buildSystemPrompt({ ...implementer, cli: "claude" });
     expect(onClaude).toContain("## Sub-agents");
     expect(onClaude).toContain("`blackwall-worker`");
-    expect(buildSystemPrompt({ ...implementer, cli: "copilot" })).not.toContain("## Sub-agents");
+    expect(onClaude).toContain("through the Agent tool");
+    const onCopilot = buildSystemPrompt({ ...implementer, cli: "copilot" });
+    expect(onCopilot).toContain("## Sub-agents");
+    expect(onCopilot).toContain("`blackwall-worker`, is available through the task tool");
+    expect(onCopilot).toContain("never in the background");
     expect(buildSystemPrompt({ ...implementer, cli: "opencode" })).not.toContain("## Sub-agents");
     expect(
       buildSystemPrompt({
@@ -83,6 +87,15 @@ describe("buildSystemPrompt", () => {
         stage: "code-review",
         profile: "read-only",
         cli: "claude",
+        tags: [],
+      }),
+    ).not.toContain("## Sub-agents");
+    expect(
+      buildSystemPrompt({
+        agent,
+        stage: "code-review",
+        profile: "read-only",
+        cli: "copilot",
         tags: [],
       }),
     ).not.toContain("## Sub-agents");

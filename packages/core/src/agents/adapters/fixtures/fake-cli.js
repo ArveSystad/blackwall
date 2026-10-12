@@ -2,7 +2,8 @@
 //   replay <fixture>  prints the fixture's lines, then exits with code 0
 //   replay-resume <new> <resumed>
 //                     replays <resumed> when the args contain --resume or --session, else <new>
-//   copilot-echo      Copilot JSONL messages: stdin, the auth env vars, then argv (the final text)
+//   copilot-echo      Copilot JSONL messages: stdin, the auth env vars, the --plugin-dir and
+//                     whether its worker agent file exists, then argv (the final text)
 //   opencode-echo     OpenCode JSON events, one step with text parts: stdin, argv, PWD and the
 //                     config env vars, $XDG_CONFIG_HOME/git/config (or null) and whether
 //                     $XDG_CONFIG_HOME/opencode exists (the final text); no closing line
@@ -73,6 +74,9 @@ if (mode === "replay") {
   const env = { token: process.env.COPILOT_GITHUB_TOKEN, host: process.env.COPILOT_GH_HOST };
   print({ type: "assistant.message", data: { content: input } });
   print({ type: "assistant.message", data: { content: JSON.stringify(env) } });
+  const plugin = args.includes("--plugin-dir") ? args[args.indexOf("--plugin-dir") + 1] : null;
+  const worker = Boolean(plugin && existsSync(join(plugin, "agents", "blackwall-worker.agent.md")));
+  print({ type: "assistant.message", data: { content: JSON.stringify({ plugin, worker }) } });
   print({ type: "assistant.message", data: { content: JSON.stringify(args) } });
   print({
     type: "result",

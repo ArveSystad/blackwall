@@ -5,7 +5,7 @@ import {
   type PermissionProfile,
   type Stage,
 } from "@blackwall/shared";
-import { SUBAGENT_NAME } from "./subagents.js";
+import { SUBAGENT_CLIS, SUBAGENT_NAME, subagentTool } from "./subagents.js";
 
 const WORKSPACE_RULES: Record<PermissionProfile, string> = {
   "read-only": [
@@ -136,7 +136,7 @@ export interface SystemPromptContext {
   agent: Pick<Agent, "prompt">;
   stage: Stage;
   profile: PermissionProfile;
-  /** The CLI the agent runs on: only Claude implementers get the sub-agent guide. */
+  /** The CLI the agent runs on: only Claude and Copilot implementers get the sub-agent guide. */
   cli: AgentCli;
   /** Current finding tags, in display order. */
   tags: readonly string[];
@@ -160,11 +160,11 @@ function contractsFor(stage: Stage, tags: readonly string[]): string[] {
  * How an implementer hands narrow jobs to the harness-defined sub-agent, and
  * how lean its briefs must be: the worker sees only the brief.
  */
-export function subagentGuide(): string {
+export function subagentGuide(cli: AgentCli): string {
   return [
     "## Sub-agents",
     "",
-    `A cheaper, faster sub-agent, \`${SUBAGENT_NAME}\`, is available through the Agent tool. It follows the same workspace rules.`,
+    `A cheaper, faster sub-agent, \`${SUBAGENT_NAME}\`, is available through the ${subagentTool(cli)} tool. It follows the same workspace rules.`,
     "",
     "- Delegate mechanical, self-contained jobs to it: an edit across named files, a search, running a build or test and reporting the result.",
     "- Keep design decisions, tricky logic and the final check of the worker's changes for yourself.",
@@ -177,8 +177,8 @@ export function subagentGuide(): string {
  * The system prompt for one step: the agent's persona, the workspace rules for
  * its permission profile and the output contracts of the stage: the plan
  * contract for Inform, plan and questions for Plan review, and the tag list and
- * findings contract for Code review. Implementers on Claude Code also get the
- * sub-agent guide.
+ * findings contract for Code review. Implementers on a CLI with the worker
+ * ({@link SUBAGENT_CLIS}) also get the sub-agent guide.
  */
 export function buildSystemPrompt({
   agent,
@@ -191,7 +191,7 @@ export function buildSystemPrompt({
     agent.prompt.trim(),
     `## Workspace rules\n\n${WORKSPACE_RULES[profile]}`,
     ...contractsFor(stage, tags),
-    ...(profile === "implement" && cli === "claude" ? [subagentGuide()] : []),
+    ...(profile === "implement" && SUBAGENT_CLIS.includes(cli) ? [subagentGuide(cli)] : []),
   ];
   return parts.filter((part) => part !== "").join("\n\n");
 }

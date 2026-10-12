@@ -1,9 +1,10 @@
-import { readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { permissionsFor } from "../permissions.js";
+import { COPILOT_SUBAGENT_MODEL } from "../subagents.js";
 import { createClaudeAdapter, createClaudeParser } from "./claude.js";
 import {
   copilotArgs,
@@ -11,6 +12,7 @@ import {
   copilotPrompt,
   createCopilotAdapter,
   createCopilotParser,
+  prepareCopilotPlugin,
 } from "./copilot.js";
 import type { LineParser } from "./run-process.js";
 import { AgentRunError, type AgentEvent } from "./types.js";
@@ -30,6 +32,7 @@ const parse = (name: string, sessionId?: string) =>
   parseWith(createCopilotParser(sessionId ? { sessionId } : {}), fixture(name));
 
 const readOnly = permissionsFor("copilot", "read-only");
+const implement = permissionsFor("copilot", "implement");
 const schema = {
   type: "object",
   properties: { sum: { type: "number" }, color: { type: "string" } },
@@ -61,6 +64,10 @@ function normalized(events: AgentEvent[]) {
           return { type: e.type };
         case "tool-call-end":
           return { type: e.type, isError: e.isError };
+        case "subagent-start":
+          return { type: e.type, agentType: e.agentType };
+        case "subagent-end":
+          return { type: e.type };
         case "result":
           return { type: e.type, text: e.result.text, structured: e.result.structured };
         default:
@@ -165,6 +172,76 @@ describe("createCopilotParser", () => {
     const copilot = parse("tool-call.jsonl", "acc98e74-9ed5-4338-8941-64ce5b9fcd79");
     expect(normalized(copilot)).toEqual(normalized(claude));
   });
+
+  it("reports a sub-agent and tags its events with the parent call", () => {
+    const events = parse("subagent.jsonl", "11111111-2222-4333-8444-555555555559");
+    const agentId = "toolu_019WkP85pw4zcjYmigRASgV6";
+    expect(events.filter((e) => e.type !== "session").map((e) => e.type)).toEqual([
+      "tool-call-start",
+      "subagent-start",
+      "tool-call-start",
+      "tool-call-end",
+      "tool-call-end",
+      "subagent-end",
+      // The worker's report arrives after its task call returned.
+      "message",
+      "message",
+      "result",
+    ]);
+    expect(events).toContainEqual({
+      type: "subagent-start",
+      id: agentId,
+      agentType: "blackwall-worker",
+      description: "Read a.txt content",
+    });
+    const nested = events.filter((e) => "parentId" in e);
+    expect(nested.map((e) => e.type)).toEqual(["tool-call-start", "tool-call-end", "message"]);
+    expect(nested.every((e) => "parentId" in e && e.parentId === agentId)).toBe(true);
+    const first = events.find((e) => e.type === "tool-call-start");
+    expect(first).toMatchObject({ id: agentId, name: "task" });
+    expect(first).not.toHaveProperty("parentId");
+    expect(events.at(-1)).toMatchObject({ type: "result", result: { text: "hello" } });
+  });
+
+  it("never takes the final text from a sub-agent's message", () => {
+    const parser = createCopilotParser();
+    parser.push('{"type":"assistant.message","data":{"content":"mine"}}');
+    expect(
+      parser.push(
+        '{"type":"assistant.message","data":{"content":"worker report","parentToolCallId":"t1"}}',
+      ),
+    ).toEqual([{ type: "message", text: "worker report", parentId: "t1" }]);
+    expect(parser.push('{"type":"result","sessionId":"s","exitCode":0}')).toMatchObject([
+      { type: "result", result: { text: "mine" } },
+    ]);
+  });
+
+  it("reports a built-in sub-agent by its type", () => {
+    const parser = createCopilotParser();
+    const start = parser.push(
+      JSON.stringify({
+        type: "tool.execution_start",
+        data: { toolCallId: "t1", toolName: "task", arguments: { agent_type: "general-purpose" } },
+      }),
+    );
+    expect(start).toContainEqual({
+      type: "subagent-start",
+      id: "t1",
+      agentType: "general-purpose",
+      description: null,
+    });
+  });
+
+  it("reports the same sub-agent events and result as Claude for the same task", () => {
+    // The CLIs differ in the messages around the delegation, not in the delegation itself.
+    const delegation = (events: AgentEvent[]) =>
+      normalized(events).filter((e) =>
+        ["subagent-start", "subagent-end", "result"].includes(e.type),
+      );
+    const claude = parseWith(createClaudeParser(), join(fixtures, "claude", "subagent.jsonl"));
+    const copilot = parse("subagent.jsonl", "11111111-2222-4333-8444-555555555559");
+    expect(delegation(copilot)).toEqual(delegation(claude));
+  });
 });
 
 describe("copilotPrompt", () => {
@@ -207,6 +284,26 @@ describe("copilotArgs", () => {
     expect(args).toContain("--deny-tool=write");
   });
 
+  it("loads the plugin directory before the permission flags", () => {
+    const args = copilotArgs({
+      cwd: "x",
+      permissions: implement,
+      sessionId: "s-1",
+      resume: false,
+      pluginDir: "C:\\plugin",
+    });
+    expect(args.slice(4, 9)).toEqual([
+      "--session-id",
+      "s-1",
+      "--plugin-dir",
+      "C:\\plugin",
+      "--no-ask-user",
+    ]);
+    expect(
+      copilotArgs({ cwd: "x", permissions: implement, sessionId: "s", resume: false }),
+    ).not.toContain("--plugin-dir");
+  });
+
   it("resumes an existing session", () => {
     const args = copilotArgs({ cwd: "x", permissions: readOnly, sessionId: "s-1", resume: true });
     expect(args).toEqual(expect.arrayContaining(["--resume", "s-1"]));
@@ -238,6 +335,31 @@ describe("copilotEnv", () => {
   it("leaves the environment alone without a connection", () => {
     const base = { PATH: "p" };
     expect(copilotEnv(undefined, base)).toBe(base);
+  });
+});
+
+describe("prepareCopilotPlugin", () => {
+  let root: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "blackwall-copilot-test-"));
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("writes a plugin defining the worker under the root, and removes it", async () => {
+    const plugin = await prepareCopilotPlugin(root);
+    expect(join(plugin.dir, "..")).toBe(root);
+    expect(JSON.parse(readFileSync(join(plugin.dir, "plugin.json"), "utf8"))).toMatchObject({
+      name: "blackwall",
+    });
+    const agent = readFileSync(join(plugin.dir, "agents", "blackwall-worker.agent.md"), "utf8");
+    expect(agent.startsWith("---\nname: blackwall-worker\n")).toBe(true);
+    expect(agent).toContain(`model: ${COPILOT_SUBAGENT_MODEL}\n`);
+    expect(agent).toContain('tools: ["read","search","edit","shell"]\n');
+    expect(agent).toContain("Do not commit, push");
+    await plugin.dispose();
+    expect(existsSync(plugin.dir)).toBe(false);
   });
 });
 
@@ -289,6 +411,36 @@ describe("createCopilotAdapter", () => {
     const result = await run.result;
     expect(result.sessionId).toBe("s-42");
     expect(JSON.parse(result.text)).toEqual(expect.arrayContaining(["--resume", "s-42"]));
+  });
+
+  it("loads the worker plugin for implementers and removes it after the run", async () => {
+    const root = mkdtempSync(join(tmpdir(), "blackwall-copilot-test-"));
+    try {
+      const adapter = createCopilotAdapter({
+        command: process.execPath,
+        commandArgs: [fakeCli, "copilot-echo"],
+        pluginRoot: root,
+      });
+      const run = adapter.run({ cwd, prompt: "x", permissions: implement });
+      const events = await collect(run);
+      const report = events.find((e) => e.type === "message" && e.text.startsWith('{"plugin"'));
+      const { plugin, worker } = JSON.parse(report?.type === "message" ? report.text : "{}") as {
+        plugin: string;
+        worker: boolean;
+      };
+      expect(join(plugin, "..")).toBe(root);
+      expect(worker).toBe(true);
+      await run.result;
+      expect(readdirSync(root)).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("gives reviewers no plugin", async () => {
+    const run = fake("copilot-echo").run({ cwd, prompt: "x", permissions: readOnly });
+    const result = await run.result;
+    expect(JSON.parse(result.text)).not.toContain("--plugin-dir");
   });
 
   it("passes the connection's token and host", async () => {

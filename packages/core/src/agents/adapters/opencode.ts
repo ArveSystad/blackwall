@@ -2,6 +2,7 @@ import { mkdtemp, readdir, rm, stat, symlink } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { opencodeConfig } from "../permissions.js";
+import { deferredRun, emittingRun } from "./deferred-run.js";
 import { opencodeRateLimitFromText } from "./rate-limit.js";
 import { runAgentProcess, type LineParser } from "./run-process.js";
 import { inlinePrompt, withStructuredOutput } from "./structured-output.js";
@@ -10,7 +11,6 @@ import {
   emptyUsage,
   type AgentAdapter,
   type AgentEvent,
-  type AgentResult,
   type AgentRun,
   type AgentRunOptions,
   type AgentUsage,
@@ -239,67 +239,6 @@ export function opencodeEnv(
   };
 }
 
-/** A run whose events `body` emits and whose result it returns. */
-function emittingRun(body: (emit: (event: AgentEvent) => void) => Promise<AgentResult>): AgentRun {
-  const queue: AgentEvent[] = [];
-  let finished = false;
-  let wake: (() => void) | undefined;
-  const emit = (event: AgentEvent) => {
-    queue.push(event);
-    wake?.();
-  };
-
-  const result = body(emit).finally(() => {
-    finished = true;
-    wake?.();
-  });
-  // Callers that only iterate must not trigger an unhandled rejection.
-  result.catch(() => undefined);
-
-  return {
-    result,
-    async *[Symbol.asyncIterator]() {
-      for (;;) {
-        const event = queue.shift();
-        if (event) {
-          yield event;
-          continue;
-        }
-        if (finished) return;
-        await new Promise<void>((resolve) => {
-          wake = resolve;
-        });
-        wake = undefined;
-      }
-    },
-  };
-}
-
-/**
- * A run that starts once `start` resolves and calls `dispose` after it
- * settled, so the run's result only settles once the cleanup is done.
- */
-function deferredRun(
-  start: () => Promise<{ run: AgentRun; dispose: () => Promise<void> }>,
-): AgentRun {
-  return emittingRun(async (emit) => {
-    let started: Awaited<ReturnType<typeof start>>;
-    try {
-      started = await start();
-    } catch (error) {
-      const message = `Could not prepare the OpenCode run: ${(error as Error).message}`;
-      emit({ type: "error", message });
-      throw new AgentRunError("spawn", message, "", null);
-    }
-    try {
-      for await (const event of started.run) emit(event);
-      return await started.run.result;
-    } finally {
-      await started.dispose();
-    }
-  });
-}
-
 /** OpenCode's error when another process holds its SQLite store as it starts. */
 const DATABASE_LOCKED = /database is locked/i;
 const LOCKED_ATTEMPTS = 4;
@@ -380,7 +319,7 @@ export function createOpencodeAdapter({
         throw new Error(`Permissions for ${permissions.cli} cannot run on OpenCode`);
       }
       const base = env ?? process.env;
-      return deferredRun(async () => {
+      return deferredRun("OpenCode", async () => {
         const home = await prepareConfigHome(base);
         const runEnv = opencodeEnv(permissions, { cwd, configHome: home.dir }, base);
         const spawn = (input: string, sessionId: string | undefined) =>

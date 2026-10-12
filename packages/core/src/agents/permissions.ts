@@ -74,6 +74,18 @@ const CLAUDE_BUILTIN_SUBAGENTS = [
   "statusline-setup",
 ] as const;
 
+/**
+ * Copilot tools removed per profile (`--excluded-tools`). Copilot runs its
+ * `task` tool (sub-agents) without asking, and a `--deny-tool=task` rule does
+ * not stop it, so reviewers lose the tool itself. Implementers keep it: every
+ * sub-agent, the harness-defined worker or a built-in one, inherits the run's
+ * allow and deny rules.
+ */
+const COPILOT_EXCLUDED_TOOLS: Record<PermissionProfile, readonly string[]> = {
+  "read-only": ["task"],
+  implement: [],
+};
+
 const claudeBash = (command: string) => `Bash(${command}:*)`;
 
 /** Copilot matches `git`/`gh` per first-level subcommand; `:*` also covers a bare stem. */
@@ -108,7 +120,7 @@ const PROFILE_RULES: Record<
     implement: {
       // Only the harness-defined worker, never the built-in sub-agents (which
       // run on the parent's model). The deny rules bind the worker too.
-      // Copilot and OpenCode implementers get no sub-agents yet.
+      // OpenCode implementers get no sub-agents yet.
       allow: [
         "Read",
         "Grep",
@@ -202,6 +214,7 @@ export function permissionArgs(permissions: AgentPermissions): string[] {
     // The built-in GitHub MCP server can open PRs and post comments.
     "--disable-builtin-mcps",
     "--disallow-temp-dir",
+    ...COPILOT_EXCLUDED_TOOLS[profile].map((tool) => `--excluded-tools=${tool}`),
     ...allow.map((rule) => `--allow-tool=${rule}`),
     ...deny.map((rule) => `--deny-tool=${rule}`),
   ];

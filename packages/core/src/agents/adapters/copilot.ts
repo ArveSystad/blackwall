@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { permissionArgs } from "../permissions.js";
+import { copilotSubagentFile, SUBAGENT_NAME } from "../subagents.js";
+import { deferredRun } from "./deferred-run.js";
 import { copilotRateLimitFromText } from "./rate-limit.js";
 import { runAgentProcess, type LineParser } from "./run-process.js";
 import { inlinePrompt, withStructuredOutput } from "./structured-output.js";
@@ -12,6 +17,9 @@ const isObject = (value: unknown): value is Json =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const str = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
+
+/** Copilot's tool that starts a sub-agent. */
+const SUBAGENT_TOOL = "task";
 
 export interface CopilotParserOptions {
   /** Session id the run was started with (`--session-id`/`--resume`), announced up front. */
@@ -28,6 +36,11 @@ export interface CopilotParserOptions {
  * closing `result` event carries the session id and exit code. Copilot reports
  * premium requests rather than tokens, so usage stays zero. A `session.error`
  * about a rate limit or exhausted quota also yields a `rate-limit` event.
+ * A `task` tool call also emits `subagent-start` and `subagent-end`, and the
+ * sub-agent's own messages and tool calls carry its call's id
+ * (`data.parentToolCallId`) as `parentId`; their text is never the final
+ * text. Copilot's `subagent.*` lifecycle events repeat the tool call's and are
+ * dropped. The top-level `parentId` of every event only chains events.
  */
 export function createCopilotParser({
   sessionId,
@@ -38,6 +51,7 @@ export function createCopilotParser({
   let text = "";
   let sessionError: string | undefined;
   let limited = false;
+  const subagents = new Set<string>();
 
   return {
     push(line) {
@@ -50,6 +64,8 @@ export function createCopilotParser({
       if (!isObject(parsed)) return [];
       const events: AgentEvent[] = [];
       const data = isObject(parsed.data) ? parsed.data : {};
+      const parentId = str(data.parentToolCallId);
+      const nested = parentId ? { parentId } : {};
 
       // The id is fixed by the arguments, so it can be persisted before any output matters.
       if (!announced && sessionId) {
@@ -69,19 +85,30 @@ export function createCopilotParser({
         case "assistant.message": {
           const content = str(data.content);
           if (content?.trim()) {
-            text = content;
-            events.push({ type: "message", text: content });
+            if (!parentId) text = content;
+            events.push({ type: "message", text: content, ...nested });
           }
           break;
         }
-        case "tool.execution_start":
-          events.push({
-            type: "tool-call-start",
-            id: str(data.toolCallId) ?? "",
-            name: str(data.toolName) ?? "unknown",
-            input: data.arguments ?? {},
-          });
+        case "tool.execution_start": {
+          const id = str(data.toolCallId) ?? "";
+          const name = str(data.toolName) ?? "unknown";
+          const input = data.arguments ?? {};
+          events.push({ type: "tool-call-start", id, name, input, ...nested });
+          if (name === SUBAGENT_TOOL && !parentId) {
+            subagents.add(id);
+            const args = isObject(input) ? input : {};
+            // A plugin's agent is named `<plugin>:<agent>`.
+            const agentType = str(args.agent_type)?.split(":").at(-1) || "general-purpose";
+            events.push({
+              type: "subagent-start",
+              id,
+              agentType,
+              description: str(args.description) ?? null,
+            });
+          }
           break;
+        }
         case "tool.execution_complete": {
           const ok = data.success === true;
           const output = ok
@@ -91,12 +118,9 @@ export function createCopilotParser({
             : isObject(data.error)
               ? (str(data.error.message) ?? "")
               : "";
-          events.push({
-            type: "tool-call-end",
-            id: str(data.toolCallId) ?? "",
-            output,
-            isError: !ok,
-          });
+          const id = str(data.toolCallId) ?? "";
+          events.push({ type: "tool-call-end", id, output, isError: !ok, ...nested });
+          if (subagents.delete(id)) events.push({ type: "subagent-end", id });
           break;
         }
         case "session.error": {
@@ -148,6 +172,8 @@ export interface CopilotArgsOptions extends Pick<AgentRunOptions, "cwd" | "model
   /** Session to use: a fresh UUID for a new session, or the one to resume. */
   sessionId: string;
   resume: boolean;
+  /** Harness plugin to load (`--plugin-dir`): see {@link prepareCopilotPlugin}. */
+  pluginDir?: string;
 }
 
 /**
@@ -161,6 +187,7 @@ export function copilotArgs({
   permissions,
   sessionId,
   resume,
+  pluginDir,
 }: CopilotArgsOptions): string[] {
   if (permissions.cli !== "copilot") {
     throw new Error(`Permissions for ${permissions.cli} cannot run on Copilot CLI`);
@@ -172,6 +199,7 @@ export function copilotArgs({
     cwd,
     ...(model ? ["--model", model] : []),
     ...(resume ? ["--resume", sessionId] : ["--session-id", sessionId]),
+    ...(pluginDir ? ["--plugin-dir", pluginDir] : []),
     ...permissionArgs(permissions),
   ];
 }
@@ -196,6 +224,38 @@ export function copilotEnv(
   return { ...base, COPILOT_GITHUB_TOKEN: auth.token, COPILOT_GH_HOST: auth.host };
 }
 
+/** The harness plugin's name; Copilot names its agents `<plugin>:<agent>`. */
+export const COPILOT_PLUGIN = "blackwall";
+
+/** A per-run plugin directory; `dispose` removes it. */
+export interface CopilotPlugin {
+  dir: string;
+  dispose: () => Promise<void>;
+}
+
+/**
+ * A plugin directory defining the worker sub-agent, loaded with
+ * `--plugin-dir`. Copilot reads it in place, so neither the worktree nor the
+ * user's `~/.copilot` is written to, and it loads even with
+ * `--disallow-temp-dir`.
+ */
+export async function prepareCopilotPlugin(root: string = tmpdir()): Promise<CopilotPlugin> {
+  const dir = await mkdtemp(join(root, "blackwall-copilot-"));
+  const dispose = () => rm(dir, { recursive: true, force: true });
+  try {
+    await writeFile(
+      join(dir, "plugin.json"),
+      JSON.stringify({ name: COPILOT_PLUGIN, description: "Blackwall harness agents" }),
+    );
+    await mkdir(join(dir, "agents"));
+    await writeFile(join(dir, "agents", `${SUBAGENT_NAME}.agent.md`), copilotSubagentFile());
+  } catch (error) {
+    await dispose();
+    throw error;
+  }
+  return { dir, dispose };
+}
+
 export interface CopilotAdapterOptions {
   /** Executable to run. Default `copilot`. */
   command?: string;
@@ -204,55 +264,68 @@ export interface CopilotAdapterOptions {
   env?: NodeJS.ProcessEnv;
   /** GitHub connection to authenticate with, instead of Copilot's stored login. */
   auth?: CopilotAuth;
+  /** Where implement runs get their plugin directory. Default the OS temp dir. */
+  pluginRoot?: string;
 }
 
 /**
  * Runs GitHub Copilot CLI headless with JSONL output. Structured output uses a
  * prompt contract (a fenced JSON block), validated against the schema with one
- * repair turn on the same session.
+ * repair turn on the same session. Implement runs load a per-run plugin
+ * defining the worker sub-agent, removed once the run settled.
  */
 export function createCopilotAdapter({
   command = "copilot",
   commandArgs = [],
   env,
   auth,
+  pluginRoot,
 }: CopilotAdapterOptions = {}): AgentAdapter {
   const runEnv = env || auth ? copilotEnv(auth, env) : undefined;
   return {
     cli: "copilot",
     run({ cwd, prompt, systemPrompt, jsonSchema, resumeSessionId, model, permissions, signal }) {
       const sessionId = resumeSessionId ?? randomUUID();
-      const spawn = (input: string, resume: boolean) =>
-        runAgentProcess({
-          command,
-          args: [
-            ...commandArgs,
-            ...copilotArgs({
-              cwd,
-              permissions,
-              sessionId,
-              resume,
-              ...(model ? { model } : {}),
-            }),
-          ],
-          cwd,
-          input,
-          signal,
-          parser: createCopilotParser({ sessionId }),
-          detectRateLimit: (text) => copilotRateLimitFromText(text),
-          ...(runEnv ? { env: runEnv } : {}),
-        });
+      const start = (pluginDir?: string) => {
+        const spawn = (input: string, resume: boolean) =>
+          runAgentProcess({
+            command,
+            args: [
+              ...commandArgs,
+              ...copilotArgs({
+                cwd,
+                permissions,
+                sessionId,
+                resume,
+                ...(model ? { model } : {}),
+                ...(pluginDir ? { pluginDir } : {}),
+              }),
+            ],
+            cwd,
+            input,
+            signal,
+            parser: createCopilotParser({ sessionId }),
+            detectRateLimit: (text) => copilotRateLimitFromText(text),
+            ...(runEnv ? { env: runEnv } : {}),
+          });
 
-      const first = spawn(
-        copilotPrompt({
-          prompt,
-          ...(systemPrompt ? { systemPrompt } : {}),
-          ...(jsonSchema ? { jsonSchema } : {}),
-        }),
-        resumeSessionId !== undefined,
-      );
-      if (!jsonSchema) return first;
-      return withStructuredOutput(first, jsonSchema, (repair) => spawn(repair, true));
+        const first = spawn(
+          copilotPrompt({
+            prompt,
+            ...(systemPrompt ? { systemPrompt } : {}),
+            ...(jsonSchema ? { jsonSchema } : {}),
+          }),
+          resumeSessionId !== undefined,
+        );
+        if (!jsonSchema) return first;
+        return withStructuredOutput(first, jsonSchema, (repair) => spawn(repair, true));
+      };
+
+      if (permissions.profile !== "implement") return start();
+      return deferredRun("Copilot", async () => {
+        const plugin = await prepareCopilotPlugin(pluginRoot);
+        return { run: start(plugin.dir), dispose: plugin.dispose };
+      });
     },
   };
 }

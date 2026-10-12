@@ -114,6 +114,16 @@ describe("Copilot CLI permissions", () => {
     expect(flagValues(args, "--deny-tool")).not.toContain("write");
   });
 
+  it("keeps the task tool for implementers and removes it for reviewers", () => {
+    // Copilot runs `task` without asking; only removing the tool stops sub-agents.
+    expect(
+      flagValues(permissionArgs(permissionsFor("copilot", "implement")), "--excluded-tools"),
+    ).toEqual([]);
+    expect(
+      flagValues(permissionArgs(permissionsFor("copilot", "read-only")), "--excluded-tools"),
+    ).toEqual(["task"]);
+  });
+
   it("deduplicates override rules", () => {
     const permissions = permissionsFor("copilot", "implement", { deny: ["shell(git push)"] });
     expect(permissions.deny.filter((r) => r === "shell(git push)")).toHaveLength(1);
