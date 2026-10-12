@@ -15,7 +15,15 @@ import { useNow } from "../hooks";
 import { originKey } from "../inbox";
 import { useEscapeTo } from "../keyboard";
 import { cn } from "../lib/utils";
-import { assignedIssuesQuery, backlogQuery, queryKeys, taskQuery, tasksQuery } from "../query";
+import {
+  assignedIssuesQuery,
+  backlogQuery,
+  issuesRefreshSeconds,
+  queryKeys,
+  settingsQuery,
+  taskQuery,
+  tasksQuery,
+} from "../query";
 import { groupByHost } from "../review-requests";
 import { errorMessage } from "../settings-forms";
 
@@ -84,11 +92,12 @@ function IssueAction({ issue, work }: { issue: AssignedIssue; work: IssueWork })
 
 /**
  * Open issues assigned to the user across every GitHub host, grouped by host.
- * Polled, since GitHub sends no live events.
+ * Polled at the GitHub issues refresh interval, since GitHub sends no live events.
  */
 export function AssignedIssues() {
   const navigate = useNavigate();
-  const issues = useQuery(assignedIssuesQuery);
+  const settings = useQuery(settingsQuery);
+  const issues = useQuery(assignedIssuesQuery(issuesRefreshSeconds(settings.data)));
   const now = useNow();
   const groups = useMemo(() => groupByHost(issues.data?.issues ?? []), [issues.data?.issues]);
   const tasks = useQuery(tasksQuery);

@@ -1,6 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { issuePillLabel } from "../assigned-issues";
-import { assignedIssuesQuery, connectionsQuery } from "../query";
+import {
+  assignedIssuesQuery,
+  connectionsQuery,
+  issuesRefreshSeconds,
+  settingsQuery,
+} from "../query";
 import { hasGitHubConnection } from "../review-requests";
 import { CountPill } from "./CountPill";
 
@@ -12,7 +17,11 @@ import { CountPill } from "./CountPill";
 export function IssuePill() {
   const connections = useQuery(connectionsQuery);
   const enabled = hasGitHubConnection(connections.data ?? []);
-  const issues = useQuery({ ...assignedIssuesQuery, enabled });
+  const settings = useQuery(settingsQuery);
+  const issues = useQuery({
+    ...assignedIssuesQuery(issuesRefreshSeconds(settings.data)),
+    enabled,
+  });
   if (!enabled) return null;
 
   return (

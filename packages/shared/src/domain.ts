@@ -585,6 +585,9 @@ export function agentCliFor(
 
 export const DEFAULT_MAX_TASKS_PER_REPO = 3;
 export const DEFAULT_MAX_BACKLOG_TASKS_PER_REPO = 1;
+export const DEFAULT_GITHUB_ISSUES_REFRESH_SECONDS = 60;
+export const MIN_GITHUB_ISSUES_REFRESH_SECONDS = 15;
+export const MAX_GITHUB_ISSUES_REFRESH_SECONDS = 3600;
 
 export const settingsSchema = z.object({
   roleDefaults: roleAgentsSchema.default({}),
@@ -595,6 +598,12 @@ export const settingsSchema = z.object({
   maxBacklogTasksPerRepo: backlogCapSchema.default(DEFAULT_MAX_BACKLOG_TASKS_PER_REPO),
   /** Hold a repo's backlog while one of its backlog tasks waits on the user. */
   stopBacklogOnNeedsYou: z.boolean().default(true),
+  /** How often GitHub issue lists re-read GitHub, in seconds. */
+  githubIssuesRefreshSeconds: z
+    .int()
+    .min(MIN_GITHUB_ISSUES_REFRESH_SECONDS)
+    .max(MAX_GITHUB_ISSUES_REFRESH_SECONDS)
+    .default(DEFAULT_GITHUB_ISSUES_REFRESH_SECONDS),
 });
 export type Settings = z.infer<typeof settingsSchema>;
 export type SettingsInput = z.input<typeof settingsSchema>;
@@ -617,6 +626,7 @@ export const generalSettingsUpdateSchema = z.object({
   backlogRunner: z.boolean().optional(),
   maxBacklogTasksPerRepo: settingsSchema.shape.maxBacklogTasksPerRepo.unwrap().optional(),
   stopBacklogOnNeedsYou: z.boolean().optional(),
+  githubIssuesRefreshSeconds: settingsSchema.shape.githubIssuesRefreshSeconds.unwrap().optional(),
 });
 export type GeneralSettingsUpdate = z.infer<typeof generalSettingsUpdateSchema>;
 

@@ -15,6 +15,7 @@ import {
   overrideCount,
   parseCap,
   parseLines,
+  parseRefreshSeconds,
   roleIds,
   sameDraft,
   sameRoles,
@@ -134,6 +135,15 @@ describe("caps", () => {
     expect(parseCap("1")).toBe(1);
     expect(parseCap("20")).toBe(20);
     for (const text of ["0", "21", "2.5", "", "  "]) expect(parseCap(text)).toBeNull();
+  });
+
+  it("parses a GitHub issues refresh interval from 15 to 3600 seconds", () => {
+    expect(parseRefreshSeconds("15")).toBe(15);
+    expect(parseRefreshSeconds("60")).toBe(60);
+    expect(parseRefreshSeconds("3600")).toBe(3600);
+    for (const text of ["14", "3601", "2.5", "", "  "]) {
+      expect(parseRefreshSeconds(text)).toBeNull();
+    }
   });
 });
 

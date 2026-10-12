@@ -69,6 +69,7 @@ import { cn } from "../lib/utils";
 import {
   backlogQuery,
   backlogRunnerQuery,
+  issuesRefreshSeconds,
   queryKeys,
   quotaQuery,
   repoIssuesQuery,
@@ -633,7 +634,7 @@ export function Backlog({ repoId }: { repoId: string }) {
   const quota = useQuery(quotaQuery);
   const roleDefaults = useQuery(roleDefaultsQuery);
   const sync = useQuery(repoSyncQuery(repoId));
-  const repoIssues = useQuery(repoIssuesQuery(repoId));
+  const repoIssues = useQuery(repoIssuesQuery(repoId, issuesRefreshSeconds(settings.data)));
   const [dialog, setDialog] = useState<Dialog>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState<BacklogItemView | null>(null);

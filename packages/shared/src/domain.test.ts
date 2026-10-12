@@ -262,8 +262,11 @@ describe("settings and inputs", () => {
       backlogRunner: true,
       maxBacklogTasksPerRepo: 1,
       stopBacklogOnNeedsYou: true,
+      githubIssuesRefreshSeconds: 60,
     });
     expect(settingsSchema.safeParse({ maxTasksPerRepo: 0 }).success).toBe(false);
+    expect(settingsSchema.safeParse({ githubIssuesRefreshSeconds: 14 }).success).toBe(false);
+    expect(settingsSchema.safeParse({ githubIssuesRefreshSeconds: 3601 }).success).toBe(false);
   });
 
   it("leaves repo check commands unset so they can be suggested", () => {

@@ -1,3 +1,4 @@
+import { DEFAULT_GITHUB_ISSUES_REFRESH_SECONDS, type GeneralSettings } from "@blackwall/shared";
 import { QueryClient, queryOptions } from "@tanstack/react-query";
 import {
   ApiError,
@@ -177,29 +178,43 @@ export const reviewRequestsQuery = queryOptions({
   refetchOnWindowFocus: "always",
 });
 
+/** The user's GitHub issues refresh interval, or the default until settings load. */
+export function issuesRefreshSeconds(
+  settings?: Pick<GeneralSettings, "githubIssuesRefreshSeconds">,
+): number {
+  return settings?.githubIssuesRefreshSeconds ?? DEFAULT_GITHUB_ISSUES_REFRESH_SECONDS;
+}
+
+/** Poll every `refreshSeconds`; never stale for longer than two minutes. */
+function issuesPolling(refreshSeconds: number) {
+  return {
+    staleTime: Math.min(refreshSeconds * 1000, 120_000),
+    refetchInterval: refreshSeconds * 1000,
+    refetchOnWindowFocus: "always",
+  } as const;
+}
+
 /**
- * Open issues assigned to the user. GitHub sends no live events, so it polls,
- * and re-reads on window focus.
+ * Open issues assigned to the user. GitHub sends no live events, so it polls
+ * at the user's GitHub issues refresh interval, and re-reads on window focus.
  */
-export const assignedIssuesQuery = queryOptions({
-  queryKey: queryKeys.assignedIssues,
-  queryFn: listAssignedIssues,
-  staleTime: 120_000,
-  refetchInterval: 300_000,
-  refetchOnWindowFocus: "always",
-});
+export const assignedIssuesQuery = (refreshSeconds: number) =>
+  queryOptions({
+    queryKey: queryKeys.assignedIssues,
+    queryFn: listAssignedIssues,
+    ...issuesPolling(refreshSeconds),
+  });
 
 /**
  * A repo's open GitHub issues, whoever they are assigned to. GitHub sends no
- * live events, so it polls, and re-reads on window focus.
+ * live events, so it polls at the user's GitHub issues refresh interval, and
+ * re-reads on window focus.
  */
-export const repoIssuesQuery = (repoId: string) =>
+export const repoIssuesQuery = (repoId: string, refreshSeconds: number) =>
   queryOptions({
     queryKey: queryKeys.repoIssues(repoId),
     queryFn: () => listRepoIssues(repoId),
-    staleTime: 120_000,
-    refetchInterval: 300_000,
-    refetchOnWindowFocus: "always",
+    ...issuesPolling(refreshSeconds),
   });
 
 export function createQueryClient(): QueryClient {

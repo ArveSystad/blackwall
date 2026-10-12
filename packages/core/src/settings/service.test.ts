@@ -58,6 +58,7 @@ const DEFAULTS = {
   backlogRunner: true,
   maxBacklogTasksPerRepo: 1,
   stopBacklogOnNeedsYou: true,
+  githubIssuesRefreshSeconds: 60,
 };
 
 describe("general settings", () => {
@@ -74,6 +75,7 @@ describe("general settings", () => {
       backlogRunner: false,
       maxBacklogTasksPerRepo: 2,
       stopBacklogOnNeedsYou: false,
+      githubIssuesRefreshSeconds: 30,
     });
     const reopened = createSettingsService({ settings: r.settings, tags: r.tags });
     expect(reopened.maxTasksPerRepo()).toBe(5);
@@ -82,6 +84,7 @@ describe("general settings", () => {
       backlogRunner: false,
       maxBacklogTasksPerRepo: 2,
       stopBacklogOnNeedsYou: false,
+      githubIssuesRefreshSeconds: 30,
     });
   });
 
@@ -93,12 +96,20 @@ describe("general settings", () => {
     expect(() => service.updateGeneral({ maxBacklogTasksPerRepo: 0 })).toThrow(
       InvalidSettingsError,
     );
+    expect(() => service.updateGeneral({ githubIssuesRefreshSeconds: 5 })).toThrow(
+      InvalidSettingsError,
+    );
   });
 
   it("falls back per field when a stored value is invalid", () => {
     r.settings.set("maxBacklogTasksPerRepo", "lots");
     r.settings.set("maxTasksPerRepo", 4);
     expect(service.general()).toEqual({ ...DEFAULTS, maxTasksPerRepo: 4 });
+  });
+
+  it("falls back to the default refresh interval when the stored one is out of range", () => {
+    r.settings.set("githubIssuesRefreshSeconds", 1);
+    expect(service.general().githubIssuesRefreshSeconds).toBe(60);
   });
 });
 

@@ -27,6 +27,7 @@ const GENERAL_KEYS = [
   "backlogRunner",
   "maxBacklogTasksPerRepo",
   "stopBacklogOnNeedsYou",
+  "githubIssuesRefreshSeconds",
 ] as const satisfies readonly (keyof GeneralSettings)[];
 
 /** Settings key of a repo's backlog runner state. */
@@ -45,8 +46,8 @@ function invalid(error: { issues: readonly { message: string }[] }): InvalidSett
 
 /**
  * App-wide settings that are not about agents: the finding tags injected into
- * reviewer prompts and the concurrency cap per repo. Role defaults live in the
- * agent service.
+ * reviewer prompts, the concurrency cap per repo and how often GitHub issue
+ * lists refresh. Role defaults live in the agent service.
  */
 export function createSettingsService({ settings, tags }: SettingsServiceOptions) {
   /** Each field on its own, so one bad stored value falls back alone. */
