@@ -73,8 +73,17 @@ Rules:
 - One deliberate exception: the empty-pane backdrop (`GridBackdrop`, an animated perspective grid) is
   the only decorative use of glow. It is the main pane's resting background whenever no task is
   selected (first-run setup or the active agents). It stays low-opacity, uses primary/cyan only (via
-  `--grid-line` / `--grid-glow`), fades out under the centred content, stops under reduced motion,
-  and never appears behind a task view, Settings or modals.
+  `--grid-line` / `--grid-glow`), stops its animation under reduced motion, and never appears behind
+  a task view, Settings or modals. By default (`fade`) its lines fade to about 18% under a ~520px
+  centre column in the centred states: first run, "No active tasks", the load error and Stats.
+  Behind the agents view (active tasks, plus done tasks until they are archived) the grid runs full
+  width (`fade={false}`, `.bw-grid-full`); do not bring the centre fade back there. Switching
+  between the two eases via the `--grid-fade` transition. A pointer spotlight (`.bw-grid-spot`)
+  follows the pointer and ignores touch. It is a `backdrop-filter` over the lines already drawn,
+  so it adds no new glow and is part of this exception, not a breach of the state rule. It is
+  weaker under the faded column by design, brightens the lines in dark and slightly darkens them
+  in light, with no glow. Implementation note: `.bw-grid-full` must keep its `mask-image`, because
+  the mask makes `.bw-grid` the backdrop root, so the spotlight filters only the grid.
 - On that backdrop, `GridAgents` draws each active task as a small dot on the floor. These glows mark
   state, so they follow the state rule: cyan with `animate-pulse-running` while an agent runs (one dot
   per running step), magenta with `animate-pulse-needs` when the task needs you, faint and static
@@ -89,10 +98,11 @@ Rules:
   requests need the user, muted otherwise; it is a solid popover pill, not a glow.
 - The Stats screen (`/stats`) is the second sanctioned exception. It may use `GridBackdrop` behind
   its content (the backdrop's parent does not scroll; content scrolls in a sibling and stays within
-  the ~520px faded column), and the done-tinted glow (`--glow-done` / `--glow-text-done`, i.e.
-  `shadow-glow-done` and `text-shadow-glow-done`) on its headline number and chart bars only. In
-  light these become a ring or none, like the other glows. Chart bars grow in once on mount
-  (`animate-bar-grow`); later height changes are not animated.
+  the ~520px faded column; Stats keeps the default `fade` and gets the same pointer spotlight), and
+  the done-tinted glow (`--glow-done` / `--glow-text-done`, i.e. `shadow-glow-done` and
+  `text-shadow-glow-done`) on its headline number and chart bars only. In light these become a ring
+  or none, like the other glows. Chart bars grow in once on mount (`animate-bar-grow`); later height
+  changes are not animated.
 - Never put glow or neon on diffs, transcripts, long text, or table rows.
 - Glow is dark only. Light replaces it with a 1px border plus a 3px tinted ring (`--glow-*` handles this).
 - Severity colors never mean status, and status colors never mean severity.
