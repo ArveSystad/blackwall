@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { resolveCommand } from "./resolve-command.js";
 
 const isWindows = process.platform === "win32";
 
@@ -12,14 +13,18 @@ export interface SpawnTreeOptions {
 /**
  * Spawns a command so its whole process tree can be killed later with
  * {@link killTree}. On *nix the child leads a new process group; on Windows
- * `taskkill /T` walks the tree instead. stdio is piped.
+ * `taskkill /T` walks the tree instead. stdio is piped. Without `shell`,
+ * npm `.cmd` shims on Windows are unwrapped by {@link resolveCommand}.
  */
 export function spawnTree(
   command: string,
   args: readonly string[],
   { cwd, env, shell = false }: SpawnTreeOptions,
 ): ChildProcess {
-  return spawn(command, args, {
+  const resolved = shell
+    ? { command, args: [] }
+    : resolveCommand(command, { env: env ?? process.env });
+  return spawn(resolved.command, [...resolved.args, ...args], {
     cwd,
     env: env ?? process.env,
     stdio: ["pipe", "pipe", "pipe"],

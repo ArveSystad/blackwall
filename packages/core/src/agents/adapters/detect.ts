@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { AGENT_CLIS, type AgentCli, type CliStatus } from "@blackwall/shared";
+import { resolveCommand } from "./resolve-command.js";
 
 const VERSION_TIMEOUT_MS = 15_000;
 
@@ -14,16 +15,24 @@ export interface DetectCliOptions {
   /** Arguments placed before `--version`. */
   commandArgs?: readonly string[];
   timeoutMs?: number;
+  /** Environment for finding and running the CLI. Default: `process.env`. */
+  env?: NodeJS.ProcessEnv;
 }
 
 /** Runs `<cli> --version` to see whether the CLI is installed and which version. */
 export function detectCli(cli: AgentCli, options: DetectCliOptions = {}): Promise<CliStatus> {
-  const { command = cli, commandArgs = [], timeoutMs = VERSION_TIMEOUT_MS } = options;
+  const {
+    command = cli,
+    commandArgs = [],
+    timeoutMs = VERSION_TIMEOUT_MS,
+    env = process.env,
+  } = options;
+  const resolved = resolveCommand(command, { env });
   return new Promise((resolve) => {
     execFile(
-      command,
-      [...commandArgs, "--version"],
-      { timeout: timeoutMs, windowsHide: true, encoding: "utf8" },
+      resolved.command,
+      [...resolved.args, ...commandArgs, "--version"],
+      { timeout: timeoutMs, windowsHide: true, encoding: "utf8", env },
       (error, stdout, stderr) => {
         if (error) {
           const code = (error as NodeJS.ErrnoException).code;

@@ -24,9 +24,9 @@ import { permissionArgs, permissionsFor } from "./permissions.js";
  * three CLIs installed and logged in, and spends real model calls, so it only
  * runs with BLACKWALL_TEST_CLIS=1. OpenCode runs through its adapter, since
  * its boundary is the adapter's config and environment rather than flags, and
- * so do the sub-agent cases, since the adapters define the worker; set
- * BLACKWALL_OPENCODE_COMMAND where `opencode` itself cannot be spawned (e.g.
- * the npm `.cmd` shim on Windows).
+ * so do the sub-agent cases, since the adapters define the worker. npm `.cmd`
+ * shims on Windows are resolved, so BLACKWALL_OPENCODE_COMMAND is optional; set
+ * it only to run a specific `opencode` binary.
  */
 
 const TIMEOUT_MS = 5 * 60_000;

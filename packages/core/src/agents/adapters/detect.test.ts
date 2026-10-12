@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { detectCli, parseCliVersion } from "./detect.js";
 
@@ -28,6 +31,27 @@ describe("detectCli", () => {
     const status = await detectCli("opencode", { command: "blackwall-no-such-cli" });
     expect(status).toMatchObject({ cli: "opencode", installed: false, version: null });
     expect(status.error).toContain("not found");
+  });
+
+  it.skipIf(process.platform !== "win32")("finds a CLI installed as an npm .cmd shim", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "blackwall-detect-"));
+    try {
+      const bin = join(dir, "node_modules", "fake", "bin");
+      mkdirSync(bin, { recursive: true });
+      writeFileSync(join(bin, "fake"), 'console.log("9.8.7");\n');
+      writeFileSync(
+        join(dir, "fake.cmd"),
+        '@ECHO off\r\n"%_prog%"  "%dp0%\\node_modules\\fake\\bin\\fake" %*\r\n',
+      );
+      // A spread of process.env keeps Windows' `Path`; drop it so only `dir` is searched.
+      const env = Object.fromEntries(
+        Object.entries(process.env).filter(([key]) => key.toUpperCase() !== "PATH"),
+      );
+      const status = await detectCli("opencode", { command: "fake", env: { ...env, PATH: dir } });
+      expect(status).toEqual({ cli: "opencode", installed: true, version: "9.8.7", error: null });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("reports a CLI that fails", async () => {

@@ -29,8 +29,8 @@ import { SEED_AGENTS } from "./seeds.js";
  * Runs every seeded persona on all three real CLIs against a throwaway sample
  * repo and checks each output contract (plan, questions, answers, findings,
  * summary) comes back parseable. Needs all three CLIs installed and logged in,
- * and spends real model calls, so it only runs with BLACKWALL_TEST_CLIS=1. Set
- * BLACKWALL_OPENCODE_COMMAND where `opencode` itself cannot be spawned.
+ * and spends real model calls, so it only runs with BLACKWALL_TEST_CLIS=1.
+ * BLACKWALL_OPENCODE_COMMAND optionally picks a specific `opencode` binary.
  */
 
 const TIMEOUT_MS = 10 * 60_000;
