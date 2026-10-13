@@ -69,10 +69,20 @@ export interface MessageRoute {
 /**
  * Where a typed instruction goes: it rides on the answer to the gate the task
  * waits on, as the next stage's instructions. Agents are not interrupted
- * mid-step, so there is nowhere to send it while the task runs.
+ * mid-step, so there is nowhere to send it while the task runs. A Review PR
+ * task takes one only at triage, where it sends the reviewers back over the PR.
  */
 export function messageRoute(task: Pick<Task, "status" | "gate" | "mode">): MessageRoute | null {
-  if (task.status !== "needs-you" || task.mode === "review") return null;
+  if (task.status !== "needs-you") return null;
+  if (task.mode === "review") {
+    if (task.gate !== "triage") return null;
+    return {
+      to: "reviewers",
+      decision: "revise",
+      send: "Review again",
+      placeholder: "Ask the reviewers to look again, with this instruction…",
+    };
+  }
   switch (task.gate) {
     case "plan-approval":
       return {

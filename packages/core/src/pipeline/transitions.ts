@@ -70,7 +70,8 @@ export const FIRST_STAGE: Stage = "inform";
  * [plan approval] → Implement → Checks → Code review → Aggregate, looping back
  * to Implement while blocking findings remain (at most {@link MAX_FIX_ROUNDS}
  * fix rounds, then escalate) → Summarize → [finish]. Review PR: Inform → Code
- * review → Aggregate → [triage] → post.
+ * review → Aggregate → [triage] → post, or back to Code review with the
+ * user's instruction.
  */
 export function afterStage<S extends Stage>(
   stage: S,
@@ -139,10 +140,8 @@ export function afterGate(
 
   if (kind === "review") {
     if (gate !== "triage") throw new InvalidGateResponseError(`Review PR tasks have no ${gate}`);
-    if (decision !== "approve") {
-      throw new InvalidGateResponseError("Select the findings to post, then approve");
-    }
-    return { kind: "deliver" };
+    // Revise: the reviewers look at the whole PR again with the user's instruction.
+    return decision === "approve" ? { kind: "deliver" } : go("code-review", round + 1);
   }
 
   switch (gate) {

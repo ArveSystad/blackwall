@@ -142,7 +142,8 @@ export function gateBanner(
       return task.mode === "review"
         ? {
             title: "Review ready to post",
-            detail: "Pick the findings to post as review comments on the pull request.",
+            detail:
+              "Pick the findings to post as review comments on the pull request, or ask the reviewers to look again below.",
           }
         : {
             title:

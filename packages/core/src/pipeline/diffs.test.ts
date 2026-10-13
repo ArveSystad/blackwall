@@ -68,6 +68,18 @@ describe("task diffs", () => {
     ]);
   });
 
+  it("shows a range reviewed again once, as a review task's re-reviews do", async () => {
+    const task = seedTask();
+    const run = r.runs.create(task.id);
+    reviewStep(run.id, 0, "fork", "c1");
+    reviewStep(run.id, 1, "fork", "c1");
+
+    const diffs = await createTaskDiffs({ repositories: r, git: fakeGit("c1") })(task);
+    expect(diffs).toEqual([
+      { round: 0, from: "fork", to: "c1", reviewed: true, diff: "diff fork..c1" },
+    ]);
+  });
+
   it("shows the branch since its fork point before any review, and nothing without a worktree", async () => {
     const task = seedTask();
     const taskDiffs = createTaskDiffs({ repositories: r, git: fakeGit("c1") });

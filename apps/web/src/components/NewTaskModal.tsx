@@ -884,7 +884,11 @@ function NewTaskForm({
           >
             <Textarea
               rows={2}
-              placeholder="Anything the planner should know that the origin does not say."
+              placeholder={
+                kind === "github-pr" && mode === "review"
+                  ? "Anything the reviewers should know that the pull request does not say."
+                  : "Anything the planner should know that the origin does not say."
+              }
               value={freeText}
               onChange={(event) => {
                 setKindChoice(kind);

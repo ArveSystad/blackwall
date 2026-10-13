@@ -580,8 +580,9 @@ export async function forkPoint(
 /**
  * The commit range this Code review visit reviews, recorded on the visit's
  * harness step so a resumed visit reviews the same diff: the whole branch in
- * the first round, then what changed since the previous review. Undefined
- * when the fork point cannot be found.
+ * the first round, then what changed since the previous review. A Review PR
+ * task's re-reviews cover the whole branch again, as its HEAD never moves.
+ * Undefined when the fork point cannot be found.
  */
 async function reviewRange(
   ctx: StageContext,
@@ -596,11 +597,14 @@ async function reviewRange(
   const resumed = current && storedRange(ctx, current);
   if (resumed) return resumed;
 
-  const previous = harness
-    .filter((s) => s.visit < visit)
-    .map((s) => storedRange(ctx, s))
-    .filter((range) => range !== undefined)
-    .at(-1);
+  const previous =
+    ctx.pipeline === "review"
+      ? undefined
+      : harness
+          .filter((s) => s.visit < visit)
+          .map((s) => storedRange(ctx, s))
+          .filter((range) => range !== undefined)
+          .at(-1);
   const from = previous?.to ?? (await forkPoint(task, git, worktree));
   if (!from) return undefined;
   const range = { from, to: await git.headSha(worktree) };
@@ -615,7 +619,9 @@ async function reviewRange(
  * round's diff (the whole branch in round 0, the fix since the last review
  * after that) and report findings in the findings output contract. Without
  * git (tests) they review the branch as it stands. A round with an empty diff
- * has nothing to review.
+ * has nothing to review. The prompt carries the task's details and the user's
+ * instructions; a Review PR re-review reviews the whole PR again and lists
+ * the findings already reported.
  */
 async function codeReview(ctx: StageContext, git: ReviewGit | undefined): Promise<void> {
   const { task, run, round, repositories } = ctx;
@@ -637,7 +643,7 @@ async function codeReview(ctx: StageContext, git: ReviewGit | undefined): Promis
           ? `${fence(diff.slice(0, MAX_REVIEW_DIFF_CHARS))}\n\n[… diff cut; run \`${command}\` for the rest]`
           : fence(diff);
       scope = [
-        round === 0
+        round === 0 || ctx.pipeline === "review"
           ? `Review the changes above (\`${command}\`): everything this branch changes.`
           : `Review the changes above (\`${command}\`): fix round ${round}, made since the last review.`,
         "Read the surrounding code as needed, but report only problems this diff introduces or leaves unfixed.",
@@ -645,17 +651,27 @@ async function codeReview(ctx: StageContext, git: ReviewGit | undefined): Promis
     }
   }
 
-  const ignored = repositories.findings
-    .listByTask(task.id)
-    .filter((f) => f.status === "force-ignore");
+  const findings = repositories.findings.listByTask(task.id);
+  const ignored = findings.filter((f) => f.status === "force-ignore");
+  // A Review PR re-review: the user asked the reviewers to look again.
+  const reported =
+    ctx.pipeline === "review" && round > 0 ? findings.filter((f) => f.status === "open") : [];
   const results = await runPanel(
     ctx,
     reviewers.map((agentId) => ({
       agentId,
       prompt: prompt(
         `# Task\n\n${describeOrigin(task)}`,
+        section("Details", task.freeText),
         section("Plan", task.plan),
+        section("Instructions from the user", ctx.instructions),
         section("Changes to review", changes),
+        section(
+          "Findings already reported",
+          reported.length > 0
+            ? `${reported.map(describeFinding).join("\n")}\n\nDo not report these again; follow the user's instructions above.`
+            : "",
+        ),
         section(
           "Findings the user chose to ignore",
           ignored.length > 0

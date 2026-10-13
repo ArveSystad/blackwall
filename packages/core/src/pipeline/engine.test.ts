@@ -1767,6 +1767,101 @@ describe("code review panel and triage", () => {
     expect(reviewGit.mergeBase).toHaveBeenCalledWith(expect.any(String), "origin/feature/a");
   });
 
+  it("gives the code reviewers the task's details", async () => {
+    const h = harness((stage) => (stage === "code-review" ? { structured: { findings: [] } } : {}));
+    await approved(h);
+    const review = h.calls.find((c) => c.stage === "code-review")!.options.prompt;
+    expect(review).toContain("## Details\n\nLogin accepts empty passwords");
+  });
+
+  it("reviews a PR again at triage with the user's instruction", async () => {
+    let reviews = 0;
+    const h = harness((stage) => {
+      if (stage !== "code-review") return {};
+      reviews++;
+      if (reviews === 1) return { structured: { findings: [highFinding] } };
+      if (reviews === 2) return { structured: { findings: [lowFinding] } };
+      // The re-review reports the first finding again.
+      if (reviews === 3) return { structured: { findings: [highFinding] } };
+      return { structured: { findings: [] } };
+    });
+    const seeded = seedTask({ mode: "review", origin: prOrigin(), freeText: "Focus on auth" });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "triage" });
+    const first = h.calls.filter((c) => c.stage === "code-review");
+    expect(first).toHaveLength(2);
+    expect(first[0]!.options.prompt).toContain("Focus on auth");
+    expect(first[0]!.options.prompt).not.toContain("Findings already reported");
+
+    const [high, low] = r.findings.listByTask(seeded.id);
+    h.engine.overrideFinding(seeded.id, low!.id, { status: "force-ignore" });
+    await h.engine.respond(seeded.id, {
+      gate: "triage",
+      decision: "revise",
+      message: "Check the SQL",
+    });
+    await settle(h.engine);
+
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "triage" });
+    const again = h.calls.filter((c) => c.stage === "code-review").slice(2);
+    expect(again).toHaveLength(2);
+    const prompt = again[0]!.options.prompt;
+    expect(prompt).toContain("Focus on auth");
+    expect(prompt).toContain("## Instructions from the user\n\nCheck the SQL");
+    expect(prompt).toContain("## Findings already reported");
+    expect(prompt).toContain(highFinding.title);
+    // The ignored finding is listed only as ignored.
+    expect(prompt.split(lowFinding.title)).toHaveLength(2);
+    expect(prompt.indexOf(lowFinding.title)).toBeGreaterThan(
+      prompt.indexOf("Findings the user chose to ignore"),
+    );
+    // The re-report folds into the first finding; the user's pick stays.
+    const findings = r.findings.listByTask(seeded.id);
+    expect(findings).toHaveLength(3);
+    expect(r.findings.get(high!.id)!.status).toBe("open");
+    expect(r.findings.get(low!.id)!.status).toBe("force-ignore");
+    expect(findings[2]).toMatchObject({ status: "merged", mergedIntoId: high!.id });
+
+    await h.engine.respond(seeded.id, { gate: "triage", decision: "approve" });
+    expect(h.delivered).toEqual([seeded.id]);
+  });
+
+  it("reviews the whole PR again on a review task's re-review", async () => {
+    const reviewGit = {
+      mainBranch: "main",
+      mergeBase: vi.fn(async () => "base"),
+      headSha: vi.fn(async () => "h0"),
+      diff: vi.fn(async (_worktree: string, from: string, to = "HEAD") => `+${from}..${to}`),
+    };
+    const h = harness(
+      (stage) => (stage === "code-review" ? { structured: { findings: [] } } : {}),
+      { stages: createDefaultStages({ reviewGit }) },
+    );
+    const seeded = seedTask({ mode: "review", origin: prOrigin() });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    await h.engine.respond(seeded.id, {
+      gate: "triage",
+      decision: "revise",
+      message: "Look again",
+    });
+    await settle(h.engine);
+
+    const prompts = h.calls.filter((c) => c.stage === "code-review").map((c) => c.options.prompt);
+    expect(prompts).toHaveLength(4);
+    expect(prompts[2]).toContain("+base..h0");
+    expect(prompts[2]).toContain("`git diff base h0`): everything this branch changes");
+    const ranges = stepsOf(seeded.id)
+      .filter((s) => s.stage === "code-review" && s.agentId === null)
+      .map((s) => r.stepEvents.list(s.id).at(-1)!.payload);
+    expect(ranges).toEqual([
+      { from: "base", to: "h0" },
+      { from: "base", to: "h0" },
+    ]);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "triage" });
+  });
+
   it("skips the panel when the round changed nothing", async () => {
     const reviewGit = {
       mainBranch: "main",

@@ -148,6 +148,12 @@ describe("afterGate", () => {
 
   it("posts the review after triage in Review PR mode", () => {
     expect(afterGate("triage", "approve", review)).toEqual({ kind: "deliver" });
+    // Revise: the reviewers look again with the user's instruction.
+    expect(afterGate("triage", "revise", review)).toEqual({
+      kind: "stage",
+      stage: "code-review",
+      round: 1,
+    });
     expect(() => afterGate("plan-approval", "approve", review)).toThrow(InvalidGateResponseError);
   });
 });
