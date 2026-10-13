@@ -1,26 +1,53 @@
-import type { ReviewRequest } from "@blackwall/shared";
-import { useQuery } from "@tanstack/react-query";
+import type { BacklogItemView, ReviewRequest } from "@blackwall/shared";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
+import type { IssueWork } from "../assigned-issues";
 import { paneBody, paneHeader, paneTitle } from "../components/classes";
 import { EmptyState } from "../components/EmptyState";
+import { IssueWorkLink } from "../components/IssueRow";
 import { ORIGIN_ICONS } from "../components/origins";
 import { Section } from "../components/Section";
 import { pill } from "../components/StatusBadge";
 import { Button } from "../components/ui/button";
+import { WorkOnTask } from "../components/WorkOnTask";
 import { useNow } from "../hooks";
 import { relativeTime } from "../inbox";
 import { useEscapeTo } from "../keyboard";
 import { cn } from "../lib/utils";
-import { reviewRequestsQuery } from "../query";
-import { groupByHost, reviewStatusLabel } from "../review-requests";
+import { backlogQuery, reviewRequestsQuery, tasksQuery } from "../query";
+import { groupByHost, prOrigin, pullRequestWork, reviewStatusLabel } from "../review-requests";
 
 const PullRequestIcon = ORIGIN_ICONS["github-pr"];
 
-/** One PR waiting on the user's review; the row opens it on GitHub. */
-function ReviewRow({ pr, now }: { pr: ReviewRequest; now: Date }) {
+/** The row's trailing action: a link to the work on the PR, else "Work on task" as a review. */
+function PullRequestAction({ pr, work }: { pr: ReviewRequest; work: IssueWork }) {
+  if (work) return <IssueWorkLink work={work} />;
+  if (pr.repoId === null)
+    return (
+      <Button
+        size="sm"
+        variant="ghost"
+        disabled
+        title={`Register ${pr.owner}/${pr.repo} to work on it`}
+      >
+        Work on task
+      </Button>
+    );
   return (
-    <li className="flex items-center rounded-lg hover:bg-card">
+    <WorkOnTask
+      origin={prOrigin(pr)}
+      mode="review"
+      repoId={pr.repoId}
+      title="Review this PR as a task"
+    />
+  );
+}
+
+/** One PR waiting on the user's review; the row opens it on GitHub, except for its trailing `action`. */
+function ReviewRow({ pr, now, action }: { pr: ReviewRequest; now: Date; action: ReactNode }) {
+  return (
+    <li className="flex items-center gap-1 rounded-lg hover:bg-card">
       <a
         href={pr.url}
         target="_blank"
@@ -44,13 +71,15 @@ function ReviewRow({ pr, now }: { pr: ReviewRequest; now: Date }) {
           {reviewStatusLabel(pr.reviewDecision)}
         </span>
       </a>
+      <span className="flex flex-none items-center pr-2">{action}</span>
     </li>
   );
 }
 
 /**
  * Open pull requests waiting on the user's review across every GitHub host,
- * grouped by host. Polled, since GitHub sends no live events.
+ * grouped by host. Polled, since GitHub sends no live events. "Work on task"
+ * adds a PR to its registered repo's backlog as a Review PR task and starts it.
  */
 export function ReviewRequests() {
   const navigate = useNavigate();
@@ -60,6 +89,13 @@ export function ReviewRequests() {
     () => groupByHost(reviews.data?.pullRequests ?? []),
     [reviews.data?.pullRequests],
   );
+  const tasks = useQuery(tasksQuery);
+  const repoIds = useMemo(
+    () => [...new Set((reviews.data?.pullRequests ?? []).flatMap((pr) => pr.repoId ?? []))],
+    [reviews.data?.pullRequests],
+  );
+  const backlogs = useQueries({ queries: repoIds.map((repoId) => backlogQuery(repoId)) });
+  const backlogItems: BacklogItemView[] = backlogs.flatMap((backlog) => backlog.data ?? []);
 
   useEscapeTo(() => void navigate({ to: "/" }));
 
@@ -123,7 +159,17 @@ export function ReviewRequests() {
                     count={group.rows.length}
                   >
                     {group.rows.map((pr) => (
-                      <ReviewRow key={pr.url} pr={pr} now={now} />
+                      <ReviewRow
+                        key={pr.url}
+                        pr={pr}
+                        now={now}
+                        action={
+                          <PullRequestAction
+                            pr={pr}
+                            work={pullRequestWork(pr, tasks.data ?? [], backlogItems)}
+                          />
+                        }
+                      />
                     ))}
                   </Section>
                 ))}

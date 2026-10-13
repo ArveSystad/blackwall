@@ -1,4 +1,11 @@
-import type { ConnectionView, ReviewRequest } from "@blackwall/shared";
+import type {
+  BacklogItem,
+  ConnectionView,
+  ReviewRequest,
+  Task,
+  TaskOrigin,
+} from "@blackwall/shared";
+import { githubWork, type IssueWork } from "./assigned-issues";
 import { plural } from "./backlog";
 
 type ReviewDecision = ReviewRequest["reviewDecision"];
@@ -33,6 +40,32 @@ export function groupByHost<T extends { host: string }>(
 export function reviewPillLabel(count: number): string {
   if (count === 0) return "No pull requests need your review";
   return `${plural(count, "pull request")} ${count === 1 ? "needs" : "need"} your review`;
+}
+
+/** The `github-pr` task origin for a PR waiting on the user's review. */
+export function prOrigin(
+  pr: Pick<ReviewRequest, "url" | "owner" | "repo" | "number" | "connectionId">,
+): Extract<TaskOrigin, { kind: "github-pr" }> {
+  return {
+    kind: "github-pr",
+    url: pr.url,
+    owner: pr.owner,
+    repo: pr.repo,
+    number: pr.number,
+    connectionId: pr.connectionId,
+  };
+}
+
+/**
+ * The task or backlog item already working on `pr`, in either PR mode, so its
+ * row links there instead of adding a duplicate; see {@link githubWork}.
+ */
+export function pullRequestWork(
+  pr: Pick<ReviewRequest, "host" | "owner" | "repo" | "number">,
+  tasks: readonly Pick<Task, "id" | "origin" | "archivedAt">[],
+  backlogItems: readonly Pick<BacklogItem, "repoId" | "origin" | "status" | "taskId">[],
+): IssueWork {
+  return githubWork("github-pr", pr, tasks, backlogItems);
 }
 
 /** Whether any GitHub/GHE connection has a token to search with. */

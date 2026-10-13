@@ -982,6 +982,10 @@ export const reviewRequestSchema = z.object({
   updatedAt: timestamp,
   /** GitHub's review decision; null when the repo requires no reviews. */
   reviewDecision: z.enum(["review-required", "changes-requested"]).nullable(),
+  /** The registered repo whose `origin` remote is the PR's repository; null: not registered. */
+  repoId: id.nullable(),
+  /** The connection for the PR's host; null when none matches. */
+  connectionId: id.nullable(),
 });
 export type ReviewRequest = z.infer<typeof reviewRequestSchema>;
 

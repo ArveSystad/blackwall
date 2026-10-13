@@ -398,6 +398,8 @@ describe("reviewRequestsSchema", () => {
     author: null,
     updatedAt: now,
     reviewDecision: null,
+    repoId: null,
+    connectionId: null,
   };
 
   it("coerces dates and allows a null author and decision", () => {
@@ -409,6 +411,15 @@ describe("reviewRequestsSchema", () => {
     expect(parsed.pullRequests[0]!.reviewDecision).toBeNull();
     expect(parsed.pullRequests[1]!.reviewDecision).toBe("changes-requested");
     expect(parsed.errors).toHaveLength(1);
+  });
+
+  it("keeps the registered repo and the host's connection", () => {
+    const parsed = reviewRequestsSchema.parse({
+      pullRequests: [{ ...pr, repoId: "r1", connectionId: "c2" }],
+      errors: [],
+    });
+    expect(parsed.pullRequests[0]!.repoId).toBe("r1");
+    expect(parsed.pullRequests[0]!.connectionId).toBe("c2");
   });
 
   it("rejects an unknown decision", () => {

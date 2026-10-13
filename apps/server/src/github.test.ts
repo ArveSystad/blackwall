@@ -18,6 +18,7 @@ import {
   issueRoutes,
   pullRequestRoutes,
   type IssueRoutesOptions,
+  type PullRequestRoutesOptions,
 } from "./github.js";
 
 const TOKEN = "ghp_secret_token";
@@ -378,7 +379,17 @@ describe("review requests route", () => {
     repository: { name: "shop", owner: { login: "acme" } },
   });
 
-  function setup(list: ConnectionView[], fail: string[] = []) {
+  function setup(
+    list: ConnectionView[],
+    fail: string[] = [],
+    {
+      repos = [],
+      resolve = () => undefined,
+    }: {
+      repos?: { id: string; remoteUrl: string | null }[];
+      resolve?: PullRequestRoutesOptions["connections"]["resolve"];
+    } = {},
+  ) {
     const fetchImpl = vi.fn<typeof fetch>((input) => {
       const url = new URL(String(input));
       const json = (body: unknown, status = 200) =>
@@ -402,8 +413,8 @@ describe("review requests route", () => {
       token: TOKEN,
     }));
     const routes = pullRequestRoutes({
-      connections: { resolve: () => undefined, list: () => list, credentialById },
-      repos: { list: () => [] },
+      connections: { resolve, list: () => list, credentialById },
+      repos: { list: () => repos as never },
       fetch: fetchImpl,
     });
     return { routes, fetchImpl, credentialById };
@@ -430,7 +441,30 @@ describe("review requests route", () => {
       author: "kari",
       updatedAt: "2026-10-03T10:00:00.000Z",
       reviewDecision: "review-required",
+      repoId: null,
+      connectionId: null,
     });
+  });
+
+  it("adds the registered repo and the host's connection to each PR", async () => {
+    const { routes } = setup([github, acme], [], {
+      repos: [
+        { id: "r1", remoteUrl: "git@acme.ghe.com:acme/shop.git" },
+        { id: "r2", remoteUrl: null },
+      ],
+      resolve: ({ kind, ...target }) =>
+        kind === "github" && "remote" in target && target.remote.includes("acme.ghe.com")
+          ? acme
+          : github,
+    });
+    const body = (await (await routes.request("/review-requests")).json()) as ReviewRequests;
+    expect(body.pullRequests.map((pr) => [pr.host, pr.number, pr.repoId, pr.connectionId])).toEqual(
+      [
+        ["acme.ghe.com", 2, "r1", "c2"],
+        ["github.com", 1, null, "c1"],
+        ["acme.ghe.com", 3, "r1", "c2"],
+      ],
+    );
   });
 
   it("skips Jira connections and GitHub connections without a token", async () => {

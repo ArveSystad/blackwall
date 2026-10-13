@@ -286,7 +286,9 @@ export interface PullRequestRoutesOptions {
  *
  * `GET /review-requests`: the open PRs waiting on the user's review on every
  * GitHub/GHE connection with a token, newest first. A host that fails is
- * listed in `errors`; the other hosts' PRs still come back.
+ * listed in `errors`; the other hosts' PRs still come back. Each PR carries its
+ * registered repo (`repoId`, null when no repo's `origin` is the PR's
+ * repository) and its host's connection (`connectionId`), resolved as `/lookup` does.
  */
 export function pullRequestRoutes({
   connections,
@@ -296,11 +298,16 @@ export function pullRequestRoutes({
   const routes = new Hono();
 
   routes.get("/review-requests", async (c) => {
-    const { rows: pullRequests, errors } = await searchEveryGitHubHost(
-      connections,
-      fetchImpl,
-      (client) => client.searchReviewRequests(),
+    const { rows, errors } = await searchEveryGitHubHost(connections, fetchImpl, (client) =>
+      client.searchReviewRequests(),
     );
+    const registered = repos.list();
+    const pullRequests = rows.map((pr) => {
+      const ref = parsePullRequestUrl(pr.url);
+      const repo = ref && findRepoForPullRequest(registered, ref);
+      const connection = connections.resolve({ kind: "github", remote: pr.url });
+      return { ...pr, repoId: repo?.id ?? null, connectionId: connection?.id ?? null };
+    });
     return c.json<ReviewRequests>({ pullRequests, errors });
   });
 

@@ -33,34 +33,52 @@ function hostOf(url: string): string {
   }
 }
 
-/** Same host, owner, repo (case-insensitive) and number. */
-function isIssue(origin: TaskOrigin, issue: AssignedIssue): boolean {
+/** A GitHub issue or PR as the lists show it. */
+type GitHubItem = Pick<AssignedIssue, "host" | "owner" | "repo" | "number">;
+
+/** Same origin kind, host, owner, repo (case-insensitive) and number. */
+export function sameGitHubItem(
+  origin: TaskOrigin,
+  kind: "github-issue" | "github-pr",
+  item: GitHubItem,
+): boolean {
   return (
-    origin.kind === "github-issue" &&
-    origin.number === issue.number &&
-    origin.owner.toLowerCase() === issue.owner.toLowerCase() &&
-    origin.repo.toLowerCase() === issue.repo.toLowerCase() &&
-    hostOf(origin.url) === issue.host.toLowerCase()
+    origin.kind === kind &&
+    origin.number === item.number &&
+    origin.owner.toLowerCase() === item.owner.toLowerCase() &&
+    origin.repo.toLowerCase() === item.repo.toLowerCase() &&
+    hostOf(origin.url) === item.host.toLowerCase()
   );
 }
 
 /**
- * The task or backlog item already working on `issue`, so its row links there
- * instead of adding a duplicate. Archived tasks don't count; a promoted backlog
- * item counts as its task.
+ * The task or backlog item already working on the GitHub `item` of `kind`, so
+ * its row links there instead of adding a duplicate. Archived tasks don't
+ * count; a promoted backlog item counts as its task.
  */
-export function issueWork(
-  issue: AssignedIssue,
+export function githubWork(
+  kind: "github-issue" | "github-pr",
+  item: GitHubItem,
   tasks: readonly Pick<Task, "id" | "origin" | "archivedAt">[],
   backlogItems: readonly Pick<BacklogItem, "repoId" | "origin" | "status" | "taskId">[],
 ): IssueWork {
   const archived = new Set(tasks.filter((t) => t.archivedAt !== null).map((t) => t.id));
-  const task = tasks.find((t) => t.archivedAt === null && isIssue(t.origin, issue));
+  const task = tasks.find((t) => t.archivedAt === null && sameGitHubItem(t.origin, kind, item));
   if (task) return { kind: "task", taskId: task.id };
-  for (const item of backlogItems) {
-    if (!isIssue(item.origin, issue)) continue;
-    if (item.status !== "promoted") return { kind: "backlog", repoId: item.repoId };
-    if (item.taskId && !archived.has(item.taskId)) return { kind: "task", taskId: item.taskId };
+  for (const backlogItem of backlogItems) {
+    if (!sameGitHubItem(backlogItem.origin, kind, item)) continue;
+    if (backlogItem.status !== "promoted") return { kind: "backlog", repoId: backlogItem.repoId };
+    if (backlogItem.taskId && !archived.has(backlogItem.taskId))
+      return { kind: "task", taskId: backlogItem.taskId };
   }
   return null;
+}
+
+/** The task or backlog item already working on `issue`; see {@link githubWork}. */
+export function issueWork(
+  issue: GitHubItem,
+  tasks: readonly Pick<Task, "id" | "origin" | "archivedAt">[],
+  backlogItems: readonly Pick<BacklogItem, "repoId" | "origin" | "status" | "taskId">[],
+): IssueWork {
+  return githubWork("github-issue", issue, tasks, backlogItems);
 }
