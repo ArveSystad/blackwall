@@ -9,7 +9,7 @@ import { CheckIcon, PlusIcon, WallIcon } from "../components/icons";
 import { NewTaskModal } from "../components/NewTaskModal";
 import { ReviewPill } from "../components/ReviewPill";
 import { RunningHeadline } from "../components/RunningHeadline";
-import { useArchiveLaunches } from "../components/use-archive-launches";
+import { useArchive } from "../components/use-archive-launches";
 import { Button } from "../components/ui/button";
 import { Kbd } from "../components/ui/kbd";
 import { cn } from "../lib/utils";
@@ -170,7 +170,7 @@ export function Home() {
   const agents = useQuery(agentsQuery);
   const firstRun = tasks.data?.length === 0;
   const [creating, setCreating] = useState(false);
-  const launch = useArchiveLaunches();
+  const launch = useArchive();
   const dots = useMemo(
     () => gridDots(tasks.data ?? [], active.data ?? []),
     [tasks.data, active.data],

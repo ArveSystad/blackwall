@@ -74,6 +74,11 @@ export function groupTasks(tasks: readonly Task[]): InboxGroups {
   };
 }
 
+/** Done tasks not archived yet, for Archive all done. */
+export function doneTasks(tasks: readonly Task[]): Task[] {
+  return tasks.filter((t) => t.status === "done" && t.archivedAt === null);
+}
+
 export function needsYouCount(tasks: readonly Pick<Task, "status">[]): number {
   return tasks.filter((t) => t.status === "needs-you").length;
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   UI_STAGES,
   activeAgentsLabel,
+  doneTasks,
   groupTasks,
   matchesFilter,
   needsYouCount,
@@ -32,6 +33,17 @@ describe("groupTasks", () => {
     const listed = makeTask({ status: "done" });
     const archived = makeTask({ status: "done", archivedAt: new Date("2026-10-08T12:00:00Z") });
     expect(groupTasks([listed, archived]).recent).toEqual([listed]);
+  });
+});
+
+describe("doneTasks", () => {
+  it("keeps unarchived done tasks and drops archived ones and every other status", () => {
+    const done = makeTask({ status: "done" });
+    const archived = makeTask({ status: "done", archivedAt: new Date("2026-10-08T12:00:00Z") });
+    const others = (["needs-you", "running", "queued", "interrupted", "failed"] as const).map(
+      (status) => makeTask({ status }),
+    );
+    expect(doneTasks([done, archived, ...others])).toEqual([done]);
   });
 });
 

@@ -253,7 +253,8 @@ function AgentDot({
  * each task's pulse delay. A running sub-agent is a smaller cyan dot beside
  * its task's, with no bloom. Done tasks wait as calm green dots; Ctrl+click
  * (⌘+click on macOS) archives one through `launch`, and its dot flies off
- * toward the horizon (`.bw-launch`). Interrupted and failed tasks wait as
+ * toward the horizon (`.bw-launch`); the inbox's Archive all done launches
+ * every done dot at once through the same `launch`. Interrupted and failed tasks wait as
  * still gray and red dots; Ctrl+click resumes or retries one through
  * `useResumeBursts`, which booms it cyan once (`.bw-revive`, red when the
  * request fails) and rings it faintly until it runs. Lay it over
@@ -286,6 +287,12 @@ export function GridAgents({
     [dots, size],
   );
   const revive = useResumeBursts(tasks);
+  // Lets the inbox's Archive all done launch each done dot (one per task) from its spot.
+  const { setLocate } = launch;
+  useEffect(() => {
+    setLocate((taskId) => layout?.get(`${taskId}:0`));
+    return () => setLocate(null);
+  }, [layout, setLocate]);
 
   // Stages seen so far, compared on each tasks update; a change fires that task's lasers.
   const [seenTasks, setSeenTasks] = useState(tasks);

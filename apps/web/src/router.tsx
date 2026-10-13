@@ -6,6 +6,7 @@ import {
   notFound,
   redirect,
 } from "@tanstack/react-router";
+import { ArchiveLaunchesProvider } from "./components/ArchiveLaunchesProvider";
 import { Inbox } from "./components/Inbox";
 import { NotFound } from "./components/NotFound";
 import { RepoContextBar } from "./components/RepoContextBar";
@@ -44,15 +45,17 @@ const shellRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: "shell",
   component: () => (
-    <div className="flex h-full min-w-0">
-      <Inbox />
-      <main className="flex h-full min-w-0 flex-1 flex-col bg-background">
-        <RepoContextBar />
-        <div className="min-h-0 flex-1">
-          <Outlet />
-        </div>
-      </main>
-    </div>
+    <ArchiveLaunchesProvider>
+      <div className="flex h-full min-w-0">
+        <Inbox />
+        <main className="flex h-full min-w-0 flex-1 flex-col bg-background">
+          <RepoContextBar />
+          <div className="min-h-0 flex-1">
+            <Outlet />
+          </div>
+        </main>
+      </div>
+    </ArchiveLaunchesProvider>
   ),
 });
 

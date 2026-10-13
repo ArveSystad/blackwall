@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
 import { useNow } from "../hooks";
-import { activeAgentsLabel, groupTasks, matchesFilter } from "../inbox";
+import { activeAgentsLabel, doneTasks, groupTasks, matchesFilter } from "../inbox";
 import { isPlainKey, isTypingTarget, useWindowKeydown } from "../keyboard";
 import { cn } from "../lib/utils";
 import { useLiveStatus } from "../live-status";
@@ -15,6 +15,7 @@ import { NewTaskModal } from "./NewTaskModal";
 import { QuotaChip } from "./QuotaChip";
 import { TaskCard } from "./TaskCard";
 import { ThemeToggle } from "./ThemeToggle";
+import { useArchive } from "./use-archive-launches";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Kbd } from "./ui/kbd";
@@ -113,6 +114,8 @@ export function Inbox() {
   const [filter, setFilter] = useState("");
   const [creating, setCreating] = useState(false);
   const filterInput = useRef<HTMLInputElement>(null);
+  const launch = useArchive();
+  const done = doneTasks(tasks.data ?? []).filter((t) => !launch.launches.has(t.id));
 
   useWindowKeydown((event) => {
     if (!isPlainKey(event) || isTypingTarget(event.target)) return;
@@ -199,6 +202,20 @@ export function Inbox() {
 
       <div className="flex items-center gap-2.5 border-t border-border px-3.5 py-2 text-label text-muted-foreground">
         <LiveIndicator />
+        <span className="flex-1" />
+        {done.length > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            title="Archive all done tasks"
+            onClick={() => {
+              launch.clearError();
+              launch.archiveAll(done);
+            }}
+          >
+            Archive {done.length} done
+          </Button>
+        )}
       </div>
       <NewTaskModal open={creating} onClose={() => setCreating(false)} />
     </aside>
