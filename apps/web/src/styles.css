@@ -432,6 +432,84 @@
   }
 }
 
+/* ---------- film overlay (GridBackdrop.tsx, `.bw-film`) ----------
+ * Grain and flicker over the whole backdrop pane, above its content and
+ * outside `.bw-grid`'s mask, so the grain is even and the flicker covers the
+ * dots, headline and cards. The grain jumps on transform only; the flicker
+ * veils dim toward `--bg-0` instead of animating the content's opacity. Their
+ * loops (23s, 37s) are coprime so the dips read as random, and each dip sits
+ * late in its cycle so a fresh mount never flickers. No blend mode: the
+ * explicit speckle colour stays predictable over any content. Reduced motion
+ * (base rule below) leaves the grain static and the veils hidden.
+ */
+@keyframes bw-film-grain {
+  0% {
+    transform: translate(0, 0);
+  }
+  12% {
+    transform: translate(-5%, 3%);
+  }
+  25% {
+    transform: translate(4%, -6%);
+  }
+  37% {
+    transform: translate(-7%, -2%);
+  }
+  50% {
+    transform: translate(6%, 5%);
+  }
+  62% {
+    transform: translate(-3%, 7%);
+  }
+  75% {
+    transform: translate(7%, -3%);
+  }
+  87% {
+    transform: translate(-6%, -6%);
+  }
+  100% {
+    transform: translate(0, 0);
+  }
+}
+
+@keyframes bw-film-flicker-a {
+  0% {
+    opacity: 0;
+  }
+  61% {
+    opacity: var(--film-veil);
+  }
+  61.4% {
+    opacity: 0.05;
+  }
+  61.8% {
+    opacity: calc(var(--film-veil) / 2);
+  }
+  62.2% {
+    opacity: var(--film-veil);
+  }
+  62.6%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes bw-film-flicker-b {
+  0% {
+    opacity: 0;
+  }
+  83% {
+    opacity: var(--film-veil);
+  }
+  83.4% {
+    opacity: 0.1;
+  }
+  83.8%,
+  100% {
+    opacity: 0;
+  }
+}
+
 @layer components {
   /* ---------- desktop title bar (router.tsx) ----------
    * The draggable strip the OS window buttons sit in. Invisible at height 0
@@ -567,6 +645,44 @@
     animation: bw-grid-scan 12s ease-in-out infinite;
   }
 
+  /* Film overlay: above the pane content (which stays below z-30) but within
+   * the pane's `isolate` context, so portalled dialogs (z-50) stay clear. */
+  .bw-film {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 30;
+    --film-veil: 0.4;
+  }
+
+  /* Pale speckles: constant colour, alpha thresholded from the noise. */
+  .bw-film-grain {
+    position: absolute;
+    inset: -50%;
+    opacity: 0.1;
+    --film-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 1.6 0 0 0 -0.55'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-image: var(--film-grain);
+    background-size: 180px 180px;
+    animation: bw-film-grain 0.9s steps(1, end) infinite;
+  }
+
+  .bw-film-flicker-a,
+  .bw-film-flicker-b {
+    position: absolute;
+    inset: 0;
+    background: var(--bg-0);
+    opacity: 0;
+  }
+
+  .bw-film-flicker-a {
+    animation: bw-film-flicker-a 23s steps(1, end) infinite;
+  }
+
+  .bw-film-flicker-b {
+    animation: bw-film-flicker-b 37s steps(1, end) infinite;
+  }
+
   /* Glow is dark only: light keeps the static-feeling floor and drops the sweep;
    * its pointer spotlight darkens the lines instead of glowing. */
   :root[data-theme="light"] .bw-grid-scan {
@@ -575,6 +691,16 @@
 
   :root[data-theme="light"] .bw-grid-spot {
     backdrop-filter: brightness(0.55) contrast(1.4);
+  }
+
+  /* Light film: dark speckles and shallower dips. */
+  :root[data-theme="light"] .bw-film {
+    --film-veil: 0.2;
+  }
+
+  :root[data-theme="light"] .bw-film-grain {
+    --film-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.6 0 0 0 -0.55'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    opacity: 0.08;
   }
 
   /* ---------- running stream sweep (TaskHeader.tsx) ----------
