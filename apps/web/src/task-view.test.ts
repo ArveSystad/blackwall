@@ -1,4 +1,9 @@
-import { findingSchema, type Finding, type StepEvent } from "@blackwall/shared";
+import {
+  findingSchema,
+  type DeliveryAction,
+  type Finding,
+  type StepEvent,
+} from "@blackwall/shared";
 import { describe, expect, it } from "vitest";
 import { TASK_STOPPED_ERROR } from "@blackwall/shared";
 import {
@@ -825,6 +830,13 @@ describe("finish", () => {
     expect(
       deliveryActionCopy({ kind: "pr-review", url: "https://x/pull/1", findingIds: [] }, 1).title,
     ).toBe("Post review with 1 comment");
+    const review: DeliveryAction = { kind: "pr-review", url: "https://x/pull/1", findingIds: [] };
+    expect(deliveryActionCopy(review, 0, true)).toEqual({
+      title: "Approve the pull request",
+      target: "https://x/pull/1",
+    });
+    expect(deliveryActionCopy(review, 1, true).title).toBe("Approve with 1 comment");
+    expect(deliveryActionCopy(review, 2, true).title).toBe("Approve with 2 comments");
     expect(
       deliveryActionCopy({ kind: "issue-comment", url: "https://x/issues/7", body: "Done" }, 0),
     ).toEqual({ title: "Comment on the issue", target: "https://x/issues/7", body: "Done" });

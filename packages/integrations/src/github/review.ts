@@ -156,7 +156,7 @@ export interface ReviewPayloadOptions {
   commitId?: string;
   /** Text above the findings in the review body. */
   summary?: string;
-  /** Defaults to `COMMENT`: the harness never approves or blocks on its own. */
+  /** Defaults to `COMMENT`: the harness approves only when the user opts in, and never blocks. */
   event?: ReviewEvent;
 }
 

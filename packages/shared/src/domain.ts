@@ -1110,7 +1110,10 @@ export const deliveryActionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("issue-comment"), url: z.string(), body: z.string() }),
   /** Rebase `branch` onto local `into`, then fast-forward `into` to it. Local only. */
   z.object({ kind: z.literal("merge-main"), branch: z.string(), into: z.string() }),
-  /** Submit a review on the pull request at `url` with the selected findings as inline comments. */
+  /**
+   * Submit a review on the pull request at `url` with the selected findings as
+   * inline comments. The user can submit it as an approval instead.
+   */
   z.object({
     kind: z.literal("pr-review"),
     url: z.string(),
@@ -1171,6 +1174,11 @@ export const deliveryConfirmationSchema = z.object({
     .array(z.int().nonnegative())
     .refine((a) => new Set(a).size === a.length, "Each follow-up can be picked only once")
     .default([]),
+  /**
+   * Review PR tasks: submit the review as an approval instead of a comment.
+   * Only with the `pr-review` action.
+   */
+  approve: z.boolean().default(false),
 });
 export type DeliveryConfirmation = z.infer<typeof deliveryConfirmationSchema>;
 export type DeliveryConfirmationInput = z.input<typeof deliveryConfirmationSchema>;

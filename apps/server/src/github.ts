@@ -203,18 +203,26 @@ export function createGitHubOrigin({ connections, fetch: fetchImpl }: GitHubOrig
     },
 
     /**
-     * Submits a `COMMENT` review on the task's pull request: findings on a
-     * line of the PR's diff become inline comments, the rest go in the body,
-     * which is signed as blackwall's.
+     * Submits a `COMMENT` review, or `APPROVE` when the user ticked Approve,
+     * on the task's pull request: findings on a line of the PR's diff become
+     * inline comments, the rest go in the body, which is signed as blackwall's.
      */
-    async reviewPullRequest(task: Task, findings: readonly Finding[]): Promise<{ url: string }> {
+    async reviewPullRequest(
+      task: Task,
+      findings: readonly Finding[],
+      { approve }: { approve: boolean },
+    ): Promise<{ url: string }> {
       const origin = requirePr(task);
       const client = await prClient(origin);
       const [pr, diff] = await Promise.all([
         client.getPullRequest(origin),
         client.getPullRequestDiff(origin),
       ]);
-      const payload = buildReviewPayload(findings, { diff, commitId: pr.head.sha });
+      const payload = buildReviewPayload(findings, {
+        diff,
+        commitId: pr.head.sha,
+        event: approve ? "APPROVE" : "COMMENT",
+      });
       const { url } = await client.createReview(origin, {
         ...payload,
         body: signComment(payload.body),

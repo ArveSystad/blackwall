@@ -411,6 +411,7 @@ describe("pipeline task routes", () => {
         squash: false,
         findingIds: [],
         followUpIndexes: [0, 2],
+        approve: false,
       },
     });
 

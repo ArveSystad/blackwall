@@ -262,6 +262,8 @@ function Outbound({
   const [picked, setPicked] = useState<ReadonlySet<string>>(() =>
     carryPicks(loadPicks(), review?.findingIds ?? []),
   );
+  // Approve by default when the review offers nothing to post; remounts with the plan.
+  const [approve, setApprove] = useState(() => (review?.findingIds.length ?? 0) === 0);
   const offeredIds = review?.findingIds;
   useEffect(() => {
     onPicksChange({ offered: new Set(offeredIds), picked });
@@ -294,6 +296,7 @@ function Outbound({
           followUpIndexes: chosen.includes("create-tasks")
             ? [...followUps].sort((a, b) => a - b)
             : [],
+          approve: chosen.includes("pr-review") && approve,
         },
       },
       reviewing ? "Post review" : "Finish",
@@ -338,6 +341,7 @@ function Outbound({
           const copy = deliveryActionCopy(
             a,
             a.kind === "create-tasks" ? followUps.size : picked.size,
+            a.kind === "pr-review" && approve,
           );
           return (
             <OutboundAction
@@ -357,6 +361,25 @@ function Outbound({
                   selected={picked}
                   onChange={setPicked}
                 />
+              )}
+              {a.kind === "pr-review" && !done.has(a.kind) && (
+                <label
+                  className={`flex min-w-0 items-start gap-2 text-meta ${ticked.has(a.kind) ? "cursor-pointer" : "opacity-60"}`}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 flex-none"
+                    checked={approve}
+                    disabled={!ticked.has(a.kind)}
+                    onChange={(event) => setApprove(event.target.checked)}
+                  />
+                  <span className="flex min-w-0 flex-col">
+                    <span className="text-foreground">Approve the pull request</span>
+                    <span className="text-muted-foreground">
+                      Submits the review as an approval instead of a comment.
+                    </span>
+                  </span>
+                </label>
               )}
               {a.kind === "create-tasks" && !done.has(a.kind) && (
                 <FollowUpPicks items={a.items} selected={followUps} onChange={setFollowUps} />

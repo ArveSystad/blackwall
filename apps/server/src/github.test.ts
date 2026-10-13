@@ -820,10 +820,11 @@ describe("GitHub delivery", () => {
   it("posts the selected findings as a COMMENT review anchored to the PR head", async () => {
     const { fetchImpl, writes } = recordingGitHub();
     const github = createGitHubOrigin({ connections: connections([ghe]), fetch: fetchImpl });
-    const { url } = await github.reviewPullRequest(prTask("g1"), [
-      finding("On the diff", "src/a.ts", 2),
-      finding("Elsewhere", "src/b.ts", 9),
-    ]);
+    const { url } = await github.reviewPullRequest(
+      prTask("g1"),
+      [finding("On the diff", "src/a.ts", 2), finding("Elsewhere", "src/b.ts", 9)],
+      { approve: false },
+    );
     expect(url).toBe("https://acme.ghe.com/created/repos/acme/shop/pulls/42/reviews");
     expect(writes).toHaveLength(1);
     const body = writes[0]!.body;
@@ -836,6 +837,30 @@ describe("GitHub delivery", () => {
     for (const comment of body.comments as { body: string }[]) {
       expect(comment.body).not.toContain("Posted from blackwall");
     }
+  });
+
+  it("approves the PR with no findings when asked", async () => {
+    const { fetchImpl, writes } = recordingGitHub();
+    const github = createGitHubOrigin({ connections: connections([ghe]), fetch: fetchImpl });
+    await github.reviewPullRequest(prTask("g1"), [], { approve: true });
+    expect(writes).toHaveLength(1);
+    const body = writes[0]!.body;
+    expect(body).toMatchObject({ event: "APPROVE", commit_id: "head-sha", comments: [] });
+    expect(body.body).toContain("No findings.");
+    expect(body.body).toMatch(/_Posted from blackwall_$/);
+  });
+
+  it("approves the PR with the findings as inline comments", async () => {
+    const { fetchImpl, writes } = recordingGitHub();
+    const github = createGitHubOrigin({ connections: connections([ghe]), fetch: fetchImpl });
+    await github.reviewPullRequest(prTask("g1"), [finding("On the diff", "src/a.ts", 2)], {
+      approve: true,
+    });
+    const body = writes[0]!.body;
+    expect(body).toMatchObject({ event: "APPROVE", commit_id: "head-sha" });
+    expect(body.comments).toEqual([
+      expect.objectContaining({ path: "src/a.ts", line: 2, side: "RIGHT" }),
+    ]);
   });
 
   it("comments on the PR and opens a PR on the remote's host", async () => {

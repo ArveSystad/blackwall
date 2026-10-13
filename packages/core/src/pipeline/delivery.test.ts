@@ -684,9 +684,73 @@ describe("pull request tasks", () => {
       deliver(d, task, runRow, { actions: ["pr-review"], findingIds: [ignored!.id] }),
     ).rejects.toThrow(InvalidGateResponseError);
     await deliver(d, task, runRow, { actions: ["pr-review"], findingIds: [kept!.id] });
-    expect(ports.reviewPullRequest).toHaveBeenCalledWith(task, [
-      expect.objectContaining({ id: kept!.id }),
+    expect(ports.reviewPullRequest).toHaveBeenCalledWith(
+      task,
+      [expect.objectContaining({ id: kept!.id })],
+      { approve: false },
+    );
+  });
+
+  it("approves a Review PR task with no findings when the user opts in", async () => {
+    const { task, run: runRow } = await seed(
+      { branch: "feature/pr", origin: pr, mode: "review" },
+      { existing: true, commits: 0 },
+    );
+    const { deliverer: d, ports } = deliverer();
+    expect((await d.plan(task, [])).actions).toEqual([
+      { kind: "pr-review", url: pr.url, findingIds: [] },
     ]);
+
+    await deliver(d, task, runRow, { actions: ["pr-review"], approve: true });
+    expect(ports.reviewPullRequest).toHaveBeenCalledWith(task, [], { approve: true });
+  });
+
+  it("approves a Review PR task with the picked findings as comments", async () => {
+    const { task, run: runRow } = await seed(
+      { branch: "feature/pr", origin: pr, mode: "review" },
+      { existing: true, commits: 0 },
+    );
+    const [picked] = r.findings.createMany([
+      {
+        taskId: task.id,
+        runId: runRow.id,
+        severity: "low",
+        title: "Picked",
+        explanation: "e",
+      },
+      {
+        taskId: task.id,
+        runId: runRow.id,
+        severity: "low",
+        title: "Left out",
+        explanation: "e",
+      },
+    ]);
+    const { deliverer: d, ports } = deliverer();
+
+    await deliver(d, task, runRow, {
+      actions: ["pr-review"],
+      findingIds: [picked!.id],
+      approve: true,
+    });
+    expect(ports.reviewPullRequest).toHaveBeenCalledWith(
+      task,
+      [expect.objectContaining({ id: picked!.id })],
+      { approve: true },
+    );
+  });
+
+  it("refuses to approve without the pr-review action", async () => {
+    const { task, run: runRow } = await seed(
+      { branch: "feature/pr", origin: pr, mode: "review" },
+      { existing: true, commits: 0 },
+    );
+    const { deliverer: d, ports } = deliverer();
+
+    await expect(deliver(d, task, runRow, { approve: true })).rejects.toThrow(
+      InvalidGateResponseError,
+    );
+    expect(ports.reviewPullRequest).not.toHaveBeenCalled();
   });
 });
 

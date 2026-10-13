@@ -847,9 +847,14 @@ export interface ActionCopy {
 
 /**
  * Names a delivery action exactly: what is sent, and where. `picked` counts
- * the findings (`pr-review`) or follow-ups (`create-tasks`) the user picked.
+ * the findings (`pr-review`) or follow-ups (`create-tasks`) the user picked;
+ * `approve` names a `pr-review` the user submits as an approval.
  */
-export function deliveryActionCopy(action: DeliveryAction, picked: number): ActionCopy {
+export function deliveryActionCopy(
+  action: DeliveryAction,
+  picked: number,
+  approve = false,
+): ActionCopy {
   switch (action.kind) {
     case "push-branch":
       return { title: "Push branch", target: `${action.branch} → ${action.remote}` };
@@ -874,11 +879,16 @@ export function deliveryActionCopy(action: DeliveryAction, picked: number): Acti
         title: `Merge into local ${action.into}`,
         target: `rebase ${action.branch} onto ${action.into}, then fast-forward. Never pushed.`,
       };
-    case "pr-review":
-      return {
-        title: `Post review with ${picked} ${picked === 1 ? "comment" : "comments"}`,
-        target: action.url,
-      };
+    case "pr-review": {
+      const comments = `${picked} ${picked === 1 ? "comment" : "comments"}`;
+      if (approve) {
+        return {
+          title: picked === 0 ? "Approve the pull request" : `Approve with ${comments}`,
+          target: action.url,
+        };
+      }
+      return { title: `Post review with ${comments}`, target: action.url };
+    }
     case "create-tasks": {
       const repos = [...new Set(action.items.map((item) => item.repoName))];
       return {

@@ -2070,6 +2070,7 @@ describe("summarize and finish", () => {
       squash: false,
       findingIds: [],
       followUpIndexes: [],
+      approve: false,
     });
     expect(task(seeded.id)).toMatchObject({
       status: "done",
@@ -2289,6 +2290,7 @@ describe("summarize and finish", () => {
     expect(h.deliveries[0]!.confirmation).toMatchObject({
       actions: ["pr-review"],
       findingIds: [finding!.id],
+      approve: false,
     });
     expect(task(seeded.id)).toMatchObject({ status: "done", deliveryTargets: ["pr-review"] });
   });

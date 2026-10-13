@@ -642,7 +642,9 @@ describe("delivery", () => {
       squash: false,
       findingIds: [],
       followUpIndexes: [],
+      approve: false,
     });
+    expect(deliveryConfirmationSchema.parse({ approve: true }).approve).toBe(true);
     expect(
       deliveryConfirmationSchema.safeParse({ actions: ["push-branch", "push-branch"] }).success,
     ).toBe(false);
@@ -659,6 +661,7 @@ describe("delivery", () => {
       squash: true,
       findingIds: [],
       followUpIndexes: [],
+      approve: false,
     });
   });
 

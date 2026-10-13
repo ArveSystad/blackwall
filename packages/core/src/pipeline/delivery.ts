@@ -86,8 +86,15 @@ export interface DeliveryPorts {
   commentOnJiraIssue(task: Task, body: string): Promise<{ url: string | null }>;
   /** Posts `body` as a comment on the task's GitHub issue. */
   commentOnGitHubIssue(task: Task, body: string): Promise<{ url: string }>;
-  /** Submits a review on the task's pull request with `findings` as inline comments. */
-  reviewPullRequest(task: Task, findings: readonly Finding[]): Promise<{ url: string }>;
+  /**
+   * Submits a review on the task's pull request with `findings` as inline
+   * comments, as a `COMMENT` review, or `APPROVE` when `options.approve`.
+   */
+  reviewPullRequest(
+    task: Task,
+    findings: readonly Finding[],
+    options: { approve: boolean },
+  ): Promise<{ url: string }>;
 }
 
 export type DeliveryGit = Pick<
@@ -181,7 +188,7 @@ export function conflictResolutionPrompt(
  * summarized without it. A free-text task rebases onto local main, resolving conflicts
  * with the implementer, and fast-forwards it (main is never pushed), and a
  * Review PR task posts the selected findings
- * as a review. Any task with follow-ups the summarizer proposed also offers
+ * as a review, approving the PR only when the user opts in. Any task with follow-ups the summarizer proposed also offers
  * `create-tasks`, last, which adds the picked ones to their repos' backlogs
  * as waiting items; it needs no worktree. A branch with no commits of its own
  * (an analysis-only task) offers no push, PR or merge, and a protected head
@@ -339,6 +346,9 @@ export function createDeliverer({
     if (confirmation.findingIds.length > 0 && !confirmation.actions.includes("pr-review")) {
       throw new InvalidGateResponseError("Findings are posted only with the pr-review action");
     }
+    if (confirmation.approve && !confirmation.actions.includes("pr-review")) {
+      throw new InvalidGateResponseError("Approving is done only with the pr-review action");
+    }
     for (const id of confirmation.findingIds) {
       if (!review?.findingIds.includes(id)) {
         throw new InvalidGateResponseError(`Finding ${id} cannot be posted`);
@@ -452,7 +462,8 @@ export function createDeliverer({
           if (!finding) throw new DeliveryError(`Finding ${id} not found`);
           return finding;
         });
-        return (await ports.reviewPullRequest(task, findings)).url;
+        return (await ports.reviewPullRequest(task, findings, { approve: confirmation.approve }))
+          .url;
       }
     }
   }
