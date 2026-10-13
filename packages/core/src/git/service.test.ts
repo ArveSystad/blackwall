@@ -139,6 +139,63 @@ describe("createWorktree", () => {
     expect(git(path, "rev-parse", "--abbrev-ref", "@{upstream}")).toBe("origin/feature/pr-branch");
   });
 
+  /** Pushes `stack-base` and `feature/stacked` built on it from another clone. */
+  function pushStack() {
+    const other = join(root, "other");
+    git(root, "clone", "--quiet", origin, other);
+    git(other, "config", "user.name", "Other");
+    git(other, "config", "user.email", "other@example.com");
+    git(other, "switch", "--quiet", "-c", "stack-base");
+    const baseTip = commit(other, "base.txt", "base\n");
+    git(other, "push", "--quiet", "origin", "stack-base");
+    git(other, "switch", "--quiet", "-c", "feature/stacked");
+    commit(other, "stacked.txt", "stacked\n");
+    git(other, "push", "--quiet", "origin", "feature/stacked");
+    return { other, baseTip };
+  }
+
+  it("fetches a stacked PR's base branch with its head", async () => {
+    const { baseTip } = pushStack();
+    const path = worktreePathFor(repo, "t4");
+    await service.createWorktree({
+      repoPath: repo,
+      worktreePath: path,
+      branch: "feature/stacked",
+      checkout: { kind: "existing", fetch: true, base: "stack-base" },
+    });
+    expect(git(repo, "rev-parse", "refs/remotes/origin/stack-base")).toBe(baseTip);
+    expect(await service.mergeBase(path, "origin/stack-base")).toBe(baseTip);
+  });
+
+  it("still creates the worktree when the base branch cannot be fetched", async () => {
+    pushStack();
+    const path = worktreePathFor(repo, "t4");
+    await service.createWorktree({
+      repoPath: repo,
+      worktreePath: path,
+      branch: "feature/stacked",
+      checkout: { kind: "existing", fetch: true, base: "does-not-exist" },
+    });
+    expect(git(path, "branch", "--show-current")).toBe("feature/stacked");
+  });
+
+  it("does not refetch the base branch for an existing worktree", async () => {
+    const { other, baseTip } = pushStack();
+    const input = {
+      repoPath: repo,
+      worktreePath: worktreePathFor(repo, "t4"),
+      branch: "feature/stacked",
+      checkout: { kind: "existing", fetch: true, base: "stack-base" },
+    } as const;
+    await service.createWorktree(input);
+    git(other, "switch", "--quiet", "stack-base");
+    commit(other, "later.txt", "later\n");
+    git(other, "push", "--quiet", "origin", "stack-base");
+
+    await service.createWorktree(input);
+    expect(git(repo, "rev-parse", "refs/remotes/origin/stack-base")).toBe(baseTip);
+  });
+
   it("checks out an existing local PR branch", async () => {
     git(repo, "branch", "feature/local");
     const path = worktreePathFor(repo, "t5");

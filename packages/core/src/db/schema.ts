@@ -136,6 +136,8 @@ export const tasks = sqliteTable(
       .notNull()
       .references(() => repos.id, { onDelete: "restrict" }),
     branch: text("branch"),
+    /** PR tasks: the pull request's base branch when the worktree was created; the fork point for its diffs. */
+    baseBranch: text("base_branch"),
     worktreePath: text("worktree_path"),
     status: text("status", { enum: TASK_STATUSES }).notNull().default("queued"),
     /** Current pipeline stage; null before the first step starts. */

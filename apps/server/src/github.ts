@@ -123,6 +123,16 @@ export function createGitHubOrigin({ connections, fetch: fetchImpl }: GitHubOrig
       return pr.head.ref;
     },
 
+    /**
+     * The PR's base branch, where its diffs fork from: in a stack, the head
+     * branch of the PR below. Undefined for other tasks.
+     */
+    async baseBranchFor(task: Task): Promise<string | undefined> {
+      const origin = prOrigin(task);
+      if (!origin) return undefined;
+      return (await (await prClient(origin)).getPullRequest(origin)).base.ref;
+    },
+
     /** The pull request's or issue's title, as a new task's title. */
     async titleFor(origin: Task["origin"]): Promise<string | undefined> {
       if (origin.kind === "github-issue") return (await getIssue(origin)).title;

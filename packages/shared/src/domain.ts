@@ -673,6 +673,11 @@ export type TaskOrigin = z.infer<typeof taskOriginSchema>;
 export const workspaceSchema = z.object({
   repoId: id,
   branch: z.string().nullable(),
+  /**
+   * PR tasks: the pull request's base branch when the worktree was created,
+   * where its diffs fork from. Null for other tasks and older PR tasks.
+   */
+  baseBranch: z.string().nullable(),
   worktreePath: z.string().nullable(),
 });
 export type Workspace = z.infer<typeof workspaceSchema>;

@@ -554,6 +554,8 @@ function storedRange(ctx: StageContext, step: Step): ReviewDiffRange | undefined
 /**
  * Where the task branch forked from the main branch: the local one first for
  * branches the harness created from it, the remote one first for PR branches.
+ * PR branches fork from their PR's base branch first, which in a stack is the
+ * PR below, falling back to main.
  */
 export async function forkPoint(
   task: Task,
@@ -562,7 +564,9 @@ export async function forkPoint(
 ): Promise<string | undefined> {
   const remote = `origin/${git.mainBranch}`;
   const refs =
-    task.origin.kind === "github-pr" ? [remote, git.mainBranch] : [git.mainBranch, remote];
+    task.origin.kind === "github-pr"
+      ? [...(task.baseBranch ? [`origin/${task.baseBranch}`] : []), remote, git.mainBranch]
+      : [git.mainBranch, remote];
   for (const ref of refs) {
     try {
       return await git.mergeBase(worktree, ref);

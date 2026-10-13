@@ -29,6 +29,7 @@ const jiraTask = (connectionId: string | null) =>
     id: "t1",
     title: "Export invoices",
     origin: { kind: "jira-issue", key: "ABC-123", connectionId },
+    baseBranch: null,
     worktreePath: null,
   }) as Task;
 

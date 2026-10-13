@@ -217,7 +217,7 @@ export function renderPullRequest(
   const diff = pr.diff.trim()
     ? `${fence(truncated ? pr.diff.slice(0, maxDiffChars) : pr.diff, "diff")}${
         truncated
-          ? `\n\nThe diff is cut at ${maxDiffChars} of ${pr.diff.length} characters. Run \`git diff ${pr.baseRef}...HEAD\` in the worktree for the rest.`
+          ? `\n\nThe diff is cut at ${maxDiffChars} of ${pr.diff.length} characters. Run \`git diff origin/${pr.baseRef}...HEAD\` in the worktree for the rest.`
           : ""
       }`
     : "";

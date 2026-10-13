@@ -58,6 +58,7 @@ const prTask = (connectionId: string | null) =>
       number: 42,
       connectionId,
     },
+    baseBranch: null,
     worktreePath: null,
   }) as Task;
 
@@ -104,6 +105,11 @@ describe("createGitHubOrigin", () => {
     expect(new Headers(init?.headers).get("authorization")).toBe(`token ${TOKEN}`);
   });
 
+  it("reads the PR's base branch", async () => {
+    const github = createGitHubOrigin({ connections: connections([ghe]), fetch: fakeGitHub() });
+    expect(await github.baseBranchFor(prTask("g1"))).toBe("main");
+  });
+
   it("refuses PRs from forks", async () => {
     const github = createGitHubOrigin({
       connections: connections([ghe]),
@@ -125,6 +131,7 @@ describe("createGitHubOrigin", () => {
     const freeText = { ...prTask(null), origin: { kind: "free-text" } } as Task;
     const signal = new AbortController().signal;
     expect(await github.branchFor(freeText)).toBeUndefined();
+    expect(await github.baseBranchFor(freeText)).toBeUndefined();
     expect(await github.originContext(freeText, signal)).toBeUndefined();
     const other = async () => "agent/t1";
     expect(await firstBranchFor(github.branchFor, other)(freeText)).toBe("agent/t1");
@@ -142,7 +149,13 @@ const issueOrigin = {
 };
 
 const issueTask = () =>
-  ({ id: "t2", title: "Export", origin: issueOrigin, worktreePath: null }) as Task;
+  ({
+    id: "t2",
+    title: "Export",
+    origin: issueOrigin,
+    baseBranch: null,
+    worktreePath: null,
+  }) as Task;
 
 /** Answers for issue 7 (labelled `labels`), its comments, and issue 42, which is a PR. */
 function fakeIssues(labels: string[] = []) {

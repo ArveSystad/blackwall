@@ -115,6 +115,7 @@ describe("openDatabase", () => {
       status: "queued",
       stage: null,
       followUps: [],
+      baseBranch: null,
     });
     expect(r.runs.listByTask("t1")).toHaveLength(1);
   });

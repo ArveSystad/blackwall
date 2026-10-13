@@ -268,6 +268,9 @@ describe("tasks, runs and steps", () => {
     });
     const followUps = [{ title: "Add tests", description: "Cover login", repoId: null }];
     expect(r.tasks.update(task.id, { followUps }).followUps).toEqual(followUps);
+    expect(task.baseBranch).toBeNull();
+    expect(r.tasks.update(task.id, { baseBranch: "feature/a" }).baseBranch).toBe("feature/a");
+    expect(r.tasks.get(task.id)?.baseBranch).toBe("feature/a");
 
     const run1 = r.runs.create(task.id);
     const run2 = r.runs.create(task.id);

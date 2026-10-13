@@ -155,6 +155,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
         git,
         repos: repositories.repos,
         branchFor: firstBranchFor(jira.branchFor, github.branchFor),
+        baseBranchFor: github.baseBranchFor,
       }),
       removeWorkspace: createWorkspaceRemover({ git, repos: repositories.repos }),
       delivery: createDeliverer({

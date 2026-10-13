@@ -182,6 +182,8 @@ export type StageHandlers = {
 export interface PreparedWorkspace {
   branch: string;
   worktreePath: string;
+  /** PR tasks: the pull request's base branch, when known. */
+  baseBranch?: string | null;
 }
 
 export interface PipelineEngineOptions {

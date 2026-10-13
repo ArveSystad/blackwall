@@ -262,7 +262,7 @@ describe("informFromPullRequest", () => {
       maxDiffChars: 100,
     });
     expect(result.markdown).toContain(`The diff is cut at 100 of ${DIFF.length} characters.`);
-    expect(result.markdown).toContain("git diff main...HEAD");
+    expect(result.markdown).toContain("git diff origin/main...HEAD");
   });
 });
 

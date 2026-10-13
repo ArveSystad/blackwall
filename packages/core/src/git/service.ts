@@ -36,9 +36,10 @@ export type WorktreeCheckout =
   /**
    * Use an existing branch (PR head). The local branch wins; otherwise a
    * tracking branch is created from `<remote>/<branch>`. `fetch` refreshes the
-   * remote branch first.
+   * remote branch first; with `fetch`, `base` also fetches `<remote>/<base>`,
+   * best effort; a failure is ignored.
    */
-  | { kind: "existing"; fetch?: boolean };
+  | { kind: "existing"; fetch?: boolean; base?: string };
 
 export interface CreateWorktreeInput {
   repoPath: string;
@@ -359,6 +360,13 @@ export function createGitService({
         const remoteRef = `refs/remotes/${remote}/${branch}`;
         if (checkout.fetch) {
           await runGit(repoPath, ["fetch", remote, `+refs/heads/${branch}:${remoteRef}`]);
+          if (checkout.base) {
+            await runGit(repoPath, [
+              "fetch",
+              remote,
+              `+refs/heads/${checkout.base}:refs/remotes/${remote}/${checkout.base}`,
+            ]).catch(() => undefined);
+          }
         }
         if (await succeeds(repoPath, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`])) {
           await runGit(repoPath, ["worktree", "add", worktreePath, branch]);

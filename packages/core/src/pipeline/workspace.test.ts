@@ -6,7 +6,7 @@ import { createWorkspacePreparer, createWorkspaceRemover } from "./workspace.js"
 
 const repo = { id: "r1", path: "/code/app", name: "app" } as Repo;
 
-function preparer() {
+function preparer(baseBranchFor?: (task: Task) => Promise<string | undefined>) {
   const createWorktree = vi.fn(async (input: CreateWorktreeInput) => ({
     path: input.worktreePath,
     branch: input.branch,
@@ -15,18 +15,30 @@ function preparer() {
   const prepare = createWorkspacePreparer({
     git: { createWorktree },
     repos: { get: (id) => (id === repo.id ? repo : undefined) },
+    ...(baseBranchFor ? { baseBranchFor } : {}),
   });
   return { prepare, createWorktree };
 }
 
 const task = (patch: Partial<Task>) =>
-  ({ id: "t1", repoId: "r1", branch: null, worktreePath: null, ...patch }) as Task;
+  ({
+    id: "t1",
+    repoId: "r1",
+    branch: null,
+    baseBranch: null,
+    worktreePath: null,
+    ...patch,
+  }) as Task;
 
 describe("createWorkspacePreparer", () => {
   it("creates agent/<task-id> next to the repo for free-text tasks", async () => {
     const { prepare, createWorktree } = preparer();
     const ws = await prepare(task({ origin: { kind: "free-text" } }));
-    expect(ws).toEqual({ branch: "agent/t1", worktreePath: worktreePathFor("/code/app", "t1") });
+    expect(ws).toEqual({
+      branch: "agent/t1",
+      worktreePath: worktreePathFor("/code/app", "t1"),
+      baseBranch: null,
+    });
     expect(createWorktree).toHaveBeenCalledWith(
       expect.objectContaining({ branch: "agent/t1", checkout: { kind: "new" } }),
     );
@@ -47,6 +59,69 @@ describe("createWorkspacePreparer", () => {
       expect.objectContaining({ branch: "fix-login", checkout: { kind: "existing", fetch: true } }),
     );
     await expect(prepare(task({ origin }))).rejects.toThrow(/branch is not known/);
+  });
+
+  const prOrigin = {
+    kind: "github-pr" as const,
+    url: "https://github.com/acme/app/pull/7",
+    owner: "acme",
+    repo: "app",
+    number: 7,
+    connectionId: null,
+  };
+
+  it("fetches and records a PR task's base branch from baseBranchFor", async () => {
+    const baseBranchFor = vi.fn(async () => "feature/a");
+    const { prepare, createWorktree } = preparer(baseBranchFor);
+    const ws = await prepare(task({ origin: prOrigin, branch: "feature/b" }));
+    expect(ws).toEqual({
+      branch: "feature/b",
+      worktreePath: worktreePathFor("/code/app", "t1"),
+      baseBranch: "feature/a",
+    });
+    expect(createWorktree).toHaveBeenCalledWith(
+      expect.objectContaining({
+        branch: "feature/b",
+        checkout: { kind: "existing", fetch: true, base: "feature/a" },
+      }),
+    );
+  });
+
+  it("leaves the base out when baseBranchFor does not know it", async () => {
+    const { prepare, createWorktree } = preparer(async () => undefined);
+    const ws = await prepare(task({ origin: prOrigin, branch: "feature/b" }));
+    expect(ws.baseBranch).toBeNull();
+    expect(createWorktree).toHaveBeenCalledWith(
+      expect.objectContaining({ checkout: { kind: "existing", fetch: true } }),
+    );
+  });
+
+  it("does not ask baseBranchFor again when the PR task has a base branch", async () => {
+    const baseBranchFor = vi.fn(async () => "main");
+    const { prepare, createWorktree } = preparer(baseBranchFor);
+    const ws = await prepare(
+      task({ origin: prOrigin, branch: "feature/b", baseBranch: "feature/a" }),
+    );
+    expect(ws.baseBranch).toBe("feature/a");
+    expect(baseBranchFor).not.toHaveBeenCalled();
+    expect(createWorktree).toHaveBeenCalledWith(
+      expect.objectContaining({ checkout: { kind: "existing", fetch: true, base: "feature/a" } }),
+    );
+  });
+
+  it("never asks baseBranchFor for free-text, Jira or issue tasks", async () => {
+    const baseBranchFor = vi.fn(async () => "main");
+    const { prepare } = preparer(baseBranchFor);
+    const origins: Task["origin"][] = [
+      { kind: "free-text" },
+      { kind: "jira-issue", key: "ABC-1", connectionId: null },
+      { ...prOrigin, kind: "github-issue", url: "https://github.com/acme/app/issues/7" },
+    ];
+    for (const origin of origins) {
+      const ws = await prepare(task({ origin, branch: "feature/x" }));
+      expect(ws.baseBranch).toBeNull();
+    }
+    expect(baseBranchFor).not.toHaveBeenCalled();
   });
 
   it("asks branchFor for a Jira task's new branch", async () => {

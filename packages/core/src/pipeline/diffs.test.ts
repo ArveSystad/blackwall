@@ -102,3 +102,61 @@ describe("branch diff", () => {
     expect(await createBranchDiff({ git: noFork })(task)).toBe(null);
   });
 });
+
+describe("stacked PR diffs", () => {
+  function seedPrTask(baseBranch: string | null) {
+    const repo = r.repos.create({ path: "/code/app", name: "app" });
+    return r.tasks.create({
+      title: "Review stacked PR",
+      origin: {
+        kind: "github-pr",
+        url: "https://github.com/acme/app/pull/8",
+        owner: "acme",
+        repo: "app",
+        number: 8,
+        connectionId: null,
+      },
+      mode: "review",
+      repoId: repo.id,
+      branch: "feature/b",
+      baseBranch,
+      worktreePath: "/wt/app",
+    });
+  }
+
+  function stackGit(head: string, parent: "tip" | "missing" = "tip"): ReviewGit {
+    return {
+      ...fakeGit(head),
+      mergeBase: async (_worktree, ref) => {
+        if (ref === "origin/feature/a" && parent === "tip") return "parent-tip";
+        if (ref === "origin/main") return "main-fork";
+        throw new Error(`no merge base with ${ref}`);
+      },
+    };
+  }
+
+  it("diffs a stacked PR from its base branch, not from main", async () => {
+    const task = seedPrTask("feature/a");
+    expect(await createBranchDiff({ git: stackGit("c1") })(task)).toEqual({
+      from: "parent-tip",
+      to: "c1",
+      diff: "diff parent-tip..c1",
+    });
+    expect(await createTaskDiffs({ repositories: r, git: stackGit("c1") })(task)).toEqual([
+      { round: 0, from: "parent-tip", to: "c1", reviewed: false, diff: "diff parent-tip..c1" },
+    ]);
+  });
+
+  it("falls back to main without a base branch or when it cannot be found", async () => {
+    const withoutBase = seedPrTask(null);
+    expect((await createBranchDiff({ git: stackGit("c1") })(withoutBase))?.from).toBe("main-fork");
+    const missing = { ...withoutBase, baseBranch: "feature/a" };
+    expect((await createBranchDiff({ git: stackGit("c1", "missing") })(missing))?.from).toBe(
+      "main-fork",
+    );
+    expect(
+      (await createTaskDiffs({ repositories: r, git: stackGit("c1", "missing") })(missing))[0]
+        ?.from,
+    ).toBe("main-fork");
+  });
+});

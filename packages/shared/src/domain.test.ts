@@ -50,6 +50,7 @@ const task = {
   mode: null,
   repoId: "r1",
   branch: "feature/abc-123-fix-login",
+  baseBranch: null,
   worktreePath: null,
   status: "needs-you",
   stage: "plan-review",

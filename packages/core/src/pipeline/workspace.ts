@@ -13,16 +13,27 @@ export interface WorkspacePreparerOptions {
    * issue task's `feature/<number>-<slug>` from its title and labels.
    */
   branchFor?: (task: Task) => Promise<string | undefined>;
+  /**
+   * A PR task's base branch, fetched with its head so the task's diffs fork
+   * from it rather than from main: in a stack, the PR below.
+   */
+  baseBranchFor?: (task: Task) => Promise<string | undefined>;
 }
 
 /**
  * Creates a task's worktree next to its repo. Free-text tasks get
  * `agent/<task-id>`; Jira, GitHub issue and PR tasks use the branch set from
  * their origin (a new branch for issues, the PR head branch for PRs), asking `branchFor`
- * when the task has none yet. Idempotent, so a
+ * when the task has none yet. PR tasks also record and fetch the PR's base
+ * branch from `baseBranchFor`. Idempotent, so a
  * resumed task finds its worktree where it left it.
  */
-export function createWorkspacePreparer({ git, repos, branchFor }: WorkspacePreparerOptions) {
+export function createWorkspacePreparer({
+  git,
+  repos,
+  branchFor,
+  baseBranchFor,
+}: WorkspacePreparerOptions) {
   return async (task: Task): Promise<PreparedWorkspace> => {
     const repo = repos.get(task.repoId);
     if (!repo) throw new Error(`Repo ${task.repoId} not found`);
@@ -33,14 +44,17 @@ export function createWorkspacePreparer({ git, repos, branchFor }: WorkspacePrep
         : await branchFor?.(task));
     if (!branch) throw new Error("The task's branch is not known yet");
     const worktreePath = task.worktreePath ?? worktreePathFor(repo.path, task.id);
+    const isPr = task.origin.kind === "github-pr";
+    const baseBranch = isPr ? (task.baseBranch ?? (await baseBranchFor?.(task))) : undefined;
     await git.createWorktree({
       repoPath: repo.path,
       worktreePath,
       branch,
-      checkout:
-        task.origin.kind === "github-pr" ? { kind: "existing", fetch: true } : { kind: "new" },
+      checkout: isPr
+        ? { kind: "existing", fetch: true, ...(baseBranch ? { base: baseBranch } : {}) }
+        : { kind: "new" },
     });
-    return { branch, worktreePath };
+    return { branch, worktreePath, baseBranch: baseBranch ?? null };
   };
 }
 

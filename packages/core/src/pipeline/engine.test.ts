@@ -1745,6 +1745,28 @@ describe("code review panel and triage", () => {
     ]);
   });
 
+  it("reviews a stacked PR from its base branch, not from main", async () => {
+    const reviewGit = {
+      mainBranch: "main",
+      mergeBase: vi.fn(async (_worktree: string, ref: string) =>
+        ref === "origin/feature/a" ? "parent-tip" : "main-fork",
+      ),
+      headSha: vi.fn(async () => "h0"),
+      diff: vi.fn(async (_worktree: string, from: string, to = "HEAD") => `+${from} ${to}`),
+    };
+    const h = harness(() => ({}), { stages: createDefaultStages({ reviewGit }) });
+    await approved(h, {
+      origin: prOrigin(),
+      mode: "work",
+      branch: "feature/b",
+      baseBranch: "feature/a",
+    });
+
+    const prompt = h.calls.find((c) => c.stage === "code-review")!.options.prompt;
+    expect(prompt).toContain("`git diff parent-tip h0`");
+    expect(reviewGit.mergeBase).toHaveBeenCalledWith(expect.any(String), "origin/feature/a");
+  });
+
   it("skips the panel when the round changed nothing", async () => {
     const reviewGit = {
       mainBranch: "main",

@@ -17,6 +17,7 @@ export function makeTask(overrides: Partial<Task> = {}): Task {
     mode: null,
     repoId: "r1",
     branch: null,
+    baseBranch: null,
     worktreePath: null,
     status: "queued",
     stage: null,
