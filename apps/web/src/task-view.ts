@@ -220,6 +220,14 @@ export function canDeleteFinding(
 }
 
 /**
+ * Whether the user can force fix / force ignore a finding: only in a work
+ * task; a review task's findings are picked for posting at the end instead.
+ */
+export function canOverrideFinding(task: Pick<Task, "mode">): boolean {
+  return task.mode !== "review";
+}
+
+/**
  * Picks survive a delivery-plan refetch: earlier picks still offered stay,
  * newly offered findings start picked.
  */

@@ -8,6 +8,7 @@ import {
   canArchive,
   canCommentOnDiff,
   canDeleteFinding,
+  canOverrideFinding,
   carryPicks,
   canStop,
   deleteBlockedReason,
@@ -269,6 +270,16 @@ describe("diff comments", () => {
     expect(canDeleteFinding(makeTask({ status: "needs-you", gate: "triage" }), finding())).toBe(
       false,
     );
+  });
+});
+
+describe("canOverrideFinding", () => {
+  it("lets the user force fix / force ignore in a work task", () => {
+    expect(canOverrideFinding({ mode: "work" })).toBe(true);
+  });
+
+  it("leaves a review task's findings to the picks at the end", () => {
+    expect(canOverrideFinding({ mode: "review" })).toBe(false);
   });
 });
 

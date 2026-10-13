@@ -16,7 +16,13 @@ import { isPlainKey, isTypingTarget, useWindowKeydown } from "../../keyboard";
 import { cn } from "../../lib/utils";
 import { queryKeys } from "../../query";
 import { errorMessage } from "../../settings-forms";
-import { SEVERITY_LABELS, canDeleteFinding, severityCounts, sortFindings } from "../../task-view";
+import {
+  SEVERITY_LABELS,
+  canDeleteFinding,
+  canOverrideFinding,
+  severityCounts,
+  sortFindings,
+} from "../../task-view";
 import { panelNote } from "../classes";
 import { FINDING_GRID, FindingRow } from "../FindingRow";
 import { ChevronRightIcon, LockIcon } from "../icons";
@@ -25,9 +31,9 @@ import { SeverityChip } from "../SeverityChip";
 
 /**
  * Review findings: filter by severity or gating, expand one for why and the
- * suggested fix, and force fix / force ignore it (F / I on the open row). At
- * review triage, unfixed findings can also be deleted (D) so they are not
- * posted. Fixed findings fold into a collapsed list below the open ones.
+ * suggested fix, and, in a work task, force fix / force ignore it (F / I on the
+ * open row). At review triage, unfixed findings can be deleted (D) so they are
+ * not posted. Fixed findings fold into a collapsed list below the open ones.
  */
 export function FindingsPanel({
   task,
@@ -92,15 +98,16 @@ export function FindingsPanel({
     }
   }
 
+  const overridable = canOverrideFinding(task);
   const open = findings.find((f) => f.id === expanded);
   useWindowKeydown(
     (event) => {
       if (!open || !isPlainKey(event) || isTypingTarget(event.target)) return;
       const key = event.key.toLowerCase();
-      if (key === "f" && open.status !== "force-fix") {
+      if (overridable && key === "f" && open.status !== "force-fix") {
         event.preventDefault();
         void override(open, "force-fix");
-      } else if (key === "i" && open.status !== "force-ignore") {
+      } else if (overridable && key === "i" && open.status !== "force-ignore") {
         event.preventDefault();
         void override(open, "force-ignore");
       } else if (key === "d" && canDeleteFinding(task, open)) {
@@ -142,7 +149,7 @@ export function FindingsPanel({
       expanded={expanded === finding.id}
       pending={pending === finding.id}
       onToggle={() => setExpanded((id) => (id === finding.id ? null : finding.id))}
-      onOverride={(status) => void override(finding, status)}
+      onOverride={overridable ? (status) => void override(finding, status) : undefined}
       onDelete={canDeleteFinding(task, finding) ? () => void remove(finding) : undefined}
     />
   );

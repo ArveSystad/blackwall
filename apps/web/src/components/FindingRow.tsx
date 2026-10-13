@@ -27,11 +27,15 @@ function Triage({
 }: {
   finding: Finding;
   pending: boolean;
-  onOverride: (status: FindingOverride) => void;
+  onOverride?: ((status: FindingOverride) => void) | undefined;
 }) {
+  if (finding.status === "fixed") return <Chip tone="done">Fixed · r{finding.round}</Chip>;
+  if (!onOverride) {
+    if (finding.status === "force-fix") return <Chip tone="cyan">Force fix</Chip>;
+    if (finding.status === "force-ignore") return <Chip tone="neutral">Ignored</Chip>;
+    return null;
+  }
   switch (finding.status) {
-    case "fixed":
-      return <Chip tone="done">Fixed · r{finding.round}</Chip>;
     case "force-fix":
       return (
         <>
@@ -81,7 +85,8 @@ function Triage({
 
 /**
  * One review finding (`.frow`); expands to why, the suggested fix, and Force
- * fix / Force ignore, plus Delete when `onDelete` is given.
+ * fix / Force ignore when `onOverride` is given, plus Delete when `onDelete` is
+ * given.
  */
 export function FindingRow({
   finding,
@@ -100,7 +105,8 @@ export function FindingRow({
   expanded: boolean;
   pending: boolean;
   onToggle: () => void;
-  onOverride: (status: FindingOverride) => void;
+  /** Force fixes / force ignores the finding; only where overriding is allowed. */
+  onOverride?: ((status: FindingOverride) => void) | undefined;
   /** Deletes the finding so it is not posted; only where deleting is allowed. */
   onDelete?: (() => void) | undefined;
 }) {
@@ -179,40 +185,45 @@ export function FindingRow({
             </p>
             {(finding.status === "open" ||
               finding.status === "force-fix" ||
-              finding.status === "force-ignore") && (
-              <div className="mt-1 flex gap-1.5">
-                <Button
-                  size="sm"
-                  disabled={pending || finding.status === "force-fix"}
-                  onClick={() => onOverride("force-fix")}
-                >
-                  Force fix
-                  <Kbd>F</Kbd>
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={pending || finding.status === "force-ignore"}
-                  onClick={() => onOverride("force-ignore")}
-                >
-                  Force ignore
-                  <Kbd>I</Kbd>
-                </Button>
-                {onDelete && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="hover:text-destructive"
-                    disabled={pending}
-                    title="Deletes this finding; it will not be posted"
-                    onClick={onDelete}
-                  >
-                    Delete
-                    <Kbd>D</Kbd>
-                  </Button>
-                )}
-              </div>
-            )}
+              finding.status === "force-ignore") &&
+              (onOverride || onDelete) && (
+                <div className="mt-1 flex gap-1.5">
+                  {onOverride && (
+                    <>
+                      <Button
+                        size="sm"
+                        disabled={pending || finding.status === "force-fix"}
+                        onClick={() => onOverride("force-fix")}
+                      >
+                        Force fix
+                        <Kbd>F</Kbd>
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={pending || finding.status === "force-ignore"}
+                        onClick={() => onOverride("force-ignore")}
+                      >
+                        Force ignore
+                        <Kbd>I</Kbd>
+                      </Button>
+                    </>
+                  )}
+                  {onDelete && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="hover:text-destructive"
+                      disabled={pending}
+                      title="Deletes this finding; it will not be posted"
+                      onClick={onDelete}
+                    >
+                      Delete
+                      <Kbd>D</Kbd>
+                    </Button>
+                  )}
+                </div>
+              )}
           </div>
           <div role="cell" className="flex min-w-0 flex-col gap-2">
             <span className="label text-muted-foreground">Suggested fix</span>
