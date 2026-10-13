@@ -1,11 +1,14 @@
 import type { UseQueryResult } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { cn } from "../lib/utils";
+import { useCountBoom } from "./use-count-boom";
 
 /**
  * A pill in the home grid's bottom row: a count gathered from every GitHub
  * host. While above zero the whole pill glows magenta (with a blinking dot)
- * and the count and label share the colour. The parent row places it.
+ * and the count and label share the colour. When the count rises from zero
+ * it booms yellow once, then settles to magenta. The parent row places it, and
+ * must sit in a clipping layer (see Home).
  */
 export function CountPill<T extends { errors: { host: string; message: string }[] }>({
   to,
@@ -36,6 +39,7 @@ export function CountPill<T extends { errors: { host: string; message: string }[
     : hostErrors.map((e) => e.message).join("\n");
   const label = !data && !failed ? loadingLabel : failed ? errorLabel : labelOf(count);
   const needed = !failed && count > 0;
+  const boom = useCountBoom(to, data && !failed ? count : null);
 
   return (
     <Link
@@ -43,12 +47,22 @@ export function CountPill<T extends { errors: { host: string; message: string }[
       aria-label={label}
       title={hostErrors.length > 0 || failed ? errorTitle : undefined}
       className={cn(
-        "pointer-events-auto flex h-9 items-center gap-2 rounded-full border bg-popover px-4 whitespace-nowrap no-underline hover:no-underline focus-visible:border-cyan focus-visible:shadow-ring focus-visible:outline-none",
+        "pointer-events-auto relative isolate flex h-9 items-center gap-2 rounded-full border bg-popover px-4 whitespace-nowrap no-underline hover:no-underline focus-visible:border-cyan focus-visible:shadow-ring focus-visible:outline-none",
         needed ? "border-magenta" : "border-border-strong",
         needed ? "shadow-glow-needs" : "shadow-pop",
         needed ? "text-needs text-shadow-glow-needs" : "text-muted-foreground",
       )}
     >
+      {boom !== null && (
+        <>
+          <span key={`flash:${boom}`} aria-hidden="true" className="bw-assigned-flash -z-10" />
+          <span
+            key={`boom:${boom}`}
+            aria-hidden="true"
+            className="bw-boom bw-assigned -z-10 left-1/2 top-1/2"
+          />
+        </>
+      )}
       {!data || failed ? (
         <span className="text-meta">{label}</span>
       ) : (

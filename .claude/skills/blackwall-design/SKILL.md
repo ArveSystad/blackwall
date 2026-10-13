@@ -56,6 +56,7 @@ conflict instead of silently picking one.
 | Interrupted | `--st-interrupted` | #a8a2cc | #6b6b7b |
 | Failed / destructive | `--st-failed` | #ff5c78 | #cf2236 |
 | Done | `--st-done` | #5cd69a | #1a7f37 |
+| New work just assigned (one-shot pill boom only) | `--st-assigned` | #ffe14d | #a37a00 |
 | Severity Critical / High / Medium / Low | `--sev-*` | #ff4d5e / #ff8b3d / #f2c14e / #8e9dbc | #cf2236 / #c2530a / #9a6d00 / #5a6880 |
 | Diff add / del | `--diff-add-*` / `--diff-del-*` | plain GitHub-style green/red | same |
 | Empty-pane and Stats backdrop lines / glow (decoration only) | `--grid-line` / `--grid-glow` | primary 44% / cyan 24% (`color-mix`) | border-strong 80% / none |
@@ -95,7 +96,8 @@ Rules:
   stage and current work. "No active tasks" and Create task show only when nothing is active; if the
   tasks or agents cannot load, the pane says so with Retry instead. The home grid also has a
   review-requests pill at the bottom, under the floor: magenta (count and blinking dot) while pull
-  requests need the user, muted otherwise; it is a solid popover pill, not a glow.
+  requests need the user, muted otherwise; it is a solid popover pill, not a glow. When a pill's count
+  rises from zero it booms yellow once (`--st-assigned`), then settles to magenta.
 - The Stats screen (`/stats`) is the second sanctioned exception. It may use `GridBackdrop` behind
   its content (the backdrop's parent does not scroll; content scrolls in a sibling and stays within
   the ~520px faded column; Stats keeps the default `fade` and gets the same pointer spotlight), and

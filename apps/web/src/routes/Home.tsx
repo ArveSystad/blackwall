@@ -238,9 +238,12 @@ export function Home() {
         </>
       )}
       {!firstRun && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex flex-wrap justify-center gap-3 px-4">
-          <ReviewPill />
-          <IssuePill />
+        // Clips the pills' assigned boom to the pane, so it never scrolls it (like GridAgents).
+        <div className="pointer-events-none absolute inset-0 z-20 overflow-hidden">
+          <div className="pointer-events-none absolute inset-x-0 bottom-4 flex flex-wrap justify-center gap-3 px-4">
+            <ReviewPill />
+            <IssuePill />
+          </div>
         </div>
       )}
       <NewTaskModal open={creating} onClose={() => setCreating(false)} />

@@ -36,6 +36,7 @@
   --st-interrupted: #a8a2cc;
   --st-failed: #ff5c78;
   --st-done: #5cd69a;
+  --st-assigned: #ffe14d;
   --sev-critical: #ff4d5e;
   --sev-high: #ff8b3d;
   --sev-medium: #f2c14e;
@@ -112,6 +113,7 @@
   --st-interrupted: #6b6b7b;
   --st-failed: #cf2236;
   --st-done: #1a7f37;
+  --st-assigned: #a37a00;
   --sev-critical: #cf2236;
   --sev-high: #c2530a;
   --sev-medium: #9a6d00;
@@ -190,6 +192,7 @@
   --color-interrupted: var(--st-interrupted);
   --color-failed: var(--st-failed);
   --color-done: var(--st-done);
+  --color-assigned: var(--st-assigned);
   --color-needs-wash: var(--needs-wash);
   --color-running-wash: var(--running-wash);
 
@@ -349,6 +352,15 @@
   60%,
   100% {
     transform: scale(1);
+    opacity: 0;
+  }
+}
+
+@keyframes bw-assigned-flash {
+  0% {
+    opacity: 1;
+  }
+  100% {
     opacity: 0;
   }
 }
@@ -617,6 +629,7 @@
   .bw-boom {
     --boom-color: var(--st-running);
     --boom-size: 26rem;
+    --boom-strength: 22%;
     position: absolute;
     width: 0;
     height: 0;
@@ -640,7 +653,7 @@
     margin: calc(var(--boom-size) / -2) 0 0 calc(var(--boom-size) / -2);
     background: radial-gradient(
       circle,
-      color-mix(in oklab, var(--boom-color) 22%, transparent),
+      color-mix(in oklab, var(--boom-color) var(--boom-strength), transparent),
       transparent 70%
     );
     animation-name: bw-boom;
@@ -690,6 +703,60 @@
 
   .bw-revive-failed {
     --boom-color: var(--st-failed);
+  }
+
+  /* ---------- assigned boom (CountPill.tsx) ----------
+   * One big yellow boom as a home pill's count rises from zero (new work
+   * assigned): a wide, bright bloom and a large ring from the pill's centre,
+   * plus a yellow flash over the pill that fades to its magenta state. Both end
+   * transparent. The boom gets reduced motion and the light theme through
+   * .bw-boom; the flash is hidden under reduced motion and loses its glow in
+   * light. Home draws the pill row in a clipping layer, so the bloom never
+   * scrolls the pane. useCountBoom drops both after ASSIGNED_BOOM_MS
+   * (count-boom.ts): 2.4s here. Change them together.
+   */
+  .bw-assigned {
+    --boom-color: var(--st-assigned);
+    --boom-size: 44rem;
+    --boom-strength: 55%;
+  }
+
+  .bw-assigned::before,
+  .bw-assigned::after {
+    animation-duration: 2.4s;
+    animation-iteration-count: 1;
+    animation-fill-mode: forwards;
+    animation-delay: 0s;
+  }
+
+  .bw-assigned::after {
+    width: 160px;
+    height: 160px;
+    margin: -80px 0 0 -80px;
+    border-width: 2px;
+    box-shadow:
+      0 0 16px color-mix(in oklab, var(--boom-color) 80%, transparent),
+      inset 0 0 12px color-mix(in oklab, var(--boom-color) 50%, transparent);
+  }
+
+  .bw-assigned-flash {
+    position: absolute;
+    inset: 0;
+    border-radius: 9999px;
+    border: 1px solid var(--st-assigned);
+    background: color-mix(in oklab, var(--st-assigned) 18%, transparent);
+    box-shadow:
+      0 0 0 2px color-mix(in oklab, var(--st-assigned) 70%, transparent),
+      0 0 28px color-mix(in oklab, var(--st-assigned) 70%, transparent),
+      0 0 80px color-mix(in oklab, var(--st-assigned) 45%, transparent);
+    pointer-events: none;
+    opacity: 0;
+    animation: bw-assigned-flash 2.4s ease-in forwards;
+  }
+
+  /* Glow is dark only. */
+  :root[data-theme="light"] .bw-assigned-flash {
+    box-shadow: none;
   }
 
   /* Glow is dark only: light keeps the ring and drops the bloom. */
@@ -779,6 +846,7 @@
   @media (prefers-reduced-motion: reduce) {
     .bw-laser,
     .bw-boom,
+    .bw-assigned-flash,
     .bw-launch {
       display: none;
     }

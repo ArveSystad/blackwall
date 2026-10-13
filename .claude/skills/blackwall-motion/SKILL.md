@@ -22,13 +22,15 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
 1. `apps/web/src/styles.css`: the `--animate-*` tokens in `@theme inline`, the `@keyframes bw-*`
    rules after it, and the commented `.bw-*` blocks in `@layer components` (`bw-grid*` for
    GridBackdrop.tsx, `.bw-stream` for TaskHeader.tsx, `.bw-laser`, `.bw-boom`,
-   `.bw-revive`/`.bw-revive-failed` and `.bw-launch` for GridAgents.tsx, `.bw-running*` for
-   RunningHeadline.tsx).
+   `.bw-revive`/`.bw-revive-failed` and `.bw-launch` for GridAgents.tsx, `.bw-assigned`/
+   `.bw-assigned-flash` for CountPill.tsx, `.bw-running*` for RunningHeadline.tsx).
 2. `.claude/skills/blackwall-design/SKILL.md` § Color semantics / Rules: the state-only rule and its
    two decorative exceptions (GridBackdrop, Stats).
 3. Reference code: `apps/web/src/components/GridBackdrop.tsx`, `apps/web/src/components/GridAgents.tsx`,
    `apps/web/src/components/RunningHeadline.tsx`, `apps/web/src/routes/Stats.tsx`, `apps/web/src/routes/Backlog.tsx`, `apps/web/src/agent-dots.ts`,
-   `apps/web/src/components/use-archive-launches.ts`, `apps/web/src/components/use-resume-bursts.ts`.
+   `apps/web/src/components/use-archive-launches.ts`, `apps/web/src/components/use-resume-bursts.ts`,
+   `apps/web/src/components/use-count-boom.ts` (detects the rise during render and keeps its timer in
+   a `[boom]` effect, so StrictMode's effect replay can't strand it).
 
 Code wins over this skill. Flag any conflict instead of silently picking one.
 
@@ -50,8 +52,8 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
 6. Handle reduced motion. Loops are stopped by the base rule (`animation: none !important;
    transition: none !important`). An effect whose resting state is transparent, or that would freeze
    mid-flight, goes into the components-layer `@media (prefers-reduced-motion: reduce)`
-   `display: none` list next to `.bw-laser`, `.bw-boom` and `.bw-launch` (modifiers of `.bw-boom`,
-   e.g. `.bw-revive`, inherit it and need no entry).
+   `display: none` list next to `.bw-laser`, `.bw-boom`, `.bw-assigned-flash` and `.bw-launch`
+   (modifiers of `.bw-boom`, e.g. `.bw-revive` and `.bw-assigned`, inherit it and need no entry).
 7. If a duration or delay is mirrored elsewhere (another CSS rule or a TS constant), state the
    pairing in the CSS comment and next to the constant.
 8. Run the Checks.
@@ -72,7 +74,12 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
     `PULSE_NEEDS_S`, `--animate-pulse-done` 2.4s ↔ `PULSE_DONE_S` (all in `agent-dots.ts`).
   - JS timeouts that mirror a CSS duration and drop the element (reduced motion turns the
     animation off, so no `animationend`): `.bw-launch` 900ms ↔ `LAUNCH_MS` in
-    `use-archive-launches.ts`; `.bw-revive` 1.2s ↔ `REVIVE_MS` (1200) in `use-resume-bursts.ts`.
+    `use-archive-launches.ts`; `.bw-revive` 1.2s ↔ `REVIVE_MS` (1200) in `use-resume-bursts.ts`;
+    `.bw-assigned`/`.bw-assigned-flash` 2.4s ↔ `ASSIGNED_BOOM_MS` (2400) in `count-boom.ts`.
+- Booms: `.bw-boom` modifiers set `--boom-color`, `--boom-size` and `--boom-strength` (bloom
+  opacity, 22% by default; `.bw-assigned` uses 55%). A large boom must sit inside a
+  `pointer-events-none absolute inset-0 overflow-hidden` layer, never directly in a scroll container,
+  or it adds scrollable overflow (GridAgents' boom layer, Home's pill row).
 - Retrigger a one-shot by changing its React `key` (a counter or timestamp) so it remounts, as in
   `GridAgents.tsx` (`<span key={lasers} className="bw-laser" />`), `Backlog.tsx`
   (`<span key={note.at} className="animate-pushed-glow">`) and the `GridAgents.tsx` revive booms
