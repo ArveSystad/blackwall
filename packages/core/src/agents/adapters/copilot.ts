@@ -204,6 +204,11 @@ export function copilotArgs({
   ];
 }
 
+/** Whether a failed `--resume` run's output says the session no longer exists. */
+export function copilotSessionMissing(text: string): boolean {
+  return /No session, task, or name matched/i.test(text);
+}
+
 /** A GitHub connection's host and token, for Copilot authentication. */
 export interface CopilotAuth {
   /** e.g. `github.com` or `acme.ghe.com`. */
@@ -306,6 +311,10 @@ export function createCopilotAdapter({
             signal,
             parser: createCopilotParser({ sessionId }),
             detectRateLimit: (text) => copilotRateLimitFromText(text),
+            // Only a resumed run can lose its session; gating avoids false positives.
+            ...(resumeSessionId !== undefined
+              ? { detectMissingSession: copilotSessionMissing }
+              : {}),
             ...(runEnv ? { env: runEnv } : {}),
           });
 

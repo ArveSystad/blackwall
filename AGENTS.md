@@ -64,7 +64,7 @@ This file plus the code are the design reference. User-facing docs are in [`READ
 - **Permissions:** reviewers are read-only (read tools + safe git). Implementers can edit and use the shell, but `git push`, `gh` and anything touching remotes is denied. All agents are confined to the worktree.
   - Claude, Copilot and OpenCode implementers get the harness-defined `blackwall-worker` sub-agent, which follows the same rules. Claude's built-in sub-agents are denied. Copilot cannot restrict its `task` tool to one agent, so its built-in sub-agents stay reachable, bound by the same deny rules. Copilot reviewers lose the `task` tool. OpenCode's `task` is limited to `blackwall-worker`, its built-in `general` and `explore` sub-agents are denied, and OpenCode reviewers have `task` denied.
 - **Concurrency:** up to 3 tasks per repo by default (configurable); one active task per branch. Tasks waiting on the user don't hold a slot.
-- **Resume:** on shutdown the child CLIs are killed; in-flight steps become interrupted and resume with `--resume <sessionId>` in the same worktree; if the CLI no longer has the session (Claude: `No conversation found`), the step starts afresh with its original prompt.
+- **Resume:** on shutdown the child CLIs are killed; in-flight steps become interrupted and resume with `--resume <sessionId>` in the same worktree; if the CLI no longer has the session (Claude: `No conversation found`; Copilot: `No session, task, or name matched`; OpenCode: `Session not found`), the step starts afresh with its original prompt.
 
 ## Hard rules
 

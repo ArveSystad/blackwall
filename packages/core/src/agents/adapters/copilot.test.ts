@@ -12,6 +12,7 @@ import {
   copilotPrompt,
   createCopilotAdapter,
   createCopilotParser,
+  copilotSessionMissing,
   prepareCopilotPlugin,
 } from "./copilot.js";
 import type { LineParser } from "./run-process.js";
@@ -42,6 +43,23 @@ const schema = {
 function fake(mode: string, ...args: string[]) {
   return createCopilotAdapter({ command: process.execPath, commandArgs: [fakeCli, mode, ...args] });
 }
+
+/** Copilot CLI 1.0.96's stderr for `--resume` of an unknown or deleted session (exit code 1). */
+const RESUME_MISSING_STDERR = `Error: No session, task, or name matched '00000000-0000-0000-0000-000000000000'.
+
+To resume by session or task ID:  copilot --resume=<id>
+To resume by name:                copilot --resume=<name>
+To name a new session:            copilot --name=<name>
+To pick from existing sessions:   copilot --resume
+To start a new session with ID:   copilot --session-id=<valid-uuid>`;
+
+/** Replays a resume of a session Copilot no longer has. */
+const resumeMissing = () =>
+  createCopilotAdapter({
+    command: process.execPath,
+    commandArgs: [fakeCli, "replay-exit", fixture("resume-missing.jsonl"), "1"],
+    env: { ...process.env, FAKE_CLI_STDERR: RESUME_MISSING_STDERR },
+  });
 
 async function collect(iterable: AsyncIterable<AgentEvent>): Promise<AgentEvent[]> {
   const events: AgentEvent[] = [];
@@ -323,6 +341,18 @@ describe("copilotArgs", () => {
   });
 });
 
+describe("copilotSessionMissing", () => {
+  it("recognises Copilot's message for a session it no longer has", () => {
+    expect(copilotSessionMissing(RESUME_MISSING_STDERR)).toBe(true);
+  });
+
+  it("ignores unrelated failures", () => {
+    expect(copilotSessionMissing("boom: not logged in")).toBe(false);
+    expect(copilotSessionMissing("Error: 429 Too Many Requests: rate limit exceeded.")).toBe(false);
+    expect(copilotSessionMissing("Error: file not found: src/index.ts")).toBe(false);
+  });
+});
+
 describe("copilotEnv", () => {
   it("adds the connection's token and host", () => {
     expect(copilotEnv({ host: "acme.ghe.com", token: "t0k" }, { PATH: "p" })).toEqual({
@@ -527,6 +557,28 @@ describe("createCopilotAdapter", () => {
     const error = await run.result.catch((e: unknown) => e);
     expect(error).toMatchObject({ reason: "exit", exitCode: 3 });
     expect((error as AgentRunError).message).toContain("boom: not logged in");
+  });
+
+  it("rejects a resume of a lost session as session-missing", async () => {
+    const run = resumeMissing().run({
+      cwd,
+      prompt: "x",
+      permissions: readOnly,
+      resumeSessionId: "00000000-0000-0000-0000-000000000000",
+    });
+    await expect(run.result).rejects.toMatchObject({
+      reason: "session-missing",
+      exitCode: 1,
+      message: expect.stringContaining("No session, task, or name matched"),
+    });
+  });
+
+  it("rejects the same output on a fresh run as a plain exit", async () => {
+    const run = resumeMissing().run({ cwd, prompt: "x", permissions: readOnly });
+    await expect(run.result).rejects.toMatchObject({
+      reason: "exit",
+      message: expect.stringContaining("No session, task, or name matched"),
+    });
   });
 
   it("does not start when already aborted", async () => {

@@ -10,6 +10,7 @@ import {
   createOpencodeParser,
   opencodeArgs,
   opencodeEnv,
+  opencodeSessionMissing,
   prepareConfigHome,
   retryWhileLocked,
 } from "./opencode.js";
@@ -48,6 +49,16 @@ function fake(mode: string, args: string[] = [], env?: NodeJS.ProcessEnv) {
     ...(env ? { env } : {}),
   });
 }
+
+/** OpenCode 1.19.0's stderr for `--session` of an unknown or deleted session (exit code 1). */
+const RESUME_MISSING_STDERR = "\u001b[91m\u001b[1mError: \u001b[0mSession not found";
+
+/** Replays a resume of a session OpenCode no longer has. */
+const resumeMissing = () =>
+  fake("replay-exit", [fixture("resume-missing.jsonl"), "1"], {
+    ...process.env,
+    FAKE_CLI_STDERR: RESUME_MISSING_STDERR,
+  });
 
 async function collect(iterable: AsyncIterable<AgentEvent>): Promise<AgentEvent[]> {
   const events: AgentEvent[] = [];
@@ -747,6 +758,28 @@ describe("createOpencodeAdapter", () => {
     });
   });
 
+  it("rejects a resume of a lost session as session-missing", async () => {
+    const run = resumeMissing().run({
+      cwd,
+      prompt: "x",
+      permissions: readOnly,
+      resumeSessionId: "ses_doesnotexist000000000000",
+    });
+    await expect(run.result).rejects.toMatchObject({
+      reason: "session-missing",
+      exitCode: 1,
+      message: expect.stringContaining("Session not found"),
+    });
+  });
+
+  it("rejects the same output on a fresh run as a plain exit", async () => {
+    const run = resumeMissing().run({ cwd, prompt: "x", permissions: readOnly });
+    await expect(run.result).rejects.toMatchObject({
+      reason: "exit",
+      message: expect.stringContaining("Session not found"),
+    });
+  });
+
   it("does not start when already aborted", async () => {
     const run = fake("hang").run({
       cwd,
@@ -777,6 +810,20 @@ describe("createOpencodeAdapter", () => {
     const events = await collect(run);
     await expect(run.result).resolves.toMatchObject({ sessionId: "ses_fake" });
     expect(events.some((e) => e.type === "error")).toBe(false);
+  });
+});
+
+describe("opencodeSessionMissing", () => {
+  it("recognises OpenCode's message for a session it no longer has", () => {
+    expect(opencodeSessionMissing(RESUME_MISSING_STDERR)).toBe(true);
+  });
+
+  it("ignores unrelated failures", () => {
+    expect(opencodeSessionMissing("Unexpected server error. Check server logs for details.")).toBe(
+      false,
+    );
+    expect(opencodeSessionMissing("Error: Unexpected error\n\ndatabase is locked")).toBe(false);
+    expect(opencodeSessionMissing("Error: File not found: src/index.ts")).toBe(false);
   });
 });
 

@@ -35,7 +35,7 @@ Inform ──► Plan review / grill ──► [human plan approval] ──► I
 - Claude Code, Copilot CLI and OpenCode implementers can hand narrow jobs to a cheaper `blackwall-worker` sub-agent (Haiku on Claude Code, `claude-haiku-5.5` on Copilot, and on OpenCode Haiku for `anthropic/` and `github-copilot/` models, otherwise the run's own model) that gets only a short brief. Running sub-agents show as small dots beside their task's dot on the home grid, and their work shows nested, collapsed, under the call that started them in Agent output.
 - A per-repo backlog with an auto-runner that respects concurrency caps and CLI usage limits. When the repo's local default branch has commits its origin counterpart doesn't (for example after free-text tasks merge into it), the Backlog header offers a confirmed "Push N commits to <branch>". It never fetches or forces.
 - A task can propose follow-up tasks, in its own repo or another registered one. You pick which to create at finish; they land in the backlog as waiting items. An analysis-only task can deliver just these follow-ups.
-- Interrupted steps resume the same CLI session, or start afresh with their original prompt if Claude Code no longer has it.
+- Interrupted steps resume the same CLI session, or start afresh with their original prompt if the CLI no longer has it.
 
 Implementers may save screenshots (PNG, JPEG, GIF or WebP) to `.blackwall/artifacts/` in the worktree. They show in the task's Artifacts tab, updating while the task runs. The `.blackwall/` scratch folder, also used for Jira attachments, is ignored by its own `.gitignore` and never committed.
 

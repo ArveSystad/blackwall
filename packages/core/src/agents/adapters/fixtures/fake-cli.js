@@ -1,5 +1,7 @@
 // A stand-in agent CLI for tests: `node fake-cli.js <mode> [fixture] ...ignored CLI args`.
 //   replay <fixture>  prints the fixture's lines, then exits with code 0
+//   replay-exit <fixture> <code>
+//                     prints the fixture's lines (possibly none), then exits with <code>
 //   replay-resume <new> <resumed>
 //                     replays <resumed> when the args contain --resume or --session, else <new>
 //   copilot-echo      Copilot JSONL messages: stdin, the auth env vars, the --plugin-dir and
@@ -35,6 +37,9 @@ async function readStdin() {
 
 if (mode === "replay") {
   process.stdout.write(readFileSync(fixture, "utf8"));
+} else if (mode === "replay-exit") {
+  process.stdout.write(readFileSync(fixture, "utf8"));
+  process.exitCode = Number(process.argv[4]);
 } else if (mode === "replay-resume") {
   const resumed = process.argv.includes("--resume") || process.argv.includes("--session");
   process.stdout.write(readFileSync(process.argv[resumed ? 4 : 3], "utf8"));

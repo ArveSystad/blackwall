@@ -331,6 +331,11 @@ export function opencodeEnv(
   };
 }
 
+/** Whether a failed `--session` run's output says the session no longer exists. */
+export function opencodeSessionMissing(text: string): boolean {
+  return /Session not found/i.test(text);
+}
+
 /** OpenCode's error when another process holds its SQLite store as it starts. */
 const DATABASE_LOCKED = /database is locked/i;
 const LOCKED_ATTEMPTS = 4;
@@ -433,6 +438,8 @@ export function createOpencodeAdapter({
                 signal,
                 parser: createOpencodeParser(model ? { model } : {}),
                 detectRateLimit: (text) => opencodeRateLimitFromText(text),
+                // Only a resumed run can lose its session; gating avoids false positives.
+                ...(resumeSessionId ? { detectMissingSession: opencodeSessionMissing } : {}),
               }),
             { delayMs: lockedRetryMs },
           );
