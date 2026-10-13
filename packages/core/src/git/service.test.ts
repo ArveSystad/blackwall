@@ -584,6 +584,43 @@ describe("finishIntoMain", () => {
       service.finishIntoMain({ repoPath: repo, worktreePath: repo, branch: "main" }),
     ).rejects.toBeInstanceOf(ProtectedBranchError);
   });
+
+  it("finishes into the repo's default branch, leaving main alone", async () => {
+    git(repo, "branch", "develop");
+    const path = worktreePathFor(repo, "t20");
+    await service.createWorktree({
+      repoPath: repo,
+      worktreePath: path,
+      branch: "agent/t20",
+      checkout: { kind: "new", base: "develop" },
+    });
+    commit(path, "feature.txt", "feature\n", "task work");
+    const mainHead = commit(repo, "other.txt", "other\n", "main moved");
+
+    const result = await service.finishIntoMain({
+      repoPath: repo,
+      worktreePath: path,
+      branch: "agent/t20",
+      into: "develop",
+    });
+
+    expect(result).toMatchObject({ status: "merged", sha: git(path, "rev-parse", "HEAD") });
+    expect(git(repo, "rev-parse", "develop")).toBe(git(path, "rev-parse", "HEAD"));
+    expect(git(repo, "rev-parse", "main")).toBe(mainHead);
+    expect(git(repo, "log", "--format=%s", "develop")).not.toContain("main moved");
+  });
+
+  it("refuses to finish the default branch into itself", async () => {
+    git(repo, "branch", "develop");
+    await expect(
+      service.finishIntoMain({
+        repoPath: repo,
+        worktreePath: repo,
+        branch: "develop",
+        into: "develop",
+      }),
+    ).rejects.toBeInstanceOf(ProtectedBranchError);
+  });
 });
 
 describe("push", () => {
@@ -625,6 +662,17 @@ describe("push", () => {
     expect(service.isProtected("master")).toBe(true);
     expect(service.isProtected("feature/x")).toBe(false);
     expect(createGitService({ mainBranch: "trunk" }).isProtected("trunk")).toBe(true);
+  });
+
+  it("protects the repo's default branch when one is given", async () => {
+    expect(service.isProtected("develop")).toBe(false);
+    expect(service.isProtected("develop", "develop")).toBe(true);
+    expect(service.isProtected("main", "develop")).toBe(true);
+    expect(service.isProtected("master", "develop")).toBe(true);
+    git(repo, "branch", "develop");
+    await expect(service.push(repo, "develop", "develop")).rejects.toBeInstanceOf(
+      ProtectedBranchError,
+    );
   });
 });
 
@@ -680,5 +728,18 @@ describe("removeWorktree", () => {
       }),
     ).rejects.toBeInstanceOf(ProtectedBranchError);
     expect(git(repo, "branch", "--list", "main")).toContain("main");
+  });
+
+  it("refuses to delete the repo's default branch", async () => {
+    git(repo, "branch", "develop");
+    await expect(
+      service.removeWorktree({
+        repoPath: repo,
+        worktreePath: join(root, "nope"),
+        deleteBranch: "develop",
+        mainBranch: "develop",
+      }),
+    ).rejects.toBeInstanceOf(ProtectedBranchError);
+    expect(git(repo, "branch", "--list", "develop")).toContain("develop");
   });
 });

@@ -1,0 +1,1 @@
+ALTER TABLE `repos` ADD `default_branch` text DEFAULT 'main' NOT NULL;

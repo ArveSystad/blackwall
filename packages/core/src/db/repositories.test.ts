@@ -72,6 +72,8 @@ describe("connections and repos", () => {
     expect(r.repos.update(repo.id, { defaultOrigin: "free-text" }).defaultOrigin).toBe("free-text");
     expect(repo.maxBacklogTasks).toBeNull();
     expect(r.repos.update(repo.id, { maxBacklogTasks: 2 }).maxBacklogTasks).toBe(2);
+    expect(repo.defaultBranch).toBe("main");
+    expect(r.repos.update(repo.id, { defaultBranch: "develop" }).defaultBranch).toBe("develop");
 
     r.connections.delete(conn.id);
     expect(r.repos.get(repo.id)?.connectionId).toBeNull();

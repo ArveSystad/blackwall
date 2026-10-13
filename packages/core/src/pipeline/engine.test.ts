@@ -1708,7 +1708,6 @@ describe("code review panel and triage", () => {
   it("reviews the whole branch first, then only each fix round's diff", async () => {
     const heads = ["h0", "h1"];
     const reviewGit = {
-      mainBranch: "main",
       mergeBase: vi.fn(async (_worktree: string, ref: string) => {
         if (ref !== "main") throw new Error("unknown ref");
         return "base";
@@ -1747,7 +1746,6 @@ describe("code review panel and triage", () => {
 
   it("reviews a stacked PR from its base branch, not from main", async () => {
     const reviewGit = {
-      mainBranch: "main",
       mergeBase: vi.fn(async (_worktree: string, ref: string) =>
         ref === "origin/feature/a" ? "parent-tip" : "main-fork",
       ),
@@ -1829,7 +1827,6 @@ describe("code review panel and triage", () => {
 
   it("reviews the whole PR again on a review task's re-review", async () => {
     const reviewGit = {
-      mainBranch: "main",
       mergeBase: vi.fn(async () => "base"),
       headSha: vi.fn(async () => "h0"),
       diff: vi.fn(async (_worktree: string, from: string, to = "HEAD") => `+${from}..${to}`),
@@ -1864,7 +1861,6 @@ describe("code review panel and triage", () => {
 
   it("skips the panel when the round changed nothing", async () => {
     const reviewGit = {
-      mainBranch: "main",
       mergeBase: vi.fn(async () => "base"),
       headSha: vi.fn(async () => "base"),
       diff: vi.fn(async () => ""),
@@ -1986,7 +1982,6 @@ describe("summarize and finish", () => {
       };
       const deliverer = createDeliverer({
         git: {
-          mainBranch: "main",
           isProtected: () => false,
           mergeBase: unused,
           commitsSince: unused,
@@ -2032,7 +2027,6 @@ describe("summarize and finish", () => {
         commitAll: vi.fn(async () => undefined),
       };
       const reviewGit = {
-        mainBranch: "main",
         mergeBase: vi.fn(async () => "base"),
         headSha: vi.fn(async () => "base"),
         diff: vi.fn(async () => ""),

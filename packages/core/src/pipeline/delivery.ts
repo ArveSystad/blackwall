@@ -12,6 +12,7 @@ import {
 import { MissingCredentialError } from "../connections/service.js";
 import type { Repositories } from "../db/repositories.js";
 import type { GitService } from "../git/service.js";
+import { defaultBranchOf } from "../repos/service.js";
 import { createFollowUpTasks, resolveFollowUps } from "./follow-ups.js";
 import { commitKey, withoutLeftovers } from "./stages.js";
 import { InvalidGateResponseError, pipelineKind } from "./transitions.js";
@@ -99,14 +100,7 @@ export interface DeliveryPorts {
 
 export type DeliveryGit = Pick<
   GitService,
-  | "mainBranch"
-  | "isProtected"
-  | "mergeBase"
-  | "commitsSince"
-  | "squash"
-  | "push"
-  | "remoteUrl"
-  | "finishIntoMain"
+  "isProtected" | "mergeBase" | "commitsSince" | "squash" | "push" | "remoteUrl" | "finishIntoMain"
 >;
 
 /** What the engine hands delivery when the user confirms. */
@@ -185,14 +179,15 @@ export function conflictResolutionPrompt(
  * transitions), a GitHub issue task does the same with a PR body that ends
  * `Closes owner/repo#n`. PR bodies and comments carry the short summary,
  * falling back to the full one without the findings left open for tasks
- * summarized without it. A free-text task rebases onto local main, resolving conflicts
- * with the implementer, and fast-forwards it (main is never pushed), and a
+ * summarized without it. A free-text task rebases onto the repo's local default
+ * branch, resolving conflicts with the implementer, and fast-forwards it (it is
+ * never pushed); PRs target that branch too. A
  * Review PR task posts the selected findings
  * as a review, approving the PR only when the user opts in. Any task with follow-ups the summarizer proposed also offers
  * `create-tasks`, last, which adds the picked ones to their repos' backlogs
  * as waiting items; it needs no worktree. A branch with no commits of its own
  * (an analysis-only task) offers no push, PR or merge, and a protected head
- * branch (main, master or the configured main) offers no push or PR. Only the
+ * branch (main, master or the repo's default branch) offers no push or PR. Only the
  * actions the user confirmed are performed, in that order, after an optional
  * squash.
  */
@@ -202,12 +197,14 @@ export function createDeliverer({
   ports,
   onBacklogChanged,
 }: DelivererOptions): Deliverer {
-  /** Where the task's own commits start: the PR head on the remote, or the fork point from main. */
+  /**
+   * Where the task's own commits start: the PR head on the remote, or the fork
+   * point from the repo's default branch.
+   */
   async function squashBase(task: Task, worktree: string): Promise<string | undefined> {
+    const main = defaultBranchOf(r.repos, task.repoId);
     const refs =
-      task.origin.kind === "github-pr"
-        ? [`origin/${task.branch}`]
-        : [git.mainBranch, `origin/${git.mainBranch}`];
+      task.origin.kind === "github-pr" ? [`origin/${task.branch}`] : [main, `origin/${main}`];
     for (const ref of refs) {
       try {
         return await git.mergeBase(worktree, ref);
@@ -246,13 +243,14 @@ export function createDeliverer({
       return [{ kind: "pr-review", url: origin.url, findingIds }];
     }
     if (!branch) return [];
-    if (origin.kind === "free-text") return [{ kind: "merge-main", branch, into: git.mainBranch }];
+    const main = defaultBranchOf(r.repos, task.repoId);
+    if (origin.kind === "free-text") return [{ kind: "merge-main", branch, into: main }];
     const body =
       task.shortSummary?.trim() || (task.summary && withoutLeftovers(task.summary)) || task.title;
     const remoteUrl = await liveRemote(task);
     // The harness never pushes a protected branch, so it is not offered.
     const push: DeliveryAction[] =
-      remoteUrl && !git.isProtected(branch)
+      remoteUrl && !git.isProtected(branch, main)
         ? [{ kind: "push-branch", branch, remote: remoteUrl }]
         : [];
     /** Opening a PR from the pushed branch, when the remote is a GitHub/GHE repo. */
@@ -265,7 +263,7 @@ export function createDeliverer({
               kind: "open-pr",
               ...slug,
               head: branch,
-              base: git.mainBranch,
+              base: main,
               title: prTitle(task),
               body: prBody,
             },
@@ -293,7 +291,7 @@ export function createDeliverer({
   }
 
   /**
-   * Whether the branch has commits since its fork point from main. Unknown
+   * Whether the branch has commits since its fork point from the default branch. Unknown
    * (no worktree, no merge base) counts as yes, so the code actions stay.
    */
   async function hasCommits(task: Task): Promise<boolean> {
@@ -416,7 +414,7 @@ export function createDeliverer({
     switch (action) {
       case "push-branch": {
         const { branch, remote } = target("push-branch");
-        await git.push(worktree, branch);
+        await git.push(worktree, branch, defaultBranchOf(r.repos, task.repoId));
         return `${remote} ${branch}`;
       }
       case "open-pr":
@@ -437,6 +435,7 @@ export function createDeliverer({
           repoPath: repo.path,
           worktreePath: worktree,
           branch,
+          into,
           resolve: ({ files }) => resolveConflicts({ branch, into, files }),
         });
         if (result.status === "conflict") {

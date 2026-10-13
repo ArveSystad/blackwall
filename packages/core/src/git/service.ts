@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-/** Branches the harness never pushes or deletes, besides the configured main branch. */
+/** Branches the harness never pushes or deletes, besides the repo's default branch. */
 const ALWAYS_PROTECTED = ["main", "master"];
 
 /** A git command that failed. `stderr` is git's own message. */
@@ -31,7 +31,7 @@ export class ProtectedBranchError extends Error {
 
 /** How a worktree gets its branch. */
 export type WorktreeCheckout =
-  /** Create the branch from `base` (default: the main branch). Jira and free-text tasks. */
+  /** Create the branch from `base` (default: the service's main branch). Jira and free-text tasks. */
   | { kind: "new"; base?: string }
   /**
    * Use an existing branch (PR head). The local branch wins; otherwise a
@@ -59,6 +59,8 @@ export interface FinishInput {
   repoPath: string;
   worktreePath: string;
   branch: string;
+  /** Branch to rebase onto and fast-forward: the repo's default branch. Default: the service's main branch. */
+  into?: string;
   /**
    * Resolves the conflicts of one rebase stop by editing or deleting the
    * conflicted files in the worktree; the harness stages them and continues.
@@ -67,16 +69,16 @@ export interface FinishInput {
   resolve?: (conflict: { files: string[] }) => Promise<void>;
 }
 
-/** Outcome of finishing a free-text task into local main. */
+/** Outcome of finishing a free-text task into the local default branch. */
 export type FinishResult =
   /** `resolved`: every file whose conflicts {@link FinishInput.resolve} resolved. */
   | { status: "merged"; sha: string; resolved: string[] }
   /**
-   * The rebase onto main hit conflicts that were not resolved; it was aborted
+   * The rebase onto the target hit conflicts that were not resolved; it was aborted
    * and nothing changed. `unresolved` says why the resolver did not resolve them.
    */
   | { status: "conflict"; files: string[]; unresolved?: string }
-  /** Main moved after the rebase, so a fast-forward was impossible; nothing changed. */
+  /** The target moved after the rebase, so a fast-forward was impossible; nothing changed. */
   | { status: "not-fast-forward" };
 
 export interface RemoveWorktreeInput {
@@ -84,10 +86,12 @@ export interface RemoveWorktreeInput {
   worktreePath: string;
   /** Also delete this local branch (e.g. the free-text `agent/<task-id>` branch). */
   deleteBranch?: string;
+  /** The repo's default branch, refused as `deleteBranch`. Default: the service's main branch. */
+  mainBranch?: string;
 }
 
 export interface GitServiceOptions {
-  /** The repo's main branch. Default `main`. */
+  /** Fallback default branch when a call doesn't name the repo's own. Default `main`. */
   mainBranch?: string;
   /** Remote used for fetch and push. Default `origin`. */
   remote?: string;
@@ -260,23 +264,25 @@ function samePath(a: string, b: string): boolean {
 
 /**
  * Every git operation the pipeline needs, via the git CLI: one worktree per
- * task, harness commits, squash, the free-text finish into local main, push,
- * per-round diffs and cleanup. Agents never call this; only the harness does,
- * and it never pushes the main branch.
+ * task, harness commits, squash, the free-text finish into the local default
+ * branch, push, per-round diffs and cleanup. Agents never call this; only the
+ * harness does, and it never pushes the default branch.
  */
 export function createGitService({
   mainBranch = "main",
   remote = "origin",
 }: GitServiceOptions = {}) {
-  const protectedBranches = new Set([mainBranch, ...ALWAYS_PROTECTED]);
-
-  /** Whether the harness refuses to push or delete `branch`: the main branch, `main` or `master`. */
-  function isProtected(branch: string): boolean {
-    return protectedBranches.has(shortBranch(branch));
+  /**
+   * Whether the harness refuses to push or delete `branch`: the repo's default
+   * branch (`defaultBranch`, else the service's main branch), `main` or `master`.
+   */
+  function isProtected(branch: string, defaultBranch = mainBranch): boolean {
+    const short = shortBranch(branch);
+    return short === shortBranch(defaultBranch) || ALWAYS_PROTECTED.includes(short);
   }
 
-  function assertUnprotected(branch: string): void {
-    if (isProtected(branch)) throw new ProtectedBranchError(shortBranch(branch));
+  function assertUnprotected(branch: string, defaultBranch?: string): void {
+    if (isProtected(branch, defaultBranch)) throw new ProtectedBranchError(shortBranch(branch));
   }
 
   async function headSha(cwd: string): Promise<string> {
@@ -436,10 +442,10 @@ export function createGitService({
     },
 
     /**
-     * Free-text finish: rebases the task branch onto local main, then
-     * fast-forwards main to the rebased commit (`git merge --ff-only <sha>`
-     * when main is checked out in the repo folder) and checks that main now
-     * points at it. Each rebase stop on conflicts goes to `resolve`, which
+     * Free-text finish: rebases the task branch onto the local `into` branch
+     * (the repo's default branch), then fast-forwards it to the rebased commit
+     * (`git merge --ff-only <sha>` when it is checked out in the repo folder)
+     * and checks that it now points at it. Each rebase stop on conflicts goes to `resolve`, which
      * edits the files; the harness checks for leftover markers, stages and
      * continues. Without a resolver, or when it fails, the rebase is aborted
      * and the conflicting files are reported; nothing is changed. A resolver
@@ -451,13 +457,14 @@ export function createGitService({
       repoPath,
       worktreePath,
       branch,
+      into = mainBranch,
       resolve: resolveConflict,
     }: FinishInput): Promise<FinishResult> {
-      assertUnprotected(branch);
+      assertUnprotected(branch, into);
       await restoreBranch(worktreePath, branch);
       let resolved: string[] = [];
       try {
-        await runGit(worktreePath, ["rebase", "--quiet", mainBranch]);
+        await runGit(worktreePath, ["rebase", "--quiet", into]);
       } catch (error) {
         if (!(error instanceof GitError)) throw error;
         const files = await unmergedFiles(worktreePath).catch(() => []);
@@ -480,14 +487,14 @@ export function createGitService({
       }
 
       const sha = await headSha(worktreePath);
-      if (!(await succeeds(repoPath, ["merge-base", "--is-ancestor", mainBranch, sha]))) {
+      if (!(await succeeds(repoPath, ["merge-base", "--is-ancestor", into, sha]))) {
         return { status: "not-fast-forward" };
       }
-      const mainRef = `refs/heads/${mainBranch}`;
-      if ((await currentBranch(repoPath)) === mainBranch) {
+      const mainRef = `refs/heads/${into}`;
+      if ((await currentBranch(repoPath)) === into) {
         await runGit(repoPath, ["merge", "--ff-only", "--quiet", sha]);
       } else {
-        // Main is not checked out in the repo folder: move the ref, still fast-forward only.
+        // The target is not checked out in the repo folder: move the ref, still fast-forward only.
         const old = await runGit(repoPath, ["rev-parse", mainRef]);
         await runGit(repoPath, ["update-ref", mainRef, sha, old]);
       }
@@ -495,7 +502,7 @@ export function createGitService({
       if (merged !== sha) {
         throw new GitError(
           ["rev-parse", mainRef],
-          `${mainBranch} is at ${merged}, not at the rebased ${sha}`,
+          `${into} is at ${merged}, not at the rebased ${sha}`,
           null,
         );
       }
@@ -504,10 +511,11 @@ export function createGitService({
 
     /**
      * Pushes the task branch to the remote under the same name and sets
-     * upstream. Harness only, after the user confirms. Refuses main.
+     * upstream. Harness only, after the user confirms. Refuses `defaultBranch`
+     * (the repo's default branch), `main` and `master`.
      */
-    async push(worktreePath: string, branch: string): Promise<void> {
-      assertUnprotected(branch);
+    async push(worktreePath: string, branch: string, defaultBranch?: string): Promise<void> {
+      assertUnprotected(branch, defaultBranch);
       await runGit(worktreePath, [
         "push",
         "--quiet",
@@ -539,8 +547,9 @@ export function createGitService({
       repoPath,
       worktreePath,
       deleteBranch,
+      mainBranch: defaultBranch,
     }: RemoveWorktreeInput): Promise<void> {
-      if (deleteBranch) assertUnprotected(deleteBranch);
+      if (deleteBranch) assertUnprotected(deleteBranch, defaultBranch);
       if ((await worktreeAt(repoPath, worktreePath)) !== undefined && existsSync(worktreePath)) {
         await runGit(repoPath, ["worktree", "remove", "--force", worktreePath]);
       }

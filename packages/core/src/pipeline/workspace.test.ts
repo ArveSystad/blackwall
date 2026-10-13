@@ -4,9 +4,12 @@ import type { CreateWorktreeInput, RemoveWorktreeInput } from "../git/service.js
 import { worktreePathFor } from "../git/branches.js";
 import { createWorkspacePreparer, createWorkspaceRemover } from "./workspace.js";
 
-const repo = { id: "r1", path: "/code/app", name: "app" } as Repo;
+const repo = { id: "r1", path: "/code/app", name: "app", defaultBranch: "main" } as Repo;
 
-function preparer(baseBranchFor?: (task: Task) => Promise<string | undefined>) {
+function preparer(
+  baseBranchFor?: (task: Task) => Promise<string | undefined>,
+  forRepo: Repo = repo,
+) {
   const createWorktree = vi.fn(async (input: CreateWorktreeInput) => ({
     path: input.worktreePath,
     branch: input.branch,
@@ -14,7 +17,7 @@ function preparer(baseBranchFor?: (task: Task) => Promise<string | undefined>) {
   }));
   const prepare = createWorkspacePreparer({
     git: { createWorktree },
-    repos: { get: (id) => (id === repo.id ? repo : undefined) },
+    repos: { get: (id) => (id === forRepo.id ? forRepo : undefined) },
     ...(baseBranchFor ? { baseBranchFor } : {}),
   });
   return { prepare, createWorktree };
@@ -40,8 +43,30 @@ describe("createWorkspacePreparer", () => {
       baseBranch: null,
     });
     expect(createWorktree).toHaveBeenCalledWith(
-      expect.objectContaining({ branch: "agent/t1", checkout: { kind: "new" } }),
+      expect.objectContaining({ branch: "agent/t1", checkout: { kind: "new", base: "main" } }),
     );
+  });
+
+  it("forks new branches from the repo's default branch", async () => {
+    const { prepare, createWorktree } = preparer(undefined, { ...repo, defaultBranch: "develop" });
+    const origins: Task["origin"][] = [
+      { kind: "free-text" },
+      { kind: "jira-issue", key: "ABC-1", connectionId: null },
+      {
+        kind: "github-issue",
+        url: "https://github.com/acme/app/issues/7",
+        owner: "acme",
+        repo: "app",
+        number: 7,
+        connectionId: null,
+      },
+    ];
+    for (const origin of origins) {
+      await prepare(task({ origin, branch: "feature/x" }));
+      expect(createWorktree).toHaveBeenLastCalledWith(
+        expect.objectContaining({ checkout: { kind: "new", base: "develop" } }),
+      );
+    }
   });
 
   it("checks out the PR head branch and refuses an unknown branch", async () => {
@@ -141,7 +166,10 @@ describe("createWorkspacePreparer", () => {
     );
     expect(ws.branch).toBe("feature/abc-1-export");
     expect(createWorktree).toHaveBeenCalledWith(
-      expect.objectContaining({ branch: "feature/abc-1-export", checkout: { kind: "new" } }),
+      expect.objectContaining({
+        branch: "feature/abc-1-export",
+        checkout: { kind: "new", base: "main" },
+      }),
     );
   });
 
@@ -168,19 +196,22 @@ describe("createWorkspacePreparer", () => {
     const ws = await prepare(task({ origin }));
     expect(ws.branch).toBe("fix/7-export-drops-a-row");
     expect(createWorktree).toHaveBeenCalledWith(
-      expect.objectContaining({ branch: "fix/7-export-drops-a-row", checkout: { kind: "new" } }),
+      expect.objectContaining({
+        branch: "fix/7-export-drops-a-row",
+        checkout: { kind: "new", base: "main" },
+      }),
     );
   });
 });
 
 describe("createWorkspaceRemover", () => {
-  function remover() {
+  function remover(forRepo: Repo = repo) {
     const removeWorktree = vi.fn<(input: RemoveWorktreeInput) => Promise<void>>(
       async () => undefined,
     );
     const remove = createWorkspaceRemover({
       git: { removeWorktree },
-      repos: { get: (id) => (id === repo.id ? repo : undefined) },
+      repos: { get: (id) => (id === forRepo.id ? forRepo : undefined) },
     });
     return { remove, removeWorktree };
   }
@@ -192,6 +223,18 @@ describe("createWorkspaceRemover", () => {
       repoPath: "/code/app",
       worktreePath: "/wt",
       deleteBranch: "agent/t1",
+      mainBranch: "main",
+    });
+  });
+
+  it("names the repo's default branch so it is never deleted", async () => {
+    const { remove, removeWorktree } = remover({ ...repo, defaultBranch: "develop" });
+    await remove(task({ origin: { kind: "free-text" }, branch: "agent/t1", worktreePath: "/wt" }));
+    expect(removeWorktree).toHaveBeenCalledWith({
+      repoPath: "/code/app",
+      worktreePath: "/wt",
+      deleteBranch: "agent/t1",
+      mainBranch: "develop",
     });
   });
 
@@ -206,6 +249,10 @@ describe("createWorkspaceRemover", () => {
       connectionId: null,
     };
     await remove(task({ origin, branch: "fix-login", worktreePath: "/wt" }));
-    expect(removeWorktree).toHaveBeenCalledWith({ repoPath: "/code/app", worktreePath: "/wt" });
+    expect(removeWorktree).toHaveBeenCalledWith({
+      repoPath: "/code/app",
+      worktreePath: "/wt",
+      mainBranch: "main",
+    });
   });
 });

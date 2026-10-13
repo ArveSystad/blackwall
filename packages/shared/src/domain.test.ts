@@ -346,6 +346,35 @@ describe("settings and inputs", () => {
     }
   });
 
+  it("accepts a repo's default branch and rejects names git would misread", () => {
+    expect(repoUpdateSchema.parse({ defaultBranch: "develop" })).toEqual({
+      defaultBranch: "develop",
+    });
+    expect(repoUpdateSchema.parse({ defaultBranch: " release/2026 " })).toEqual({
+      defaultBranch: "release/2026",
+    });
+    for (const defaultBranch of [
+      "",
+      "  ",
+      "-x",
+      "/x",
+      "x/",
+      "a..b",
+      "has space",
+      "a:b",
+      "a~1",
+      "a^",
+      "a?",
+      "a*",
+      "a[b",
+      "a\\b",
+      "x.lock",
+      "refs/heads/main",
+    ]) {
+      expect(repoUpdateSchema.safeParse({ defaultBranch }).success).toBe(false);
+    }
+  });
+
   it("uses a repo's own backlog cap over the global one", () => {
     const general = { maxBacklogTasksPerRepo: 2 };
     expect(backlogCapFor({ maxBacklogTasks: 5 }, general)).toBe(5);

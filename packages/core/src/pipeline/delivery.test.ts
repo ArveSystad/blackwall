@@ -135,15 +135,11 @@ async function seed(
   return { task, run: r.runs.create(task.id) };
 }
 
-function deliverer(
-  ports = fakePorts(),
-  onBacklogChanged?: (repoId: string) => void,
-  gitService = git,
-) {
+function deliverer(ports = fakePorts(), onBacklogChanged?: (repoId: string) => void) {
   return {
     ports,
     deliverer: createDeliverer({
-      git: gitService,
+      git,
       repositories: r,
       ports,
       ...(onBacklogChanged ? { onBacklogChanged } : {}),
@@ -260,6 +256,24 @@ describe("free-text tasks", () => {
       "There is nothing to squash",
     );
   });
+
+  it("merges into the repo's default branch, leaving main alone", async () => {
+    run(repoPath, "branch", "develop");
+    const repo = r.repos.create({ path: repoPath, name: "app", remoteUrl: originPath });
+    r.repos.update(repo.id, { defaultBranch: "develop" });
+    const { task, run: runRow } = await seed({ branch: "agent/t1" });
+    commit(repoPath, "other.txt", "main moved\n", "main moved");
+    const { deliverer: d } = deliverer();
+
+    expect((await d.plan(task, [])).actions).toEqual([
+      { kind: "merge-main", branch: "agent/t1", into: "develop" },
+    ]);
+    const outcomes = await deliver(d, task, runRow, { actions: ["merge-main"] });
+
+    expect(run(repoPath, "rev-parse", "develop")).toBe(outcomes[0]!.detail);
+    expect(subjects(repoPath, "develop")).toEqual(["edit f1.txt", "edit f0.txt", "initial"]);
+    expect(subjects(repoPath, "main")).toEqual(["main moved", "initial"]);
+  });
 });
 
 describe("Jira tasks", () => {
@@ -267,6 +281,16 @@ describe("Jira tasks", () => {
     branch: "feature/abc-1-fix-login",
     origin: { kind: "jira-issue" as const, key: "ABC-1", connectionId: null },
   };
+
+  it("opens the PR against the repo's default branch", async () => {
+    const repo = r.repos.create({ path: repoPath, name: "app", remoteUrl: originPath });
+    r.repos.update(repo.id, { defaultBranch: "develop" });
+    const { task } = await seed(jira, { remoteUrl: "https://github.com/acme/app.git" });
+    const { deliverer: d } = deliverer();
+    expect((await d.plan(task, [])).actions).toContainEqual(
+      expect.objectContaining({ kind: "open-pr", base: "develop" }),
+    );
+  });
 
   it("offers push, PR and Jira comment with their exact targets", async () => {
     const { task } = await seed(jira, { remoteUrl: "https://github.com/acme/app.git" });
@@ -635,16 +659,13 @@ describe("pull request tasks", () => {
     expect(ports.commentOnPullRequest).not.toHaveBeenCalled();
   });
 
-  it("offers no push when the PR's head branch is the configured main branch", async () => {
+  it("offers no push when the PR's head branch is the repo's default branch", async () => {
     run(repoPath, "checkout", "--quiet", "-b", "trunk");
     run(repoPath, "push", "--quiet", "origin", "trunk");
     run(repoPath, "checkout", "--quiet", "main");
     const { task } = await seed({ branch: "trunk", origin: pr, mode: "work" }, { existing: true });
-    const { deliverer: d } = deliverer(
-      fakePorts(),
-      undefined,
-      createGitService({ mainBranch: "trunk" }),
-    );
+    r.repos.update(task.repoId, { defaultBranch: "trunk" });
+    const { deliverer: d } = deliverer();
     const plan = await d.plan(task, []);
     expect(plan.actions).toEqual([
       { kind: "pr-comment", url: pr.url, body: "Logins reject wrong passwords." },

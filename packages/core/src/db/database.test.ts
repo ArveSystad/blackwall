@@ -220,4 +220,31 @@ describe("openDatabase", () => {
     expect(r.steps.get("s3")).toMatchObject({ agentId: null, cli: null });
     expect(r.findings.get("f1")).toMatchObject({ stepId: "s2", reviewerAgentId: "copilot" });
   });
+
+  it("gives repos registered before per-repo default branches main", () => {
+    // Build a database at the migration before the repo default branch.
+    const oldMigrations = join(dir, "..", "migrations-0015");
+    cpSync(MIGRATIONS_DIR, oldMigrations, { recursive: true });
+    const journalPath = join(oldMigrations, "meta", "_journal.json");
+    const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
+      entries: { tag: string }[];
+    };
+    journal.entries = journal.entries.slice(
+      0,
+      journal.entries.findIndex((e) => e.tag === "0016_repo_default_branch"),
+    );
+    expect(journal.entries.at(-1)?.tag).toBe("0015_task_base_branch");
+    writeFileSync(journalPath, JSON.stringify(journal));
+
+    mkdirSync(dir, { recursive: true });
+    const sqlite = new Database(join(dir, DB_FILENAME));
+    migrate(drizzle(sqlite), { migrationsFolder: oldMigrations });
+    sqlite.exec(
+      "insert into repos (id, path, name, created_at, updated_at) values ('r1', '/code/a', 'a', 0, 0)",
+    );
+    sqlite.close();
+
+    opened = openDatabase(dir);
+    expect(createRepositories(opened.db).repos.get("r1")?.defaultBranch).toBe("main");
+  });
 });

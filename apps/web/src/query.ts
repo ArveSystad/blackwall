@@ -63,8 +63,9 @@ export const queryKeys = {
   backlog: (repoId: string) => ["backlog", repoId] as const,
   backlogRunner: (repoId: string) => ["backlog", repoId, "runner"] as const,
   /**
-   * Local main vs origin/main. Under the backlog prefix so `backlog.changed` and
-   * finished tasks (which may have merged into main) refresh it.
+   * The repo's local default branch vs its origin counterpart. Under the backlog
+   * prefix so `backlog.changed` and finished tasks (which may have merged into
+   * the default branch) refresh it.
    */
   repoSync: (repoId: string) => ["backlog", repoId, "sync"] as const,
   quota: ["quota"] as const,

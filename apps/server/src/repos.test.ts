@@ -142,6 +142,18 @@ describe("repo routes", () => {
     });
     expect(invalid.status).toBe(400);
 
+    expect(repo.defaultBranch).toBe("main");
+    const branch = await request(`/api/repos/${repo.id}`, {
+      method: "PATCH",
+      body: { defaultBranch: "develop" },
+    });
+    expect(repoSchema.parse(await branch.json()).defaultBranch).toBe("develop");
+    const badBranch = await request(`/api/repos/${repo.id}`, {
+      method: "PATCH",
+      body: { defaultBranch: "-develop" },
+    });
+    expect(badBranch.status).toBe(400);
+
     expect((await request(`/api/repos/${repo.id}`, { method: "DELETE" })).status).toBe(204);
     expect((await request(`/api/repos/${repo.id}`)).status).toBe(404);
   });

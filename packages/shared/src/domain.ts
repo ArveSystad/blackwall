@@ -317,6 +317,30 @@ export type ResolveConnectionInput = z.infer<typeof resolveConnectionInputSchema
 /** How many backlog tasks may run at once in one repo. */
 export const backlogCapSchema = z.int().min(1).max(20);
 
+/** A repo's default branch when none is configured. */
+export const DEFAULT_BRANCH = "main";
+
+/**
+ * A local branch name, roughly as `git check-ref-format --branch` allows. Refuses
+ * anything git would read as an option (a leading `-`) or a full ref (`refs/…`).
+ */
+export const branchNameSchema = z
+  .string()
+  .trim()
+  .min(1, "Branch name can't be empty")
+  .max(255)
+  .refine(
+    (b) =>
+      !/[\s~^:?*[\\]/.test(b) &&
+      !b.includes("..") &&
+      !b.includes("@{") &&
+      !/^[-/]/.test(b) &&
+      !/(\/|\.lock|\.)$/.test(b) &&
+      !b.includes("//") &&
+      !b.startsWith("refs/"),
+    "Not a valid branch name",
+  );
+
 export const repoSchema = z.object({
   id,
   /** Absolute path of the local git repo. */
@@ -332,6 +356,8 @@ export const repoSchema = z.object({
   defaultOrigin: originKindSchema,
   /** Backlog tasks running at once in this repo; null uses the global setting. */
   maxBacklogTasks: backlogCapSchema.nullable(),
+  /** Branch new tasks fork from, free-text tasks merge into, PRs target and the Backlog pushes. */
+  defaultBranch: branchNameSchema,
   /** Listed first, with a star. */
   favorite: z.boolean(),
   /** Manual order among repos in the same favourite group. */
@@ -345,12 +371,12 @@ export type Repo = z.infer<typeof repoSchema>;
 export const repoViewSchema = repoSchema.extend({ exists: z.boolean() });
 export type RepoView = z.infer<typeof repoViewSchema>;
 
-/** The repo's local main branch vs `origin/<main>`, as of the last fetch. */
+/** The repo's local default branch vs `origin/<branch>`, as of the last fetch. */
 export const repoSyncSchema = z.object({
   branch: z.string().min(1),
-  /** Local commits `origin/<main>` doesn't have. */
+  /** Local commits `origin/<branch>` doesn't have. */
   ahead: z.int().min(0),
-  /** `origin/<main>` commits the local branch doesn't have. */
+  /** `origin/<branch>` commits the local branch doesn't have. */
   behind: z.int().min(0),
 });
 export type RepoSync = z.infer<typeof repoSyncSchema>;
@@ -372,6 +398,7 @@ export const repoUpdateSchema = z.object({
   defaultCli: agentCliSchema.optional(),
   defaultOrigin: originKindSchema.optional(),
   maxBacklogTasks: backlogCapSchema.nullable().optional(),
+  defaultBranch: branchNameSchema.optional(),
   favorite: z.boolean().optional(),
 });
 export type RepoUpdate = z.infer<typeof repoUpdateSchema>;

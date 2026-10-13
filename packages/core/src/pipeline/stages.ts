@@ -22,6 +22,7 @@ import {
 import type { AgentResult } from "../agents/adapters/types.js";
 import type { NewFinding } from "../db/schema.js";
 import type { GitService } from "../git/service.js";
+import { defaultBranchOf } from "../repos/service.js";
 import { ensureScratchDir } from "./artifacts.js";
 import { runCheckCommand, type CheckOutcome, type CheckRunner } from "./checks.js";
 import { blockingFindings, planMerges } from "./findings.js";
@@ -538,7 +539,7 @@ export interface ReviewDiffRange {
 }
 
 /** What Code review needs from git to find the round's diff. */
-export type ReviewGit = Pick<GitService, "mainBranch" | "headSha" | "mergeBase" | "diff">;
+export type ReviewGit = Pick<GitService, "headSha" | "mergeBase" | "diff">;
 
 /** Diffs beyond this many characters are cut in the reviewer prompt. */
 const MAX_REVIEW_DIFF_CHARS = 150_000;
@@ -552,21 +553,22 @@ function storedRange(ctx: StageContext, step: Step): ReviewDiffRange | undefined
 }
 
 /**
- * Where the task branch forked from the main branch: the local one first for
- * branches the harness created from it, the remote one first for PR branches.
- * PR branches fork from their PR's base branch first, which in a stack is the
- * PR below, falling back to main.
+ * Where the task branch forked from the repo's default branch `mainBranch`:
+ * the local one first for branches the harness created from it, the remote
+ * one first for PR branches. PR branches fork from their PR's base branch
+ * first, which in a stack is the PR below, falling back to the default branch.
  */
 export async function forkPoint(
   task: Task,
   git: ReviewGit,
   worktree: string,
+  mainBranch: string,
 ): Promise<string | undefined> {
-  const remote = `origin/${git.mainBranch}`;
+  const remote = `origin/${mainBranch}`;
   const refs =
     task.origin.kind === "github-pr"
-      ? [...(task.baseBranch ? [`origin/${task.baseBranch}`] : []), remote, git.mainBranch]
-      : [git.mainBranch, remote];
+      ? [...(task.baseBranch ? [`origin/${task.baseBranch}`] : []), remote, mainBranch]
+      : [mainBranch, remote];
   for (const ref of refs) {
     try {
       return await git.mergeBase(worktree, ref);
@@ -605,7 +607,8 @@ async function reviewRange(
           .map((s) => storedRange(ctx, s))
           .filter((range) => range !== undefined)
           .at(-1);
-  const from = previous?.to ?? (await forkPoint(task, git, worktree));
+  const from =
+    previous?.to ?? (await forkPoint(task, git, worktree, defaultBranchOf(r.repos, task.repoId)));
   if (!from) return undefined;
   const range = { from, to: await git.headSha(worktree) };
   const step = startHarnessStep(ctx);

@@ -55,7 +55,7 @@ This file plus the code are the design reference. User-facing docs are in [`READ
 - **Checks:** per-repo commands run after each implement round; a failure goes back to the implementer and becomes a Critical `correctness` finding if it persists.
 - **Grill:** plan reviewers ask questions; the planner answers what the repo can settle, the rest go to the user. Nothing is implemented before the user approves the plan.
 - **Worktrees:** one per task at `../<repo>.worktrees/<task>`.
-- **Branches:** PR tasks use the PR head branch. Jira tasks use `feature/<key>-<slug>`, or `fix/…` when the issue is a Bug. GitHub issue tasks use `feature/<number>-<slug>`, or `fix/…` when the issue has a `bug` label. Blackwall (`free-text`) tasks use `agent/<task-id>`, then rebase and `merge --ff-only` into local `main` at finish.
+- **Branches:** PR tasks use the PR head branch. Jira tasks use `feature/<key>-<slug>`, or `fix/…` when the issue is a Bug. GitHub issue tasks use `feature/<number>-<slug>`, or `fix/…` when the issue has a `bug` label. Blackwall (`free-text`) tasks use `agent/<task-id>`, then rebase and `merge --ff-only` into the repo's local default branch at finish. The default branch is set per repo (default `main`); new task branches fork from it and PRs target it.
 - **Commits:** the harness commits once per implement/fix round, not the agents; the message is prefixed with the Jira key when there is one.
 - **Delivery:** only at finish, after explicit confirmation of each listed action. No Jira transitions. GitHub issue tasks push, open a PR whose body ends `Closes owner/repo#n`, and comment on the issue (`issue-comment`). PR bodies and finish comments carry the short summary and stay brief; implementation details live only in the in-app summary. GitHub issue tasks may also comment on the issue when created and at plan approval; the plan-approval draft names the branch but not the plan. Each comment is opted into and confirmed by the user, never posted by an agent, and is logged on an existing step rather than a new one. Delete is refused while a plan-approval comment is posting. While delivery runs the task stays `needs-you` at its gate with `delivering` set; its pill reads "Finishing". A Review PR task approves the PR only when the user ticks Approve at triage. It defaults to ticked only when no findings are offered.
 - **Follow-up tasks:** `create-tasks` is a delivery action like the others, offered last (after `merge-main`) when Summarize proposed follow-ups, with a checkbox per item and its target repo. Nothing is created until the user confirms; the picked items are added in one transaction as independent free-text `waiting` backlog items (`dependsOn: []`, `sourceTaskId` set), and `backlog.changed` lets each repo's runner pick them up. Follow-ups must stand alone; multi-step work chains because a follow-up's description lists the later steps and its own Summarize proposes them as its follow-ups. A branch with no commits of its own offers no push, PR or merge.
@@ -70,8 +70,9 @@ This file plus the code are the design reference. User-facing docs are in [`READ
 
 - Bind only to 127.0.0.1.
 - Tokens live in the OS keychain or `BLACKWALL_TOKEN_*` env vars. They are never sent to the browser or stored in SQLite.
-- Agents never push. `main` is pushed only when the user clicks Push on a repo's Backlog and confirms it; the pipeline never pushes it.
-  - The Backlog header shows "Push N commits to main" when local `main` is ahead of `origin/main`. It only ever pushes `main`, never fetches and never forces (`RepoService.push`, outside `GitService`).
+- Agents never push. A repo's default branch is pushed only when the user clicks Push on its Backlog and confirms it; the pipeline never pushes it.
+  - The Backlog header shows "Push N commits to <branch>" when the local default branch is ahead of `origin/<branch>`. It only ever pushes that branch, never fetches and never forces (`RepoService.push`, outside `GitService`).
+  - `main`, `master` and the repo's default branch are always protected: the harness never pushes, finishes or deletes them.
 
 ## Task workflow
 

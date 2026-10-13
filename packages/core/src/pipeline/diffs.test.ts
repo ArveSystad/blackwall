@@ -16,7 +16,6 @@ afterEach(() => opened.close());
 
 function fakeGit(head: string): ReviewGit {
   return {
-    mainBranch: "main",
     headSha: async () => head,
     mergeBase: async () => "fork",
     diff: async (_worktree, from, to) => `diff ${from}..${to}`,
@@ -95,23 +94,44 @@ describe("branch diff", () => {
     const task = seedTask();
     const run = r.runs.create(task.id);
     reviewStep(run.id, 0, "fork", "c1");
-    const branchDiff = createBranchDiff({ git: fakeGit("c2") });
+    const branchDiff = createBranchDiff({ git: fakeGit("c2"), repositories: r });
     expect(await branchDiff(task)).toEqual({ from: "fork", to: "c2", diff: "diff fork..c2" });
   });
 
   it("is null without a worktree, a fork point or commits of its own", async () => {
     const task = seedTask();
-    expect(await createBranchDiff({ git: fakeGit("c1") })({ ...task, worktreePath: null })).toBe(
-      null,
-    );
-    expect(await createBranchDiff({ git: fakeGit("fork") })(task)).toBe(null);
+    expect(
+      await createBranchDiff({ git: fakeGit("c1"), repositories: r })({
+        ...task,
+        worktreePath: null,
+      }),
+    ).toBe(null);
+    expect(await createBranchDiff({ git: fakeGit("fork"), repositories: r })(task)).toBe(null);
     const noFork: ReviewGit = {
       ...fakeGit("c1"),
       mergeBase: async () => {
         throw new Error("no merge base");
       },
     };
-    expect(await createBranchDiff({ git: noFork })(task)).toBe(null);
+    expect(await createBranchDiff({ git: noFork, repositories: r })(task)).toBe(null);
+  });
+
+  it("forks from the repo's default branch", async () => {
+    const task = seedTask();
+    r.repos.update(task.repoId, { defaultBranch: "develop" });
+    const developGit: ReviewGit = {
+      ...fakeGit("c1"),
+      mergeBase: async (_worktree, ref) => {
+        if (ref === "develop") return "develop-fork";
+        throw new Error(`no merge base with ${ref}`);
+      },
+    };
+    expect((await createBranchDiff({ git: developGit, repositories: r })(task))?.from).toBe(
+      "develop-fork",
+    );
+    expect((await createTaskDiffs({ repositories: r, git: developGit })(task))[0]?.from).toBe(
+      "develop-fork",
+    );
   });
 });
 
@@ -149,7 +169,7 @@ describe("stacked PR diffs", () => {
 
   it("diffs a stacked PR from its base branch, not from main", async () => {
     const task = seedPrTask("feature/a");
-    expect(await createBranchDiff({ git: stackGit("c1") })(task)).toEqual({
+    expect(await createBranchDiff({ git: stackGit("c1"), repositories: r })(task)).toEqual({
       from: "parent-tip",
       to: "c1",
       diff: "diff parent-tip..c1",
@@ -161,11 +181,13 @@ describe("stacked PR diffs", () => {
 
   it("falls back to main without a base branch or when it cannot be found", async () => {
     const withoutBase = seedPrTask(null);
-    expect((await createBranchDiff({ git: stackGit("c1") })(withoutBase))?.from).toBe("main-fork");
+    expect(
+      (await createBranchDiff({ git: stackGit("c1"), repositories: r })(withoutBase))?.from,
+    ).toBe("main-fork");
     const missing = { ...withoutBase, baseBranch: "feature/a" };
-    expect((await createBranchDiff({ git: stackGit("c1", "missing") })(missing))?.from).toBe(
-      "main-fork",
-    );
+    expect(
+      (await createBranchDiff({ git: stackGit("c1", "missing"), repositories: r })(missing))?.from,
+    ).toBe("main-fork");
     expect(
       (await createTaskDiffs({ repositories: r, git: stackGit("c1", "missing") })(missing))[0]
         ?.from,

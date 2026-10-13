@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute } from "node:path";
 import {
+  DEFAULT_BRANCH,
   reorderReposInputSchema,
   repoInputSchema,
   repoScanInputSchema,
@@ -62,7 +63,7 @@ export class StaleRepoError extends Error {
   }
 }
 
-/** Git refused the user's push of the main branch; carries git's own message. */
+/** Git refused the user's push of the default branch; carries git's own message. */
 export class RepoPushError extends Error {
   constructor(message: string) {
     super(message);
@@ -73,11 +74,14 @@ export class RepoPushError extends Error {
 export interface RepoServiceOptions {
   repos: Repositories["repos"];
   connections: Pick<ConnectionService, "resolve">;
-  /** The main branch the Backlog push tracks (default `main`). */
-  mainBranch?: string;
 }
 
 export type RepoService = ReturnType<typeof createRepoService>;
+
+/** The repo's default branch; `main` for an unknown repo. */
+export function defaultBranchOf(repos: Pick<Repositories["repos"], "get">, repoId: string): string {
+  return repos.get(repoId)?.defaultBranch ?? DEFAULT_BRANCH;
+}
 
 function invalid(error: { issues: readonly { message: string }[] }): InvalidRepoError {
   return new InvalidRepoError(error.issues.map((issue) => issue.message).join("; "));
@@ -100,7 +104,7 @@ async function canonicalFolder(path: string): Promise<string> {
  * its `origin` remote, the GitHub connection resolved from it, and the check
  * commands the Checks stage runs.
  */
-export function createRepoService({ repos, connections, mainBranch = "main" }: RepoServiceOptions) {
+export function createRepoService({ repos, connections }: RepoServiceOptions) {
   function existing(id: string): Repo {
     const repo = repos.get(id);
     if (!repo) throw new RepoNotFoundError(id);
@@ -190,14 +194,22 @@ export function createRepoService({ repos, connections, mainBranch = "main" }: R
       existing(id);
       const parsed = repoUpdateSchema.safeParse(patch);
       if (!parsed.success) throw invalid(parsed.error);
-      const { name, checkCommands, defaultCli, defaultOrigin, maxBacklogTasks, favorite } =
-        parsed.data;
+      const {
+        name,
+        checkCommands,
+        defaultCli,
+        defaultOrigin,
+        maxBacklogTasks,
+        defaultBranch,
+        favorite,
+      } = parsed.data;
       return repos.update(id, {
         ...(name === undefined ? {} : { name }),
         ...(checkCommands === undefined ? {} : { checkCommands }),
         ...(defaultCli === undefined ? {} : { defaultCli }),
         ...(defaultOrigin === undefined ? {} : { defaultOrigin }),
         ...(maxBacklogTasks === undefined ? {} : { maxBacklogTasks }),
+        ...(defaultBranch === undefined ? {} : { defaultBranch }),
         ...(favorite === undefined ? {} : { favorite }),
       });
     },
@@ -233,17 +245,19 @@ export function createRepoService({ repos, connections, mainBranch = "main" }: R
       return repos.update(id, { remoteUrl, connectionId: connectionIdFor(remoteUrl) });
     },
 
-    /** The local main branch vs `origin/<main>` as of the last fetch; `null` without both refs. */
+    /** The local default branch vs `origin/<branch>` as of the last fetch; `null` without both refs. */
     async sync(id: string): Promise<RepoSync | null> {
-      return readBranchSync(use(id).path, mainBranch);
+      const repo = use(id);
+      return readBranchSync(repo.path, repo.defaultBranch);
     },
 
     /**
-     * Pushes the local main branch to origin. Only the user does this, from the
-     * Backlog, after confirming; the pipeline never pushes main. Never forces.
+     * Pushes the local default branch to origin. Only the user does this, from
+     * the Backlog, after confirming; the pipeline never pushes it. Never forces.
      */
     async push(id: string): Promise<RepoSync | null> {
       const repo = use(id);
+      const mainBranch = repo.defaultBranch;
       const sync = await readBranchSync(repo.path, mainBranch);
       if (!sync) {
         throw new InvalidRepoError(

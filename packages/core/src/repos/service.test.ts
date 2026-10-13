@@ -74,6 +74,7 @@ describe("repo service", () => {
       defaultCli: "claude",
       defaultOrigin: "jira-issue",
       maxBacklogTasks: null,
+      defaultBranch: "main",
     });
     expect(service.list()).toEqual([{ ...repo, exists: true }]);
   });
@@ -207,6 +208,12 @@ describe("repo service", () => {
     expect(service.update(repo.id, { name: "App" }).maxBacklogTasks).toBe(2);
     expect(service.update(repo.id, { maxBacklogTasks: null }).maxBacklogTasks).toBeNull();
     expect(() => service.update(repo.id, { maxBacklogTasks: 0 })).toThrow(InvalidRepoError);
+    expect(service.update(repo.id, { defaultBranch: " trunk " })).toMatchObject({
+      defaultBranch: "trunk",
+    });
+    expect(service.get(repo.id).defaultBranch).toBe("trunk");
+    expect(() => service.update(repo.id, { defaultBranch: "-x" })).toThrow(InvalidRepoError);
+    expect(() => service.update(repo.id, { defaultBranch: "" })).toThrow(InvalidRepoError);
     expect(service.update(repo.id, { favorite: true })).toMatchObject({ favorite: true });
 
     const connection = r.connections.create({
@@ -326,20 +333,14 @@ describe("pushing main", () => {
     expect((error as Error).message).toContain("nope");
   });
 
-  it("tracks the configured main branch", async () => {
+  it("tracks the repo's default branch", async () => {
     cloneWithOrigin("trunk");
-    const tokens = createConnectionTokens({
-      store: createMemorySecretStore(),
-      connections: r.connections,
-      env: {},
-    });
-    const connections = createConnectionService({ connections: r.connections, tokens });
-    const trunk = createRepoService({ repos: r.repos, connections, mainBranch: "trunk" });
-    const repo = await trunk.add({ path });
+    const repo = await service.add({ path });
+    service.update(repo.id, { defaultBranch: "trunk" });
     const sha = commit(path, "a.txt");
 
-    expect(await trunk.sync(repo.id)).toEqual({ branch: "trunk", ahead: 1, behind: 0 });
-    await trunk.push(repo.id);
+    expect(await service.sync(repo.id)).toEqual({ branch: "trunk", ahead: 1, behind: 0 });
+    await service.push(repo.id);
     expect(out(origin, "rev-parse", "refs/heads/trunk")).toBe(sha);
   });
 });

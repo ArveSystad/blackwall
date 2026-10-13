@@ -78,7 +78,6 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
     const repos = createRepoService({
       repos: repositories.repos,
       connections,
-      mainBranch: git.mainBranch,
     });
     const agents = createAgentService({
       agents: repositories.agents,
@@ -206,7 +205,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       taskServices: {
         newTask,
         diffs: createTaskDiffs({ repositories, git }),
-        branchDiff: createBranchDiff({ git }),
+        branchDiff: createBranchDiff({ git, repositories }),
         artifacts: createTaskArtifacts(),
       },
       backlog: {

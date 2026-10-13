@@ -1,9 +1,10 @@
 import type { BranchDiff, Task, TaskDiff } from "@blackwall/shared";
 import type { Repositories } from "../db/repositories.js";
+import { defaultBranchOf } from "../repos/service.js";
 import { REVIEW_DIFF_EVENT, forkPoint, type ReviewDiffRange, type ReviewGit } from "./stages.js";
 
 export interface TaskDiffsOptions {
-  repositories: Pick<Repositories, "runs" | "steps" | "stepEvents">;
+  repositories: Pick<Repositories, "repos" | "runs" | "steps" | "stepEvents">;
   git: ReviewGit;
 }
 
@@ -36,7 +37,9 @@ export function createTaskDiffs({ repositories: r, git }: TaskDiffsOptions) {
     }
 
     const head = await git.headSha(worktree);
-    const from = ranges.at(-1)?.to ?? (await forkPoint(task, git, worktree));
+    const from =
+      ranges.at(-1)?.to ??
+      (await forkPoint(task, git, worktree, defaultBranchOf(r.repos, task.repoId)));
     if (from && from !== head) {
       const round = Math.max(0, ...steps.map((s) => s.round));
       ranges.push({ from, to: head, round, reviewed: false });
@@ -58,11 +61,17 @@ export type TaskDiffs = ReturnType<typeof createTaskDiffs>;
  * numbers in the current files match. Null without a worktree, without a fork
  * point, or before the branch has commits of its own.
  */
-export function createBranchDiff({ git }: { git: ReviewGit }) {
+export function createBranchDiff({
+  git,
+  repositories: r,
+}: {
+  git: ReviewGit;
+  repositories: Pick<Repositories, "repos">;
+}) {
   return async function branchDiff(task: Task): Promise<BranchDiff | null> {
     const worktree = task.worktreePath;
     if (!worktree) return null;
-    const from = await forkPoint(task, git, worktree);
+    const from = await forkPoint(task, git, worktree, defaultBranchOf(r.repos, task.repoId));
     if (!from) return null;
     const to = await git.headSha(worktree);
     if (from === to) return null;

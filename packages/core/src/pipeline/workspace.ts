@@ -23,7 +23,8 @@ export interface WorkspacePreparerOptions {
 /**
  * Creates a task's worktree next to its repo. Free-text tasks get
  * `agent/<task-id>`; Jira, GitHub issue and PR tasks use the branch set from
- * their origin (a new branch for issues, the PR head branch for PRs), asking `branchFor`
+ * their origin (a new branch for issues, forked like free-text branches from
+ * the repo's default branch; the PR head branch for PRs), asking `branchFor`
  * when the task has none yet. PR tasks also record and fetch the PR's base
  * branch from `baseBranchFor`. Idempotent, so a
  * resumed task finds its worktree where it left it.
@@ -52,7 +53,7 @@ export function createWorkspacePreparer({
       branch,
       checkout: isPr
         ? { kind: "existing", fetch: true, ...(baseBranch ? { base: baseBranch } : {}) }
-        : { kind: "new" },
+        : { kind: "new", base: repo.defaultBranch },
     });
     return { branch, worktreePath, baseBranch: baseBranch ?? null };
   };
@@ -65,8 +66,8 @@ export interface WorkspaceRemoverOptions {
 
 /**
  * Removes a deleted task's worktree and deletes its local branch. PR tasks
- * work on the PR's existing branch, so only their worktree goes. Protected
- * branches are refused by the git service.
+ * work on the PR's existing branch, so only their worktree goes. The repo's
+ * default branch and other protected branches are refused by the git service.
  */
 export function createWorkspaceRemover({ git, repos }: WorkspaceRemoverOptions) {
   return async (task: Task): Promise<void> => {
@@ -77,6 +78,7 @@ export function createWorkspaceRemover({ git, repos }: WorkspaceRemoverOptions) 
       repoPath: repo.path,
       worktreePath: task.worktreePath,
       ...(deleteBranch ? { deleteBranch } : {}),
+      mainBranch: repo.defaultBranch,
     });
   };
 }

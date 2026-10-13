@@ -160,6 +160,7 @@ function RepoEditor({
   const [checks, setChecks] = useState(repo.checkCommands.join("\n"));
   const [defaultCli, setDefaultCli] = useState(repo.defaultCli);
   const [defaultOrigin, setDefaultOrigin] = useState(repo.defaultOrigin);
+  const [defaultBranch, setDefaultBranch] = useState(repo.defaultBranch);
   const [backlogCap, setBacklogCap] = useState(
     repo.maxBacklogTasks === null ? "" : String(repo.maxBacklogTasks),
   );
@@ -177,6 +178,7 @@ function RepoEditor({
     !sameList(parseLines(checks), repo.checkCommands) ||
     defaultCli !== repo.defaultCli ||
     defaultOrigin !== repo.defaultOrigin ||
+    defaultBranch.trim() !== repo.defaultBranch ||
     backlogCapInvalid ||
     backlogCapValue !== repo.maxBacklogTasks;
   const connection = connections.data?.find((c) => c.id === repo.connectionId);
@@ -193,10 +195,15 @@ function RepoEditor({
 
   async function save() {
     if (!dirty || saving) return;
+    if (defaultBranch.trim() === "") {
+      setError("Default branch can't be empty");
+      return;
+    }
     if (backlogCapInvalid) {
       setError("Backlog tasks at once must be empty or a whole number from 1 to 20");
       return;
     }
+    const branchChanged = defaultBranch.trim() !== repo.defaultBranch;
     setSaving(true);
     setError(null);
     try {
@@ -205,9 +212,14 @@ function RepoEditor({
         checkCommands: parseLines(checks),
         defaultCli,
         defaultOrigin,
+        defaultBranch: defaultBranch.trim(),
         maxBacklogTasks: backlogCapValue,
       });
       await invalidate();
+      // The Backlog header's ahead/behind is cached per repo and follows the branch.
+      if (branchChanged) {
+        await queryClient.invalidateQueries({ queryKey: queryKeys.repoSync(repo.id) });
+      }
       setNotice(null);
     } catch (cause) {
       setError(errorMessage(cause));
@@ -343,6 +355,19 @@ function RepoEditor({
             </span>
           </Field>
           <Field
+            label="Default branch"
+            hint="Branch new tasks fork from, free-text tasks merge into and PRs target."
+          >
+            <Input
+              className="mono"
+              spellCheck={false}
+              placeholder="main"
+              aria-invalid={defaultBranch.trim() === ""}
+              value={defaultBranch}
+              onChange={(event) => setDefaultBranch(event.target.value)}
+            />
+          </Field>
+          <Field
             label="Backlog tasks at once"
             hint="Backlog tasks running at once here. Empty uses the default from Settings → Backlog."
           >
@@ -396,6 +421,7 @@ function RepoEditor({
           setChecks(repo.checkCommands.join("\n"));
           setDefaultCli(repo.defaultCli);
           setDefaultOrigin(repo.defaultOrigin);
+          setDefaultBranch(repo.defaultBranch);
           setBacklogCap(repo.maxBacklogTasks === null ? "" : String(repo.maxBacklogTasks));
           setError(null);
           setNotice(null);

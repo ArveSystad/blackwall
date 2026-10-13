@@ -86,6 +86,8 @@ export const repos = sqliteTable("repos", {
   defaultCli: text("default_cli", { enum: AGENT_CLIS }).notNull().default("claude"),
   defaultOrigin: text("default_origin", { enum: ORIGIN_KINDS }).notNull().default("jira-issue"),
   maxBacklogTasks: integer("max_backlog_tasks"),
+  /** Branch new tasks fork from, free-text tasks merge into and PRs target. */
+  defaultBranch: text("default_branch").notNull().default("main"),
   /** Listed first, with a star. */
   favorite: integer("favorite", { mode: "boolean" }).notNull().default(false),
   /** Manual order among repos in the same favourite group. */
