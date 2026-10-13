@@ -7,6 +7,7 @@ import { paneBody, paneHeader, paneTitle } from "../components/classes";
 import { EmptyState } from "../components/EmptyState";
 import { IssueWorkLink } from "../components/IssueRow";
 import { ORIGIN_ICONS } from "../components/origins";
+import { RefreshButton } from "../components/RefreshButton";
 import { Section } from "../components/Section";
 import { pill } from "../components/StatusBadge";
 import { Button } from "../components/ui/button";
@@ -109,14 +110,7 @@ export function ReviewRequests() {
           </span>
         )}
         <span className="flex-1" />
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={reviews.isFetching}
-          onClick={() => void reviews.refetch()}
-        >
-          Refresh
-        </Button>
+        <RefreshButton fetching={reviews.isFetching} onRefresh={() => void reviews.refetch()} />
       </div>
 
       <div className={paneBody}>

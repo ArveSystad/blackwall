@@ -147,6 +147,9 @@ export const CloseIcon = icon(<path d="m4 4 8 8M12 4l-8 8" />);
 
 export const PlusIcon = icon(<path d="M8 3v10M3 8h10" />);
 
+/** Busy indicator; add `animate-spin` to turn it. */
+export const SpinnerIcon = icon(<path d="M8 2a6 6 0 1 1-6 6" />);
+
 export const PausedIcon = icon(
   <>
     <circle cx="8" cy="8" r="6" />

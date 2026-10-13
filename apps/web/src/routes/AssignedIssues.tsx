@@ -6,6 +6,7 @@ import { issueOrigin, issueWork, type IssueWork } from "../assigned-issues";
 import { paneBody, paneHeader, paneTitle } from "../components/classes";
 import { EmptyState } from "../components/EmptyState";
 import { IssueRow, IssueWorkLink } from "../components/IssueRow";
+import { RefreshButton } from "../components/RefreshButton";
 import { Section } from "../components/Section";
 import { Button } from "../components/ui/button";
 import { WorkOnTask } from "../components/WorkOnTask";
@@ -66,14 +67,7 @@ export function AssignedIssues() {
           <span className="mono text-label text-faint">{issues.data.issues.length} open</span>
         )}
         <span className="flex-1" />
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={issues.isFetching}
-          onClick={() => void issues.refetch()}
-        >
-          Refresh
-        </Button>
+        <RefreshButton fetching={issues.isFetching} onRefresh={() => void issues.refetch()} />
       </div>
 
       <div className={paneBody}>
