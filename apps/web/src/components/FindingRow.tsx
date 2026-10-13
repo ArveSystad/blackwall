@@ -79,7 +79,10 @@ function Triage({
   }
 }
 
-/** One review finding (`.frow`); expands to why, the suggested fix, and Force fix / Force ignore. */
+/**
+ * One review finding (`.frow`); expands to why, the suggested fix, and Force
+ * fix / Force ignore, plus Delete when `onDelete` is given.
+ */
 export function FindingRow({
   finding,
   reviewer,
@@ -88,6 +91,7 @@ export function FindingRow({
   pending,
   onToggle,
   onOverride,
+  onDelete,
 }: {
   finding: Finding;
   reviewer: Agent | undefined;
@@ -97,6 +101,8 @@ export function FindingRow({
   pending: boolean;
   onToggle: () => void;
   onOverride: (status: FindingOverride) => void;
+  /** Deletes the finding so it is not posted; only where deleting is allowed. */
+  onDelete?: (() => void) | undefined;
 }) {
   const gating = isGatingSeverity(finding.severity);
   const settled = finding.status === "force-ignore" || finding.status === "fixed";
@@ -192,6 +198,19 @@ export function FindingRow({
                   Force ignore
                   <Kbd>I</Kbd>
                 </Button>
+                {onDelete && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="hover:text-destructive"
+                    disabled={pending}
+                    title="Deletes this finding; it will not be posted"
+                    onClick={onDelete}
+                  >
+                    Delete
+                    <Kbd>D</Kbd>
+                  </Button>
+                )}
               </div>
             )}
           </div>

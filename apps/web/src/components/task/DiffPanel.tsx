@@ -82,7 +82,8 @@ function FileDiff({ file }: { file: DiffFile }) {
 
 /**
  * One hunk of the branch diff at a time, with a comment box. J/K step through
- * the hunks; the drafts are sent together as force-fixed findings.
+ * the hunks; the drafts are sent together as findings: force-fixed for the
+ * implementer, or in a review task, open to post to the pull request.
  */
 function HunkStepper({
   task,
@@ -122,6 +123,7 @@ function HunkStepper({
     if (canSend) onSend(comments);
   }
 
+  const review = task.mode === "review";
   const noun = comments.length === 1 ? "comment" : "comments";
   const sendLabel = diffCommentsRunFixRound(task)
     ? `Send ${comments.length} ${noun} and run a fix round`
@@ -152,7 +154,11 @@ function HunkStepper({
         id={id}
         rows={3}
         value={drafts[key] ?? ""}
-        placeholder="What should the implementer change here?"
+        placeholder={
+          review
+            ? "What should the PR author know about this hunk?"
+            : "What should the implementer change here?"
+        }
         onChange={(event) => onDraftsChange({ ...drafts, [key]: event.target.value })}
         onKeyDown={(event) => {
           if (event.key === "Enter" && isModKey(event.nativeEvent)) {
@@ -165,12 +171,18 @@ function HunkStepper({
       />
       {action.error && <ErrorText>{action.error}</ErrorText>}
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-meta text-faint">
-          Comments become force-fixed findings for the implementer.
-          {task.gate === "escalation" &&
-            " Sending runs one more fix round instead of accepting the code as is."}
-          {task.gate === "triage" && " Approving triage fixes them in its fix round."}
-        </span>
+        {review ? (
+          <span className="text-meta text-faint">
+            Comments are added to the findings you post to the pull request from the Finish tab.
+          </span>
+        ) : (
+          <span className="text-meta text-faint">
+            Comments become force-fixed findings for the implementer.
+            {task.gate === "escalation" &&
+              " Sending runs one more fix round instead of accepting the code as is."}
+            {task.gate === "triage" && " Approving triage fixes them in its fix round."}
+          </span>
+        )}
         <span className="flex-1" />
         <span className="mono text-[11px] text-muted-foreground">
           {comments.length} {comments.length === 1 ? "draft" : "drafts"}
@@ -188,8 +200,9 @@ function HunkStepper({
 
 /**
  * The task branch's changes per fix round, file by file (plain diff colors,
- * never neon). While the task waits at finish, triage or escalation, Step
- * through walks the whole branch diff hunk by hunk to comment on it.
+ * never neon). While a work task waits at finish, triage or escalation, or a
+ * review task at triage, Step through walks the whole branch diff hunk by
+ * hunk to comment on it.
  */
 export function DiffPanel({
   task,
@@ -261,26 +274,26 @@ export function DiffPanel({
           </>
         )}
         <span className="flex-1" />
-        {task.mode !== "review" && (
-          <Button
-            size="sm"
-            aria-pressed={showStepper}
-            disabled={!canComment}
-            title={
-              canComment
-                ? undefined
+        <Button
+          size="sm"
+          aria-pressed={showStepper}
+          disabled={!canComment}
+          title={
+            canComment
+              ? undefined
+              : task.mode === "review"
+                ? "Comment on hunks once the review waits on you at triage"
                 : "Comment on hunks once the task waits on you at triage, escalation or finish"
-            }
-            onClick={() => setStepping((v) => !v)}
-          >
-            {showStepper ? "Show all files" : "Step through"}
-            {!showStepper && drafted > 0 && (
-              <span className="mono text-[11px] text-muted-foreground">
-                {drafted} {drafted === 1 ? "draft" : "drafts"}
-              </span>
-            )}
-          </Button>
-        )}
+          }
+          onClick={() => setStepping((v) => !v)}
+        >
+          {showStepper ? "Show all files" : "Step through"}
+          {!showStepper && drafted > 0 && (
+            <span className="mono text-[11px] text-muted-foreground">
+              {drafted} {drafted === 1 ? "draft" : "drafts"}
+            </span>
+          )}
+        </Button>
         {!showStepper && (
           <span className="mono text-[11px] text-faint">
             {diff.from.slice(0, 7)}…{diff.to.slice(0, 7)}

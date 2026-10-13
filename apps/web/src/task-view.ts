@@ -177,22 +177,57 @@ export function openQuestionCount(questions: readonly GrillQuestion[]): number {
 
 /**
  * Whether the user can comment on the diff's hunks: a work task waiting on
- * them at finish, triage or escalation, and not delivering.
+ * them at finish, triage or escalation, or a review task waiting at triage,
+ * and not delivering.
  */
 export function canCommentOnDiff(
   task: Pick<Task, "status" | "mode" | "gate" | "delivering">,
 ): boolean {
+  if (task.status !== "needs-you" || task.delivering) return false;
+  if (task.mode === "review") return task.gate === "triage";
+  return task.gate === "finish" || task.gate === "triage" || task.gate === "escalation";
+}
+
+/**
+ * Whether sending hunk comments starts a fix round straight away: a work task
+ * at finish or escalation. A review task's comments only join its findings.
+ */
+export function diffCommentsRunFixRound(task: Pick<Task, "mode" | "gate">): boolean {
+  return task.mode !== "review" && (task.gate === "finish" || task.gate === "escalation");
+}
+
+// ---------------------------------------------------------------------------
+// Deleting findings and picking them to post
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether the user can delete a finding: a review task waiting at triage and
+ * not delivering, and a finding neither merged into another nor fixed.
+ */
+export function canDeleteFinding(
+  task: Pick<Task, "status" | "mode" | "gate" | "delivering">,
+  finding: Pick<Finding, "status">,
+): boolean {
   return (
     task.status === "needs-you" &&
-    task.mode !== "review" &&
+    task.mode === "review" &&
+    task.gate === "triage" &&
     !task.delivering &&
-    (task.gate === "finish" || task.gate === "triage" || task.gate === "escalation")
+    finding.status !== "merged" &&
+    finding.status !== "fixed"
   );
 }
 
-/** Whether sending hunk comments starts a fix round straight away (finish and escalation). */
-export function diffCommentsRunFixRound(task: Pick<Task, "gate">): boolean {
-  return task.gate === "finish" || task.gate === "escalation";
+/**
+ * Picks survive a delivery-plan refetch: earlier picks still offered stay,
+ * newly offered findings start picked.
+ */
+export function carryPicks(
+  previous: { offered: ReadonlySet<string>; picked: ReadonlySet<string> } | undefined,
+  offered: readonly string[],
+): Set<string> {
+  if (!previous) return new Set(offered);
+  return new Set(offered.filter((id) => previous.picked.has(id) || !previous.offered.has(id)));
 }
 
 // ---------------------------------------------------------------------------

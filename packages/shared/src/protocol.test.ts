@@ -22,6 +22,14 @@ describe("protocol", () => {
     });
   });
 
+  it("parses deleted findings", () => {
+    const raw = '{"type":"finding.deleted","payload":{"taskId":"t1","findingIds":["f1","f2"]}}';
+    expect(parseServerEvent(raw)).toEqual({
+      type: "finding.deleted",
+      payload: { taskId: "t1", findingIds: ["f1", "f2"] },
+    });
+  });
+
   it("parses a step event and revives its timestamp", () => {
     const raw = JSON.stringify({
       type: "step.event",

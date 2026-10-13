@@ -1334,8 +1334,9 @@ export const findingOverrideInputSchema = z.object({ status: findingOverrideSche
 export type FindingOverrideInput = z.infer<typeof findingOverrideInputSchema>;
 
 /**
- * The user's comment on one hunk of the branch diff. It becomes a force-fixed
- * finding on `file`, at the hunk's lines in the new file (null when unknown).
+ * The user's comment on one hunk of the branch diff. It becomes a finding on
+ * `file`, at the hunk's lines in the new file (null when unknown): force-fixed
+ * in a work task, open (to post to the PR) in a review task.
  */
 export const diffCommentInputSchema = z
   .object({
@@ -1364,6 +1365,10 @@ export const diffCommentsResultSchema = z.object({
   task: taskSchema,
 });
 export type DiffCommentsResult = z.infer<typeof diffCommentsResultSchema>;
+
+/** Reply to deleting a review task's finding: its id and those of the duplicates merged into it. */
+export const findingDeleteResultSchema = z.object({ deletedIds: id.array() });
+export type FindingDeleteResult = z.infer<typeof findingDeleteResultSchema>;
 
 /**
  * Whether a finding is the user's own hunk comment: it has neither a step nor

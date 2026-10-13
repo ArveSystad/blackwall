@@ -458,6 +458,23 @@ describe("findings and grill questions", () => {
     expect(r.findings.createMany([])).toEqual([]);
   });
 
+  it("deletes a finding with the duplicates merged into it", () => {
+    const task = seedTask();
+    const [target, duplicate, other] = r.findings.createMany(
+      ["A", "A again", "B"].map((title) => ({
+        taskId: task.id,
+        severity: "low" as const,
+        title,
+        explanation: "…",
+      })),
+    );
+    r.findings.update(duplicate!.id, { status: "merged", mergedIntoId: target!.id });
+
+    expect(r.findings.deleteWithMerged(target!.id)).toEqual([duplicate!.id, target!.id]);
+    expect(r.findings.listByTask(task.id).map((f) => f.id)).toEqual([other!.id]);
+    expect(r.findings.deleteWithMerged("nope")).toEqual([]);
+  });
+
   it("records answers to grill questions", () => {
     const task = seedTask();
     const q = r.grillQuestions.create({ taskId: task.id, question: "Which DB?", needsHuman: true });

@@ -171,6 +171,26 @@ describe("applyServerEvent", () => {
     expect(stale(queryKeys.taskRuns("t2"))).toBe(false);
   });
 
+  it("refetches the delivery plan when findings change, dropping deleted ones at once", () => {
+    const stale = (key: readonly unknown[]) => client.getQueryState(key)?.isInvalidated;
+    client.setQueryData(queryKeys.taskDelivery("t1"), {});
+    applyServerEvent(client, {
+      type: "finding.upserted",
+      payload: { finding: { taskId: "t1" } as never },
+    });
+    expect(stale(queryKeys.taskDelivery("t1"))).toBe(true);
+
+    client.setQueryData(queryKeys.taskDelivery("t1"), {});
+    client.setQueryData(queryKeys.taskFindings("t1"), [{ id: "f1" }, { id: "f2" }, { id: "f3" }]);
+    applyServerEvent(client, {
+      type: "finding.deleted",
+      payload: { taskId: "t1", findingIds: ["f1", "f3"] },
+    });
+    expect(client.getQueryData(queryKeys.taskFindings("t1"))).toEqual([{ id: "f2" }]);
+    expect(stale(queryKeys.taskFindings("t1"))).toBe(true);
+    expect(stale(queryKeys.taskDelivery("t1"))).toBe(true);
+  });
+
   it("refetches the active agents when a step changes or a task is removed", () => {
     const stale = () => client.getQueryState(queryKeys.activeAgents)?.isInvalidated;
 

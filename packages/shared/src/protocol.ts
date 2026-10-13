@@ -79,6 +79,8 @@ export const serverEventSchema = z.discriminatedUnion("type", [
   /** A new entry in a step's streamed event log. */
   envelope("step.event", z.object({ event: stepEventSchema })),
   envelope("finding.upserted", z.object({ finding: findingSchema })),
+  /** Findings the user deleted (a review task's finding and the duplicates merged into it). */
+  envelope("finding.deleted", z.object({ taskId: z.string(), findingIds: z.array(z.string()) })),
   envelope("grill.upserted", z.object({ question: grillQuestionSchema })),
   /** A repo's backlog changed (item added, edited, reordered, promoted or removed); refetch it. */
   envelope("backlog.changed", z.object({ repoId: z.string() })),

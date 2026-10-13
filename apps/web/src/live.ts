@@ -1,6 +1,7 @@
 import {
   parseServerEvent,
   type ClientEvent,
+  type Finding,
   type QuotaState,
   type ServerEvent,
   type StepEvent,
@@ -172,11 +173,23 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       }
       break;
     }
-    case "finding.upserted":
-      void client.invalidateQueries({
-        queryKey: queryKeys.taskFindings(event.payload.finding.taskId),
-      });
+    case "finding.upserted": {
+      const { taskId } = event.payload.finding;
+      void client.invalidateQueries({ queryKey: queryKeys.taskFindings(taskId) });
+      // At review triage a new or overridden finding changes what can be posted.
+      void client.invalidateQueries({ queryKey: queryKeys.taskDelivery(taskId) });
       break;
+    }
+    case "finding.deleted": {
+      const { taskId, findingIds } = event.payload;
+      const deleted = new Set(findingIds);
+      client.setQueryData<Finding[]>(queryKeys.taskFindings(taskId), (list) =>
+        list?.filter((f) => !deleted.has(f.id)),
+      );
+      void client.invalidateQueries({ queryKey: queryKeys.taskFindings(taskId) });
+      void client.invalidateQueries({ queryKey: queryKeys.taskDelivery(taskId) });
+      break;
+    }
     case "grill.upserted":
       void client.invalidateQueries({
         queryKey: queryKeys.taskGrill(event.payload.question.taskId),

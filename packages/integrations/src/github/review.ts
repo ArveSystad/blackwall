@@ -1,4 +1,4 @@
-import type { ReviewFinding } from "@blackwall/shared";
+import type { Finding, ReviewFinding } from "@blackwall/shared";
 
 /** One inline comment of a review, as `POST /pulls/{n}/reviews` takes it. */
 export interface ReviewCommentPayload {
@@ -88,8 +88,23 @@ export function commentableLines(diff: string): CommentableLines {
   return files;
 }
 
-/** A finding as markdown: severity and title, explanation, suggested fix and tags. */
-export function renderFindingComment(finding: ReviewFinding): string {
+/** A finding to post; the step and reviewer, when given, tell the user's own comments apart. */
+export type PostedFinding = ReviewFinding & Partial<Pick<Finding, "stepId" | "reviewerAgentId">>;
+
+/**
+ * Whether the finding is the user's own hunk comment, with neither a step nor
+ * a reviewer. A finding that leaves them out is not.
+ */
+function isUserComment(finding: PostedFinding): boolean {
+  return finding.stepId === null && finding.reviewerAgentId === null;
+}
+
+/**
+ * A finding as markdown: severity and title, explanation, suggested fix and
+ * tags. The user's own comment is posted as they wrote it.
+ */
+export function renderFindingComment(finding: PostedFinding): string {
+  if (isUserComment(finding)) return finding.explanation.trim();
   const parts = [`**[${finding.severity}] ${finding.title}**`, finding.explanation.trim()];
   const fix = finding.suggestedFix?.trim();
   if (fix) parts.push(`**Suggested fix:** ${fix}`);
@@ -148,10 +163,11 @@ export interface ReviewPayloadOptions {
 /**
  * Turns the findings the user selected into a PR review: findings that hit
  * a line in the diff become inline comments (multi-line when their range
- * allows), the rest are listed in the review body with their location.
+ * allows), the rest are listed in the review body with their location. The
+ * user's own hunk comments go without a severity and title.
  */
 export function buildReviewPayload(
-  findings: readonly ReviewFinding[],
+  findings: readonly PostedFinding[],
   { diff, commitId, summary, event = "COMMENT" }: ReviewPayloadOptions,
 ): ReviewPayload {
   const lines = commentableLines(diff);
@@ -161,6 +177,9 @@ export function buildReviewPayload(
     const placed = place(finding, lines);
     if (placed) {
       comments.push({ ...placed, body: renderFindingComment(finding) });
+    } else if (isUserComment(finding)) {
+      const where = location(finding);
+      general.push(`-${where}${where ? ":" : ""} ${finding.explanation.trim()}`);
     } else {
       general.push(
         `- **[${finding.severity}] ${finding.title}**${location(finding)}: ${finding.explanation.trim()}`,

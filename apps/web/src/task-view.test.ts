@@ -7,6 +7,8 @@ import {
   backlogAgentClis,
   canArchive,
   canCommentOnDiff,
+  canDeleteFinding,
+  carryPicks,
   canStop,
   deleteBlockedReason,
   diffCommentsRunFixRound,
@@ -227,21 +229,69 @@ describe("diff comments", () => {
     expect(canCommentOnDiff(makeTask({ status: "done" }))).toBe(false);
   });
 
-  it("does not offer comments on a Review PR task or while delivering", () => {
-    expect(
-      canCommentOnDiff(
-        makeTask({ status: "needs-you", gate: "triage", mode: "review", origin: prOrigin }),
-      ),
-    ).toBe(false);
+  const review = (patch: Parameters<typeof makeTask>[0] = {}) =>
+    makeTask({ status: "needs-you", gate: "triage", mode: "review", origin: prOrigin, ...patch });
+
+  it("lets the user comment on a Review PR task only at triage", () => {
+    expect(canCommentOnDiff(review())).toBe(true);
+    expect(canCommentOnDiff(review({ gate: "finish" }))).toBe(false);
+    expect(canCommentOnDiff(review({ gate: "escalation" }))).toBe(false);
+  });
+
+  it("does not offer comments while delivering", () => {
     expect(
       canCommentOnDiff(makeTask({ status: "needs-you", gate: "finish", delivering: true })),
     ).toBe(false);
+    expect(canCommentOnDiff(review({ delivering: true }))).toBe(false);
   });
 
   it("starts a fix round straight away at finish and escalation, not at triage", () => {
     expect(diffCommentsRunFixRound(makeTask({ gate: "finish" }))).toBe(true);
     expect(diffCommentsRunFixRound(makeTask({ gate: "escalation" }))).toBe(true);
     expect(diffCommentsRunFixRound(makeTask({ gate: "triage" }))).toBe(false);
+  });
+
+  it("never starts a fix round from a Review PR task's comments", () => {
+    expect(diffCommentsRunFixRound(review())).toBe(false);
+    expect(diffCommentsRunFixRound(review({ gate: "finish" }))).toBe(false);
+  });
+
+  it("lets the user delete unfixed findings at review triage only", () => {
+    for (const status of ["open", "force-fix", "force-ignore"] as const) {
+      expect(canDeleteFinding(review(), finding({ status }))).toBe(true);
+    }
+    for (const status of ["merged", "fixed"] as const) {
+      expect(canDeleteFinding(review(), finding({ status }))).toBe(false);
+    }
+    expect(canDeleteFinding(review({ gate: "finish" }), finding())).toBe(false);
+    expect(canDeleteFinding(review({ status: "running", gate: null }), finding())).toBe(false);
+    expect(canDeleteFinding(review({ delivering: true }), finding())).toBe(false);
+    expect(canDeleteFinding(makeTask({ status: "needs-you", gate: "triage" }), finding())).toBe(
+      false,
+    );
+  });
+});
+
+describe("carryPicks", () => {
+  const previous = { offered: new Set(["a", "b", "c"]), picked: new Set(["a", "c"]) };
+
+  it("picks every offered finding the first time", () => {
+    expect(carryPicks(undefined, ["a", "b"])).toEqual(new Set(["a", "b"]));
+  });
+
+  it("keeps earlier picks and unpicks across a refetch", () => {
+    const carried = carryPicks(previous, ["a", "b", "c"]);
+    expect(carried.has("a")).toBe(true);
+    expect(carried.has("b")).toBe(false);
+    expect(carried.has("c")).toBe(true);
+  });
+
+  it("picks newly offered findings, such as a new hunk comment", () => {
+    expect(carryPicks(previous, ["a", "b", "c", "d"])).toEqual(new Set(["a", "c", "d"]));
+  });
+
+  it("drops findings no longer offered, such as a deleted one", () => {
+    expect(carryPicks(previous, ["b", "c"])).toEqual(new Set(["c"]));
   });
 });
 

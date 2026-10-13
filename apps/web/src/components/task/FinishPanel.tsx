@@ -1,15 +1,25 @@
-import type {
-  DeliveryAction,
-  DeliveryPlan,
-  DeliveryTarget,
-  Finding,
-  Task,
+import {
+  isUserComment,
+  type DeliveryAction,
+  type DeliveryPlan,
+  type DeliveryTarget,
+  type Finding,
+  type Task,
 } from "@blackwall/shared";
-import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { deleteFinding } from "../../api";
 import { isModKey, isTypingTarget, modKeyLabel, useWindowKeydown } from "../../keyboard";
-import { taskDeliveryQuery } from "../../query";
-import { checkPassed, confirmLabel, deliveryActionCopy, isReviewTriage } from "../../task-view";
+import { queryKeys, taskDeliveryQuery } from "../../query";
+import { errorMessage } from "../../settings-forms";
+import {
+  canDeleteFinding,
+  carryPicks,
+  checkPassed,
+  confirmLabel,
+  deliveryActionCopy,
+  isReviewTriage,
+} from "../../task-view";
 import { WallIcon } from "../icons";
 import { Markdown } from "../Markdown";
 import { OutboundAction } from "../OutboundAction";
@@ -100,42 +110,82 @@ function Summary({ task, data }: { task: Task; data: TaskData }) {
   );
 }
 
+/** The findings a review posts, each pickable and, where allowed, deletable. */
 function ReviewFindings({
+  task,
   ids,
   findings,
   selected,
   onChange,
 }: {
+  task: Task;
   ids: readonly string[];
   findings: readonly Finding[];
   selected: ReadonlySet<string>;
   onChange: (next: Set<string>) => void;
 }) {
+  const queryClient = useQueryClient();
+  const [pending, setPending] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function remove(finding: Finding) {
+    setPending(finding.id);
+    setError(null);
+    try {
+      const { deletedIds } = await deleteFinding(task.id, finding.id);
+      const deleted = new Set(deletedIds);
+      queryClient.setQueryData<Finding[]>(queryKeys.taskFindings(task.id), (list) =>
+        list?.filter((f) => !deleted.has(f.id)),
+      );
+      void queryClient.invalidateQueries({ queryKey: queryKeys.taskDelivery(task.id) });
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setPending(null);
+    }
+  }
+
   const offered = ids.flatMap((id) => findings.filter((f) => f.id === id));
   if (offered.length === 0) {
     return <p className="m-0 text-meta text-muted-foreground">No findings to post.</p>;
   }
   return (
-    <ul className="m-0 flex list-none flex-col gap-1 p-0">
-      {offered.map((f) => (
-        <li key={f.id}>
-          <label className="flex min-w-0 cursor-pointer items-center gap-2 text-meta">
-            <input
-              type="checkbox"
-              checked={selected.has(f.id)}
-              onChange={(event) => {
-                const next = new Set(selected);
-                if (event.target.checked) next.add(f.id);
-                else next.delete(f.id);
-                onChange(next);
-              }}
-            />
-            <SeverityChip severity={f.severity} />
-            <span className="truncate text-foreground">{f.title}</span>
-          </label>
-        </li>
-      ))}
-    </ul>
+    <div className="flex flex-col gap-1">
+      <ul className="m-0 flex list-none flex-col gap-1 p-0">
+        {offered.map((f) => (
+          <li key={f.id} className="flex min-w-0 items-center gap-2">
+            <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-meta">
+              <input
+                type="checkbox"
+                checked={selected.has(f.id)}
+                onChange={(event) => {
+                  const next = new Set(selected);
+                  if (event.target.checked) next.add(f.id);
+                  else next.delete(f.id);
+                  onChange(next);
+                }}
+              />
+              <SeverityChip severity={f.severity} />
+              {isUserComment(f) && <span className="text-muted-foreground">You</span>}
+              <span className="truncate text-foreground">{f.title}</span>
+            </label>
+            {canDeleteFinding(task, f) && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="hover:text-destructive"
+                disabled={pending !== null}
+                title="Deletes this finding; it will not be posted"
+                onClick={() => void remove(f)}
+              >
+                Delete
+              </Button>
+            )}
+          </li>
+        ))}
+      </ul>
+      {error && <ErrorText>{error}</ErrorText>}
+    </div>
   );
 }
 
@@ -177,18 +227,29 @@ function FollowUpPicks({
   );
 }
 
+/** The review findings offered for posting and those the user picked, as of the last plan. */
+interface ReviewPicks {
+  offered: ReadonlySet<string>;
+  picked: ReadonlySet<string>;
+}
+
 function Outbound({
   task,
   plan,
   findings,
   action,
   draft,
+  loadPicks,
+  onPicksChange,
 }: {
   task: Task;
   plan: DeliveryPlan;
   findings: readonly Finding[];
   action: TaskAction;
   draft: string;
+  /** The picks before the plan was refetched, to carry over (see `carryPicks`). */
+  loadPicks: () => ReviewPicks | undefined;
+  onPicksChange: (picks: ReviewPicks) => void;
 }) {
   const done = new Set(plan.completed);
   const [ticked, setTicked] = useState<ReadonlySet<DeliveryTarget>>(
@@ -198,7 +259,13 @@ function Outbound({
   const review = plan.actions.find(
     (a): a is Extract<DeliveryAction, { kind: "pr-review" }> => a.kind === "pr-review",
   );
-  const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set(review?.findingIds));
+  const [picked, setPicked] = useState<ReadonlySet<string>>(() =>
+    carryPicks(loadPicks(), review?.findingIds ?? []),
+  );
+  const offeredIds = review?.findingIds;
+  useEffect(() => {
+    onPicksChange({ offered: new Set(offeredIds), picked });
+  }, [offeredIds, picked, onPicksChange]);
   const createTasks = plan.actions.find(
     (a): a is Extract<DeliveryAction, { kind: "create-tasks" }> => a.kind === "create-tasks",
   );
@@ -284,6 +351,7 @@ function Outbound({
             >
               {a.kind === "pr-review" && offeredFindings > 0 && (
                 <ReviewFindings
+                  task={task}
                   ids={a.findingIds}
                   findings={findings}
                   selected={picked}
@@ -388,6 +456,19 @@ export function FinishPanel({
   const resolving =
     data.deliveryStep?.status === "running" ? data.deliveryConflicts.at(-1) : undefined;
   const delivered = task.status === "done" ? data.pullRequestUrl : undefined;
+  // The review picks outlive the Outbound remount each plan refetch causes.
+  const picks = useRef<(ReviewPicks & { taskId: string }) | null>(null);
+  const taskId = task.id;
+  const loadPicks = useCallback(
+    () => (picks.current?.taskId === taskId ? picks.current : undefined),
+    [taskId],
+  );
+  const savePicks = useCallback(
+    (next: ReviewPicks) => {
+      picks.current = { taskId, ...next };
+    },
+    [taskId],
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-wrap">
@@ -439,6 +520,8 @@ export function FinishPanel({
               findings={data.findings.data ?? []}
               action={action}
               draft={draft}
+              loadPicks={loadPicks}
+              onPicksChange={savePicks}
             />
           )}
         </aside>

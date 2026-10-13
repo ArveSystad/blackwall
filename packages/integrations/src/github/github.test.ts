@@ -807,6 +807,67 @@ describe("review payloads", () => {
     });
   });
 
+  it("posts the user's own comments as they wrote them, inline or in the body", () => {
+    const mine = { stepId: null, reviewerAgentId: null };
+    const payload = buildReviewPayload(
+      [
+        {
+          ...finding({
+            severity: "High",
+            file: "src/invoices/totals.ts",
+            lineStart: 2,
+            lineEnd: 5,
+            title: "Why the rename?",
+            explanation: "  Why the rename?\nThe old name matched the API.  ",
+          }),
+          ...mine,
+        },
+        {
+          ...finding({
+            severity: "High",
+            file: "src/invoices/totals.ts",
+            lineStart: 40,
+            lineEnd: 42,
+            title: "Missed spot",
+            explanation: "This needs the same change.",
+          }),
+          ...mine,
+        },
+        { ...finding({ title: "No location", explanation: "General note." }), ...mine },
+        {
+          ...finding({ file: "src/invoices/totals.ts", lineStart: 4, title: "A reviewer's" }),
+          stepId: "step-1",
+          reviewerAgentId: "agent-1",
+        },
+      ],
+      { diff: DIFF },
+    );
+    expect(payload.body).toBe(
+      [
+        "Findings outside the diff:",
+        "",
+        "- (`src/invoices/totals.ts:40-42`): This needs the same change.",
+        "- General note.",
+      ].join("\n"),
+    );
+    expect(payload.comments).toEqual([
+      {
+        path: "src/invoices/totals.ts",
+        line: 5,
+        side: "RIGHT",
+        start_line: 2,
+        start_side: "RIGHT",
+        body: "Why the rename?\nThe old name matched the API.",
+      },
+      {
+        path: "src/invoices/totals.ts",
+        line: 4,
+        side: "RIGHT",
+        body: "**[Medium] A reviewer's**\n\nExplanation.",
+      },
+    ]);
+  });
+
   it("posts the payload as a review", async () => {
     const fetchImpl = vi.fn<typeof fetch>(() =>
       Promise.resolve(json('{"id":77,"html_url":"https://acme.ghe.com/acme/shop/pull/42"}')),

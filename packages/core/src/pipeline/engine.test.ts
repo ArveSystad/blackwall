@@ -36,6 +36,7 @@ import {
   DeliveryError,
   ISSUE_COMMENT_EVENT,
   createDeliverer,
+  postableFindings,
   type DeliveryContext,
 } from "./delivery.js";
 import type { CheckOutcome, CheckRunner } from "./checks.js";
@@ -1372,7 +1373,7 @@ describe("diff comment findings", () => {
 
   it("titles the finding with the comment's first line and explains it with the hunk", () => {
     const seeded = seedTask();
-    expect(diffCommentFinding(seeded, "run-1", 2, comment)).toEqual({
+    expect(diffCommentFinding(seeded, "run-1", 2, comment, "work")).toEqual({
       taskId: seeded.id,
       runId: "run-1",
       stepId: null,
@@ -1390,13 +1391,26 @@ describe("diff comment findings", () => {
     });
   });
 
+  it("leaves a review task's comment open and explains it with the comment alone", () => {
+    const seeded = seedTask({ mode: "review", origin: prOrigin(), branch: "feature/x" });
+    expect(diffCommentFinding(seeded, "run-1", 0, comment, "review")).toMatchObject({
+      stepId: null,
+      reviewerAgentId: null,
+      severity: "high",
+      title: "Use a constant",
+      explanation: "Use a constant\nThe magic number repeats.",
+      status: "open",
+    });
+  });
+
   it("cuts a long first line to 80 characters", () => {
     const seeded = seedTask();
-    const exact = diffCommentFinding(seeded, "run-1", 0, { ...comment, body: "a".repeat(80) });
-    expect(exact.title).toBe("a".repeat(80));
-    const long = diffCommentFinding(seeded, "run-1", 0, { ...comment, body: "word ".repeat(30) });
-    expect(long.title).toHaveLength(80);
-    expect(long.title.endsWith("…")).toBe(true);
+    const titled = (body: string) =>
+      diffCommentFinding(seeded, "run-1", 0, { ...comment, body }, "work").title;
+    expect(titled("a".repeat(80))).toBe("a".repeat(80));
+    const long = titled("word ".repeat(30));
+    expect(long).toHaveLength(80);
+    expect(long.endsWith("…")).toBe(true);
   });
 });
 
@@ -2280,7 +2294,7 @@ describe("diff comments", () => {
     expect(r.findings.get(findings[0]!.id)!.status).toBe("fixed");
   });
 
-  it("refuses comments outside the finish, triage and escalation gates", async () => {
+  it("refuses comments outside the finish, triage and escalation gates, and outside review triage", async () => {
     const h = harness();
     const seeded = await atFinish(h);
     expect(() => h.engine.commentOnDiff(seeded.id, { comments: [] })).toThrow(
@@ -2304,7 +2318,11 @@ describe("diff comments", () => {
     );
 
     const review = seedTask({ mode: "review", origin: prOrigin(), branch: "feature/x" });
-    r.tasks.update(review.id, { status: "needs-you", gate: "triage" });
+    r.tasks.update(review.id, { status: "needs-you", gate: "finish" });
+    expect(() => h.engine.commentOnDiff(review.id, { comments: [comment] })).toThrow(
+      TaskStateError,
+    );
+    r.tasks.update(review.id, { status: "needs-you", gate: "escalation" });
     expect(() => h.engine.commentOnDiff(review.id, { comments: [comment] })).toThrow(
       TaskStateError,
     );
@@ -2329,5 +2347,122 @@ describe("diff comments", () => {
     release();
     await delivering;
     expect(r.findings.listByTask(seeded.id)).toEqual([]);
+  });
+
+  async function atReviewTriage(h: Harness) {
+    const seeded = seedTask({ origin: prOrigin(), mode: "review", branch: "feature/x" });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "triage" });
+    return seeded;
+  }
+
+  it("adds a review task's comments at triage as open findings to post, queuing nothing", async () => {
+    const h = harness((stage) =>
+      stage === "code-review" ? { structured: { findings: [highFinding] } } : {},
+    );
+    const seeded = await atReviewTriage(h);
+    const calls = h.calls.length;
+
+    const { findings, task: waiting } = h.engine.commentOnDiff(seeded.id, { comments: [comment] });
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      stepId: null,
+      reviewerAgentId: null,
+      status: "open",
+      severity: "high",
+      title: "Keep the old timeout",
+      explanation: comment.body,
+    });
+    expect(h.events).toContainEqual({
+      type: "finding.upserted",
+      payload: { finding: findings[0] },
+    });
+    expect(waiting).toMatchObject({ status: "needs-you", gate: "triage" });
+    await settle(h.engine);
+    expect(h.calls).toHaveLength(calls);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "triage" });
+    expect(postableFindings(r.findings.listByTask(seeded.id)).map((f) => f.id)).toContain(
+      findings[0]!.id,
+    );
+  });
+
+  it("refuses a review task's comments while it delivers", async () => {
+    let release = () => undefined as void;
+    const h = harness(() => ({}), {
+      deliver: () => new Promise<void>((resolve) => (release = resolve)),
+    });
+    const seeded = await atReviewTriage(h);
+    const delivering = h.engine.respond(seeded.id, { gate: "triage", decision: "approve" });
+    await vi.waitFor(() => expect(h.deliveries).toHaveLength(1));
+
+    expect(() => h.engine.commentOnDiff(seeded.id, { comments: [comment] })).toThrow(
+      TaskStateError,
+    );
+    release();
+    await delivering;
+    expect(r.findings.listByTask(seeded.id)).toEqual([]);
+  });
+});
+
+describe("deleting findings", () => {
+  function reviewAtTriage() {
+    const seeded = seedTask({ origin: prOrigin(), mode: "review", branch: "feature/x" });
+    r.tasks.update(seeded.id, { status: "needs-you", gate: "triage" });
+    const [target, duplicate, other] = r.findings.createMany(
+      [highFinding, highFinding, highFinding].map((f) => ({ ...f, taskId: seeded.id })),
+    );
+    r.findings.update(duplicate!.id, { status: "merged", mergedIntoId: target!.id });
+    return { seeded, target: target!, duplicate: duplicate!, other: other! };
+  }
+
+  it("deletes a finding with the duplicates merged into it, so it is no longer posted", () => {
+    const h = harness();
+    const { seeded, target, duplicate, other } = reviewAtTriage();
+
+    const { deletedIds } = h.engine.deleteFinding(seeded.id, target.id);
+    expect(deletedIds).toEqual([duplicate.id, target.id]);
+    expect(h.events).toContainEqual({
+      type: "finding.deleted",
+      payload: { taskId: seeded.id, findingIds: [duplicate.id, target.id] },
+    });
+    expect(r.findings.listByTask(seeded.id).map((f) => f.id)).toEqual([other.id]);
+    expect(postableFindings(r.findings.listByTask(seeded.id)).map((f) => f.id)).toEqual([other.id]);
+  });
+
+  it("deletes ignored findings and the user's own comments too", () => {
+    const h = harness();
+    const { seeded, other } = reviewAtTriage();
+    r.findings.setStatus(other.id, "force-ignore");
+    expect(h.engine.deleteFinding(seeded.id, other.id).deletedIds).toEqual([other.id]);
+    const [mine] = r.findings.createMany([
+      { ...highFinding, taskId: seeded.id, stepId: null, reviewerAgentId: null },
+    ]);
+    expect(h.engine.deleteFinding(seeded.id, mine!.id).deletedIds).toEqual([mine!.id]);
+  });
+
+  it("refuses merged, fixed and unknown findings, work tasks and review tasks off triage", () => {
+    const h = harness();
+    const { seeded, target, duplicate, other } = reviewAtTriage();
+
+    expect(() => h.engine.deleteFinding(seeded.id, duplicate.id)).toThrow(TaskStateError);
+    r.findings.setStatus(other.id, "fixed");
+    expect(() => h.engine.deleteFinding(seeded.id, other.id)).toThrow(TaskStateError);
+    expect(() => h.engine.deleteFinding(seeded.id, "nope")).toThrow(FindingNotFoundError);
+
+    const elsewhere = seedTask({ origin: prOrigin(), mode: "review", branch: "feature/y" });
+    r.tasks.update(elsewhere.id, { status: "needs-you", gate: "triage" });
+    expect(() => h.engine.deleteFinding(elsewhere.id, target.id)).toThrow(FindingNotFoundError);
+
+    r.tasks.update(seeded.id, { status: "needs-you", gate: "finish" });
+    expect(() => h.engine.deleteFinding(seeded.id, target.id)).toThrow(TaskStateError);
+
+    const work = seedTask();
+    r.tasks.update(work.id, { status: "needs-you", gate: "triage" });
+    const [workFinding] = r.findings.createMany([{ ...highFinding, taskId: work.id }]);
+    expect(() => h.engine.deleteFinding(work.id, workFinding!.id)).toThrow(TaskStateError);
+
+    expect(r.findings.listByTask(seeded.id)).toHaveLength(3);
+    expect(h.events.filter((e) => e.type === "finding.deleted")).toEqual([]);
   });
 });

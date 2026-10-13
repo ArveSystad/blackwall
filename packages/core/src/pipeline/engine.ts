@@ -12,6 +12,7 @@ import {
   type DiffCommentsInput,
   type DiffCommentsResult,
   type Finding,
+  type FindingDeleteResult,
   type FindingOverrideInput,
   type GateResponseInput,
   type GrillAnswerInput,
@@ -916,11 +917,14 @@ export function createPipelineEngine({
 
     /**
      * The user's comments on hunks of the branch diff, sent together while a
-     * work task waits at the finish, triage or escalation gate. Each becomes a
-     * force-fixed finding (see {@link diffCommentFinding}). At finish and
-     * escalation they start one more fix round straight away, which at
-     * escalation counts as "revise"; at triage the task stays at its gate and
-     * approving it runs the fix round the new blockers call for.
+     * work task waits at the finish, triage or escalation gate, or a review
+     * task waits at triage. Each becomes a finding (see
+     * {@link diffCommentFinding}). In a work task it is force-fixed: at finish
+     * and escalation the comments start one more fix round straight away,
+     * which at escalation counts as "revise"; at triage the task stays at its
+     * gate and approving it runs the fix round the new blockers call for. In
+     * a review task it is open and the task stays at triage, its comments
+     * offered for posting to the pull request with the reviewers' findings.
      */
     commentOnDiff(taskId: string, input: DiffCommentsInput): DiffCommentsResult {
       const parsed = diffCommentsInputSchema.safeParse(input);
@@ -929,11 +933,12 @@ export function createPipelineEngine({
       }
       const task = getTask(taskId);
       const gate = task.gate;
-      if (
-        task.status !== "needs-you" ||
-        pipelineKind(task.mode) !== "work" ||
-        (gate !== "finish" && gate !== "triage" && gate !== "escalation")
-      ) {
+      const kind = pipelineKind(task.mode);
+      const commentable =
+        kind === "review"
+          ? gate === "triage"
+          : gate === "finish" || gate === "triage" || gate === "escalation";
+      if (task.status !== "needs-you" || !gate || !commentable) {
         throw new TaskStateError(`Task ${taskId} is not waiting on a review of its code`);
       }
       if (delivering.has(taskId) || commenting.has(taskId)) {
@@ -943,16 +948,46 @@ export function createPipelineEngine({
       if (!run) throw new TaskStateError(`Task ${taskId} has no run to comment on`);
       const round = currentRound(run);
       const findings = r.findings.createMany(
-        parsed.data.comments.map((c) => diffCommentFinding(task, run.id, round, c)),
+        parsed.data.comments.map((c) => diffCommentFinding(task, run.id, round, c, kind)),
       );
       for (const finding of findings) publish({ type: "finding.upserted", payload: { finding } });
 
-      if (gate !== "triage") {
+      if (kind === "work" && gate !== "triage") {
         const next = afterGate(gate, "revise", position(task, round));
         if (next.kind !== "stage") throw new Error(`Unexpected transition ${next.kind}`);
         queueStage(taskId, next);
       }
       return { findings, task: getTask(taskId) };
+    },
+
+    /**
+     * Deletes a finding the user does not want posted, with the duplicates
+     * merged into it, while a review task waits at triage. Work tasks only
+     * force-ignore findings: theirs feed fix rounds and the summary.
+     */
+    deleteFinding(taskId: string, findingId: string): FindingDeleteResult {
+      const task = getTask(taskId);
+      const existing = r.findings.get(findingId);
+      if (!existing || existing.taskId !== taskId) throw new FindingNotFoundError(findingId);
+      if (
+        task.status !== "needs-you" ||
+        task.gate !== "triage" ||
+        pipelineKind(task.mode) !== "review"
+      ) {
+        throw new TaskStateError(`Task ${taskId} is not waiting at review triage`);
+      }
+      if (delivering.has(taskId) || commenting.has(taskId)) {
+        throw new TaskStateError(`Task ${taskId} is already answering its gate`);
+      }
+      if (existing.status === "merged") {
+        throw new TaskStateError("This finding was merged into another; delete that one instead");
+      }
+      if (existing.status === "fixed") {
+        throw new TaskStateError("This finding is fixed; it cannot be deleted");
+      }
+      const deletedIds = r.findings.deleteWithMerged(findingId);
+      publish({ type: "finding.deleted", payload: { taskId, findingIds: deletedIds } });
+      return { deletedIds };
     },
 
     /**

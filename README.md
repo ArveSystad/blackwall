@@ -26,7 +26,7 @@ Inform ──► Plan review / grill ──► [human plan approval] ──► I
                                                                               Summarize ──► [human finish confirm]
 ```
 
-- Review PR mode runs Inform → review panel → triage → inline PR review comments.
+- Review PR mode runs Inform → review panel → triage → inline PR review comments. At triage you can step through the PR's diff hunk by hunk from the Diff tab and comment on any hunk; your comments are posted with the reviewers' findings, inline as you wrote them. You can also delete findings you don't want posted before you post the review.
 - GitHub issue tasks work on a new `feature/<n>-…` branch and finish by pushing it, opening a PR that closes the issue and commenting on the issue. The PR body and comments carry a brief description of the change; the detailed summary stays in blackwall. You can also opt in to a comment on the issue when work starts and when you approve the plan; you see and edit each one first.
 - Each task gets its own git worktree at `../<repo>.worktrees/<task>`.
 - The harness commits after each implement or fix round. Agents never push. `main` is pushed only when you click Push on a repo's Backlog and confirm it; the pipeline never pushes it.
@@ -43,7 +43,7 @@ Implementers may save screenshots (PNG, JPEG, GIF or WebP) to `.blackwall/artifa
 
 - Agent library with role defaults per stage. Agents are not tied to a CLI: each repo picks the CLI its tasks run on, and a task can run single agents on the other one.
 - Finding tags and severities, with force-fix and force-ignore on any finding; force-fixing at the finish gate, or while the summary is being written, runs one more fix round right away
-- Step through the branch diff hunk by hunk from the Diff tab and comment on any hunk; the comments become force-fixed findings. Sending them at the finish or escalation gate runs a fix round right away; at triage they are fixed in the round that approving triage starts
+- Step through the branch diff hunk by hunk from the Diff tab and comment on any hunk; the comments become force-fixed findings. Sending them at the finish or escalation gate runs a fix round right away; at triage they are fixed in the round that approving triage starts. In Review PR tasks, comments made at triage are added to the findings to post instead
 - Connections to GitHub.com, GHE and Jira Cloud, with tokens in the OS keychain
 - Repo registry with auto-suggested check commands
 - Live agent output and per-round diffs

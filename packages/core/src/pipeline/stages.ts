@@ -27,7 +27,7 @@ import { runCheckCommand, type CheckOutcome, type CheckRunner } from "./checks.j
 import { blockingFindings, planMerges } from "./findings.js";
 import { followUpsPromptSection } from "./follow-ups.js";
 import type { RunAgentInput, StageContext, StageHandlers } from "./engine.js";
-import type { StageResults } from "./transitions.js";
+import type { PipelineKind, StageResults } from "./transitions.js";
 
 /** A stage needs an agent for a role the task has none for. */
 export class MissingAgentError extends Error {
@@ -94,16 +94,19 @@ function describeFinding(f: Finding): string {
 const MAX_COMMENT_TITLE_CHARS = 80;
 
 /**
- * The force-fixed finding for the user's comment on a hunk: titled with the
- * comment's first line, explained by the whole comment and the hunk, so the
- * implementer finds the code even when its lines move. It has neither a step
- * nor a reviewer (see `isUserComment`).
+ * The finding for the user's comment on a hunk, titled with the comment's
+ * first line. It has neither a step nor a reviewer (see `isUserComment`). In
+ * a work task it is force-fixed and explained by the whole comment and the
+ * hunk, so the implementer finds the code even when its lines move. In a
+ * review task it is open, so it is offered for posting to the pull request,
+ * and explained by the comment alone, as it is posted word for word.
  */
 export function diffCommentFinding(
   task: Task,
   runId: string,
   round: number,
   comment: DiffCommentInput,
+  pipeline: PipelineKind,
 ): NewFinding {
   const body = comment.body.trim();
   const firstLine = body.split("\n", 1)[0]!.trim();
@@ -122,9 +125,9 @@ export function diffCommentFinding(
     lineStart: comment.lineStart,
     lineEnd: comment.lineEnd,
     title,
-    explanation: `${body}\n\n${fence(comment.hunk, "diff")}`,
+    explanation: pipeline === "review" ? body : `${body}\n\n${fence(comment.hunk, "diff")}`,
     suggestedFix: null,
-    status: "force-fix",
+    status: pipeline === "review" ? "open" : "force-fix",
     round,
   };
 }

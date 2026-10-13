@@ -24,6 +24,7 @@ import {
   type DeliveryPlan,
   type DiffCommentsResult,
   type Finding,
+  type FindingDeleteResult,
   type GrillAnswerResult,
   type GrillQuestion,
   type RoleAgents,
@@ -51,6 +52,7 @@ export type TaskPipeline = Pick<
   | "answerQuestion"
   | "overrideFinding"
   | "commentOnDiff"
+  | "deleteFinding"
   | "deliveryPlan"
 >;
 
@@ -238,7 +240,8 @@ export function queueTask(
  * tasks archived and unarchived, a queued or running task stopped, an
  * undelivered task deleted, a
  * `needs-you` task's gate answered, its grill questions answered, its
- * findings force-fixed or force-ignored, its diff's hunks commented on, and
+ * findings force-fixed or force-ignored (or, at review triage, deleted), its
+ * diff's hunks commented on, and
  * its delivery plan shown before the user confirms the finish actions. `/active-agents` lists the running
  * agent steps across all tasks, and `/done-times` when each done task was
  * resolved. With the services, `/diffs` shows the branch's changes per fix
@@ -439,9 +442,16 @@ export function taskRoutes(
       return c.json<Finding>(pipeline.overrideFinding(id, findingId, input.data));
     });
 
+    /** Deletes a finding, with the duplicates merged into it, while a review task waits at triage. */
+    routes.delete("/:id/findings/:findingId", (c) => {
+      const { id, findingId } = c.req.param();
+      return c.json<FindingDeleteResult>(pipeline.deleteFinding(id, findingId));
+    });
+
     /**
-     * The user's comments on hunks of the branch diff, as force-fixed findings;
-     * at the finish or escalation gate they start a fix round straight away.
+     * The user's comments on hunks of the branch diff, as findings: force-fixed
+     * in a work task, where at the finish or escalation gate they start a fix
+     * round straight away, and open in a review task, to post to the PR.
      */
     routes.post("/:id/comments", async (c) => {
       const input = diffCommentsInputSchema.safeParse(await c.req.json().catch(() => undefined));

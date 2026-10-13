@@ -14,6 +14,7 @@ import {
   branchDiffSchema,
   deliveryPlanSchema,
   diffCommentsResultSchema,
+  findingDeleteResultSchema,
   findingSchema,
   grillAnswerResultSchema,
   grillQuestionSchema,
@@ -276,6 +277,10 @@ describe("pipeline task routes", () => {
         findings: [],
         task: repositories.tasks.get(id)!,
       })),
+      deleteFinding: vi.fn((_id: string, findingId: string) => {
+        if (!repositories.findings.get(findingId)) throw new FindingNotFoundError(findingId);
+        return { deletedIds: [findingId] };
+      }),
     };
     app = createApp({
       token: launchToken,
@@ -466,6 +471,28 @@ describe("pipeline task routes", () => {
     expect(missing.status).toBe(404);
   });
 
+  it("deletes a finding: 200 with the deleted ids, 404 when unknown, 409 off review triage", async () => {
+    const task = seedTask();
+    const finding = seedFinding(task.id);
+    const path = `/api/tasks/${task.id}/findings/${finding.id}`;
+    const ok = await request(path, { method: "DELETE" });
+    expect(ok.status).toBe(200);
+    expect(findingDeleteResultSchema.parse(await ok.json())).toEqual({
+      deletedIds: [finding.id],
+    });
+    expect(pipeline.deleteFinding).toHaveBeenCalledWith(task.id, finding.id);
+
+    const missing = await request(`/api/tasks/${task.id}/findings/nope`, { method: "DELETE" });
+    expect(missing.status).toBe(404);
+
+    vi.mocked(pipeline.deleteFinding).mockImplementationOnce(() => {
+      throw new TaskStateError(`Task ${task.id} is not waiting at review triage`);
+    });
+    const refused = await request(path, { method: "DELETE" });
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({ error: expect.any(String) });
+  });
+
   it("comments on the branch diff, rejecting empty or blank comments", async () => {
     const task = seedTask();
     const comment = {
@@ -525,6 +552,7 @@ describe("new tasks", () => {
       overrideFinding: vi.fn(),
       deliveryPlan: vi.fn(),
       commentOnDiff: vi.fn(),
+      deleteFinding: vi.fn(),
     };
     originTitle = vi.fn(async () => "Persist wizard progress");
     branchDiff = vi.fn(async (task: { id: string }): Promise<BranchDiff | null> => ({

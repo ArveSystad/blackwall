@@ -10,13 +10,13 @@ import {
 } from "@blackwall/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { overrideFinding } from "../../api";
+import { deleteFinding, overrideFinding } from "../../api";
 import { useAgentLibrary } from "../../hooks";
 import { isPlainKey, isTypingTarget, useWindowKeydown } from "../../keyboard";
 import { cn } from "../../lib/utils";
 import { queryKeys } from "../../query";
 import { errorMessage } from "../../settings-forms";
-import { SEVERITY_LABELS, severityCounts, sortFindings } from "../../task-view";
+import { SEVERITY_LABELS, canDeleteFinding, severityCounts, sortFindings } from "../../task-view";
 import { panelNote } from "../classes";
 import { FINDING_GRID, FindingRow } from "../FindingRow";
 import { ChevronRightIcon, LockIcon } from "../icons";
@@ -25,8 +25,9 @@ import { SeverityChip } from "../SeverityChip";
 
 /**
  * Review findings: filter by severity or gating, expand one for why and the
- * suggested fix, and force fix / force ignore it (F / I on the open row).
- * Fixed findings fold into a collapsed list below the open ones.
+ * suggested fix, and force fix / force ignore it (F / I on the open row). At
+ * review triage, unfixed findings can also be deleted (D) so they are not
+ * posted. Fixed findings fold into a collapsed list below the open ones.
  */
 export function FindingsPanel({
   task,
@@ -73,6 +74,24 @@ export function FindingsPanel({
     }
   }
 
+  async function remove(finding: Finding) {
+    setPending(finding.id);
+    setError(null);
+    try {
+      const { deletedIds } = await deleteFinding(task.id, finding.id);
+      const deleted = new Set(deletedIds);
+      queryClient.setQueryData<Finding[]>(queryKeys.taskFindings(task.id), (list) =>
+        list?.filter((f) => !deleted.has(f.id)),
+      );
+      void queryClient.invalidateQueries({ queryKey: queryKeys.taskDelivery(task.id) });
+      setExpanded((id) => (id !== null && deleted.has(id) ? null : id));
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setPending(null);
+    }
+  }
+
   const open = findings.find((f) => f.id === expanded);
   useWindowKeydown(
     (event) => {
@@ -84,6 +103,9 @@ export function FindingsPanel({
       } else if (key === "i" && open.status !== "force-ignore") {
         event.preventDefault();
         void override(open, "force-ignore");
+      } else if (key === "d" && canDeleteFinding(task, open)) {
+        event.preventDefault();
+        void remove(open);
       }
     },
     !!open && open.status !== "fixed",
@@ -121,6 +143,7 @@ export function FindingsPanel({
       pending={pending === finding.id}
       onToggle={() => setExpanded((id) => (id === finding.id ? null : finding.id))}
       onOverride={(status) => void override(finding, status)}
+      onDelete={canDeleteFinding(task, finding) ? () => void remove(finding) : undefined}
     />
   );
 

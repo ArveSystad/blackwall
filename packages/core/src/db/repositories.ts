@@ -549,6 +549,25 @@ export function createFindingsRepository(db: Db) {
         `Finding ${id}`,
       );
     },
+    /**
+     * Deletes a finding and the duplicates merged into it, returning their
+     * ids. Duplicates go first, so their `mergedIntoId` never falls back to null.
+     */
+    deleteWithMerged(id: string): string[] {
+      return db.transaction((tx) => {
+        const merged = tx
+          .delete(findings)
+          .where(eq(findings.mergedIntoId, id))
+          .returning({ id: findings.id })
+          .all();
+        const deleted = tx
+          .delete(findings)
+          .where(eq(findings.id, id))
+          .returning({ id: findings.id })
+          .all();
+        return [...merged, ...deleted].map((f) => f.id);
+      });
+    },
   };
 }
 

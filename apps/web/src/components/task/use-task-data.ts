@@ -41,7 +41,7 @@ export function useTaskData(task: Task) {
   const diffs = useQuery({ ...taskDiffsQuery(task.id), enabled: task.worktreePath !== null });
   const branchDiff = useQuery({
     ...taskBranchDiffQuery(task.id),
-    enabled: !isReview && task.worktreePath !== null,
+    enabled: task.worktreePath !== null,
   });
   const artifacts = useQuery({
     ...taskArtifactsQuery(task.id),

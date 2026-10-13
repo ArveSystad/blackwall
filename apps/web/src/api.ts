@@ -15,6 +15,7 @@ import {
   connectionViewSchema,
   deliveryPlanSchema,
   diffCommentsResultSchema,
+  findingDeleteResultSchema,
   findingSchema,
   generalSettingsSchema,
   grillAnswerResultSchema,
@@ -56,6 +57,7 @@ import {
   type DeliveryPlan,
   type DiffCommentInput,
   type DiffCommentsResult,
+  type FindingDeleteResult,
   type Finding,
   type FindingOverride,
   type GateResponseInput,
@@ -246,9 +248,19 @@ export function overrideFinding(
   });
 }
 
+/** Deletes a review task's finding, with the duplicates merged into it, at triage. */
+export function deleteFinding(taskId: string, findingId: string): Promise<FindingDeleteResult> {
+  return request(
+    `${taskPath(taskId)}/findings/${encodeURIComponent(findingId)}`,
+    findingDeleteResultSchema,
+    { method: "DELETE" },
+  );
+}
+
 /**
- * Sends the user's hunk comments as force-fixed findings; at the finish or
- * escalation gate they start a fix round straight away.
+ * Sends the user's hunk comments as findings: force-fixed in a work task,
+ * where at the finish or escalation gate they start a fix round straight
+ * away, and open in a review task, to post to the PR.
  */
 export function commentOnDiff(
   taskId: string,
