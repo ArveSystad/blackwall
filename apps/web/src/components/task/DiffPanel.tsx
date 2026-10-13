@@ -81,7 +81,7 @@ function FileDiff({ file }: { file: DiffFile }) {
 }
 
 /**
- * One hunk of the branch diff at a time, with a comment box. J/K step through
+ * One hunk of the branch diff at a time, with a comment box. ←/→ step through
  * the hunks; the drafts are sent together as findings: force-fixed for the
  * implementer, or in a review task, open to post to the pull request.
  */
@@ -111,11 +111,11 @@ function HunkStepper({
 
   const step = (by: number) => setPosition(Math.max(0, Math.min(hunks.length - 1, at + by)));
   useWindowKeydown((event) => {
-    if (!isPlainKey(event) || isTypingTarget(event.target)) return;
-    const pressed = event.key.toLowerCase();
-    if (pressed === "j" || pressed === "k") {
+    // A focused tab trigger already took the arrow (Radix roving focus).
+    if (event.defaultPrevented || !isPlainKey(event) || isTypingTarget(event.target)) return;
+    if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
       event.preventDefault();
-      step(pressed === "j" ? 1 : -1);
+      step(event.key === "ArrowRight" ? 1 : -1);
     }
   });
 
@@ -139,11 +139,11 @@ function HunkStepper({
         <span className="flex-1" />
         <Button size="sm" disabled={at === 0} onClick={() => step(-1)}>
           Previous
-          <Kbd aria-hidden="true">K</Kbd>
+          <Kbd aria-hidden="true">←</Kbd>
         </Button>
         <Button size="sm" disabled={at === hunks.length - 1} onClick={() => step(1)}>
           Next
-          <Kbd aria-hidden="true">J</Kbd>
+          <Kbd aria-hidden="true">→</Kbd>
         </Button>
       </div>
       <DiffView lines={hunk.lines} />
