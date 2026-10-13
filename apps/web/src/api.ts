@@ -9,10 +9,12 @@ import {
   agentSchema,
   backlogItemSchema,
   backlogItemViewSchema,
+  branchDiffSchema,
   cliStatusSchema,
   connectionTestResultSchema,
   connectionViewSchema,
   deliveryPlanSchema,
+  diffCommentsResultSchema,
   findingSchema,
   generalSettingsSchema,
   grillAnswerResultSchema,
@@ -45,12 +47,15 @@ import {
   type AgentUpdate,
   type BacklogItem,
   type BacklogItemView,
+  type BranchDiff,
   type CliStatus,
   type ConnectionInput,
   type ConnectionTestResult,
   type RepoSync,
   type ConnectionView,
   type DeliveryPlan,
+  type DiffCommentInput,
+  type DiffCommentsResult,
   type Finding,
   type FindingOverride,
   type GateResponseInput,
@@ -241,6 +246,20 @@ export function overrideFinding(
   });
 }
 
+/**
+ * Sends the user's hunk comments as force-fixed findings; at the finish or
+ * escalation gate they start a fix round straight away.
+ */
+export function commentOnDiff(
+  taskId: string,
+  comments: DiffCommentInput[],
+): Promise<DiffCommentsResult> {
+  return request(`${taskPath(taskId)}/comments`, diffCommentsResultSchema, {
+    method: "POST",
+    body: { comments },
+  });
+}
+
 /** Answers the gate a needs-you task waits on (approve plan, triage, finish, …). */
 export function respondToGate(taskId: string, input: GateResponseInput): Promise<Task> {
   return request(`${taskPath(taskId)}/gate`, taskSchema, { method: "POST", body: input });
@@ -304,6 +323,11 @@ export function listStepEvents(taskId: string, stepId: string): Promise<StepEven
 /** The task branch's changes per fix round. */
 export function listDiffs(taskId: string): Promise<TaskDiff[]> {
   return request(`${taskPath(taskId)}/diffs`, taskDiffSchema.array());
+}
+
+/** The task branch's whole diff from its fork point to HEAD; null before it has commits. */
+export function getBranchDiff(taskId: string): Promise<BranchDiff | null> {
+  return request(`${taskPath(taskId)}/branch-diff`, branchDiffSchema.nullable());
 }
 
 /** The images an implementer saved to `.blackwall/artifacts/`, newest first. */

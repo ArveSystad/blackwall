@@ -7,9 +7,11 @@ import {
   type RepoService,
   type Repositories,
   type TaskArtifacts,
+  type TaskBranchDiff,
   type TaskDiffs,
 } from "@blackwall/core";
 import {
+  diffCommentsInputSchema,
   findingOverrideInputSchema,
   gateResponseInputSchema,
   grillAnswerInputSchema,
@@ -18,7 +20,9 @@ import {
   type ActiveAgentStep,
   type AgentCli,
   type AgentClis,
+  type BranchDiff,
   type DeliveryPlan,
+  type DiffCommentsResult,
   type Finding,
   type GrillAnswerResult,
   type GrillQuestion,
@@ -46,6 +50,7 @@ export type TaskPipeline = Pick<
   | "respond"
   | "answerQuestion"
   | "overrideFinding"
+  | "commentOnDiff"
   | "deliveryPlan"
 >;
 
@@ -80,6 +85,8 @@ export interface TaskRouteServices {
   newTask?: NewTaskServices;
   /** Per-round diffs of a task's branch. */
   diffs?: TaskDiffs;
+  /** The whole diff of a task's branch, for commenting on its hunks. */
+  branchDiff?: TaskBranchDiff;
   /** Images implementers saved to a task's worktree. */
   artifacts?: TaskArtifacts;
 }
@@ -231,16 +238,17 @@ export function queueTask(
  * tasks archived and unarchived, a queued or running task stopped, an
  * undelivered task deleted, a
  * `needs-you` task's gate answered, its grill questions answered, its
- * findings force-fixed or force-ignored, and its delivery plan shown before
- * the user confirms the finish actions. `/active-agents` lists the running
+ * findings force-fixed or force-ignored, its diff's hunks commented on, and
+ * its delivery plan shown before the user confirms the finish actions. `/active-agents` lists the running
  * agent steps across all tasks, and `/done-times` when each done task was
  * resolved. With the services, `/diffs` shows the branch's changes per fix
- * round and `/artifacts` lists and serves the images an implementer saved.
+ * round, `/branch-diff` the whole branch's diff to comment on, and
+ * `/artifacts` lists and serves the images an implementer saved.
  */
 export function taskRoutes(
   { tasks, grillQuestions, findings, runs, steps, stepEvents }: TaskRouteStores,
   pipeline?: TaskPipeline,
-  { newTask, diffs, artifacts }: TaskRouteServices = {},
+  { newTask, diffs, branchDiff, artifacts }: TaskRouteServices = {},
 ): Hono {
   const routes = new Hono();
 
@@ -326,6 +334,16 @@ export function taskRoutes(
       const task = tasks.get(id);
       if (!task) return c.json({ error: `Task ${id} not found` }, 404);
       return c.json<TaskDiff[]>(await diffs(task));
+    });
+  }
+
+  if (branchDiff) {
+    /** The branch's whole diff from its fork point to HEAD; null before it has commits. */
+    routes.get("/:id/branch-diff", async (c) => {
+      const id = c.req.param("id");
+      const task = tasks.get(id);
+      if (!task) return c.json({ error: `Task ${id} not found` }, 404);
+      return c.json<BranchDiff | null>(await branchDiff(task));
     });
   }
 
@@ -419,6 +437,18 @@ export function taskRoutes(
       }
       const { id, findingId } = c.req.param();
       return c.json<Finding>(pipeline.overrideFinding(id, findingId, input.data));
+    });
+
+    /**
+     * The user's comments on hunks of the branch diff, as force-fixed findings;
+     * at the finish or escalation gate they start a fix round straight away.
+     */
+    routes.post("/:id/comments", async (c) => {
+      const input = diffCommentsInputSchema.safeParse(await c.req.json().catch(() => undefined));
+      if (!input.success) {
+        return c.json({ error: input.error.issues.map((i) => i.message).join("; ") }, 400);
+      }
+      return c.json<DiffCommentsResult>(pipeline.commentOnDiff(c.req.param("id"), input.data));
     });
   }
 

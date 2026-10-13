@@ -2,6 +2,7 @@ import {
   acquireDataDirLock,
   createAgentService,
   createBacklogRunner,
+  createBranchDiff,
   createClaudeAdapter,
   createConnectionService,
   createConnectionTokens,
@@ -204,6 +205,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       taskServices: {
         newTask,
         diffs: createTaskDiffs({ repositories, git }),
+        branchDiff: createBranchDiff({ git }),
         artifacts: createTaskArtifacts(),
       },
       backlog: {

@@ -134,6 +134,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       client.setQueryData<Task>(queryKeys.task(task.id), task);
       // A stage or gate change can mean new commits or a new delivery plan.
       void client.invalidateQueries({ queryKey: queryKeys.taskDiffs(task.id) });
+      void client.invalidateQueries({ queryKey: queryKeys.taskBranchDiff(task.id) });
       void client.invalidateQueries({ queryKey: queryKeys.taskArtifacts(task.id) });
       void client.invalidateQueries({ queryKey: queryKeys.taskDelivery(task.id) });
       // A finished task can unblock the backlog items that depend on it, and

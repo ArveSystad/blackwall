@@ -1,5 +1,6 @@
 import {
   isGatingSeverity,
+  isUserComment,
   type Agent,
   type AgentCli,
   type Finding,
@@ -148,7 +149,7 @@ export function FindingRow({
               <span className="truncate">{reviewer.name}</span>
             </>
           ) : (
-            <span className="truncate">Checks</span>
+            <span className="truncate">{isUserComment(finding) ? "You" : "Checks"}</span>
           )}
         </span>
         <span role="cell" className="mono truncate text-muted-foreground">

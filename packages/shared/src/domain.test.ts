@@ -17,9 +17,12 @@ import {
   connectionInputSchema,
   connectionViewSchema,
   deliveryActionSchema,
+  diffCommentInputSchema,
+  diffCommentsInputSchema,
   findingSchema,
   grillQuestionSchema,
   isGatingSeverity,
+  isUserComment,
   newTaskInputSchema,
   parseFollowUps,
   planAnswersOutputJsonSchema,
@@ -231,6 +234,52 @@ describe("findingSchema", () => {
       false,
       false,
     ]);
+  });
+});
+
+describe("diff comments", () => {
+  const comment = {
+    file: "src/a.ts",
+    lineStart: 3,
+    lineEnd: 5,
+    hunk: "@@ -3,2 +3,3 @@\n a\n+b\n c",
+    body: "  Rename this.  ",
+  };
+
+  it("accepts a valid comment and trims its body", () => {
+    expect(diffCommentInputSchema.parse(comment)).toEqual({ ...comment, body: "Rename this." });
+  });
+
+  it("rejects an empty or whitespace-only body", () => {
+    expect(diffCommentInputSchema.safeParse({ ...comment, body: "" }).success).toBe(false);
+    expect(diffCommentInputSchema.safeParse({ ...comment, body: "   " }).success).toBe(false);
+  });
+
+  it("rejects a line range that ends before it starts", () => {
+    const result = diffCommentInputSchema.safeParse({ ...comment, lineStart: 5, lineEnd: 3 });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.path).toEqual(["lineEnd"]);
+  });
+
+  it("accepts null lines", () => {
+    expect(
+      diffCommentInputSchema.parse({ ...comment, lineStart: null, lineEnd: null }),
+    ).toMatchObject({ lineStart: null, lineEnd: null });
+    expect(diffCommentInputSchema.safeParse({ ...comment, lineStart: null }).success).toBe(true);
+  });
+
+  it("requires at least one comment in a batch", () => {
+    expect(diffCommentsInputSchema.safeParse({ comments: [] }).success).toBe(false);
+    expect(diffCommentsInputSchema.safeParse({ comments: [comment] }).success).toBe(true);
+  });
+});
+
+describe("isUserComment", () => {
+  it("is true only when the finding has neither a step nor a reviewer", () => {
+    expect(isUserComment({ stepId: null, reviewerAgentId: null })).toBe(true);
+    expect(isUserComment({ stepId: "s1", reviewerAgentId: null })).toBe(false);
+    expect(isUserComment({ stepId: null, reviewerAgentId: "a2" })).toBe(false);
+    expect(isUserComment({ stepId: "s1", reviewerAgentId: "a2" })).toBe(false);
   });
 });
 

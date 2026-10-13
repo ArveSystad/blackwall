@@ -172,6 +172,30 @@ export function openQuestionCount(questions: readonly GrillQuestion[]): number {
 }
 
 // ---------------------------------------------------------------------------
+// Diff comments
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether the user can comment on the diff's hunks: a work task waiting on
+ * them at finish, triage or escalation, and not delivering.
+ */
+export function canCommentOnDiff(
+  task: Pick<Task, "status" | "mode" | "gate" | "delivering">,
+): boolean {
+  return (
+    task.status === "needs-you" &&
+    task.mode !== "review" &&
+    !task.delivering &&
+    (task.gate === "finish" || task.gate === "triage" || task.gate === "escalation")
+  );
+}
+
+/** Whether sending hunk comments starts a fix round straight away (finish and escalation). */
+export function diffCommentsRunFixRound(task: Pick<Task, "gate">): boolean {
+  return task.gate === "finish" || task.gate === "escalation";
+}
+
+// ---------------------------------------------------------------------------
 // Stop, archive and delete
 // ---------------------------------------------------------------------------
 
@@ -697,6 +721,67 @@ export function diffStat(files: readonly DiffFile[]): { additions: number; delet
     }),
     { additions: 0, deletions: 0 },
   );
+}
+
+/** One hunk of a file's diff, as the step-through shows and comments on it. */
+export interface DiffHunk {
+  path: string;
+  /** 0-based within its file. */
+  index: number;
+  /** The hunk header, then its lines. */
+  lines: DiffLine[];
+  /** Its lines in the new file; null when it only deletes from an emptied file. */
+  lineStart: number | null;
+  lineEnd: number | null;
+  /** The hunk as unified-diff text, header included. */
+  text: string;
+}
+
+const DIFF_PREFIX: Record<DiffLine["kind"], string> = { hunk: "", add: "+", del: "-", ctx: " " };
+
+/**
+ * Splits parsed files into their hunks. A hunk's range spans its added and
+ * context lines; one that only deletes points at the line its header names.
+ * Files without hunks (binary, mode-only) are skipped.
+ */
+export function splitHunks(files: readonly DiffFile[]): DiffHunk[] {
+  const hunks: DiffHunk[] = [];
+  for (const file of files) {
+    let index = 0;
+    let current: DiffLine[] | undefined;
+    const close = () => {
+      if (!current) return;
+      const [header, ...body] = current;
+      const kept = body.filter((l) => l.kind !== "del").map((l) => l.line!);
+      let lineStart: number | null = null;
+      let lineEnd: number | null = null;
+      if (kept.length > 0) {
+        lineStart = Math.min(...kept);
+        lineEnd = Math.max(...kept);
+      } else {
+        const start = Number(/^@@ -\S+ \+(\d+)/.exec(header!.text)?.[1] ?? 0);
+        if (start > 0) lineStart = lineEnd = start;
+      }
+      hunks.push({
+        path: file.path,
+        index: index++,
+        lines: current,
+        lineStart,
+        lineEnd,
+        text: current.map((l) => `${DIFF_PREFIX[l.kind]}${l.text}`).join("\n"),
+      });
+    };
+    for (const line of file.lines) {
+      if (line.kind === "hunk") {
+        close();
+        current = [line];
+      } else {
+        current?.push(line);
+      }
+    }
+    close();
+  }
+  return hunks;
 }
 
 /** Whether a suggested fix is a diff (rendered as one) rather than prose. */

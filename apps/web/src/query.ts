@@ -7,6 +7,7 @@ import {
   getRepoSync,
   getRoleDefaults,
   getSettings,
+  getBranchDiff,
   getDeliveryPlan,
   getTask,
   listActiveAgents,
@@ -41,6 +42,7 @@ export const queryKeys = {
   taskFindings: (taskId: string) => ["tasks", taskId, "findings"] as const,
   taskGrill: (taskId: string) => ["tasks", taskId, "grill"] as const,
   taskDiffs: (taskId: string) => ["tasks", taskId, "diffs"] as const,
+  taskBranchDiff: (taskId: string) => ["tasks", taskId, "branch-diff"] as const,
   taskArtifacts: (taskId: string) => ["tasks", taskId, "artifacts"] as const,
   taskDelivery: (taskId: string) => ["tasks", taskId, "delivery"] as const,
   runSteps: (runId: string) => ["runs", runId, "steps"] as const,
@@ -108,6 +110,12 @@ export const taskGrillQuery = (taskId: string) =>
 
 export const taskDiffsQuery = (taskId: string) =>
   queryOptions({ queryKey: queryKeys.taskDiffs(taskId), queryFn: () => listDiffs(taskId) });
+
+export const taskBranchDiffQuery = (taskId: string) =>
+  queryOptions({
+    queryKey: queryKeys.taskBranchDiff(taskId),
+    queryFn: () => getBranchDiff(taskId),
+  });
 
 export const taskArtifactsQuery = (taskId: string) =>
   queryOptions({

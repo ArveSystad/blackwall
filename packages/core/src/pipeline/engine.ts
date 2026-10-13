@@ -1,6 +1,7 @@
 import {
   agentCliFor,
   deliveryConfirmationSchema,
+  diffCommentsInputSchema,
   findingOverrideInputSchema,
   gateResponseInputSchema,
   grillAnswerInputSchema,
@@ -8,6 +9,8 @@ import {
   type AgentCli,
   type DeliveryConfirmation,
   type DeliveryPlan,
+  type DiffCommentsInput,
+  type DiffCommentsResult,
   type Finding,
   type FindingOverrideInput,
   type GateResponseInput,
@@ -38,6 +41,7 @@ import {
 } from "./delivery.js";
 import { blockingFindings } from "./findings.js";
 import { createScheduler } from "./scheduler.js";
+import { diffCommentFinding } from "./stages.js";
 import {
   FIRST_STAGE,
   InvalidGateResponseError,
@@ -908,6 +912,47 @@ export function createPipelineEngine({
         queueStage(taskId, next);
       }
       return finding;
+    },
+
+    /**
+     * The user's comments on hunks of the branch diff, sent together while a
+     * work task waits at the finish, triage or escalation gate. Each becomes a
+     * force-fixed finding (see {@link diffCommentFinding}). At finish and
+     * escalation they start one more fix round straight away, which at
+     * escalation counts as "revise"; at triage the task stays at its gate and
+     * approving it runs the fix round the new blockers call for.
+     */
+    commentOnDiff(taskId: string, input: DiffCommentsInput): DiffCommentsResult {
+      const parsed = diffCommentsInputSchema.safeParse(input);
+      if (!parsed.success) {
+        throw new InvalidGateResponseError(parsed.error.issues.map((i) => i.message).join("; "));
+      }
+      const task = getTask(taskId);
+      const gate = task.gate;
+      if (
+        task.status !== "needs-you" ||
+        pipelineKind(task.mode) !== "work" ||
+        (gate !== "finish" && gate !== "triage" && gate !== "escalation")
+      ) {
+        throw new TaskStateError(`Task ${taskId} is not waiting on a review of its code`);
+      }
+      if (delivering.has(taskId) || commenting.has(taskId)) {
+        throw new TaskStateError(`Task ${taskId} is already answering its gate`);
+      }
+      const run = latestRun(taskId);
+      if (!run) throw new TaskStateError(`Task ${taskId} has no run to comment on`);
+      const round = currentRound(run);
+      const findings = r.findings.createMany(
+        parsed.data.comments.map((c) => diffCommentFinding(task, run.id, round, c)),
+      );
+      for (const finding of findings) publish({ type: "finding.upserted", payload: { finding } });
+
+      if (gate !== "triage") {
+        const next = afterGate(gate, "revise", position(task, round));
+        if (next.kind !== "stage") throw new Error(`Unexpected transition ${next.kind}`);
+        queueStage(taskId, next);
+      }
+      return { findings, task: getTask(taskId) };
     },
 
     /**

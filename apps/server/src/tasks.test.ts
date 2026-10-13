@@ -11,7 +11,9 @@ import {
 } from "@blackwall/core";
 import {
   activeAgentStepSchema,
+  branchDiffSchema,
   deliveryPlanSchema,
+  diffCommentsResultSchema,
   findingSchema,
   grillAnswerResultSchema,
   grillQuestionSchema,
@@ -22,6 +24,8 @@ import {
   taskDiffSchema,
   taskDoneTimeSchema,
   taskSchema,
+  type BranchDiff,
+  type DiffCommentsResult,
   type GateResponseInput,
 } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -268,6 +272,10 @@ describe("pipeline task routes", () => {
         squash: null,
         completed: [],
       })),
+      commentOnDiff: vi.fn((id: string): DiffCommentsResult => ({
+        findings: [],
+        task: repositories.tasks.get(id)!,
+      })),
     };
     app = createApp({
       token: launchToken,
@@ -457,11 +465,50 @@ describe("pipeline task routes", () => {
     });
     expect(missing.status).toBe(404);
   });
+
+  it("comments on the branch diff, rejecting empty or blank comments", async () => {
+    const task = seedTask();
+    const comment = {
+      file: "src/auth.ts",
+      lineStart: 3,
+      lineEnd: 4,
+      hunk: "@@ -1,2 +3,4 @@\n+const x = 1;",
+      body: "Rename this.",
+    };
+    const ok = await request(`/api/tasks/${task.id}/comments`, {
+      method: "POST",
+      body: { comments: [comment] },
+    });
+    expect(ok.status).toBe(200);
+    expect(diffCommentsResultSchema.parse(await ok.json())).toMatchObject({
+      findings: [],
+      task: { id: task.id },
+    });
+    expect(pipeline.commentOnDiff).toHaveBeenCalledWith(task.id, { comments: [comment] });
+
+    const empty = await request(`/api/tasks/${task.id}/comments`, {
+      method: "POST",
+      body: { comments: [] },
+    });
+    expect(empty.status).toBe(400);
+    expect(await empty.json()).toEqual({ error: expect.any(String) });
+
+    const blank = await request(`/api/tasks/${task.id}/comments`, {
+      method: "POST",
+      body: { comments: [{ ...comment, body: "  " }] },
+    });
+    expect(blank.status).toBe(400);
+    expect(await blank.json()).toEqual({ error: expect.any(String) });
+
+    // Only the valid request reached the pipeline.
+    expect(pipeline.commentOnDiff).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("new tasks", () => {
   let pipeline: TaskPipeline;
   let originTitle: ReturnType<typeof vi.fn<(origin: unknown) => Promise<string | undefined>>>;
+  let branchDiff: ReturnType<typeof vi.fn<(task: { id: string }) => Promise<BranchDiff | null>>>;
   let repoId: string;
 
   beforeEach(() => {
@@ -477,8 +524,14 @@ describe("new tasks", () => {
       answerQuestion: vi.fn(),
       overrideFinding: vi.fn(),
       deliveryPlan: vi.fn(),
+      commentOnDiff: vi.fn(),
     };
     originTitle = vi.fn(async () => "Persist wizard progress");
+    branchDiff = vi.fn(async (task: { id: string }): Promise<BranchDiff | null> => ({
+      from: "abc",
+      to: "def",
+      diff: `branch diff for ${task.id}`,
+    }));
     app = createApp({
       token: launchToken,
       getPort: () => port,
@@ -494,6 +547,7 @@ describe("new tasks", () => {
         diffs: async (task) => [
           { round: 0, from: "abc", to: "def", reviewed: true, diff: `diff for ${task.id}` },
         ],
+        branchDiff,
         artifacts: {
           list: async () => [
             { path: "ui/home.png", size: 3, modifiedAt: new Date("2026-01-02T03:04:05Z") },
@@ -765,6 +819,27 @@ describe("new tasks", () => {
       { path: "ui/home.png", size: 3, modifiedAt: new Date("2026-01-02T03:04:05Z") },
     ]);
     expect((await request("/api/tasks/nope/artifacts")).status).toBe(404);
+  });
+
+  it("returns a task's whole branch diff, null when the service has none, 404 when unknown", async () => {
+    const task = repositories.tasks.create({ title: "T", origin: { kind: "free-text" }, repoId });
+    const res = await request(`/api/tasks/${task.id}/branch-diff`);
+    expect(res.status).toBe(200);
+    expect(branchDiffSchema.parse(await res.json())).toEqual({
+      from: "abc",
+      to: "def",
+      diff: `branch diff for ${task.id}`,
+    });
+    expect(branchDiff).toHaveBeenCalledWith(expect.objectContaining({ id: task.id }));
+
+    // E.g. a task whose worktree is gone: the service has no diff to show.
+    branchDiff.mockResolvedValueOnce(null);
+    const none = await request(`/api/tasks/${task.id}/branch-diff`);
+    expect(none.status).toBe(200);
+    expect(await none.json()).toBeNull();
+
+    expect((await request("/api/tasks/nope/branch-diff")).status).toBe(404);
+    expect(branchDiff).toHaveBeenCalledTimes(2);
   });
 
   it("serves an artifact as an image with nosniff, 404 when missing", async () => {
