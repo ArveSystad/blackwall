@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  MAX_FIX_ROUNDS,
   MAX_GRILL_ROUNDS,
   TASK_STOPPED_ERROR,
   type AgentCli,
@@ -39,7 +40,7 @@ import {
 } from "./delivery.js";
 import type { CheckOutcome, CheckRunner } from "./checks.js";
 import { InvalidGateResponseError } from "./transitions.js";
-import { commitKey, commitMessage, createDefaultStages } from "./stages.js";
+import { commitKey, commitMessage, createDefaultStages, diffCommentFinding } from "./stages.js";
 
 let dir: string;
 let opened: OpenedDatabase;
@@ -1360,6 +1361,45 @@ describe("commit messages", () => {
   });
 });
 
+describe("diff comment findings", () => {
+  const comment = {
+    file: "src/a.ts",
+    lineStart: 3,
+    lineEnd: null,
+    hunk: "@@ -1 +3 @@\n+x",
+    body: "  Use a constant\nThe magic number repeats.  ",
+  };
+
+  it("titles the finding with the comment's first line and explains it with the hunk", () => {
+    const seeded = seedTask();
+    expect(diffCommentFinding(seeded, "run-1", 2, comment)).toEqual({
+      taskId: seeded.id,
+      runId: "run-1",
+      stepId: null,
+      reviewerAgentId: null,
+      severity: "high",
+      tags: [],
+      file: "src/a.ts",
+      lineStart: 3,
+      lineEnd: null,
+      title: "Use a constant",
+      explanation: "Use a constant\nThe magic number repeats.\n\n~~~~diff\n@@ -1 +3 @@\n+x\n~~~~",
+      suggestedFix: null,
+      status: "force-fix",
+      round: 2,
+    });
+  });
+
+  it("cuts a long first line to 80 characters", () => {
+    const seeded = seedTask();
+    const exact = diffCommentFinding(seeded, "run-1", 0, { ...comment, body: "a".repeat(80) });
+    expect(exact.title).toBe("a".repeat(80));
+    const long = diffCommentFinding(seeded, "run-1", 0, { ...comment, body: "word ".repeat(30) });
+    expect(long.title).toHaveLength(80);
+    expect(long.title.endsWith("…")).toBe(true);
+  });
+});
+
 describe("code review panel and triage", () => {
   const lowFinding: ReviewFinding = {
     severity: "low",
@@ -2120,5 +2160,174 @@ describe("summarize and finish", () => {
       findingIds: [finding!.id],
     });
     expect(task(seeded.id)).toMatchObject({ status: "done", deliveryTargets: ["pr-review"] });
+  });
+});
+
+describe("diff comments", () => {
+  const comment = {
+    file: "src/session.ts",
+    lineStart: 12,
+    lineEnd: 14,
+    hunk: "@@ -10,3 +12,3 @@\n context\n-old\n+new",
+    body: "Keep the old timeout\nIt is what the docs promise.",
+  };
+
+  async function atFinish(h: Harness) {
+    const seeded = seedTask();
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    await h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" });
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
+    return seeded;
+  }
+
+  const implementCalls = (h: Harness) => h.calls.filter((c) => c.stage === "implement");
+
+  it("turns comments at the finish gate into force-fixed findings and fixes them in a new round", async () => {
+    const h = harness();
+    const seeded = await atFinish(h);
+    const round = Math.max(...stepsOf(seeded.id).map((s) => s.round));
+
+    const result = h.engine.commentOnDiff(seeded.id, {
+      comments: [comment, { ...comment, file: "src/other.ts", body: "Rename this" }],
+    });
+    expect(result.findings).toHaveLength(2);
+    expect(result.findings[0]).toMatchObject({
+      stepId: null,
+      reviewerAgentId: null,
+      status: "force-fix",
+      severity: "high",
+      file: "src/session.ts",
+      lineStart: 12,
+      lineEnd: 14,
+      title: "Keep the old timeout",
+      round,
+    });
+    expect(result.findings[0]!.explanation).toBe(
+      `${comment.body}\n\n~~~~diff\n${comment.hunk}\n~~~~`,
+    );
+    for (const finding of result.findings) {
+      expect(h.events).toContainEqual({ type: "finding.upserted", payload: { finding } });
+    }
+    // A free slot picks the queued task up at once.
+    expect(result.task).toMatchObject({ status: "running", gate: null, stage: "implement" });
+
+    await settle(h.engine);
+    expect(implementCalls(h)).toHaveLength(2);
+    expect(implementCalls(h)[1]!.options.prompt).toContain("Keep the old timeout");
+    expect(implementCalls(h)[1]!.options.prompt).toContain("Rename this");
+    expect(
+      stepsOf(seeded.id)
+        .filter((s) => s.stage === "implement")
+        .at(-1)!.round,
+    ).toBe(round + 1);
+    expect(r.findings.listByTask(seeded.id).map((f) => f.status)).toEqual(["fixed", "fixed"]);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
+  });
+
+  it("runs one more fix round from the escalation gate, past the round limit", async () => {
+    const h = harness((stage) =>
+      stage === "code-review" ? { structured: { findings: [highFinding] } } : {},
+    );
+    const seeded = seedTask();
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    await h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" });
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "escalation" });
+    expect(implementCalls(h)).toHaveLength(MAX_FIX_ROUNDS + 1);
+
+    const { findings, task: started } = h.engine.commentOnDiff(seeded.id, { comments: [comment] });
+    expect(started).toMatchObject({ status: "running", gate: null, stage: "implement" });
+    await settle(h.engine);
+
+    expect(implementCalls(h)).toHaveLength(MAX_FIX_ROUNDS + 2);
+    expect(implementCalls(h).at(-1)!.options.prompt).toContain("Keep the old timeout");
+    expect(
+      stepsOf(seeded.id)
+        .filter((s) => s.stage === "implement")
+        .at(-1)!.round,
+    ).toBe(MAX_FIX_ROUNDS + 1);
+    expect(r.findings.get(findings[0]!.id)!.status).toBe("fixed");
+    // The reviewers still block, so the task escalates again.
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "escalation" });
+  });
+
+  it("keeps a paused triage waiting and fixes the comments once triage is approved", async () => {
+    let reviews = 0;
+    const h = harness((stage) =>
+      stage === "code-review"
+        ? { structured: { findings: reviews++ === 0 ? [highFinding] : [] } }
+        : {},
+    );
+    const seeded = seedTask({ triageMode: "pause" });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    await h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" });
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "triage" });
+
+    const { findings, task: waiting } = h.engine.commentOnDiff(seeded.id, { comments: [comment] });
+    expect(waiting).toMatchObject({ status: "needs-you", gate: "triage" });
+    await settle(h.engine);
+    expect(implementCalls(h)).toHaveLength(1);
+
+    await h.engine.respond(seeded.id, { gate: "triage", decision: "approve" });
+    await settle(h.engine);
+    expect(implementCalls(h)).toHaveLength(2);
+    expect(implementCalls(h)[1]!.options.prompt).toContain("Keep the old timeout");
+    expect(r.findings.get(findings[0]!.id)!.status).toBe("fixed");
+  });
+
+  it("refuses comments outside the finish, triage and escalation gates", async () => {
+    const h = harness();
+    const seeded = await atFinish(h);
+    expect(() => h.engine.commentOnDiff(seeded.id, { comments: [] })).toThrow(
+      InvalidGateResponseError,
+    );
+    expect(() =>
+      h.engine.commentOnDiff(seeded.id, { comments: [{ ...comment, body: "  " }] }),
+    ).toThrow(InvalidGateResponseError);
+
+    r.tasks.update(seeded.id, { status: "running", gate: null });
+    expect(() => h.engine.commentOnDiff(seeded.id, { comments: [comment] })).toThrow(
+      TaskStateError,
+    );
+    r.tasks.update(seeded.id, { status: "done", gate: null });
+    expect(() => h.engine.commentOnDiff(seeded.id, { comments: [comment] })).toThrow(
+      TaskStateError,
+    );
+    r.tasks.update(seeded.id, { status: "needs-you", gate: "plan-approval" });
+    expect(() => h.engine.commentOnDiff(seeded.id, { comments: [comment] })).toThrow(
+      TaskStateError,
+    );
+
+    const review = seedTask({ mode: "review", origin: prOrigin(), branch: "feature/x" });
+    r.tasks.update(review.id, { status: "needs-you", gate: "triage" });
+    expect(() => h.engine.commentOnDiff(review.id, { comments: [comment] })).toThrow(
+      TaskStateError,
+    );
+    expect(() => h.engine.commentOnDiff("nope", { comments: [comment] })).toThrow(
+      TaskNotFoundError,
+    );
+    expect(r.findings.listByTask(seeded.id)).toEqual([]);
+  });
+
+  it("refuses comments while the task delivers", async () => {
+    let release = () => undefined as void;
+    const h = harness(() => ({}), {
+      deliver: () => new Promise<void>((resolve) => (release = resolve)),
+    });
+    const seeded = await atFinish(h);
+    const delivering = h.engine.respond(seeded.id, { gate: "finish", decision: "approve" });
+    await vi.waitFor(() => expect(h.deliveries).toHaveLength(1));
+
+    expect(() => h.engine.commentOnDiff(seeded.id, { comments: [comment] })).toThrow(
+      TaskStateError,
+    );
+    release();
+    await delivering;
+    expect(r.findings.listByTask(seeded.id)).toEqual([]);
   });
 });

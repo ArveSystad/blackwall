@@ -47,7 +47,7 @@ export interface AppOptions {
   tasks?: TaskRouteStores;
   /** Pipeline engine for resuming tasks, answering gates and questions; omit to leave those routes out. */
   pipeline?: TaskPipeline;
-  /** Task creation, per-round diffs and artifacts; omit to leave those routes out. */
+  /** Task creation, per-round and whole-branch diffs and artifacts; omit to leave those routes out. */
   taskServices?: TaskRouteServices;
   /** Backlog stores and runner hooks; omit to leave the backlog routes out (e.g. in tests). */
   backlog?: BacklogRouteOptions;

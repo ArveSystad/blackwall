@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDatabase, type OpenedDatabase } from "../db/database.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
-import { createTaskDiffs } from "./diffs.js";
+import { createBranchDiff, createTaskDiffs } from "./diffs.js";
 import { REVIEW_DIFF_EVENT, type ReviewGit } from "./stages.js";
 
 let opened: OpenedDatabase;
@@ -75,5 +75,30 @@ describe("task diffs", () => {
       { round: 0, from: "fork", to: "c1", reviewed: false, diff: "diff fork..c1" },
     ]);
     expect(await taskDiffs({ ...task, worktreePath: null })).toEqual([]);
+  });
+});
+
+describe("branch diff", () => {
+  it("diffs the whole branch from its fork point to HEAD, whatever the review rounds", async () => {
+    const task = seedTask();
+    const run = r.runs.create(task.id);
+    reviewStep(run.id, 0, "fork", "c1");
+    const branchDiff = createBranchDiff({ git: fakeGit("c2") });
+    expect(await branchDiff(task)).toEqual({ from: "fork", to: "c2", diff: "diff fork..c2" });
+  });
+
+  it("is null without a worktree, a fork point or commits of its own", async () => {
+    const task = seedTask();
+    expect(await createBranchDiff({ git: fakeGit("c1") })({ ...task, worktreePath: null })).toBe(
+      null,
+    );
+    expect(await createBranchDiff({ git: fakeGit("fork") })(task)).toBe(null);
+    const noFork: ReviewGit = {
+      ...fakeGit("c1"),
+      mergeBase: async () => {
+        throw new Error("no merge base");
+      },
+    };
+    expect(await createBranchDiff({ git: noFork })(task)).toBe(null);
   });
 });

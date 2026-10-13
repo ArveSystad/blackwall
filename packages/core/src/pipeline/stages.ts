@@ -13,12 +13,14 @@ import {
   summaryOutputJsonSchema,
   SEVERITIES,
   type AgentRole,
+  type DiffCommentInput,
   type Finding,
   type GrillQuestion,
   type Step,
   type Task,
 } from "@blackwall/shared";
 import type { AgentResult } from "../agents/adapters/types.js";
+import type { NewFinding } from "../db/schema.js";
 import type { GitService } from "../git/service.js";
 import { ensureScratchDir } from "./artifacts.js";
 import { runCheckCommand, type CheckOutcome, type CheckRunner } from "./checks.js";
@@ -86,6 +88,45 @@ function describeFinding(f: Finding): string {
   const where = f.file ? ` (${f.file}${f.lineStart ? `:${f.lineStart}` : ""})` : "";
   const fix = f.suggestedFix ? `\n  Suggested fix: ${f.suggestedFix}` : "";
   return `- [${f.severity}] ${f.title}${where}\n  ${f.explanation}${fix}`;
+}
+
+/** Longest finding title a hunk comment gets; the whole comment is in the explanation. */
+const MAX_COMMENT_TITLE_CHARS = 80;
+
+/**
+ * The force-fixed finding for the user's comment on a hunk: titled with the
+ * comment's first line, explained by the whole comment and the hunk, so the
+ * implementer finds the code even when its lines move. It has neither a step
+ * nor a reviewer (see `isUserComment`).
+ */
+export function diffCommentFinding(
+  task: Task,
+  runId: string,
+  round: number,
+  comment: DiffCommentInput,
+): NewFinding {
+  const body = comment.body.trim();
+  const firstLine = body.split("\n", 1)[0]!.trim();
+  const title =
+    firstLine.length > MAX_COMMENT_TITLE_CHARS
+      ? `${firstLine.slice(0, MAX_COMMENT_TITLE_CHARS - 1).trimEnd()}…`
+      : firstLine;
+  return {
+    taskId: task.id,
+    runId,
+    stepId: null,
+    reviewerAgentId: null,
+    severity: "high",
+    tags: [],
+    file: comment.file,
+    lineStart: comment.lineStart,
+    lineEnd: comment.lineEnd,
+    title,
+    explanation: `${body}\n\n${fence(comment.hunk, "diff")}`,
+    suggestedFix: null,
+    status: "force-fix",
+    round,
+  };
 }
 
 function describeQuestion(q: GrillQuestion): string {
@@ -293,8 +334,8 @@ export function commitMessage(text: string, key: string | undefined): string {
 }
 
 /** A fenced block that survives backtick fences inside `text`. */
-function fence(text: string): string {
-  return `~~~~\n${text.trimEnd()}\n~~~~`;
+function fence(text: string, lang = ""): string {
+  return `~~~~${lang}\n${text.trimEnd()}\n~~~~`;
 }
 
 function describeCheckFailure(check: CheckFinished): string {

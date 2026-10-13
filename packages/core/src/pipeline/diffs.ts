@@ -1,4 +1,4 @@
-import type { Task, TaskDiff } from "@blackwall/shared";
+import type { BranchDiff, Task, TaskDiff } from "@blackwall/shared";
 import type { Repositories } from "../db/repositories.js";
 import { REVIEW_DIFF_EVENT, forkPoint, type ReviewDiffRange, type ReviewGit } from "./stages.js";
 
@@ -48,3 +48,23 @@ export function createTaskDiffs({ repositories: r, git }: TaskDiffsOptions) {
 }
 
 export type TaskDiffs = ReturnType<typeof createTaskDiffs>;
+
+/**
+ * The task branch's whole diff, from its fork point to HEAD, which line
+ * numbers in the current files match. Null without a worktree, without a fork
+ * point, or before the branch has commits of its own.
+ */
+export function createBranchDiff({ git }: { git: ReviewGit }) {
+  return async function branchDiff(task: Task): Promise<BranchDiff | null> {
+    const worktree = task.worktreePath;
+    if (!worktree) return null;
+    const from = await forkPoint(task, git, worktree);
+    if (!from) return null;
+    const to = await git.headSha(worktree);
+    if (from === to) return null;
+    return { from, to, diff: await git.diff(worktree, from, to) };
+  };
+}
+
+/** Serves a task's {@link BranchDiff}. */
+export type TaskBranchDiff = ReturnType<typeof createBranchDiff>;

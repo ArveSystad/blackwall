@@ -4,6 +4,7 @@ import {
   runStepsQuery,
   stepEventsQuery,
   taskArtifactsQuery,
+  taskBranchDiffQuery,
   taskDiffsQuery,
   taskFindingsQuery,
   taskGrillQuery,
@@ -21,10 +22,11 @@ import {
 
 /**
  * Everything the task view reads besides the task itself: runs and the latest
- * run's steps, grill questions, findings, per-round diffs, the artifacts, the latest Checks
- * step's commands, the rebase conflicts of the latest delivery and the pull
- * request any delivery attempt at the task's stage opened. Each panel
- * reads the slice it needs; the header, banner and tab counts read the rest.
+ * run's steps, grill questions, findings, per-round and whole-branch diffs,
+ * the artifacts, the latest Checks step's commands, the rebase conflicts of
+ * the latest delivery and the pull request any delivery attempt at the task's
+ * stage opened. Each panel reads the slice it needs; the header, banner and
+ * tab counts read the rest.
  */
 export function useTaskData(task: Task) {
   const isReview = task.mode === "review";
@@ -37,6 +39,10 @@ export function useTaskData(task: Task) {
   const questions = useQuery({ ...taskGrillQuery(task.id), enabled: !isReview });
   const findings = useQuery(taskFindingsQuery(task.id));
   const diffs = useQuery({ ...taskDiffsQuery(task.id), enabled: task.worktreePath !== null });
+  const branchDiff = useQuery({
+    ...taskBranchDiffQuery(task.id),
+    enabled: !isReview && task.worktreePath !== null,
+  });
   const artifacts = useQuery({
     ...taskArtifactsQuery(task.id),
     enabled: !isReview && task.worktreePath !== null,
@@ -71,6 +77,7 @@ export function useTaskData(task: Task) {
     findings,
     visibleFindings: visibleFindings(findings.data ?? []),
     diffs,
+    branchDiff,
     artifacts,
     checksStep,
     checks: checksStep ? checkRuns(checkEvents.data ?? []) : [],

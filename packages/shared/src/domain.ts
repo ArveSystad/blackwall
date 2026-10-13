@@ -1050,6 +1050,10 @@ export const taskDiffSchema = z.object({
 });
 export type TaskDiff = z.infer<typeof taskDiffSchema>;
 
+/** The task branch's whole diff, from its fork point to HEAD; the step-through comments on it. */
+export const branchDiffSchema = taskDiffSchema.pick({ from: true, to: true, diff: true });
+export type BranchDiff = z.infer<typeof branchDiffSchema>;
+
 /** Scratch folder in a task's worktree; ignored by its own `.gitignore`. */
 export const SCRATCH_DIR = ".blackwall";
 
@@ -1328,6 +1332,48 @@ export function reviewOutputJsonSchema(): Record<string, unknown> {
 /** User override on a finding (force fix / force ignore). */
 export const findingOverrideInputSchema = z.object({ status: findingOverrideSchema });
 export type FindingOverrideInput = z.infer<typeof findingOverrideInputSchema>;
+
+/**
+ * The user's comment on one hunk of the branch diff. It becomes a force-fixed
+ * finding on `file`, at the hunk's lines in the new file (null when unknown).
+ */
+export const diffCommentInputSchema = z
+  .object({
+    file: z.string().min(1),
+    lineStart: z.int().positive().nullable(),
+    lineEnd: z.int().positive().nullable(),
+    /** The hunk as unified-diff text, header included. */
+    hunk: z.string().min(1),
+    body: z.string().trim().min(1),
+  })
+  .refine((c) => c.lineStart == null || c.lineEnd == null || c.lineEnd >= c.lineStart, {
+    path: ["lineEnd"],
+    message: "lineEnd must not be before lineStart",
+  });
+export type DiffCommentInput = z.infer<typeof diffCommentInputSchema>;
+
+/** The hunk comments the user sends together from the diff step-through. */
+export const diffCommentsInputSchema = z.object({
+  comments: z.array(diffCommentInputSchema).min(1),
+});
+export type DiffCommentsInput = z.infer<typeof diffCommentsInputSchema>;
+
+/** Reply to sent hunk comments: their findings and the task, queued for a fix round at finish or escalation. */
+export const diffCommentsResultSchema = z.object({
+  findings: findingSchema.array(),
+  task: taskSchema,
+});
+export type DiffCommentsResult = z.infer<typeof diffCommentsResultSchema>;
+
+/**
+ * Whether a finding is the user's own hunk comment: it has neither a step nor
+ * a reviewer. Check-failure findings always carry their step, and reviewer
+ * findings carry their agent when created. A step-less reviewer finding whose
+ * agent was later deleted (the reference is set to null) matches too.
+ */
+export function isUserComment(f: Pick<Finding, "stepId" | "reviewerAgentId">): boolean {
+  return f.stepId === null && f.reviewerAgentId === null;
+}
 
 /** A plan reviewer's question, answered by the planner or, when `needsHuman`, the user. */
 export const grillQuestionSchema = z.object({

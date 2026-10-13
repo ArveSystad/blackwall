@@ -6,8 +6,10 @@ import {
   agentClis,
   backlogAgentClis,
   canArchive,
+  canCommentOnDiff,
   canStop,
   deleteBlockedReason,
+  diffCommentsRunFixRound,
   deleteTaskCopy,
   isStoppedByUser,
   buildTranscript,
@@ -39,6 +41,7 @@ import {
   planApprovalComment,
   pullRequestUrl,
   sortFindings,
+  splitHunks,
   stepModel,
   subagentStatus,
   TASK_TABS,
@@ -118,6 +121,127 @@ describe("parseDiff", () => {
   it("tells a diff from prose", () => {
     expect(looksLikeDiff("@@ -1 +1 @@\n-a\n+b")).toBe(true);
     expect(looksLikeDiff("Use a mutex around the refresh.")).toBe(false);
+  });
+});
+
+describe("splitHunks", () => {
+  const diff = [
+    "diff --git a/src/a.ts b/src/a.ts",
+    "index 111..222 100644",
+    "--- a/src/a.ts",
+    "+++ b/src/a.ts",
+    "@@ -1,3 +1,3 @@",
+    " const a = 1;",
+    "-const b = 2;",
+    "+const b = 3;",
+    " const c = 4;",
+    "@@ -20,2 +20,3 @@",
+    " x",
+    "+y",
+    " z",
+    "diff --git a/src/b.ts b/src/b.ts",
+    "index 333..444 100644",
+    "--- a/src/b.ts",
+    "+++ b/src/b.ts",
+    "@@ -4 +4 @@",
+    "-old",
+    "+new",
+    "",
+  ].join("\n");
+
+  it("splits a file into hunks numbered per file, with their new-file lines and text", () => {
+    const hunks = splitHunks(parseDiff(diff));
+    expect(hunks.map((h) => [h.path, h.index, h.lineStart, h.lineEnd])).toEqual([
+      ["src/a.ts", 0, 1, 3],
+      ["src/a.ts", 1, 20, 22],
+      ["src/b.ts", 0, 4, 4],
+    ]);
+    expect(hunks.map((h) => h.text)).toEqual([
+      "@@ -1,3 +1,3 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n const c = 4;",
+      "@@ -20,2 +20,3 @@\n x\n+y\n z",
+      "@@ -4 +4 @@\n-old\n+new",
+    ]);
+  });
+
+  it("takes the line a deletion-only hunk points at, and none for a deleted file", () => {
+    const hunks = splitHunks(
+      parseDiff(
+        [
+          "diff --git a/src/gone.ts b/src/gone.ts",
+          "--- a/src/gone.ts",
+          "+++ b/src/gone.ts",
+          "@@ -5,2 +4,0 @@",
+          "-one",
+          "-two",
+          "diff --git a/src/old.ts b/src/old.ts",
+          "deleted file mode 100644",
+          "--- a/src/old.ts",
+          "+++ /dev/null",
+          "@@ -1,2 +0,0 @@",
+          "-gone",
+          "-too",
+        ].join("\n"),
+      ),
+    );
+    expect(hunks.map((h) => [h.path, h.lineStart, h.lineEnd])).toEqual([
+      ["src/gone.ts", 4, 4],
+      ["src/old.ts", null, null],
+    ]);
+  });
+
+  it("skips a binary file, which has no hunks", () => {
+    const binary = [
+      "diff --git a/img.png b/img.png",
+      "index 1..2 100644",
+      "Binary files a/img.png and b/img.png differ",
+      "",
+    ].join("\n");
+    expect(splitHunks(parseDiff(binary))).toEqual([]);
+  });
+});
+
+describe("diff comments", () => {
+  const prOrigin = {
+    kind: "github-pr" as const,
+    url: "https://github.com/acme/web/pull/1",
+    owner: "acme",
+    repo: "web",
+    number: 1,
+    connectionId: null,
+  };
+
+  it("lets the user comment on a work task waiting at finish, triage or escalation", () => {
+    for (const gate of ["finish", "triage", "escalation"] as const) {
+      expect(canCommentOnDiff(makeTask({ status: "needs-you", gate }))).toBe(true);
+    }
+  });
+
+  it("does not offer comments at the grill-type gates", () => {
+    for (const gate of ["questions", "plan-approval"] as const) {
+      expect(canCommentOnDiff(makeTask({ status: "needs-you", gate }))).toBe(false);
+    }
+  });
+
+  it("does not offer comments unless the task needs the user", () => {
+    expect(canCommentOnDiff(makeTask({ status: "running", stage: "code-review" }))).toBe(false);
+    expect(canCommentOnDiff(makeTask({ status: "done" }))).toBe(false);
+  });
+
+  it("does not offer comments on a Review PR task or while delivering", () => {
+    expect(
+      canCommentOnDiff(
+        makeTask({ status: "needs-you", gate: "triage", mode: "review", origin: prOrigin }),
+      ),
+    ).toBe(false);
+    expect(
+      canCommentOnDiff(makeTask({ status: "needs-you", gate: "finish", delivering: true })),
+    ).toBe(false);
+  });
+
+  it("starts a fix round straight away at finish and escalation, not at triage", () => {
+    expect(diffCommentsRunFixRound(makeTask({ gate: "finish" }))).toBe(true);
+    expect(diffCommentsRunFixRound(makeTask({ gate: "escalation" }))).toBe(true);
+    expect(diffCommentsRunFixRound(makeTask({ gate: "triage" }))).toBe(false);
   });
 });
 

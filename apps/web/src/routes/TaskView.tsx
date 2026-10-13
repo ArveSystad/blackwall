@@ -1,15 +1,15 @@
-import type { Task } from "@blackwall/shared";
+import type { DiffCommentInput, Task } from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Tabs } from "radix-ui";
 import { useEffect, useState, type ReactNode } from "react";
-import { ApiError } from "../api";
+import { ApiError, commentOnDiff } from "../api";
 import { EmptyState } from "../components/EmptyState";
 import { CheckIcon } from "../components/icons";
 import { ArtifactsPanel } from "../components/task/ArtifactsPanel";
 import { ChecksPanel } from "../components/task/ChecksPanel";
 import { ContextPanel } from "../components/task/ContextPanel";
-import { DiffPanel, DiffStat } from "../components/task/DiffPanel";
+import { DiffPanel, DiffStat, type DiffDrafts } from "../components/task/DiffPanel";
 import { FindingsPanel } from "../components/task/FindingsPanel";
 import { FinishPanel } from "../components/task/FinishPanel";
 import { GrillPanel } from "../components/task/GrillPanel";
@@ -147,6 +147,25 @@ function TaskScreen({ task }: { task: Task }) {
   }
   const current = isTabEnabled(task, tab) ? tab : defaultTab(task);
 
+  // Unsent hunk comments survive tab switches, but not new commits on the branch.
+  const [diffDrafts, setDiffDrafts] = useState<DiffDrafts>({});
+  const branchHead = data.branchDiff.data?.to ?? null;
+  const [draftsHead, setDraftsHead] = useState(branchHead);
+  if (draftsHead !== branchHead) {
+    setDraftsHead(branchHead);
+    setDiffDrafts({});
+  }
+
+  async function sendDiffComments(comments: DiffCommentInput[]): Promise<boolean> {
+    const sent = await action.run(
+      "Send comments",
+      async () => (await commentOnDiff(task.id, comments)).task,
+    );
+    if (!sent) return false;
+    setDiffDrafts({});
+    return true;
+  }
+
   const openQuestions = openQuestionCount(data.questions.data ?? []);
   const counts = {
     openQuestions,
@@ -213,7 +232,18 @@ function TaskScreen({ task }: { task: Task }) {
       case "findings":
         return <FindingsPanel task={task} findings={data.visibleFindings} steps={data.steps} />;
       case "diff":
-        return <DiffPanel diffs={data.diffs.data ?? []} loading={data.diffs.isPending} />;
+        return (
+          <DiffPanel
+            task={task}
+            diffs={data.diffs.data ?? []}
+            loading={data.diffs.isPending}
+            branchDiff={data.branchDiff.data}
+            drafts={diffDrafts}
+            onDraftsChange={setDiffDrafts}
+            onSend={sendDiffComments}
+            action={action}
+          />
+        );
       case "artifacts":
         return <ArtifactsPanel task={task} />;
       case "checks":
