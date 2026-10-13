@@ -379,7 +379,8 @@ function NewTaskForm({
   // The "work started" comment is opt-in: unticked until the user ticks it.
   const [startCommentOn, setStartCommentOn] = useState(false);
   const [startComment, setStartComment] = useState(START_COMMENT_DRAFT);
-  const [mode, setMode] = useState<PrMode>(item?.mode ?? "work");
+  // New PR tasks default to Review PR.
+  const [mode, setMode] = useState<PrMode>(item?.mode ?? "review");
   const [chosenRepo, setChosenRepo] = useState<string | null>(item?.repoId ?? null);
   const [freeText, setFreeText] = useState(item?.freeText ?? "");
   // The role defaults, under the edited backlog item's agents.
