@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { REMOTE_COMMANDS, opencodeConfig, permissionArgs, permissionsFor } from "./permissions.js";
 
+/** A command's action under a bash map, mirroring OpenCode's last-match glob rule. */
+function bashAction(bash: Record<string, string>, command: string): string | undefined {
+  const matches = (pattern: string) =>
+    new RegExp(
+      `^${pattern
+        .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+        .replace(/\*/g, ".*")
+        .replace(/\?/g, ".")}$`,
+      "s",
+    ).test(command);
+  return Object.entries(bash).findLast(([pattern]) => matches(pattern))?.[1];
+}
+
 /** Values passed to a repeated `--flag=value` option. */
 function flagValues(args: string[], flag: string): string[] {
   return args.filter((a) => a.startsWith(`${flag}=`)).map((a) => a.slice(flag.length + 1));
@@ -138,10 +151,14 @@ describe("OpenCode permissions", () => {
       "grep",
       "glob",
       "list",
-      "bash(git diff*)",
-      "bash(git log*)",
-      "bash(git show*)",
-      "bash(git status*)",
+      "bash(git diff)",
+      "bash(git diff *)",
+      "bash(git log)",
+      "bash(git log *)",
+      "bash(git show)",
+      "bash(git show *)",
+      "bash(git status)",
+      "bash(git status *)",
     ]);
     expect(deny).toEqual(
       expect.arrayContaining(["edit", "task", "webfetch", "external_directory", "bash(git push*)"]),
@@ -232,8 +249,9 @@ describe("OpenCode permissions", () => {
     const keys = Object.keys(bash);
     expect(keys[0]).toBe("*");
     expect(bash["*"]).toBe("deny");
-    expect(bash["git status*"]).toBe("allow");
-    expect(keys.indexOf("git push*")).toBeGreaterThan(keys.indexOf("git status*"));
+    expect(bash["git status"]).toBe("allow");
+    expect(bash["git status *"]).toBe("allow");
+    expect(keys.indexOf("git push*")).toBeGreaterThan(keys.indexOf("git status *"));
     expect(Object.entries(bash).slice(-REMOTE_COMMANDS.length)).toEqual(
       REMOTE_COMMANDS.map((c) => [`${c}*`, "deny"]),
     );
@@ -263,7 +281,39 @@ describe("OpenCode permissions", () => {
     ).permission.bash as Record<string, string>;
     expect(bash["git log*"]).toBe("deny");
     expect(Object.keys(bash).indexOf("git log*")).toBeGreaterThan(
-      Object.keys(bash).indexOf("git status*"),
+      Object.keys(bash).indexOf("git status *"),
+    );
+    expect(bashAction(bash, "git log -1")).toBe("deny");
+    expect(bashAction(bash, "git log")).toBe("deny");
+  });
+
+  it("allows only whole safe git subcommands to reviewers", () => {
+    const bash = opencodeConfig(permissionsFor("opencode", "read-only")).permission.bash as Record<
+      string,
+      string
+    >;
+    for (const command of [
+      "git diff",
+      "git diff --stat",
+      "git log -1 --format=%s",
+      "git status",
+      "git show HEAD",
+    ]) {
+      expect(bashAction(bash, command), command).toBe("allow");
+    }
+    for (const command of [
+      'git difftool -y -x "touch pwned.txt"',
+      "git diff-tree HEAD",
+      "git logx",
+      "git status-foo",
+      "git push origin HEAD",
+      "gh pr list",
+    ]) {
+      expect(bashAction(bash, command), command).toBe("deny");
+    }
+    // No allow pattern matches difftool: its deny comes from the `*` default.
+    expect(bashAction({ ...bash, "*": "default" }, 'git difftool -y -x "touch pwned.txt"')).toBe(
+      "default",
     );
   });
 

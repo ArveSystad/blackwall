@@ -92,8 +92,15 @@ const claudeBash = (command: string) => `Bash(${command}:*)`;
 const copilotShell = (command: string) =>
   command.includes(" ") ? [`shell(${command})`] : [`shell(${command})`, `shell(${command}:*)`];
 
-/** OpenCode matches a bash command against globs; the `*` also covers a bare stem. */
-const opencodeBash = (command: string) => `bash(${command}*)`;
+/**
+ * OpenCode matches a bash command against globs whose `*` matches any
+ * characters, so an allow must end at a word boundary: the bare command or the
+ * command plus arguments, never `git difftool` for `git diff`.
+ */
+const opencodeAllow = (command: string) => [`bash(${command})`, `bash(${command} *)`];
+
+/** A deny stays broad so it fails closed: `git push*` also catches `git pushx`. */
+const opencodeDeny = (command: string) => `bash(${command}*)`;
 
 /** OpenCode tools no profile allows: web access, skills, other dirs. */
 const OPENCODE_DENIED = [
@@ -151,8 +158,8 @@ const PROFILE_RULES: Record<
   },
   opencode: {
     "read-only": {
-      allow: ["read", "grep", "glob", "list", ...SAFE_GIT_COMMANDS.map(opencodeBash)],
-      deny: ["edit", "task", ...OPENCODE_DENIED, ...REMOTE_COMMANDS.map(opencodeBash)],
+      allow: ["read", "grep", "glob", "list", ...SAFE_GIT_COMMANDS.flatMap(opencodeAllow)],
+      deny: ["edit", "task", ...OPENCODE_DENIED, ...REMOTE_COMMANDS.map(opencodeDeny)],
     },
     implement: {
       // As for Claude: only the harness-defined worker, never the built-in sub-agents.
@@ -170,7 +177,7 @@ const PROFILE_RULES: Record<
       deny: [
         ...OPENCODE_DENIED,
         ...OPENCODE_BUILTIN_SUBAGENTS.map((name) => `task(${name})`),
-        ...REMOTE_COMMANDS.map(opencodeBash),
+        ...REMOTE_COMMANDS.map(opencodeDeny),
       ],
     },
   },
