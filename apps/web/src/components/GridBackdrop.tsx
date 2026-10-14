@@ -3,7 +3,7 @@ import { cn } from "../lib/utils";
 
 /**
  * Decorative resting background of the empty main pane (first-run setup steps,
- * "No active tasks" or the active agents; never behind a task view, Settings or
+ * "Nothing on deck" or the active agents; never behind a task view, Settings or
  * modals): a perspective floor that drifts toward the viewer, a horizon glow and
  * a slow scanline (dark only). `GridAgents` draws the active agents as dots on
  * top of it. Also the full-page Stats screen's background.

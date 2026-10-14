@@ -76,7 +76,7 @@ Rules:
   selected (first-run setup or the active agents). It stays low-opacity, uses primary/cyan only (via
   `--grid-line` / `--grid-glow`), stops its animation under reduced motion, and never appears behind
   a task view, Settings or modals. By default (`fade`) its lines fade to about 18% under a ~520px
-  centre column in the centred states: first run, "No active tasks", the load error and Stats.
+  centre column in the centred states: first run, "Nothing on deck. Awaiting orders.", the load error and Stats.
   Behind the agents view (active tasks, plus done tasks until they are archived) the grid runs full
   width (`fade={false}`, `.bw-grid-full`); do not bring the centre fade back there. Switching
   between the two eases via the `--grid-fade` transition. A pointer spotlight (`.bw-grid-spot`)
@@ -93,7 +93,8 @@ Rules:
   Geist semibold uppercase, not Chakra Petch) in running cyan with `--glow-text-cyan` sits above the
   horizon, and the pointer brightens it locally. Each dot is a 24px link to its task, centres are at least 28px apart, and
   needs-you dots stack above running and queued ones; hover or focus shows a card with the task,
-  stage and current work. "No active tasks" and Create task show only when nothing is active; if the
+  stage and current work. "Nothing on deck. Awaiting orders." and Create task show only when nothing is
+  active, with View backlog for the selected repo beside it, or "Backlog is empty." when nothing waits there; if the
   tasks or agents cannot load, the pane says so with Retry instead. The home grid also has a
   review-requests pill at the bottom, under the floor: magenta (count and blinking dot) while pull
   requests need the user, muted otherwise; it is a solid popover pill, not a glow. When a pill's count

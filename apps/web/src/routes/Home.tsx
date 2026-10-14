@@ -2,10 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState, type ReactNode } from "react";
 import { gridDots, runningTaskCount } from "../agent-dots";
+import { pendingCount } from "../backlog";
 import { GridAgents } from "../components/GridAgents";
 import { GridBackdrop } from "../components/GridBackdrop";
 import { IssuePill } from "../components/IssuePill";
-import { CheckIcon, PlusIcon, WallIcon } from "../components/icons";
+import { BacklogIcon, CheckIcon, PlusIcon, WallIcon } from "../components/icons";
 import { NewTaskModal } from "../components/NewTaskModal";
 import { ReviewPill } from "../components/ReviewPill";
 import { RunningHeadline } from "../components/RunningHeadline";
@@ -13,7 +14,15 @@ import { useArchive } from "../components/use-archive-launches";
 import { Button } from "../components/ui/button";
 import { Kbd } from "../components/ui/kbd";
 import { cn } from "../lib/utils";
-import { activeAgentsQuery, agentsQuery, connectionsQuery, reposQuery, tasksQuery } from "../query";
+import {
+  activeAgentsQuery,
+  agentsQuery,
+  backlogQuery,
+  connectionsQuery,
+  reposQuery,
+  tasksQuery,
+} from "../query";
+import { resolveSelectedRepo, useSelectedRepoId } from "../selected-repo";
 
 function SetupStep({
   number,
@@ -129,28 +138,35 @@ function FirstRun() {
   );
 }
 
-/** The centred block of the empty pane: a title, a few lines and Create task. */
+/** The centred block of the empty pane: a title, optional lines, and Create task with any extra actions. */
 function Message({
   title,
   children,
   onCreate,
+  extra,
 }: {
   title: string;
-  children: ReactNode;
+  children?: ReactNode;
   onCreate: () => void;
+  extra?: ReactNode;
 }) {
   return (
     <div className="relative z-10 flex flex-col items-center gap-2 text-center">
-      <WallIcon className="size-7 text-faint" />
-      <span className="font-medium text-foreground-strong">{title}</span>
+      <WallIcon className="size-8 text-faint" />
+      <h1 className="m-0 font-display text-[22px] leading-[28px] font-semibold tracking-[0.01em] text-foreground-strong">
+        {title}
+      </h1>
       {children}
-      <Button variant="primary" className="mt-2" onClick={onCreate}>
-        <PlusIcon />
-        Create task
-        <Kbd onFill aria-hidden="true">
-          N
-        </Kbd>
-      </Button>
+      <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+        <Button variant="primary" onClick={onCreate}>
+          <PlusIcon />
+          Create task
+          <Kbd onFill aria-hidden="true">
+            N
+          </Kbd>
+        </Button>
+        {extra}
+      </div>
     </div>
   );
 }
@@ -158,8 +174,9 @@ function Message({
 /**
  * Main pane with no task selected: first-run setup, or the active agents, the
  * done tasks waiting to be archived and the interrupted and failed tasks
- * waiting to be resumed as dots on the grid. With nothing on
- * the grid it prompts to pick or create a task; when the tasks or agents
+ * waiting to be resumed as dots on the grid. With nothing on the grid it
+ * offers Create task, and View backlog for the selected repo, or says its
+ * backlog is empty when nothing waits there; when the tasks or agents
  * cannot load it says so, with Retry. Past first run, two pills at the
  * bottom count the pull requests waiting on the user's review and the issues
  * assigned to them.
@@ -168,6 +185,9 @@ export function Home() {
   const tasks = useQuery(tasksQuery);
   const active = useQuery(activeAgentsQuery);
   const agents = useQuery(agentsQuery);
+  const repos = useQuery(reposQuery);
+  const repo = resolveSelectedRepo(useSelectedRepoId(), repos.data);
+  const backlog = useQuery({ ...backlogQuery(repo?.id ?? ""), enabled: !!repo });
   const firstRun = tasks.data?.length === 0;
   const [creating, setCreating] = useState(false);
   const launch = useArchive();
@@ -225,12 +245,24 @@ export function Home() {
           </span>
         </Message>
       ) : !loaded ? null : !showAgents ? (
-        <Message title="No active tasks" onCreate={create}>
-          <span className="text-meta text-muted-foreground">
-            Pick a task from the inbox to see its progress.
-          </span>
-          <span className="text-meta text-muted-foreground">Why don't you create one?</span>
-        </Message>
+        <Message
+          title="Nothing on deck. Awaiting orders."
+          onCreate={create}
+          extra={
+            repo && backlog.data ? (
+              pendingCount(backlog.data) > 0 ? (
+                <Button asChild>
+                  <Link to="/repos/$repoId/backlog" params={{ repoId: repo.id }}>
+                    <BacklogIcon />
+                    View backlog
+                  </Link>
+                </Button>
+              ) : (
+                <span className="text-body text-muted-foreground">Backlog is empty.</span>
+              )
+            ) : null
+          }
+        />
       ) : (
         <>
           <RunningHeadline count={running} />
