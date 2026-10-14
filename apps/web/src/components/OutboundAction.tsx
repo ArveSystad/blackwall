@@ -37,7 +37,12 @@ export function OutboundAction({
         optional && "border-dashed bg-transparent",
       )}
     >
-      <label className="flex min-w-0 cursor-pointer gap-2.5">
+      <label
+        className={cn(
+          "flex min-w-0 gap-2.5",
+          disabled && !completed ? "opacity-60" : "cursor-pointer",
+        )}
+      >
         {completed ? (
           <CheckIcon className="mt-0.5 flex-none text-done" aria-label="Already done" role="img" />
         ) : (

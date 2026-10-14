@@ -21,6 +21,7 @@ import {
   checkPassed,
   confirmLabel,
   deliveryActionCopy,
+  finishBusy,
   isReviewTriage,
 } from "../../task-view";
 import { CiBadge } from "../CiBadge";
@@ -121,12 +122,14 @@ function ReviewFindings({
   findings,
   selected,
   onChange,
+  disabled,
 }: {
   task: Task;
   ids: readonly string[];
   findings: readonly Finding[];
   selected: ReadonlySet<string>;
   onChange: (next: Set<string>) => void;
+  disabled: boolean;
 }) {
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<string | null>(null);
@@ -162,6 +165,7 @@ function ReviewFindings({
               <input
                 type="checkbox"
                 checked={selected.has(f.id)}
+                disabled={disabled}
                 onChange={(event) => {
                   const next = new Set(selected);
                   if (event.target.checked) next.add(f.id);
@@ -178,7 +182,7 @@ function ReviewFindings({
                 size="sm"
                 variant="ghost"
                 className="hover:text-destructive"
-                disabled={pending !== null}
+                disabled={pending !== null || disabled}
                 title="Deletes this finding; it will not be posted"
                 onClick={() => void remove(f)}
               >
@@ -199,10 +203,12 @@ function FollowUpPicks({
   items,
   selected,
   onChange,
+  disabled,
 }: {
   items: readonly FollowUpItem[];
   selected: ReadonlySet<number>;
   onChange: (next: Set<number>) => void;
+  disabled: boolean;
 }) {
   return (
     <ul className="m-0 flex list-none flex-col gap-1 p-0">
@@ -213,6 +219,7 @@ function FollowUpPicks({
               type="checkbox"
               className="mt-0.5 flex-none"
               checked={selected.has(index)}
+              disabled={disabled}
               onChange={(event) => {
                 const next = new Set(selected);
                 if (event.target.checked) next.add(index);
@@ -237,7 +244,7 @@ interface ReviewPicks {
   picked: ReadonlySet<string>;
 }
 
-function Outbound({
+export function Outbound({
   task,
   plan,
   findings,
@@ -285,9 +292,10 @@ function Outbound({
     .filter((k) => ticked.has(k) && !done.has(k))
     .filter((k) => k !== "create-tasks" || followUps.size > 0);
   const reviewing = isReviewTriage(task);
+  const busy = finishBusy(task, action.pending);
 
   function confirm() {
-    if (action.pending) return;
+    if (busy) return;
     void answerGate(
       action,
       task,
@@ -311,7 +319,7 @@ function Outbound({
     if (event.key !== "Enter" || !isModKey(event) || isTypingTarget(event.target)) return;
     event.preventDefault();
     confirm();
-  });
+  }, !busy);
 
   function toggle(kind: DeliveryTarget, on: boolean) {
     setTicked((current) => {
@@ -338,6 +346,7 @@ function Outbound({
             target={`onto ${plan.squash.base.slice(0, 12)}, before anything is pushed or merged`}
             body={plan.squash.message}
             checked={squash}
+            disabled={busy}
             onChange={setSquash}
           />
         )}
@@ -355,6 +364,7 @@ function Outbound({
               body={copy.body}
               checked={ticked.has(a.kind)}
               completed={done.has(a.kind)}
+              disabled={busy}
               onChange={(on) => toggle(a.kind, on)}
             >
               {a.kind === "pr-review" && offeredFindings > 0 && (
@@ -364,17 +374,18 @@ function Outbound({
                   findings={findings}
                   selected={picked}
                   onChange={setPicked}
+                  disabled={busy}
                 />
               )}
               {a.kind === "pr-review" && !done.has(a.kind) && (
                 <label
-                  className={`flex min-w-0 items-start gap-2 text-meta ${ticked.has(a.kind) ? "cursor-pointer" : "opacity-60"}`}
+                  className={`flex min-w-0 items-start gap-2 text-meta ${busy || !ticked.has(a.kind) ? "opacity-60" : "cursor-pointer"}`}
                 >
                   <input
                     type="checkbox"
                     className="mt-0.5 flex-none"
                     checked={approve}
-                    disabled={!ticked.has(a.kind)}
+                    disabled={busy || !ticked.has(a.kind)}
                     onChange={(event) => setApprove(event.target.checked)}
                   />
                   <span className="flex min-w-0 flex-col">
@@ -386,7 +397,12 @@ function Outbound({
                 </label>
               )}
               {a.kind === "create-tasks" && !done.has(a.kind) && (
-                <FollowUpPicks items={a.items} selected={followUps} onChange={setFollowUps} />
+                <FollowUpPicks
+                  items={a.items}
+                  selected={followUps}
+                  onChange={setFollowUps}
+                  disabled={busy}
+                />
               )}
             </OutboundAction>
           );
@@ -396,20 +412,27 @@ function Outbound({
         <Button
           variant="needs"
           className="h-9 justify-center text-body"
-          disabled={action.pending}
+          disabled={busy}
           onClick={confirm}
         >
-          {action.pending ? "Sending…" : confirmLabel(chosen.length)}
-          <Kbd onFill aria-hidden="true">
-            {modKeyLabel("↵")}
-          </Kbd>
+          {busy && <SpinnerIcon size="sm" className="animate-spin" />}
+          {task.delivering
+            ? "Finishing…"
+            : action.pending
+              ? "Sending…"
+              : confirmLabel(chosen.length)}
+          {!busy && (
+            <Kbd onFill aria-hidden="true">
+              {modKeyLabel("↵")}
+            </Kbd>
+          )}
         </Button>
         {!reviewing && (
           <div className="flex flex-wrap justify-between gap-2">
             <Button
               size="sm"
               variant="ghost"
-              disabled={action.pending}
+              disabled={busy}
               onClick={() =>
                 void answerGate(
                   action,
@@ -425,7 +448,7 @@ function Outbound({
               <Button
                 size="sm"
                 variant="ghost"
-                disabled={action.pending}
+                disabled={busy}
                 onClick={() =>
                   void answerGate(
                     action,

@@ -18,6 +18,7 @@ import {
   canStop,
   deleteBlockedReason,
   diffCommentsRunFixRound,
+  finishBusy,
   deleteTaskCopy,
   isStoppedByUser,
   buildTranscript,
@@ -895,6 +896,20 @@ describe("finish", () => {
     expect(confirmLabel(0)).toBe("Keep local, mark done");
     expect(confirmLabel(1)).toBe("Confirm and send 1 action");
     expect(confirmLabel(3)).toBe("Confirm and send 3 actions");
+  });
+});
+
+describe("finishBusy", () => {
+  it("is busy while the task is delivering", () => {
+    expect(finishBusy({ delivering: true }, false)).toBe(true);
+  });
+
+  it("is busy while the answer is in flight", () => {
+    expect(finishBusy({ delivering: false }, true)).toBe(true);
+  });
+
+  it("is idle otherwise", () => {
+    expect(finishBusy({ delivering: false }, false)).toBe(false);
   });
 });
 

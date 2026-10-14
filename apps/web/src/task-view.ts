@@ -1071,6 +1071,11 @@ export function confirmLabel(count: number): string {
   return `Confirm and send ${count} ${count === 1 ? "action" : "actions"}`;
 }
 
+/** A finish gate is busy while its answer is in flight or the task is delivering; its controls are locked. */
+export function finishBusy(task: Pick<Task, "delivering">, pending: boolean): boolean {
+  return pending || task.delivering;
+}
+
 /** The distinct CLIs a task's agents run on, for the inbox card's agent tiles. */
 export function agentClis(task: Pick<Task, "agents" | "cli" | "agentClis">): AgentCli[] {
   return [...new Set(taskAgentIds(task.agents).map((id) => agentCliFor(task, id)))];
