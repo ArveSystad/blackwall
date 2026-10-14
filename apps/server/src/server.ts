@@ -4,6 +4,7 @@ import { serve } from "@hono/node-server";
 import type {
   AgentService,
   ChatService,
+  DataService,
   QuotaTracker,
   RepoService,
   SettingsService,
@@ -38,6 +39,7 @@ export interface StartOptions {
   chat?: Pick<ChatService, "get" | "send" | "markApplied">;
   quota?: Pick<QuotaTracker, "state">;
   clis?: () => Promise<CliStatus[]>;
+  data?: Pick<DataService, "export" | "import">;
   shutdown: Shutdown;
 }
 
@@ -67,6 +69,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     ...(options.chat ? { chat: options.chat } : {}),
     ...(options.quota ? { quota: options.quota } : {}),
     ...(options.clis ? { clis: options.clis } : {}),
+    ...(options.data ? { data: options.data } : {}),
     ...(options.dev ? {} : { webDist: WEB_DIST }),
   });
 

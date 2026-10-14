@@ -14,6 +14,7 @@ import {
   cliStatusSchema,
   connectionTestResultSchema,
   connectionViewSchema,
+  dataImportResultSchema,
   deliveryPlanSchema,
   diffCommentsResultSchema,
   findingDeleteResultSchema,
@@ -39,6 +40,7 @@ import {
   stepSchema,
   tagListInputSchema,
   taskArtifactSchema,
+  taskWorktreeSchema,
   taskDiffSchema,
   taskDoneTimeSchema,
   taskSchema,
@@ -56,6 +58,7 @@ import {
   type ConnectionTestResult,
   type RepoSync,
   type ConnectionView,
+  type DataImportResult,
   type DeliveryPlan,
   type DiffCommentInput,
   type DiffCommentsResult,
@@ -93,6 +96,7 @@ import {
   type TaskArtifact,
   type TaskDiff,
   type TaskDoneTime,
+  type TaskWorktree,
   type UpdateBacklogItemInput,
 } from "@blackwall/shared";
 
@@ -353,6 +357,27 @@ export function listArtifacts(taskId: string): Promise<TaskArtifact[]> {
 export function artifactUrl(taskId: string, artifact: Pick<TaskArtifact, "path" | "modifiedAt">) {
   const path = artifact.path.split("/").map(encodeURIComponent).join("/");
   return `${taskPath(taskId)}/artifacts/${path}?v=${artifact.modifiedAt.getTime()}`;
+}
+
+/** Where the task's worktree is and whether it still exists (it may not after an import). */
+export function getTaskWorktree(taskId: string): Promise<TaskWorktree> {
+  return request(`${taskPath(taskId)}/worktree`, taskWorktreeSchema);
+}
+
+/** Download URL of a data export; without transcripts it leaves out agent messages and tool calls. */
+export function exportDataUrl(includeTranscripts: boolean): string {
+  return `/api/data/export?transcripts=${includeTranscripts ? 1 : 0}`;
+}
+
+/** Replaces all data with an export archive; the server backs up the current database first. */
+export async function importData(file: Blob): Promise<DataImportResult> {
+  const res = await fetch("/api/data/import", {
+    method: "POST",
+    headers: { "content-type": "application/zip" },
+    body: file,
+  });
+  if (!res.ok) throw await errorFrom(res);
+  return dataImportResultSchema.parse(await res.json());
 }
 
 export function listRepos(): Promise<RepoView[]> {

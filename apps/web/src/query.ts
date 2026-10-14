@@ -14,6 +14,7 @@ import {
   listActiveAgents,
   listClis,
   listArtifacts,
+  getTaskWorktree,
   listDiffs,
   listDoneTimes,
   listFindings,
@@ -45,6 +46,7 @@ export const queryKeys = {
   taskDiffs: (taskId: string) => ["tasks", taskId, "diffs"] as const,
   taskBranchDiff: (taskId: string) => ["tasks", taskId, "branch-diff"] as const,
   taskArtifacts: (taskId: string) => ["tasks", taskId, "artifacts"] as const,
+  taskWorktree: (taskId: string) => ["tasks", taskId, "worktree"] as const,
   taskDelivery: (taskId: string) => ["tasks", taskId, "delivery"] as const,
   runSteps: (runId: string) => ["runs", runId, "steps"] as const,
   stepEvents: (stepId: string) => ["steps", stepId, "events"] as const,
@@ -125,6 +127,12 @@ export const taskArtifactsQuery = (taskId: string) =>
   queryOptions({
     queryKey: queryKeys.taskArtifacts(taskId),
     queryFn: () => listArtifacts(taskId),
+  });
+
+export const taskWorktreeQuery = (taskId: string) =>
+  queryOptions({
+    queryKey: queryKeys.taskWorktree(taskId),
+    queryFn: () => getTaskWorktree(taskId),
   });
 
 export const taskDeliveryQuery = (taskId: string) =>

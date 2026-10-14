@@ -2,7 +2,7 @@ import { connectionViewSchema } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDatabase, type OpenedDatabase } from "../db/database.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
-import { createMemorySecretStore, type SecretStore } from "./secret-store.js";
+import { createMemorySecretStore, SecretStoreError, type SecretStore } from "./secret-store.js";
 import { createConnectionTokens, tokenEnvVar } from "./tokens.js";
 
 const TOKEN = "ghp_supersecret123";
@@ -94,5 +94,32 @@ describe("connection tokens", () => {
     const tokens = createConnectionTokens({ store, connections: r.connections, env: {} });
     await expect(tokens.set("nope", TOKEN)).rejects.toThrow("Connection nope not found");
     expect(await store.get("nope")).toBeUndefined();
+  });
+
+  it("refreshes tokenSet from the keychain", async () => {
+    const tokens = createConnectionTokens({ store, connections: r.connections, env: {} });
+    const withToken = seed();
+    const without = r.connections.create({
+      name: "jira",
+      kind: "jira",
+      baseUrl: "https://acme.atlassian.net",
+    });
+    await store.set(withToken.id, TOKEN);
+    r.connections.update(without.id, { tokenSet: true });
+
+    expect((await tokens.refresh(withToken.id)).hasToken).toBe(true);
+    expect(r.connections.get(withToken.id)?.tokenSet).toBe(true);
+    expect((await tokens.refresh(without.id)).hasToken).toBe(false);
+    expect(r.connections.get(without.id)?.tokenSet).toBe(false);
+  });
+
+  it("treats an unusable keychain as no token on refresh", async () => {
+    const failing: SecretStore = {
+      ...store,
+      get: (account) => Promise.reject(new SecretStoreError("get", account)),
+    };
+    const tokens = createConnectionTokens({ store: failing, connections: r.connections, env: {} });
+    const connection = r.connections.update(seed().id, { tokenSet: true });
+    expect((await tokens.refresh(connection.id)).hasToken).toBe(false);
   });
 });

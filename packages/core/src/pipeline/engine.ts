@@ -206,6 +206,8 @@ export interface PipelineEngineOptions {
   quota?: Pick<QuotaTracker, "report" | "succeeded">;
   publish?: (event: ServerEvent) => void;
   log?: (message: string) => void;
+  /** Whether a worktree or repo folder exists; a task whose worktree is gone fails instead of running. */
+  pathExists?: (path: string) => boolean;
 }
 
 /** In-memory hints for a task's next drive; lost on restart, which only costs a re-run. */
@@ -238,6 +240,7 @@ export function createPipelineEngine({
   quota,
   publish = () => undefined,
   log = console.error,
+  pathExists = () => true,
 }: PipelineEngineOptions) {
   const scheduler = createScheduler({ maxPerRepo: maxTasksPerRepo });
   const drives = new Map<string, Promise<void>>();
@@ -596,6 +599,10 @@ export function createPipelineEngine({
         const workspace = await prepareWorkspace(task);
         task = saveTask(taskId, workspace);
         scheduler.setBranch(taskId, workspace.branch);
+      } else if (!pathExists(task.worktreePath)) {
+        throw new Error(
+          `The task's worktree is missing at ${task.worktreePath}; it was not part of the import or was removed. Delete the task, or recreate the worktree to resume.`,
+        );
       }
 
       let stage = task.stage ?? FIRST_STAGE;
@@ -1092,7 +1099,9 @@ export function createPipelineEngine({
       pending.delete(taskId);
       await drives.get(taskId);
       const settled = getTask(taskId);
-      if (settled.worktreePath) await removeWorkspace(settled);
+      // A repo folder that is gone (say, after an import on another machine) has nothing to remove.
+      const repo = r.repos.get(settled.repoId);
+      if (settled.worktreePath && repo && pathExists(repo.path)) await removeWorkspace(settled);
       r.tasks.delete(taskId);
       publish({ type: "task.removed", payload: { taskId } });
     },

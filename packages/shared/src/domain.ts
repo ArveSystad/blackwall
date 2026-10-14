@@ -30,6 +30,8 @@ export const TASK_STATUSES = [
  * apart from a shutdown (no error) or a usage limit (the limit's message).
  */
 export const TASK_STOPPED_ERROR = "Stopped by you";
+/** The `error` of a task a data import found `running` or `queued` and made `interrupted`. */
+export const IMPORT_INTERRUPTED_ERROR = "Interrupted by a data import";
 /** Backlog pick order: higher buckets run first. */
 export const BACKLOG_PRIORITIES = ["high", "normal", "low"] as const;
 /**
@@ -1112,6 +1114,14 @@ export const taskArtifactSchema = z.object({
 });
 export type TaskArtifact = z.infer<typeof taskArtifactSchema>;
 
+/** `GET /api/tasks/:id/worktree`: where the task's worktree is and whether it exists. */
+export const taskWorktreeSchema = z.object({
+  /** Null before the worktree is created. */
+  path: z.string().nullable(),
+  exists: z.boolean(),
+});
+export type TaskWorktree = z.infer<typeof taskWorktreeSchema>;
+
 // ---------------------------------------------------------------------------
 // Delivery
 // ---------------------------------------------------------------------------
@@ -1637,3 +1647,39 @@ export const cliStatusSchema = z.object({
   error: z.string().nullable(),
 });
 export type CliStatus = z.infer<typeof cliStatusSchema>;
+
+// ---------------------------------------------------------------------------
+// Data export and import
+// ---------------------------------------------------------------------------
+
+/** Version of the export archive layout; an import refuses any other. */
+export const DATA_ARCHIVE_FORMAT = 1;
+
+/** `manifest.json` in an export archive, next to the database copy. */
+export const dataManifestSchema = z.object({
+  format: z.literal(DATA_ARCHIVE_FORMAT),
+  app: z.literal("blackwall"),
+  /** Informational only: compatibility is decided by the migration level. */
+  blackwallVersion: z.string(),
+  exportedAt: z.iso.datetime(),
+  /** The last applied migration: how many, its journal tag and its `when`. */
+  migration: z.object({
+    count: z.int().nonnegative(),
+    tag: z.string().nullable(),
+    when: z.number(),
+  }),
+  /** False when agent transcripts (messages and tool calls) were left out. */
+  includesTranscripts: z.boolean(),
+});
+export type DataManifest = z.infer<typeof dataManifestSchema>;
+
+/** `POST /api/data/import`: what was replaced and what still needs the user. */
+export const dataImportResultSchema = z.object({
+  /** The database as it was before the import. */
+  backupPath: z.string(),
+  manifest: dataManifestSchema,
+  connectionsMissingToken: z.array(connectionViewSchema),
+  missingRepos: z.array(z.object({ id, name: z.string(), path: z.string() })),
+  tasksMissingWorktree: z.array(z.object({ id, title: z.string(), path: z.string() })),
+});
+export type DataImportResult = z.infer<typeof dataImportResultSchema>;

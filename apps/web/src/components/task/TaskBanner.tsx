@@ -1,4 +1,4 @@
-import type { Task } from "@blackwall/shared";
+import { IMPORT_INTERRUPTED_ERROR, type Task } from "@blackwall/shared";
 import { cn } from "../../lib/utils";
 import { deleteBlockedReason, gateBanner, isStoppedByUser, type TaskTab } from "../../task-view";
 import { FailedIcon, PausedIcon, StopIcon } from "../icons";
@@ -190,6 +190,11 @@ export function TaskBanner({
               <pre className="m-0 max-h-48 overflow-auto font-mono text-code whitespace-pre-wrap text-foreground">
                 {task.error ?? "No error was recorded."}
               </pre>
+            ) : task.error === IMPORT_INTERRUPTED_ERROR ? (
+              <span className="text-[12.5px]">
+                A data import found this task running or queued and stopped it. Resume continues it
+                where it stopped.
+              </span>
             ) : (
               <span className="text-[12.5px]">
                 blackwall shut down while an agent was running. The worktree is intact; Resume

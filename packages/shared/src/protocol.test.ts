@@ -30,6 +30,13 @@ describe("protocol", () => {
     });
   });
 
+  it("parses a data import", () => {
+    expect(parseServerEvent('{"type":"data.imported","payload":{}}')).toEqual({
+      type: "data.imported",
+      payload: {},
+    });
+  });
+
   it("parses a step event and revives its timestamp", () => {
     const raw = JSON.stringify({
       type: "step.event",

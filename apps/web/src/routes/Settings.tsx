@@ -4,6 +4,7 @@ import { BackIcon } from "../components/icons";
 import { BacklogSection } from "../components/settings/BacklogSection";
 import { AgentLibrary } from "../components/settings/AgentLibrary";
 import { ConnectionsSection } from "../components/settings/ConnectionsSection";
+import { DataSection } from "../components/settings/DataSection";
 import { DefaultsSection } from "../components/settings/DefaultsSection";
 import { NotificationsSection } from "../components/settings/NotificationsSection";
 import { RepositoriesSection } from "../components/settings/RepositoriesSection";
@@ -61,6 +62,8 @@ function SectionBody({ section }: { section: SettingsSection }) {
       return <BacklogSection />;
     case "notifications":
       return <NotificationsSection />;
+    case "data":
+      return <DataSection />;
   }
 }
 

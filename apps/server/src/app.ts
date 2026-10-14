@@ -13,6 +13,7 @@ import {
 import type {
   AgentService,
   ChatService,
+  DataService,
   QuotaTracker,
   RepoService,
   SettingsService,
@@ -24,6 +25,7 @@ import { chatRoutes } from "./chat.js";
 import { cliRoutes } from "./clis.js";
 import { hostGuard, requireToken, tokenExchange } from "./auth.js";
 import { connectionRoutes, type ConnectionRoutesOptions } from "./connections.js";
+import { dataRoutes } from "./data.js";
 import { errorResponse } from "./errors.js";
 import { issueRoutes, pullRequestRoutes } from "./github.js";
 import { quotaRoutes } from "./quota.js";
@@ -64,6 +66,8 @@ export interface AppOptions {
   quota?: Pick<QuotaTracker, "state">;
   /** Agent CLI detection, started at launch; omit to leave the CLI route out (e.g. in tests). */
   clis?: () => Promise<CliStatus[]>;
+  /** Data export and import; omit to leave the data routes out (e.g. in tests). */
+  data?: Pick<DataService, "export" | "import">;
 }
 
 function send(ws: { send(data: string): void }, event: ServerEvent): void {
@@ -93,6 +97,7 @@ export function createApp({
   chat,
   quota,
   clis,
+  data,
 }: AppOptions): CreatedApp {
   const app = new Hono();
   const { upgradeWebSocket, injectWebSocket, wss } = createNodeWebSocket({ app });
@@ -142,6 +147,7 @@ export function createApp({
   if (tasks) app.route("/api/tasks", taskRoutes(tasks, pipeline, taskServices));
   if (clis) app.route("/api/clis", cliRoutes(clis));
   if (quota) app.route("/api/quota", quotaRoutes(quota));
+  if (data) app.route("/api/data", dataRoutes(data));
 
   app.all("/api/*", (c) => c.json({ error: "not found" }, 404));
 

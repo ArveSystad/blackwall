@@ -139,6 +139,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       void client.invalidateQueries({ queryKey: queryKeys.taskBranchDiff(task.id) });
       void client.invalidateQueries({ queryKey: queryKeys.taskArtifacts(task.id) });
       void client.invalidateQueries({ queryKey: queryKeys.taskDelivery(task.id) });
+      void client.invalidateQueries({ queryKey: queryKeys.taskWorktree(task.id) });
       // A finished task can unblock the backlog items that depend on it, and
       // its delivery run's finish time is when it was resolved.
       if (task.status === "done") {
@@ -208,6 +209,10 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       client.setQueryData<ChatState>(queryKeys.chat(chat.repoId), chat);
       break;
     }
+    case "data.imported":
+      // Every row was replaced: drop all cached data and refetch what is on screen.
+      void client.resetQueries();
+      break;
     case "pong":
     case "error":
       break;

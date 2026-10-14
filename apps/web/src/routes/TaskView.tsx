@@ -5,7 +5,7 @@ import { Tabs } from "radix-ui";
 import { useEffect, useState, type ReactNode } from "react";
 import { ApiError, commentOnDiff } from "../api";
 import { EmptyState } from "../components/EmptyState";
-import { CheckIcon } from "../components/icons";
+import { CheckIcon, WarnIcon } from "../components/icons";
 import { ArtifactsPanel } from "../components/task/ArtifactsPanel";
 import { ChecksPanel } from "../components/task/ChecksPanel";
 import { ContextPanel } from "../components/task/ContextPanel";
@@ -31,7 +31,7 @@ import { useTaskData, type TaskData } from "../components/task/use-task-data";
 import { uiStageIndex } from "../inbox";
 import { isPlainKey, isTypingTarget, useEscapeTo, useWindowKeydown } from "../keyboard";
 import { cn } from "../lib/utils";
-import { queryKeys, reposQuery, taskQuery } from "../query";
+import { queryKeys, reposQuery, taskQuery, taskWorktreeQuery } from "../query";
 import { resolveSelectedRepo, useSelectedRepoId } from "../selected-repo";
 import {
   TAB_LABELS,
@@ -125,6 +125,29 @@ function useTaskKeys(onKey: (key: "a" | "r" | "s") => void) {
       onKey(key);
     }
   });
+}
+
+/** Shown when the task's worktree folder is gone, e.g. after an import on another machine. */
+function MissingWorktreeNotice({ taskId }: { taskId: string }) {
+  const worktree = useQuery(taskWorktreeQuery(taskId));
+  if (!worktree.data?.path || worktree.data.exists) return null;
+  return (
+    <div className="px-5 pt-3">
+      <div
+        role="status"
+        className="flex items-start gap-3.5 rounded-lg border border-interrupted/40 bg-sidebar px-4 py-3.5"
+      >
+        <WarnIcon size="lg" className="mt-0.5 text-interrupted" />
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <span className="font-semibold text-foreground-strong">The worktree is missing</span>
+          <span className="text-[12.5px]">
+            Nothing is at <span className="mono break-all">{worktree.data.path}</span>, so the diff
+            is empty and the task cannot resume. Recreate the worktree there, or delete the task.
+          </span>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function TaskScreen({ task }: { task: Task }) {
@@ -267,6 +290,7 @@ function TaskScreen({ task }: { task: Task }) {
         action={action}
         onDelete={() => setDeleting(true)}
       />
+      <MissingWorktreeNotice taskId={task.id} />
       <TaskBanner
         task={task}
         action={action}

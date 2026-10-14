@@ -2,11 +2,14 @@ import {
   AgentNotFoundError,
   ChatActionNotFoundError,
   ConnectionNotFoundError,
+  DataArchiveTooNewError,
+  DataImportBusyError,
   DeliveryError,
   FindingNotFoundError,
   GrillQuestionNotFoundError,
   InvalidAgentError,
   InvalidConnectionError,
+  InvalidDataArchiveError,
   InvalidGateResponseError,
   InvalidRepoError,
   InvalidSettingsError,
@@ -70,11 +73,17 @@ export function errorResponse(error: unknown, c: Context) {
     error instanceof InvalidRepoError ||
     error instanceof InvalidAgentError ||
     error instanceof InvalidSettingsError ||
-    error instanceof InvalidGateResponseError
+    error instanceof InvalidGateResponseError ||
+    error instanceof InvalidDataArchiveError ||
+    error instanceof DataArchiveTooNewError
   ) {
     return c.json({ error: error.message }, 400);
   }
-  if (error instanceof RepoInUseError || error instanceof TaskStateError) {
+  if (
+    error instanceof RepoInUseError ||
+    error instanceof TaskStateError ||
+    error instanceof DataImportBusyError
+  ) {
     return c.json({ error: error.message }, 409);
   }
   if (error instanceof DeliveryError || error instanceof RepoPushError) {

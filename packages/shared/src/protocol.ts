@@ -89,6 +89,8 @@ export const serverEventSchema = z.discriminatedUnion("type", [
   envelope("quota.changed", z.object({ quota: z.array(quotaStateSchema) })),
   /** A repo's chat changed (message, activity, busy or an applied action). */
   envelope("chat.upserted", z.object({ chat: chatStateSchema })),
+  /** A data import replaced every row; clients refetch everything. */
+  envelope("data.imported", z.object({})),
 ]);
 export type ServerEvent = z.infer<typeof serverEventSchema>;
 

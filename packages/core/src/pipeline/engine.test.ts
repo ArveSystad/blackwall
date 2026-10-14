@@ -128,6 +128,7 @@ function harness(
     quota,
     removeWorkspace,
     commentOnIssue = async () => ({ url: ISSUE_COMMENT_URL }),
+    pathExists,
   }: {
     stages?: StageHandlers;
     maxPerRepo?: number;
@@ -135,6 +136,7 @@ function harness(
     quota?: Pick<QuotaTracker, "report" | "succeeded">;
     removeWorkspace?: (task: Task) => Promise<void>;
     commentOnIssue?: (task: Task, body: string) => Promise<{ url: string }>;
+    pathExists?: (path: string) => boolean;
   } = {},
 ): Harness {
   const agents = agentService();
@@ -175,6 +177,7 @@ function harness(
     maxTasksPerRepo: () => maxPerRepo,
     ...(quota ? { quota } : {}),
     ...(removeWorkspace ? { removeWorkspace } : {}),
+    ...(pathExists ? { pathExists } : {}),
     publish: (event) => events.push(event),
     log: () => undefined,
   });
@@ -909,6 +912,27 @@ describe("stop and delete", () => {
     await h.engine.delete(seeded.id);
     expect(r.tasks.get(seeded.id)).toBeUndefined();
     expect(removeWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("deletes a task whose repo folder is gone without touching git", async () => {
+    const seeded = seedTask({ worktreePath: "/gone/app.worktrees/t1" });
+    const removeWorkspace = vi.fn(async () => undefined);
+    const h = harness(() => ({}), { removeWorkspace, pathExists: () => false });
+    await h.engine.delete(seeded.id);
+    expect(r.tasks.get(seeded.id)).toBeUndefined();
+    expect(removeWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("fails a task whose worktree is missing instead of running in it", async () => {
+    const seeded = seedTask({ branch: "agent/x", worktreePath: "/gone/app.worktrees/t1" });
+    const h = harness(() => ({}), { pathExists: (path) => path !== "/gone/app.worktrees/t1" });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id).status).toBe("failed");
+    expect(task(seeded.id).error).toContain(
+      "The task's worktree is missing at /gone/app.worktrees/t1",
+    );
+    expect(h.calls).toEqual([]);
   });
 
   it("keeps a backlog item that promoted a deleted task, unlinked", async () => {

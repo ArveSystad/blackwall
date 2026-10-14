@@ -227,6 +227,25 @@ describe("chat service", () => {
     expect(() => chat.markApplied(repoId, actionId)).toThrow(ChatActionNotFoundError);
   });
 
+  it("reset aborts running answers and forgets every chat", async () => {
+    chat.send(otherRepoId, "Hi");
+    await idle(otherRepoId);
+    script = () => ({ hang: true });
+    chat.send(repoId, "Long question");
+
+    chat.reset();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(adapter.calls[1]!.options.signal?.aborted).toBe(true);
+    expect(chat.get(repoId)).toMatchObject({ busy: false, messages: [] });
+    expect(chat.get(otherRepoId).messages).toEqual([]);
+
+    // The next message starts a fresh session.
+    script = () => ({ structured: { reply: "Fresh", actions: [] } });
+    chat.send(otherRepoId, "Again");
+    await idle(otherRepoId);
+    expect(adapter.calls[2]!.options.resumeSessionId).toBeUndefined();
+  });
+
   it("throws for an unknown repo", () => {
     expect(() => chat.get("missing")).toThrow(RepoNotFoundError);
     expect(() => chat.send("missing", "Hi")).toThrow(RepoNotFoundError);

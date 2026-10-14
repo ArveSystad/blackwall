@@ -1,3 +1,5 @@
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   FindingNotFoundError,
   MissingCredentialError,
@@ -25,6 +27,7 @@ import {
   taskDiffSchema,
   taskDoneTimeSchema,
   taskSchema,
+  taskWorktreeSchema,
   type BranchDiff,
   type DiffCommentsResult,
   type GateResponseInput,
@@ -848,6 +851,30 @@ describe("new tasks", () => {
       { round: 0, from: "abc", to: "def", reviewed: true, diff: `diff for ${task.id}` },
     ]);
     expect((await request("/api/tasks/nope/diffs")).status).toBe(404);
+  });
+
+  it("reports a missing worktree, with no diffs for it", async () => {
+    const task = repositories.tasks.create({
+      title: "T",
+      origin: { kind: "free-text" },
+      repoId,
+      worktreePath: join(tmpdir(), "blackwall-missing-worktree", "t1"),
+    });
+    const worktree = await request(`/api/tasks/${task.id}/worktree`);
+    expect(taskWorktreeSchema.parse(await worktree.json())).toEqual({
+      path: task.worktreePath,
+      exists: false,
+    });
+    expect(await (await request(`/api/tasks/${task.id}/diffs`)).json()).toEqual([]);
+    expect(await (await request(`/api/tasks/${task.id}/branch-diff`)).json()).toBeNull();
+    expect(branchDiff).not.toHaveBeenCalled();
+
+    const fresh = repositories.tasks.create({ title: "U", origin: { kind: "free-text" }, repoId });
+    expect(await (await request(`/api/tasks/${fresh.id}/worktree`)).json()).toEqual({
+      path: null,
+      exists: false,
+    });
+    expect((await request("/api/tasks/nope/worktree")).status).toBe(404);
   });
 
   it("lists a task's artifacts", async () => {

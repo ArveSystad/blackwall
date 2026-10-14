@@ -1,6 +1,6 @@
 import type { Connection, ConnectionView } from "@blackwall/shared";
 import type { Repositories } from "../db/repositories.js";
-import type { SecretStore } from "./secret-store.js";
+import { SecretStoreError, type SecretStore } from "./secret-store.js";
 
 export const TOKEN_ENV_PREFIX = "BLACKWALL_TOKEN_";
 
@@ -91,6 +91,21 @@ export function createConnectionTokens({
       existing(id);
       await store.set(id, token);
       return view(connections.update(id, { tokenSet: true }));
+    },
+    /**
+     * Re-reads whether the keychain holds a token for the connection, e.g.
+     * after a data import; an unusable keychain counts as no token.
+     */
+    async refresh(id: string): Promise<ConnectionView> {
+      existing(id);
+      let tokenSet: boolean;
+      try {
+        tokenSet = (await store.get(id)) !== undefined;
+      } catch (error) {
+        if (!(error instanceof SecretStoreError)) throw error;
+        tokenSet = false;
+      }
+      return view(connections.update(id, { tokenSet }));
     },
     async delete(id: string): Promise<ConnectionView> {
       existing(id);

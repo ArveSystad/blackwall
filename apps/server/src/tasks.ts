@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import {
   DeliveryError,
   InvalidGateResponseError,
@@ -37,6 +38,7 @@ import {
   type TaskDiff,
   type TaskDoneTime,
   type TaskOrigin,
+  type TaskWorktree,
 } from "@blackwall/shared";
 import { Hono } from "hono";
 import { withoutStack } from "./backlog.js";
@@ -100,6 +102,10 @@ export interface TaskRouteServices {
   /** Images implementers saved to a task's worktree. */
   artifacts?: TaskArtifacts;
 }
+
+/** The task had a worktree that is gone, e.g. after an import on another machine. */
+const worktreeMissing = (task: Task) =>
+  task.worktreePath !== null && !existsSync(task.worktreePath);
 
 /**
  * Title for a task the form gave none and the origin could not name: a free
@@ -312,6 +318,15 @@ export function taskRoutes(
     return c.json<Finding[]>(findings.listByTask(id));
   });
 
+  /** Where the task's worktree is and whether it exists; it may be missing after an import. */
+  routes.get("/:id/worktree", (c) => {
+    const id = c.req.param("id");
+    const task = tasks.get(id);
+    if (!task) return c.json({ error: `Task ${id} not found` }, 404);
+    const path = task.worktreePath;
+    return c.json<TaskWorktree>({ path, exists: path !== null && existsSync(path) });
+  });
+
   if (runs && steps && stepEvents) {
     /** The task's pipeline runs, oldest first. */
     routes.get("/:id/runs", (c) => {
@@ -346,6 +361,7 @@ export function taskRoutes(
       const id = c.req.param("id");
       const task = tasks.get(id);
       if (!task) return c.json({ error: `Task ${id} not found` }, 404);
+      if (worktreeMissing(task)) return c.json<TaskDiff[]>([]);
       return c.json<TaskDiff[]>(await diffs(task));
     });
   }
@@ -356,6 +372,7 @@ export function taskRoutes(
       const id = c.req.param("id");
       const task = tasks.get(id);
       if (!task) return c.json({ error: `Task ${id} not found` }, 404);
+      if (worktreeMissing(task)) return c.json<BranchDiff | null>(null);
       return c.json<BranchDiff | null>(await branchDiff(task));
     });
   }

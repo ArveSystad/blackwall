@@ -275,6 +275,14 @@ describe("applyServerEvent", () => {
     expect(client.getQueryData(queryKeys.chat("r2"))).toBeUndefined();
   });
 
+  it("drops every cached query after a data import", () => {
+    client.setQueryData(queryKeys.tasks, [makeTask({ id: "t1" })]);
+    client.setQueryData(queryKeys.backlog("r1"), []);
+    applyServerEvent(client, { type: "data.imported", payload: {} });
+    expect(client.getQueryData(queryKeys.tasks)).toBeUndefined();
+    expect(client.getQueryData(queryKeys.backlog("r1"))).toBeUndefined();
+  });
+
   it("refetches the repo's backlog when one of its tasks is done", () => {
     client.setQueryData(queryKeys.backlog("r1"), []);
     applyServerEvent(client, {

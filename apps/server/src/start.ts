@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import {
   acquireDataDirLock,
   createAgentService,
@@ -8,6 +9,7 @@ import {
   createConnectionService,
   createConnectionTokens,
   createCopilotAdapter,
+  createDataService,
   createOpencodeAdapter,
   createDefaultStages,
   createDeliverer,
@@ -24,6 +26,7 @@ import {
   createWorkspaceRemover,
   detectClis,
   openDatabase,
+  sqliteOf,
 } from "@blackwall/core";
 import { parseRemoteSlug, testConnection } from "@blackwall/integrations";
 import { ROLE_STAGES, type ServerEvent, type TaskOrigin } from "@blackwall/shared";
@@ -179,6 +182,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       maxTasksPerRepo: settings.maxTasksPerRepo,
       quota,
       publish,
+      pathExists: existsSync,
     });
     // Runs before the database closes: kills the agent CLIs and marks their steps interrupted.
     shutdown.onShutdown(() => pipeline.shutdown());
@@ -202,6 +206,21 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       publish,
     });
     shutdown.onShutdown(() => chat.shutdown());
+    const data = createDataService({
+      sqlite: sqliteOf(database.db),
+      dataDir: config.dataDir,
+      repositories,
+      pipeline,
+      tokens: connectionTokens,
+      // Nothing promotes or answers while the rows are replaced; chats would refer to old data.
+      pause: async () => {
+        chat.reset();
+        await backlogRunner.stop();
+      },
+      resume: () => backlogRunner.start(),
+      publish,
+      pathExists: existsSync,
+    });
 
     const {
       launchUrl,
@@ -240,6 +259,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       chat,
       quota,
       clis: () => clis,
+      data,
       shutdown,
     });
     broadcast = send;

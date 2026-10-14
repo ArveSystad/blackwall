@@ -268,6 +268,16 @@ export function createChatService({
       });
     },
 
+    /** Aborts every running answer and forgets every chat, e.g. before a data import. */
+    reset(): void {
+      for (const entry of chats.values()) {
+        entry.generation += 1;
+        entry.controller?.abort();
+        entry.controller = null;
+      }
+      chats.clear();
+    },
+
     /** Aborts every running answer; their results are dropped. */
     shutdown(): void {
       for (const entry of chats.values()) {
