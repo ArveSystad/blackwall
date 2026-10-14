@@ -1683,3 +1683,65 @@ export const dataImportResultSchema = z.object({
   tasksMissingWorktree: z.array(z.object({ id, title: z.string(), path: z.string() })),
 });
 export type DataImportResult = z.infer<typeof dataImportResultSchema>;
+
+// ---------------------------------------------------------------------------
+// System info
+// ---------------------------------------------------------------------------
+
+/** One table's row count and on-disk size (indexes included). */
+export const systemTableStatSchema = z.object({
+  name: z.string(),
+  rows: z.number().int().nonnegative(),
+  /** Bytes from SQLite's `dbstat`; null when this SQLite build lacks it. */
+  bytes: z.number().int().nonnegative().nullable(),
+});
+export type SystemTableStat = z.infer<typeof systemTableStatSchema>;
+
+/** Facts about this install: what it stores on disk and what it runs on. */
+export const systemInfoSchema = z.object({
+  dataDir: z.string(),
+  database: z.object({
+    /** Absolute path of the database file, or `:memory:`. */
+    path: z.string(),
+    fileBytes: z.number().int().nonnegative(),
+    walBytes: z.number().int().nonnegative(),
+    shmBytes: z.number().int().nonnegative(),
+    totalBytes: z.number().int().nonnegative(),
+    /** Whether per-table sizes were available. */
+    dbstat: z.boolean(),
+    /** Largest first: by bytes, else by rows. */
+    tables: systemTableStatSchema.array(),
+    migrations: z.object({
+      applied: z.number().int().nonnegative(),
+      available: z.number().int().nonnegative(),
+      /** Tag of the newest migration shipped, e.g. `0016_repo_default_branch`. */
+      latest: z.string().nullable(),
+    }),
+  }),
+  worktrees: z.object({
+    /** Task worktrees that exist on disk. */
+    count: z.number().int().nonnegative(),
+    artifactCount: z.number().int().nonnegative(),
+    artifactBytes: z.number().int().nonnegative(),
+    /** All worktrees' size; null unless asked for, since it walks `node_modules`. */
+    totalBytes: z.number().int().nonnegative().nullable(),
+  }),
+  runningTasks: z.number().int().nonnegative(),
+  runtime: z.object({
+    /** blackwall's version from the root `package.json`; null when unreadable. */
+    version: z.string().nullable(),
+    node: z.string(),
+    platform: z.string(),
+    arch: z.string(),
+    osRelease: z.string(),
+    uptimeSeconds: z.number().nonnegative(),
+  }),
+});
+export type SystemInfo = z.infer<typeof systemInfoSchema>;
+
+/** The stats after compacting the database, and how much it shrank. */
+export const compactResultSchema = z.object({
+  info: systemInfoSchema,
+  freedBytes: z.number().int(),
+});
+export type CompactResult = z.infer<typeof compactResultSchema>;

@@ -8,6 +8,7 @@ import type {
   QuotaTracker,
   RepoService,
   SettingsService,
+  SystemService,
 } from "@blackwall/core";
 import { TOKEN_QUERY_PARAM, type CliStatus, type ServerEvent } from "@blackwall/shared";
 import { createApp } from "./app.js";
@@ -40,6 +41,7 @@ export interface StartOptions {
   quota?: Pick<QuotaTracker, "state">;
   clis?: () => Promise<CliStatus[]>;
   data?: Pick<DataService, "export" | "import">;
+  system?: Pick<SystemService, "snapshot" | "compact">;
   shutdown: Shutdown;
 }
 
@@ -70,6 +72,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     ...(options.quota ? { quota: options.quota } : {}),
     ...(options.clis ? { clis: options.clis } : {}),
     ...(options.data ? { data: options.data } : {}),
+    ...(options.system ? { system: options.system } : {}),
     ...(options.dev ? {} : { webDist: WEB_DIST }),
   });
 

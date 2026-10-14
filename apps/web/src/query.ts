@@ -8,6 +8,7 @@ import {
   getRepoSync,
   getRoleDefaults,
   getSettings,
+  getSystemInfo,
   getBranchDiff,
   getDeliveryPlan,
   getTask,
@@ -61,6 +62,7 @@ export const queryKeys = {
   tags: ["tags"] as const,
   settings: ["settings"] as const,
   clis: ["clis"] as const,
+  system: ["system"] as const,
   /** Every repo's backlog; `backlog.changed` invalidates one repo's by prefix. */
   backlogs: ["backlog"] as const,
   backlog: (repoId: string) => ["backlog", repoId] as const,
@@ -160,6 +162,11 @@ export const clisQuery = queryOptions({
   queryKey: queryKeys.clis,
   queryFn: listClis,
   staleTime: Infinity,
+});
+
+export const systemQuery = queryOptions({
+  queryKey: queryKeys.system,
+  queryFn: () => getSystemInfo(),
 });
 
 export const tagsQuery = queryOptions({ queryKey: queryKeys.tags, queryFn: listTags });

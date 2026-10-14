@@ -8,6 +8,7 @@ export const SETTINGS_SECTIONS = [
   { id: "backlog", label: "Backlog" },
   { id: "notifications", label: "Notifications" },
   { id: "data", label: "Data" },
+  { id: "system", label: "System" },
 ] as const;
 
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]["id"];

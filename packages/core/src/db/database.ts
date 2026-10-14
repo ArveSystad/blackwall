@@ -12,7 +12,8 @@ export const DB_FILENAME = "blackwall.db";
 /** Generated SQL migrations, relative to this file in both `src/` and `dist/`. */
 export const MIGRATIONS_DIR = fileURLToPath(new URL("../../drizzle", import.meta.url));
 
-export type Db = BetterSQLite3Database<typeof schema>;
+/** Drizzle over the raw better-sqlite3 handle (`$client`), as `drizzle()` returns it. */
+export type Db = BetterSQLite3Database<typeof schema> & { $client: Database.Database };
 
 export interface OpenedDatabase {
   db: Db;

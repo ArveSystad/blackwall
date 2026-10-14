@@ -12,6 +12,7 @@ import {
   branchDiffSchema,
   chatStateSchema,
   cliStatusSchema,
+  compactResultSchema,
   connectionTestResultSchema,
   connectionViewSchema,
   dataImportResultSchema,
@@ -38,6 +39,7 @@ import {
   staleRepoSchema,
   stepEventSchema,
   stepSchema,
+  systemInfoSchema,
   tagListInputSchema,
   taskArtifactSchema,
   taskWorktreeSchema,
@@ -54,6 +56,7 @@ import {
   type BranchDiff,
   type ChatState,
   type CliStatus,
+  type CompactResult,
   type ConnectionInput,
   type ConnectionTestResult,
   type RepoSync,
@@ -71,6 +74,7 @@ import {
   type GrillAnswerResult,
   type GrillQuestion,
   type HealthResponse,
+  type SystemInfo,
   type MissingCredential,
   type NewBacklogItemInput,
   type NewTaskInput,
@@ -543,6 +547,16 @@ export function setRoleDefaults(roles: RoleAgents): Promise<RoleAgents> {
 /** Agent CLIs found on PATH at server start, with their versions. */
 export function listClis(): Promise<CliStatus[]> {
   return request("/api/clis", cliStatusSchema.array());
+}
+
+/** Database, disk and runtime facts; `worktreeSizes` also walks every worktree (slow). */
+export function getSystemInfo(worktreeSizes = false): Promise<SystemInfo> {
+  return request("/api/system" + (worktreeSizes ? "?worktreeSizes=1" : ""), systemInfoSchema);
+}
+
+/** VACUUMs the database; refused (409) while a task is running. */
+export function compactDatabase(): Promise<CompactResult> {
+  return request("/api/system/compact", compactResultSchema, { method: "POST" });
 }
 
 export function listTags(): Promise<string[]> {

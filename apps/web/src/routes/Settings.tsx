@@ -8,6 +8,7 @@ import { DataSection } from "../components/settings/DataSection";
 import { DefaultsSection } from "../components/settings/DefaultsSection";
 import { NotificationsSection } from "../components/settings/NotificationsSection";
 import { RepositoriesSection } from "../components/settings/RepositoriesSection";
+import { SystemSection } from "../components/settings/SystemSection";
 import { TagsSection } from "../components/settings/TagsSection";
 import { StatusBadge } from "../components/StatusBadge";
 import { Button } from "../components/ui/button";
@@ -64,6 +65,8 @@ function SectionBody({ section }: { section: SettingsSection }) {
       return <NotificationsSection />;
     case "data":
       return <DataSection />;
+    case "system":
+      return <SystemSection />;
   }
 }
 

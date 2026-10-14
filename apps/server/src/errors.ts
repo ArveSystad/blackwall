@@ -4,6 +4,7 @@ import {
   ConnectionNotFoundError,
   DataArchiveTooNewError,
   DataImportBusyError,
+  DatabaseBusyError,
   DeliveryError,
   FindingNotFoundError,
   GrillQuestionNotFoundError,
@@ -82,7 +83,8 @@ export function errorResponse(error: unknown, c: Context) {
   if (
     error instanceof RepoInUseError ||
     error instanceof TaskStateError ||
-    error instanceof DataImportBusyError
+    error instanceof DataImportBusyError ||
+    error instanceof DatabaseBusyError
   ) {
     return c.json({ error: error.message }, 409);
   }

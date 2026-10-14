@@ -17,6 +17,7 @@ import type {
   QuotaTracker,
   RepoService,
   SettingsService,
+  SystemService,
 } from "@blackwall/core";
 import { Hono } from "hono";
 import { agentRoutes } from "./agents.js";
@@ -31,6 +32,7 @@ import { issueRoutes, pullRequestRoutes } from "./github.js";
 import { quotaRoutes } from "./quota.js";
 import { repoRoutes } from "./repos.js";
 import { settingsRoutes, tagRoutes } from "./settings.js";
+import { systemRoutes } from "./system.js";
 import {
   taskRoutes,
   type TaskPipeline,
@@ -68,6 +70,8 @@ export interface AppOptions {
   clis?: () => Promise<CliStatus[]>;
   /** Data export and import; omit to leave the data routes out (e.g. in tests). */
   data?: Pick<DataService, "export" | "import">;
+  /** Database and disk stats and compacting; omit to leave the system routes out (e.g. in tests). */
+  system?: Pick<SystemService, "snapshot" | "compact">;
 }
 
 function send(ws: { send(data: string): void }, event: ServerEvent): void {
@@ -98,6 +102,7 @@ export function createApp({
   quota,
   clis,
   data,
+  system,
 }: AppOptions): CreatedApp {
   const app = new Hono();
   const { upgradeWebSocket, injectWebSocket, wss } = createNodeWebSocket({ app });
@@ -148,6 +153,7 @@ export function createApp({
   if (clis) app.route("/api/clis", cliRoutes(clis));
   if (quota) app.route("/api/quota", quotaRoutes(quota));
   if (data) app.route("/api/data", dataRoutes(data));
+  if (system) app.route("/api/system", systemRoutes({ system }));
 
   app.all("/api/*", (c) => c.json({ error: "not found" }, 404));
 

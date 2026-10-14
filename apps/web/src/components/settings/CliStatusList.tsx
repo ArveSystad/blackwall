@@ -30,30 +30,35 @@ function CliRow({ status }: { status: CliStatus }) {
   );
 }
 
+/** The detected CLIs with their versions, or the loading or error state. */
+export function CliStatusRows() {
+  const clis = useQuery(clisQuery);
+  return clis.isPending ? (
+    <p className="m-0 py-1 text-meta text-muted-foreground">Checking installed CLIs…</p>
+  ) : clis.isError ? (
+    <ErrorText className="py-1">{clis.error.message}</ErrorText>
+  ) : (
+    <>
+      <ul className="m-0 list-none p-0">
+        {clis.data.map((status) => (
+          <CliRow key={status.cli} status={status} />
+        ))}
+      </ul>
+      {clis.data.some((status) => !status.installed) && (
+        <p className="m-0 pt-1 text-meta text-muted-foreground">
+          Agents on a missing CLI cannot run. Install it, log in, then restart blackwall.
+        </p>
+      )}
+    </>
+  );
+}
+
 /** Which agent CLIs the server found on PATH at startup, and their versions. */
 export function CliStatusList() {
-  const clis = useQuery(clisQuery);
   return (
     <section aria-label="Agent CLIs" className="mt-auto border-t border-border px-3.5 py-2.5">
       <h2 className="label m-0 mb-1 text-muted-foreground">Agent CLIs</h2>
-      {clis.isPending ? (
-        <p className="m-0 py-1 text-meta text-muted-foreground">Checking installed CLIs…</p>
-      ) : clis.isError ? (
-        <ErrorText className="py-1">{clis.error.message}</ErrorText>
-      ) : (
-        <>
-          <ul className="m-0 list-none p-0">
-            {clis.data.map((status) => (
-              <CliRow key={status.cli} status={status} />
-            ))}
-          </ul>
-          {clis.data.some((status) => !status.installed) && (
-            <p className="m-0 pt-1 text-meta text-muted-foreground">
-              Agents on a missing CLI cannot run. Install it, log in, then restart blackwall.
-            </p>
-          )}
-        </>
-      )}
+      <CliStatusRows />
     </section>
   );
 }

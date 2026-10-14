@@ -20,6 +20,7 @@ import {
   createRepoService,
   createRepositories,
   createSettingsService,
+  createSystemService,
   createTaskArtifacts,
   createTaskDiffs,
   createWorkspacePreparer,
@@ -260,6 +261,11 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       quota,
       clis: () => clis,
       data,
+      system: createSystemService({
+        dataDir: config.dataDir,
+        db: database.db,
+        tasks: repositories.tasks,
+      }),
       shutdown,
     });
     broadcast = send;
