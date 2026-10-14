@@ -1,5 +1,6 @@
 // `pnpm desktop`: builds the workspace when its output is missing or stale (like `pnpm start`),
 // then runs the Electron shell in apps/desktop. Electron forks the server on the system Node.
+// Arguments are passed to the shell (`pnpm desktop:shortcut` adds `--create-shortcut`).
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
@@ -17,7 +18,7 @@ const electron = createRequire(join(DESKTOP, "package.json"))("electron");
 const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE;
 
-const child = spawn(electron, [DESKTOP], { stdio: "inherit", env });
+const child = spawn(electron, [DESKTOP, ...process.argv.slice(2)], { stdio: "inherit", env });
 // Ctrl+C reaches Electron too, which stops the server; wait for it instead of exiting first.
 const ignore = () => undefined;
 process.on("SIGINT", ignore);

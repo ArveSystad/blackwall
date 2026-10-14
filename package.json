@@ -19,6 +19,7 @@
     "format:check": "prettier --check .",
     "start": "node scripts/start.js",
     "desktop": "node scripts/desktop.js",
+    "desktop:shortcut": "node scripts/desktop.js --create-shortcut",
     "clean": "tsc -b --clean && pnpm -r exec node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "devDependencies": {

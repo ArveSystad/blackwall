@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "main": "dist/main.js",
+  "main": "launch.js",
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b"

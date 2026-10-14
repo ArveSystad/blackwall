@@ -74,7 +74,12 @@ function build() {
     console.error("Build failed; not starting blackwall.");
     process.exit(result.status ?? 1);
   }
-  writeFileSync(join(ROOT, STAMP), `${new Date().toISOString()}\n`);
+  markBuilt();
+}
+
+/** Records a successful build, so later launches only rebuild when sources change again. */
+export function markBuilt(root = ROOT) {
+  writeFileSync(join(root, STAMP), `${new Date().toISOString()}\n`);
 }
 
 /** Builds the workspace when its output is missing or stale; exits the process if the build fails. */

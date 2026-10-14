@@ -82,7 +82,8 @@ For headless use, set `BLACKWALL_TOKEN_<CONNECTION>` to override a connection's 
 ## Desktop app
 
 ```sh
-pnpm desktop        # builds if output is missing or stale, then opens blackwall in its own window
+pnpm desktop            # builds if output is missing or stale, then opens blackwall in its own window
+pnpm desktop:shortcut   # Windows: adds a Start Menu shortcut you can pin to the taskbar
 ```
 
 The desktop app is an Electron window around the same server that draws its own title bar that follows the theme, run from a source checkout after `pnpm install`. There are no installers yet.
@@ -90,6 +91,7 @@ The desktop app is an Electron window around the same server that draws its own 
 - **Requirements:** everything browser mode needs. Node.js 22+ must be on `PATH`, because the server runs on your system Node, not Electron's. On macOS and Linux the app reads `PATH` from your login shell, so CLIs installed by a version manager are found even when launched from Finder or a desktop launcher.
 - **Port:** 4712 (`BLACKWALL_DESKTOP_PORT` overrides it). The port stays fixed so the theme and selected repo are kept between launches. `BLACKWALL_PORT` and `BLACKWALL_WEB_PORT` are ignored in desktop mode.
 - **Data:** the same data directory as browser mode (`~/.blackwall/`, or `BLACKWALL_HOME`). Only one instance can use a data directory at a time, so `pnpm desktop` refuses to start while `pnpm start` is running on the same one, and the other way round.
+- **Taskbar shortcut (Windows):** `pnpm desktop:shortcut` adds blackwall to the Start Menu with its icon. Right-click it there and pick Pin to taskbar. Launching from it rebuilds first when the sources have changed, just like `pnpm desktop`, and shows a small "Building" window while it does. If blackwall is already running it brings that window forward instead.
 - **Tray and badge:** the tray icon opens the window and holds Quit. The number of tasks that need you shows on the dock or taskbar icon and in the tray tooltip.
 - **Quitting:** closing the window, Quit in the tray or the app menu all ask before quitting, and say how many agents are running. Confirming stops those agents the same way Ctrl+C does for `pnpm start`, so their steps resume on the next launch.
 
