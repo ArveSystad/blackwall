@@ -367,6 +367,40 @@
   }
 }
 
+@keyframes bw-supernova {
+  0% {
+    transform: scale(0.04);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
+@keyframes bw-supernova-core {
+  0% {
+    transform: scale(0.6);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+}
+
+/* 56px out = 2 × DOT_SPACING (agent-dots.ts). */
+@keyframes bw-supernova-spark {
+  0% {
+    transform: rotate(var(--spark-angle)) translateY(-6px) scaleY(0.3);
+    opacity: var(--spark-peak, 1);
+  }
+  100% {
+    transform: rotate(var(--spark-angle)) translateY(-56px) scaleY(1);
+    opacity: 0;
+  }
+}
+
 @keyframes bw-assigned-flash {
   0% {
     opacity: 1;
@@ -842,6 +876,107 @@
     --boom-color: var(--st-failed);
   }
 
+  /* ---------- done supernova (GridAgents.tsx) ----------
+   * One green burst as a task turns done: a core flash, a wide ring and spark
+   * streaks along the grid lines (four orthogonal, four shorter, dimmer
+   * diagonals), drawn under the dot, which is already its calm done pulse.
+   * Every part rests and ends transparent, so a burst staggered through
+   * --supernova-delay (set inline) never shows early and leaves only the dot.
+   * useSupernovas drops it after SUPERNOVA_MS (agent-dots.ts): 1.2s here.
+   * Under reduced motion only a static core shows, and it is dropped after
+   * SUPERNOVA_FLASH_MS (300ms). Change them together.
+   */
+  .bw-supernova {
+    position: absolute;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+  }
+
+  .bw-supernova::before,
+  .bw-supernova::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    border-radius: 50%;
+    opacity: 0;
+  }
+
+  .bw-supernova::before {
+    width: 16px;
+    height: 16px;
+    margin: -8px 0 0 -8px;
+    background: var(--st-done);
+    box-shadow: 0 0 12px color-mix(in oklab, var(--st-done) 80%, transparent);
+    animation: bw-supernova-core 150ms ease-out var(--supernova-delay, 0ms) forwards;
+  }
+
+  .bw-supernova::after {
+    width: 240px;
+    height: 240px;
+    margin: -120px 0 0 -120px;
+    border: 1px solid var(--st-done);
+    box-shadow: 0 0 10px color-mix(in oklab, var(--st-done) 60%, transparent);
+    animation: bw-supernova 1.2s ease-out var(--supernova-delay, 0ms) forwards;
+  }
+
+  .bw-supernova-spark {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 2px;
+    height: 14px;
+    margin-left: -1px;
+    transform-origin: 50% 100%;
+    background: linear-gradient(to top, transparent, var(--st-done));
+    opacity: 0;
+    animation: bw-supernova-spark 700ms ease-out var(--supernova-delay, 0ms) forwards;
+  }
+
+  .bw-supernova-spark:nth-child(1) {
+    --spark-angle: 0deg;
+  }
+
+  .bw-supernova-spark:nth-child(2) {
+    --spark-angle: 90deg;
+  }
+
+  .bw-supernova-spark:nth-child(3) {
+    --spark-angle: 180deg;
+  }
+
+  .bw-supernova-spark:nth-child(4) {
+    --spark-angle: 270deg;
+  }
+
+  .bw-supernova-spark:nth-child(n + 5) {
+    height: 8px;
+    --spark-peak: 0.55;
+  }
+
+  .bw-supernova-spark:nth-child(5) {
+    --spark-angle: 45deg;
+  }
+
+  .bw-supernova-spark:nth-child(6) {
+    --spark-angle: 135deg;
+  }
+
+  .bw-supernova-spark:nth-child(7) {
+    --spark-angle: 225deg;
+  }
+
+  .bw-supernova-spark:nth-child(8) {
+    --spark-angle: 315deg;
+  }
+
+  /* Glow is dark only. */
+  :root[data-theme="light"] .bw-supernova::before,
+  :root[data-theme="light"] .bw-supernova::after {
+    box-shadow: none;
+  }
+
   /* ---------- assigned boom (CountPill.tsx) ----------
    * One big yellow boom as a home pill's count rises from zero (new work
    * assigned): a wide, bright bloom and a large ring from the pill's centre,
@@ -986,6 +1121,16 @@
     .bw-assigned-flash,
     .bw-launch {
       display: none;
+    }
+
+    /* A static core flash only; useSupernovas drops it after SUPERNOVA_FLASH_MS. */
+    .bw-supernova::after,
+    .bw-supernova-spark {
+      display: none;
+    }
+
+    .bw-supernova::before {
+      opacity: 1;
     }
   }
 }

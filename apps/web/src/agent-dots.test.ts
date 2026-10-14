@@ -2,6 +2,7 @@ import type { ActiveAgentStep, Stage } from "@blackwall/shared";
 import { describe, expect, it } from "vitest";
 import {
   DOT_SPACING,
+  doneTransitions,
   dotPosition,
   gridDots,
   layoutDots,
@@ -12,6 +13,10 @@ import {
   runningLabel,
   runningTaskCount,
   stageChanges,
+  statusMap,
+  SUPERNOVA_FLASH_MS,
+  SUPERNOVA_MS,
+  supernovaLifetimeMs,
   type GridDot,
 } from "./agent-dots";
 import { makeTask } from "./test-fixtures";
@@ -317,6 +322,51 @@ describe("stageChanges", () => {
     expect(stageChanges(new Map([[task.id, "inform"]]), [task])).toEqual([]);
     expect(stageChanges(new Map([[task.id, "plan-review"]]), [task])).toEqual([task.id]);
     expect(stageChanges(new Map([[task.id, null]]), [task])).toEqual([task.id]);
+  });
+});
+
+describe("doneTransitions", () => {
+  it("reports a known running task that is now done", () => {
+    const running = makeTask({ status: "running" });
+    const done = { ...running, status: "done" as const };
+    expect(doneTransitions(statusMap([running]), [done])).toEqual([running.id]);
+  });
+
+  it("reports it once: the next snapshot of the same done task is quiet", () => {
+    const done = makeTask({ status: "done" });
+    expect(doneTransitions(statusMap([done]), [done])).toEqual([]);
+  });
+
+  it("is quiet on a first snapshot seeded from tasks already done, as on reload", () => {
+    const tasks = [makeTask({ status: "done" }), makeTask({ status: "done" })];
+    expect(doneTransitions(statusMap(tasks), tasks)).toEqual([]);
+  });
+
+  it("ignores a task first seen already done", () => {
+    expect(doneTransitions(new Map(), [makeTask({ status: "done" })])).toEqual([]);
+  });
+
+  it("reports needs-you and failed tasks that turn done", () => {
+    const needs = makeTask({ status: "needs-you", gate: "plan-approval" });
+    const failed = makeTask({ status: "failed", error: "boom" });
+    const prev = statusMap([needs, failed]);
+    const next = [needs, failed].map((t) => ({ ...t, status: "done" as const }));
+    expect(doneTransitions(prev, next)).toEqual([needs.id, failed.id]);
+  });
+
+  it("keeps tasks order for a batch, which sets the stagger", () => {
+    const a = makeTask({ status: "running" });
+    const b = makeTask({ status: "running" });
+    const prev = statusMap([a, b]);
+    const next = [b, a].map((t) => ({ ...t, status: "done" as const }));
+    expect(doneTransitions(prev, next)).toEqual([b.id, a.id]);
+  });
+});
+
+describe("supernovaLifetimeMs", () => {
+  it("is the full burst, or the short flash under reduced motion", () => {
+    expect(supernovaLifetimeMs(false)).toBe(SUPERNOVA_MS);
+    expect(supernovaLifetimeMs(true)).toBe(SUPERNOVA_FLASH_MS);
   });
 });
 

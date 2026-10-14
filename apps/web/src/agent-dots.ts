@@ -212,3 +212,35 @@ export function stageChanges(
 ): string[] {
   return tasks.filter((t) => prev.has(t.id) && prev.get(t.id) !== t.stage).map((t) => t.id);
 }
+
+/** Each task's status, by id: the snapshot `doneTransitions` compares against. */
+export function statusMap(tasks: Iterable<Task>): Map<string, Task["status"]> {
+  return new Map([...tasks].map((task) => [task.id, task.status]));
+}
+
+/**
+ * Ids of the tasks, in `tasks` order, that are done now and were seen before
+ * with another status; first sightings do not count, so a task that arrives
+ * done never bursts.
+ */
+export function doneTransitions(
+  prev: ReadonlyMap<string, Task["status"]>,
+  tasks: readonly Task[],
+): string[] {
+  return tasks
+    .filter((t) => t.status === "done" && prev.has(t.id) && prev.get(t.id) !== "done")
+    .map((t) => t.id);
+}
+
+/**
+ * Mirror `.bw-supernova` in styles.css: the burst's length, its static flash
+ * under reduced motion, and the step between bursts of one snapshot.
+ */
+export const SUPERNOVA_MS = 1200;
+export const SUPERNOVA_FLASH_MS = 300;
+export const SUPERNOVA_STAGGER_MS = 80;
+
+/** How long a supernova stays mounted after its delay: a short flash under reduced motion. */
+export function supernovaLifetimeMs(reduced: boolean): number {
+  return reduced ? SUPERNOVA_FLASH_MS : SUPERNOVA_MS;
+}

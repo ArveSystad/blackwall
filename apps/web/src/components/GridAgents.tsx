@@ -20,6 +20,7 @@ import { GATE_REASONS, STAGE_LABELS, currentActivity, isStoppedByUser } from "..
 import { AgentTile } from "./AgentTile";
 import type { ArchiveLaunches } from "./use-archive-launches";
 import { useResumeBursts } from "./use-resume-bursts";
+import { useSupernovas } from "./use-supernovas";
 
 const STATE_LABELS: Record<GridDot["state"], string> = {
   running: "running",
@@ -33,6 +34,9 @@ const STATE_LABELS: Record<GridDot["state"], string> = {
 /** Card width and the margin it keeps from the overlay's edges and the dot. */
 const CARD_WIDTH = 288;
 const CARD_MARGIN = 8;
+
+/** A supernova's spark streaks; styles.css angles each by its position. */
+const SPARKS = [0, 1, 2, 3, 4, 5, 6, 7];
 
 /** Left edge of a card of `width` above a dot at `x`: right of it if it fits, else left, else the roomier side, kept inside. */
 function cardLeft(x: number, width: number, overlayWidth: number): number {
@@ -257,7 +261,10 @@ function AgentDot({
  * every done dot at once through the same `launch`. Interrupted and failed tasks wait as
  * still gray and red dots; Ctrl+click resumes or retries one through
  * `useResumeBursts`, which booms it cyan once (`.bw-revive`, red when the
- * request fails) and rings it faintly until it runs. Lay it over
+ * request fails) and rings it faintly until it runs. A task turning done
+ * bursts green once through `useSupernovas` (`.bw-supernova`: a core flash, a
+ * wide ring and sparks along the grid lines) before it settles into its calm
+ * dot. Lay it over
  * `GridBackdrop` in a `relative` parent.
  */
 export function GridAgents({
@@ -287,6 +294,7 @@ export function GridAgents({
     [dots, size],
   );
   const revive = useResumeBursts(tasks);
+  const supernovas = useSupernovas(tasks);
   // Lets the inbox's Archive all done launch each done dot (one per task) from its spot.
   const { setLocate } = launch;
   useEffect(() => {
@@ -358,6 +366,28 @@ export function GridAgents({
                   className={cn("bw-boom bw-revive", tone === "failed" && "bw-revive-failed")}
                   style={{ left: spot.x, top: spot.y }}
                 />
+              );
+            })}
+            {/* Done supernovas; prefixed keys, so they never collide with the looping booms. */}
+            {[...supernovas].map(([taskId, { batch, delayMs }]) => {
+              const spot = layout.get(`${taskId}:0`);
+              if (!spot || launch.launches.has(taskId)) return null;
+              return (
+                <span
+                  key={`supernova:${taskId}:${batch}`}
+                  className="bw-supernova"
+                  style={
+                    {
+                      left: spot.x,
+                      top: spot.y,
+                      "--supernova-delay": `${delayMs}ms`,
+                    } as CSSProperties
+                  }
+                >
+                  {SPARKS.map((spark) => (
+                    <span key={spark} className="bw-supernova-spark" />
+                  ))}
+                </span>
               );
             })}
           </div>

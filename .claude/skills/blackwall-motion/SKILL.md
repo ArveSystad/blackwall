@@ -22,13 +22,14 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
 1. `apps/web/src/styles.css`: the `--animate-*` tokens in `@theme inline`, the `@keyframes bw-*`
    rules after it, and the commented `.bw-*` blocks in `@layer components` (`bw-grid*` for
    GridBackdrop.tsx, `.bw-stream` for TaskHeader.tsx, `.bw-laser`, `.bw-boom`,
-   `.bw-revive`/`.bw-revive-failed` and `.bw-launch` for GridAgents.tsx, `.bw-assigned`/
+   `.bw-revive`/`.bw-revive-failed`, `.bw-supernova` and `.bw-launch` for GridAgents.tsx, `.bw-assigned`/
    `.bw-assigned-flash` for CountPill.tsx, `.bw-running*` for RunningHeadline.tsx).
 2. `.claude/skills/blackwall-design/SKILL.md` § Color semantics / Rules: the state-only rule and its
    two decorative exceptions (GridBackdrop, Stats).
 3. Reference code: `apps/web/src/components/GridBackdrop.tsx`, `apps/web/src/components/GridAgents.tsx`,
    `apps/web/src/components/RunningHeadline.tsx`, `apps/web/src/routes/Stats.tsx`, `apps/web/src/routes/Backlog.tsx`, `apps/web/src/agent-dots.ts`,
    `apps/web/src/components/use-archive-launches.ts`, `apps/web/src/components/use-resume-bursts.ts`,
+   `apps/web/src/components/use-supernovas.ts`,
    `apps/web/src/components/use-count-boom.ts` (detects the rise during render and keeps its timer in
    a `[boom]` effect, so StrictMode's effect replay can't strand it).
 
@@ -54,6 +55,8 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
    mid-flight, goes into the components-layer `@media (prefers-reduced-motion: reduce)`
    `display: none` list next to `.bw-laser`, `.bw-boom`, `.bw-assigned-flash` and `.bw-launch`
    (modifiers of `.bw-boom`, e.g. `.bw-revive` and `.bw-assigned`, inherit it and need no entry).
+   `.bw-supernova` is the exception: it keeps a static core (`::before` at `opacity: 1`) and hides
+   only its ring and sparks, and JS shortens its lifetime to a brief flash.
 7. If a duration or delay is mirrored elsewhere (another CSS rule or a TS constant), state the
    pairing in the CSS comment and next to the constant.
 8. Run the Checks.
@@ -75,7 +78,9 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
   - JS timeouts that mirror a CSS duration and drop the element (reduced motion turns the
     animation off, so no `animationend`): `.bw-launch` 900ms ↔ `LAUNCH_MS` in
     `use-archive-launches.ts`; `.bw-revive` 1.2s ↔ `REVIVE_MS` (1200) in `use-resume-bursts.ts`;
-    `.bw-assigned`/`.bw-assigned-flash` 2.4s ↔ `ASSIGNED_BOOM_MS` (2400) in `count-boom.ts`.
+    `.bw-assigned`/`.bw-assigned-flash` 2.4s ↔ `ASSIGNED_BOOM_MS` (2400) in `count-boom.ts`;
+    `.bw-supernova` 1.2s ↔ `SUPERNOVA_MS` (1200), its reduced-motion flash ↔ `SUPERNOVA_FLASH_MS`
+    (300) and its 80ms stagger (`--supernova-delay`) ↔ `SUPERNOVA_STAGGER_MS`, all in `agent-dots.ts`.
 - Booms: `.bw-boom` modifiers set `--boom-color`, `--boom-size` and `--boom-strength` (bloom
   opacity, 22% by default; `.bw-assigned` uses 55%). A large boom must sit inside a
   `pointer-events-none absolute inset-0 overflow-hidden` layer, never directly in a scroll container,
@@ -83,11 +88,13 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
 - Retrigger a one-shot by changing its React `key` (a counter or timestamp) so it remounts, as in
   `GridAgents.tsx` (`<span key={lasers} className="bw-laser" />`), `Backlog.tsx`
   (`<span key={note.at} className="animate-pushed-glow">`) and the `GridAgents.tsx` revive booms
-  (``key={`revive:${taskId}:${count}`}``, `use-resume-bursts.ts`). Never toggle classes with timers.
+  (``key={`revive:${taskId}:${count}`}``, `use-resume-bursts.ts`) and supernovas
+  (``key={`supernova:${taskId}:${batch}`}``, `use-supernovas.ts`). Never toggle classes with timers.
   A resume booms cyan; if the request fails, `bump` raises `count` and sets tone `failed`, so the new
   key remounts the boom red (`.bw-revive-failed`, `--st-failed`) instead of recolouring one still
   playing. Prefix one-shot keys (`revive:`) when they share a container with keyed looping elements
-  (`.bw-boom`, keyed by `dot.key`), so the keys never collide.
+  (`.bw-boom`, keyed by `dot.key`), so the keys never collide. Effects fired by a tasks change (lasers,
+  supernovas) treat the first tasks snapshot as a seed only, so a reload never fires them.
 - Mount-only animations follow `animate-bar-grow` (Stats.tsx: `origin-bottom animate-bar-grow`):
   fill mode `both`, set `transform-origin`, and don't animate later value changes.
 - GridBackdrop:
