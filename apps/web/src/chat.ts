@@ -1,6 +1,8 @@
 import {
   CHAT_CLEAR_COMMAND,
+  MAX_TITLE_CHARS,
   type ChatAction,
+  type ChatActionProposal,
   type ChatMessage,
   type Task,
 } from "@blackwall/shared";
@@ -285,4 +287,28 @@ export function freshMessageIds(
   seen: ReadonlySet<string>,
 ): string[] {
   return messages.filter((m) => !seen.has(m.id)).map((m) => m.id);
+}
+
+/**
+ * The `create-task` card "Turn into task" adds to an assistant reply: the reply's first line,
+ * without a heading marker, as title and the whole reply as description. Null for a blank reply.
+ */
+export function turnIntoTaskProposal(
+  message: ChatMessage,
+): Extract<ChatActionProposal, { kind: "create-task" }> | null {
+  const description = message.text.trim();
+  if (!description) return null;
+  const firstLine = description.split("\n").find((line) => line.trim() !== "") ?? "";
+  const line = firstLine.replace(/^\s*#{1,6}\s+/, "").trim();
+  const capped = line.length > MAX_TITLE_CHARS ? `${line.slice(0, MAX_TITLE_CHARS - 1)}…` : line;
+  return { kind: "create-task", title: capped || "Untitled task", description };
+}
+
+/** Whether "Turn into task" shows: a non-blank reply without a card for the same text yet. */
+export function canTurnIntoTask(message: ChatMessage): boolean {
+  const proposal = turnIntoTaskProposal(message);
+  if (!proposal) return false;
+  return !message.actions.some(
+    (a) => a.kind === "create-task" && a.description === proposal.description,
+  );
 }

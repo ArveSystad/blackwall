@@ -1,74 +1,227 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<title>blackwall · first run</title>
-<script src="./support.js"></script>
-<link rel="stylesheet" href="./bw.css">
-</head>
-<body>
-<x-dc>
-<helmet>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500;600&amp;family=Chakra+Petch:wght@500;600&amp;display=swap" rel="stylesheet">
-<style>body{margin:0}</style>
-</helmet>
-<div class="bw" data-theme="{{theme}}" style="height: 100vh; min-height: 760px; display: flex; flex-wrap: wrap; overflow: hidden; background: var(--bg-0)">
-  <div style="flex: 0 1 352px; width: 352px; min-width: 0">
-    <dc-import name="Inbox" theme="{{theme}}" selected="none" empty="{{ true }}" hint-size="352px,100%"></dc-import>
-  </div>
+  <head>
+    <meta charset="utf-8" />
+    <title>blackwall · first run</title>
+    <script src="./support.js"></script>
+    <link rel="stylesheet" href="./bw.css" />
+  </head>
+  <body>
+    <x-dc>
+      <helmet>
+        <link
+          href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500;600&amp;family=Chakra+Petch:wght@500;600&amp;display=swap"
+          rel="stylesheet"
+        />
+        <style>
+          body {
+            margin: 0;
+          }
+        </style>
+      </helmet>
+      <div
+        class="bw"
+        data-theme="{{theme}}"
+        style="
+          height: 100vh;
+          min-height: 760px;
+          display: flex;
+          flex-wrap: wrap;
+          overflow: hidden;
+          background: var(--bg-0);
+        "
+      >
+        <div style="flex: 0 1 352px; width: 352px; min-width: 0">
+          <dc-import
+            name="Inbox"
+            theme="{{theme}}"
+            selected="none"
+            empty="{{ true }}"
+            hint-size="352px,100%"
+          ></dc-import>
+        </div>
 
-  <main style="flex: 999 1 560px; min-width: 0; height: 100vh; overflow: auto; display: flex; align-items: center; justify-content: center; padding: 40px 24px; background: var(--bg-0)">
-    <div style="width: 100%; max-width: 600px; display: flex; flex-direction: column; gap: 22px">
-      <div style="display: flex; flex-direction: column; gap: 8px">
-        <span class="label" style="color: var(--cyan)">First run</span>
-        <h1 style="margin: 0; font-family: var(--font-display); font-size: 28px; line-height: 34px; font-weight: 600; color: var(--fg-strong); letter-spacing: .01em">Agents work inside. Nothing crosses the wall without you.</h1>
-        <p style="margin: 0; color: var(--fg-muted)">Two things before the first task: somewhere to read work from, and a repo to work in.</p>
+        <main
+          style="
+            flex: 999 1 560px;
+            min-width: 0;
+            height: 100vh;
+            overflow: auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 24px;
+            background: var(--bg-0);
+          "
+        >
+          <div
+            style="width: 100%; max-width: 600px; display: flex; flex-direction: column; gap: 22px"
+          >
+            <div style="display: flex; flex-direction: column; gap: 8px">
+              <span class="label" style="color: var(--cyan)">First run</span>
+              <h1
+                style="
+                  margin: 0;
+                  font-family: var(--font-display);
+                  font-size: 28px;
+                  line-height: 34px;
+                  font-weight: 600;
+                  color: var(--fg-strong);
+                  letter-spacing: 0.01em;
+                "
+              >
+                Agents work inside. Nothing crosses the wall without you.
+              </h1>
+              <p style="margin: 0; color: var(--fg-muted)">
+                Two things before the first task: somewhere to read work from, and a repo to work
+                in.
+              </p>
+            </div>
+
+            <ol
+              style="
+                list-style: none;
+                margin: 0;
+                padding: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+              "
+            >
+              <li
+                class="card"
+                style="
+                  display: flex;
+                  gap: 14px;
+                  align-items: center;
+                  padding: 14px 16px;
+                  border-color: var(--cyan);
+                  box-shadow: var(--glow-cyan);
+                "
+              >
+                <span
+                  class="mono"
+                  style="
+                    width: 24px;
+                    height: 24px;
+                    border-radius: 50%;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    border: 1px solid var(--cyan);
+                    color: var(--cyan);
+                    font-size: 11px;
+                  "
+                  >1</span
+                >
+                <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                  <span class="strong" style="font-weight: 600">Add a connection</span>
+                  <span style="font-size: 12.5px; color: var(--fg-muted)"
+                    >GitHub.com, a GitHub Enterprise host, or Jira Cloud. Tokens stay on this
+                    machine.</span
+                  >
+                </div>
+                <button class="btn btn-primary" type="button">Add connection</button>
+              </li>
+              <li
+                class="card"
+                style="display: flex; gap: 14px; align-items: center; padding: 14px 16px"
+              >
+                <span
+                  class="mono"
+                  style="
+                    width: 24px;
+                    height: 24px;
+                    border-radius: 50%;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    border: 1px solid var(--border-strong);
+                    color: var(--fg-muted);
+                    font-size: 11px;
+                  "
+                  >2</span
+                >
+                <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                  <span class="strong" style="font-weight: 600">Register a repository</span>
+                  <span style="font-size: 12.5px; color: var(--fg-muted)"
+                    >Point at a local clone, or scan a folder like
+                    <span class="mono">~/code</span> and pick from what's found.</span
+                  >
+                </div>
+                <div style="display: flex; gap: 6px">
+                  <button class="btn" type="button">Scan folder</button>
+                  <button class="btn" type="button">Add repo</button>
+                </div>
+              </li>
+              <li
+                class="card"
+                style="
+                  display: flex;
+                  gap: 14px;
+                  align-items: center;
+                  padding: 14px 16px;
+                  opacity: 0.6;
+                "
+              >
+                <span
+                  class="mono"
+                  style="
+                    width: 24px;
+                    height: 24px;
+                    border-radius: 50%;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    border: 1px solid var(--border-strong);
+                    color: var(--fg-faint);
+                    font-size: 11px;
+                  "
+                  >3</span
+                >
+                <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                  <span class="strong" style="font-weight: 600">Start a task</span>
+                  <span style="font-size: 12.5px; color: var(--fg-muted)"
+                    >From a Jira key, a PR URL, or a plain prompt.</span
+                  >
+                </div>
+                <button class="btn" type="button" disabled="">
+                  New task<span class="kbd">N</span>
+                </button>
+              </li>
+            </ol>
+
+            <div
+              style="
+                display: flex;
+                flex-wrap: wrap;
+                gap: 14px;
+                font-size: 12px;
+                color: var(--fg-muted);
+              "
+            >
+              <span
+                >Agent library ships with sensible defaults; tune them in
+                <a href="Settings.dc.html">Settings</a>.</span
+              >
+              <span style="display: inline-flex; gap: 4px; align-items: center"
+                ><span class="kbd">?</span>keyboard shortcuts</span
+              >
+            </div>
+          </div>
+        </main>
       </div>
-
-      <ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px">
-        <li class="card" style="display: flex; gap: 14px; align-items: center; padding: 14px 16px; border-color: var(--cyan); box-shadow: var(--glow-cyan)">
-          <span class="mono" style="width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--cyan); color: var(--cyan); font-size: 11px">1</span>
-          <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
-            <span class="strong" style="font-weight: 600">Add a connection</span>
-            <span style="font-size: 12.5px; color: var(--fg-muted)">GitHub.com, a GitHub Enterprise host, or Jira Cloud. Tokens stay on this machine.</span>
-          </div>
-          <button class="btn btn-primary" type="button">Add connection</button>
-        </li>
-        <li class="card" style="display: flex; gap: 14px; align-items: center; padding: 14px 16px">
-          <span class="mono" style="width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border-strong); color: var(--fg-muted); font-size: 11px">2</span>
-          <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
-            <span class="strong" style="font-weight: 600">Register a repository</span>
-            <span style="font-size: 12.5px; color: var(--fg-muted)">Point at a local clone, or scan a folder like <span class="mono">~/code</span> and pick from what's found.</span>
-          </div>
-          <div style="display: flex; gap: 6px">
-            <button class="btn" type="button">Scan folder</button>
-            <button class="btn" type="button">Add repo</button>
-          </div>
-        </li>
-        <li class="card" style="display: flex; gap: 14px; align-items: center; padding: 14px 16px; opacity: .6">
-          <span class="mono" style="width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border-strong); color: var(--fg-faint); font-size: 11px">3</span>
-          <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
-            <span class="strong" style="font-weight: 600">Start a task</span>
-            <span style="font-size: 12.5px; color: var(--fg-muted)">From a Jira key, a PR URL, or a plain prompt.</span>
-          </div>
-          <button class="btn" type="button" disabled="">New task<span class="kbd">N</span></button>
-        </li>
-      </ol>
-
-      <div style="display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--fg-muted)">
-        <span>Agent library ships with sensible defaults; tune them in <a href="Settings.dc.html">Settings</a>.</span>
-        <span style="display: inline-flex; gap: 4px; align-items: center"><span class="kbd">?</span>keyboard shortcuts</span>
-      </div>
-    </div>
-  </main>
-</div>
-</x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":1440,"height":900}}'>
-class Component extends DCLogic {
-  renderVals() {
-    return { theme: this.props.theme ?? 'dark' };
-  }
-}
-</script>
-</body>
+    </x-dc>
+    <script
+      type="text/x-dc"
+      data-dc-script
+      data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":1440,"height":900}}'
+    >
+      class Component extends DCLogic {
+        renderVals() {
+          return { theme: this.props.theme ?? 'dark' };
+        }
+      }
+    </script>
+  </body>
 </html>

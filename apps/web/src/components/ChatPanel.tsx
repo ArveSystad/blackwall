@@ -17,10 +17,17 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { ApiError, createBacklogItem, markChatActionApplied, sendChat } from "../api";
+import {
+  addChatAction,
+  ApiError,
+  createBacklogItem,
+  markChatActionApplied,
+  sendChat,
+} from "../api";
 import {
   actionAvailability,
   canSendChat,
+  canTurnIntoTask,
   chatActionSummary,
   chatActionTask,
   chatWidthBounds,
@@ -33,6 +40,7 @@ import {
   setChatOpen,
   setChatWidth,
   takeChatFocusRequest,
+  turnIntoTaskProposal,
   useChatLayout,
   useViewportWidth,
   type ChatActionAvailability,
@@ -518,9 +526,41 @@ function MessageItem({
               needs={action.id === needsId}
             />
           ))}
+          {canTurnIntoTask(message) && <TurnIntoTaskButton message={message} repoId={repoId} />}
         </div>
       );
   }
+}
+
+/** Adds a pre-filled `create-task` card to an assistant reply; the card applies like any other. */
+function TurnIntoTaskButton({ message, repoId }: { message: ChatMessage; repoId: string }) {
+  const queryClient = useQueryClient();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onClick() {
+    const proposal = turnIntoTaskProposal(message);
+    if (!proposal) return;
+    setPending(true);
+    setError(null);
+    try {
+      const next = await addChatAction(repoId, message.id, proposal);
+      queryClient.setQueryData<ChatState>(queryKeys.chat(repoId), next);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-start gap-1 self-start">
+      <Button size="sm" variant="ghost" disabled={pending} onClick={() => void onClick()}>
+        {pending ? "Adding…" : "Turn into task"}
+      </Button>
+      {error && <ErrorText>{error}</ErrorText>}
+    </div>
+  );
 }
 
 /**

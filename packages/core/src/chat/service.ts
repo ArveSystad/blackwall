@@ -5,6 +5,7 @@ import {
   chatReplySchema,
   type AgentCli,
   type ChatAction,
+  type ChatActionProposal,
   type ChatMessage,
   type ChatState,
   type Repo,
@@ -29,6 +30,13 @@ export class ChatActionNotFoundError extends Error {
   constructor(readonly id: string) {
     super(`Chat action ${id} not found`);
     this.name = "ChatActionNotFoundError";
+  }
+}
+
+export class ChatMessageNotFoundError extends Error {
+  constructor(readonly id: string) {
+    super(`Chat message ${id} not found`);
+    this.name = "ChatMessageNotFoundError";
   }
 }
 
@@ -95,7 +103,9 @@ function message(role: ChatMessage["role"], text: string, actions: ChatAction[] 
  * that session cannot be resumed, the prompt carries the last
  * `historyLimit` messages instead. The agent answers with a markdown reply
  * and proposed actions; the user applies those through the existing endpoints
- * and marks them applied here. Every change is published as `chat.upserted`.
+ * and marks them applied here. The user can also add an action to an
+ * assistant message themselves (e.g. turning a reply into a task). Every
+ * change is published as `chat.upserted`.
  */
 export function createChatService({
   adapters,
@@ -315,6 +325,26 @@ export function createChatService({
           messages.setActions(m.id, actions);
           return { ...m, actions };
         }),
+      });
+    },
+
+    /**
+     * Adds an action to an assistant message, as if the agent had proposed it.
+     * Allowed while the chat answers. Throws {@link ChatMessageNotFoundError}
+     * for a message not in the chat (e.g. after `/clear`) or not from the assistant.
+     */
+    addAction(repoId: string, messageId: string, proposal: ChatActionProposal): ChatState {
+      repoOf(repoId);
+      const entry = entryFor(repoId);
+      const target = entry.state.messages.find((m) => m.id === messageId);
+      if (!target || target.role !== "assistant") throw new ChatMessageNotFoundError(messageId);
+      const actions: ChatAction[] = [
+        ...target.actions,
+        { ...proposal, id: randomUUID(), appliedAt: null },
+      ];
+      messages.setActions(target.id, actions);
+      return update(entry, {
+        messages: entry.state.messages.map((m) => (m.id === target.id ? { ...m, actions } : m)),
       });
     },
 

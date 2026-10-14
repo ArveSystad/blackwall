@@ -56,6 +56,7 @@ import {
   type BacklogItem,
   type BacklogItemView,
   type BranchDiff,
+  type ChatActionProposal,
   type ChatState,
   type CliStatus,
   type CompactResult,
@@ -516,6 +517,18 @@ export function sendChat(repoId: string, text: string): Promise<ChatState> {
 export function markChatActionApplied(repoId: string, actionId: string): Promise<ChatState> {
   return request(`${at(`${chatPath(repoId)}/actions`, actionId)}/applied`, chatStateSchema, {
     method: "POST",
+  });
+}
+
+/** Adds an action to an assistant message, e.g. to turn a reply into a task; 404 once the chat is cleared. */
+export function addChatAction(
+  repoId: string,
+  messageId: string,
+  proposal: ChatActionProposal,
+): Promise<ChatState> {
+  return request(`${at(`${chatPath(repoId)}/messages`, messageId)}/actions`, chatStateSchema, {
+    method: "POST",
+    body: proposal,
   });
 }
 

@@ -7,6 +7,7 @@ import { RepoNotFoundError } from "../repos/service.js";
 import {
   ChatActionNotFoundError,
   ChatBusyError,
+  ChatMessageNotFoundError,
   createChatService,
   type ChatService,
 } from "./service.js";
@@ -238,6 +239,50 @@ describe("chat service", () => {
     expect(() => chat.markApplied(repoId, "nope")).toThrow(ChatActionNotFoundError);
     chat.send(repoId, "/clear");
     expect(() => chat.markApplied(repoId, actionId)).toThrow(ChatActionNotFoundError);
+  });
+
+  it("adds an action to an assistant message, stores it and publishes it", async () => {
+    chat.send(repoId, "Hi");
+    const [user, assistant] = (await idle()).messages;
+    events = [];
+
+    const state = chat.addAction(repoId, assistant!.id, {
+      kind: "create-task",
+      title: "T",
+      description: "D",
+    });
+    const action = state.messages[1]!.actions[0]!;
+    expect(action).toMatchObject({ kind: "create-task", title: "T", description: "D" });
+    expect(action.id).toEqual(expect.any(String));
+    expect(action.appliedAt).toBeNull();
+    expect(events).toEqual([{ type: "chat.upserted", payload: { chat: state } }]);
+    expect(r.chatMessages.list(repoId)).toEqual(state.messages);
+
+    restart();
+    expect(chat.get(repoId).messages).toEqual(state.messages);
+    const applied = chat.markApplied(repoId, action.id);
+    expect(applied.messages[1]!.actions[0]!.appliedAt).not.toBeNull();
+
+    const proposal = { kind: "stop-task", taskId: "t1" } as const;
+    expect(() => chat.addAction(repoId, "nope", proposal)).toThrow(ChatMessageNotFoundError);
+    expect(() => chat.addAction(repoId, user!.id, proposal)).toThrow(ChatMessageNotFoundError);
+    expect(() => chat.addAction("nope", assistant!.id, proposal)).toThrow(RepoNotFoundError);
+    chat.send(repoId, "/clear");
+    expect(() => chat.addAction(repoId, assistant!.id, proposal)).toThrow(ChatMessageNotFoundError);
+  });
+
+  it("keeps an action added while a turn runs", async () => {
+    chat.send(repoId, "Hi");
+    const assistantId = (await idle()).messages[1]!.id;
+    script = () => ({ structured: { reply: "Later", actions: [] } });
+    chat.send(repoId, "More");
+    expect(chat.get(repoId).busy).toBe(true);
+
+    chat.addAction(repoId, assistantId, { kind: "create-task", title: "T", description: "D" });
+    const state = await idle();
+    expect(state.messages.map((m) => m.text)).toEqual(["Hi", "Hello", "More", "Later"]);
+    expect(state.messages[1]!.actions).toMatchObject([{ kind: "create-task", title: "T" }]);
+    expect(r.chatMessages.list(repoId)).toEqual(state.messages);
   });
 
   it("reset aborts running answers and reloads every chat from the database", async () => {

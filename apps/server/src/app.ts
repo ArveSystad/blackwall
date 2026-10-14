@@ -65,7 +65,7 @@ export interface AppOptions {
   /** Backlog stores and runner hooks; omit to leave the backlog routes out (e.g. in tests). */
   backlog?: BacklogRouteOptions;
   /** The repo chat; omit to leave the chat routes out (e.g. in tests). */
-  chat?: Pick<ChatService, "get" | "send" | "markApplied">;
+  chat?: Pick<ChatService, "get" | "send" | "markApplied" | "addAction">;
   /** Agent CLI usage limits; omit to leave the quota route out (e.g. in tests). */
   quota?: Pick<QuotaTracker, "state">;
   /** Agent CLI detection, started at launch; omit to leave the CLI route out (e.g. in tests). */

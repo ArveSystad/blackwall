@@ -1,4 +1,4 @@
-import type { ChatAction, ChatMessage } from "@blackwall/shared";
+import { MAX_TITLE_CHARS, type ChatAction, type ChatMessage } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CHAT_DEFAULT_WIDTH,
@@ -6,6 +6,7 @@ import {
   CHAT_MIN_WIDTH,
   actionAvailability,
   canSendChat,
+  canTurnIntoTask,
   chatActionSummary,
   chatWidthBounds,
   clampChatWidth,
@@ -14,6 +15,7 @@ import {
   isClearCommand,
   needsCardId,
   nextChatWidth,
+  turnIntoTaskProposal,
 } from "./chat";
 import { makeTask } from "./test-fixtures";
 
@@ -261,5 +263,43 @@ describe("freshMessageIds", () => {
     const messages = [assistant("m1", []), assistant("m2", []), assistant("m3", [])];
     expect(freshMessageIds(messages, new Set(["m1", "m3"]))).toEqual(["m2"]);
     expect(freshMessageIds(messages, new Set(["m1", "m2", "m3"]))).toEqual([]);
+  });
+});
+
+describe("turnIntoTaskProposal", () => {
+  const reply = (text: string, actions: ChatAction[] = []) => ({
+    ...assistant("m", actions),
+    text,
+  });
+
+  it("titles the task with the first line, without a heading marker", () => {
+    expect(turnIntoTaskProposal(reply("  ## Fix the bug\n\nDetails\n"))).toEqual({
+      kind: "create-task",
+      title: "Fix the bug",
+      description: "## Fix the bug\n\nDetails",
+    });
+  });
+
+  it("skips leading blank lines", () => {
+    expect(turnIntoTaskProposal(reply("\n  \n\nFirst\nSecond"))?.title).toBe("First");
+  });
+
+  it("caps a long first line", () => {
+    const title = turnIntoTaskProposal(reply("x".repeat(MAX_TITLE_CHARS + 10)))!.title;
+    expect(title).toHaveLength(MAX_TITLE_CHARS);
+    expect(title.endsWith("…")).toBe(true);
+  });
+
+  it("falls back for a bare heading marker and returns null for blank text", () => {
+    expect(turnIntoTaskProposal(reply("## \nBody"))?.title).toBe("Untitled task");
+    expect(turnIntoTaskProposal(reply("  \n "))).toBeNull();
+  });
+
+  it("is offered until a card for the same text exists", () => {
+    expect(canTurnIntoTask(reply("Do it"))).toBe(true);
+    const same = action({ kind: "create-task", title: "Do it", description: "Do it" });
+    expect(canTurnIntoTask(reply("Do it", [same]))).toBe(false);
+    const other = action({ kind: "create-task", title: "Other", description: "Other" });
+    expect(canTurnIntoTask(reply("Do it", [other]))).toBe(true);
   });
 });

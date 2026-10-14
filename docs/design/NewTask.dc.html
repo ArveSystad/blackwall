@@ -1,144 +1,430 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<title>blackwall · new task</title>
-<script src="./support.js"></script>
-<link rel="stylesheet" href="./bw.css">
-</head>
-<body>
-<x-dc>
-<helmet>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500;600&amp;family=Chakra+Petch:wght@500;600&amp;display=swap" rel="stylesheet">
-<style>body{margin:0}</style>
-</helmet>
-<div class="bw" data-theme="{{theme}}" style="position: relative; height: 100vh; min-height: 820px; overflow: hidden; background: var(--bg-0)">
-  <div aria-hidden="true" style="position: absolute; inset: 0">
-    <dc-import name="Main" theme="{{theme}}" hint-size="100%,100%"></dc-import>
-  </div>
-  <div class="scrim"></div>
-
-  <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px 16px">
-    <form class="modal" role="dialog" aria-modal="true" aria-label="New task" style="width: 100%; max-width: 680px; max-height: 100%; display: flex; flex-direction: column; overflow: hidden">
-      <div style="display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--border)">
-        <span class="strong" style="font-size: 15px; font-weight: 600">New task</span>
-        <span style="flex: 1"></span>
-        <span class="kbd">Esc</span>
-        <button class="btn btn-ghost btn-icon btn-sm" type="button" aria-label="Close"><svg class="i" viewBox="0 0 16 16"><path d="m4 4 8 8M12 4l-8 8"></path></svg></button>
-      </div>
-
-      <div style="flex: 1; min-height: 0; overflow: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 16px">
-        <div style="display: flex; flex-direction: column; gap: 8px">
-          <span class="field-label">Origin</span>
-          <div class="seg" style="align-self: flex-start">
-            <button type="button"><svg class="i i-sm" viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="2"></rect><path d="M5.5 6h5M5.5 8.5h5M5.5 11h3"></path></svg>Jira issue<span class="kbd">1</span></button>
-            <button type="button" class="on"><svg class="i i-sm" viewBox="0 0 16 16"><circle cx="4.5" cy="3.5" r="1.5"></circle><circle cx="4.5" cy="12.5" r="1.5"></circle><circle cx="11.5" cy="12.5" r="1.5"></circle><path d="M4.5 5v6M11.5 11V7a2.5 2.5 0 0 0-2.5-2.5H7M8.5 3 7 4.5 8.5 6"></path></svg>GitHub PR<span class="kbd">2</span></button>
-            <button type="button"><svg class="i i-sm" viewBox="0 0 16 16"><path d="M3 4h10M3 8h10M3 12h6"></path></svg>Blackwall<span class="kbd">3</span></button>
-          </div>
-          <label style="display: flex; flex-direction: column; gap: 6px">
-            <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Pull request URL</span>
-            <input class="input mono is-focus" type="url" value="https://github.com/acme/web/pull/914" style="font-size: 12.5px">
-          </label>
-          <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-muted)">
-            <svg class="i i-sm" viewBox="0 0 16 16" style="color: var(--st-done)"><path d="m3.5 8.5 3 3 6-7"></path></svg>
-            <span class="mono">acme/web#914</span><span>Onboarding: persist wizard progress across reloads</span><span class="faint">· open · 6 files</span>
-          </div>
+  <head>
+    <meta charset="utf-8" />
+    <title>blackwall · new task</title>
+    <script src="./support.js"></script>
+    <link rel="stylesheet" href="./bw.css" />
+  </head>
+  <body>
+    <x-dc>
+      <helmet>
+        <link
+          href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500;600&amp;family=Chakra+Petch:wght@500;600&amp;display=swap"
+          rel="stylesheet"
+        />
+        <style>
+          body {
+            margin: 0;
+          }
+        </style>
+      </helmet>
+      <div
+        class="bw"
+        data-theme="{{theme}}"
+        style="
+          position: relative;
+          height: 100vh;
+          min-height: 820px;
+          overflow: hidden;
+          background: var(--bg-0);
+        "
+      >
+        <div aria-hidden="true" style="position: absolute; inset: 0">
+          <dc-import name="Main" theme="{{theme}}" hint-size="100%,100%"></dc-import>
         </div>
+        <div class="scrim"></div>
 
-        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
-          <div style="display: flex; flex-direction: column; gap: 6px">
-            <span class="field-label">Mode</span>
-            <div class="seg" style="align-self: flex-start">
-              <button type="button" class="on">Work on PR</button>
-              <button type="button">Review PR</button>
+        <div
+          style="
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px 16px;
+          "
+        >
+          <form
+            class="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="New task"
+            style="
+              width: 100%;
+              max-width: 680px;
+              max-height: 100%;
+              display: flex;
+              flex-direction: column;
+              overflow: hidden;
+            "
+          >
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 14px 18px;
+                border-bottom: 1px solid var(--border);
+              "
+            >
+              <span class="strong" style="font-size: 15px; font-weight: 600">New task</span>
+              <span style="flex: 1"></span>
+              <span class="kbd">Esc</span>
+              <button class="btn btn-ghost btn-icon btn-sm" type="button" aria-label="Close">
+                <svg class="i" viewBox="0 0 16 16"><path d="m4 4 8 8M12 4l-8 8"></path></svg>
+              </button>
             </div>
-            <span style="font-size: 11.5px; color: var(--fg-muted)">Agents commit to the PR branch. Review PR only posts findings.</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 6px">
-            <span class="field-label">Repository</span>
-            <button class="btn" type="button" style="height: 30px; justify-content: flex-start; font-weight: 400">
-              <span class="mono" style="color: var(--fg-strong)">acme/web</span><span class="mono faint" style="font-size: 11.5px">~/code/acme/web</span>
-              <span style="flex: 1"></span><svg class="i i-sm" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"></path></svg>
-            </button>
-            <span style="font-size: 11.5px; color: var(--fg-muted)">Matched from the PR remote.</span>
-          </div>
-        </div>
 
-        <label style="display: flex; flex-direction: column; gap: 6px">
-          <span class="field-label">Context <span class="faint" style="font-weight: 400">optional</span></span>
-          <textarea class="textarea" rows="2">Reviewer wants progress kept across reloads. Use sessionStorage, not a new API endpoint.</textarea>
-        </label>
-
-        <div style="display: flex; flex-direction: column; gap: 8px">
-          <div style="display: flex; align-items: center">
-            <span class="field-label">Agents</span>
-            <span style="flex: 1"></span>
-            <button class="btn btn-sm btn-ghost" type="button">Reset to defaults</button>
-          </div>
-          <div class="card" style="background: var(--bg-2); display: flex; flex-direction: column">
-            <div style="display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border)">
-              <span class="muted" style="font-size: 12px">Planner</span>
-              <button class="btn btn-sm" type="button" style="justify-self: start"><span class="agent agent-cc">CC</span>Planner<span class="mono faint" style="font-size: 11px">opus</span><svg class="i i-sm" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"></path></svg></button>
-            </div>
-            <div style="display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border)">
-              <span class="muted" style="font-size: 12px">Plan reviewers</span>
-              <div style="display: flex; flex-wrap: wrap; gap: 4px">
-                <span class="chip" style="color: var(--fg-strong); height: 24px"><span class="agent agent-cc">CC</span>Security reviewer<button class="btn btn-ghost" type="button" aria-label="Remove" style="height: 16px; width: 16px; padding: 0; justify-content: center">×</button></span>
-                <span class="chip" style="color: var(--fg-strong); height: 24px"><span class="agent agent-cp">CP</span>Architecture reviewer<button class="btn btn-ghost" type="button" aria-label="Remove" style="height: 16px; width: 16px; padding: 0; justify-content: center">×</button></span>
-                <button class="btn btn-sm btn-ghost" type="button">+ Add</button>
+            <div
+              style="
+                flex: 1;
+                min-height: 0;
+                overflow: auto;
+                padding: 16px 18px;
+                display: flex;
+                flex-direction: column;
+                gap: 16px;
+              "
+            >
+              <div style="display: flex; flex-direction: column; gap: 8px">
+                <span class="field-label">Origin</span>
+                <div class="seg" style="align-self: flex-start">
+                  <button type="button">
+                    <svg class="i i-sm" viewBox="0 0 16 16">
+                      <rect x="2.5" y="2.5" width="11" height="11" rx="2"></rect>
+                      <path d="M5.5 6h5M5.5 8.5h5M5.5 11h3"></path></svg
+                    >Jira issue<span class="kbd">1</span>
+                  </button>
+                  <button type="button" class="on">
+                    <svg class="i i-sm" viewBox="0 0 16 16">
+                      <circle cx="4.5" cy="3.5" r="1.5"></circle>
+                      <circle cx="4.5" cy="12.5" r="1.5"></circle>
+                      <circle cx="11.5" cy="12.5" r="1.5"></circle>
+                      <path
+                        d="M4.5 5v6M11.5 11V7a2.5 2.5 0 0 0-2.5-2.5H7M8.5 3 7 4.5 8.5 6"
+                      ></path></svg
+                    >GitHub PR<span class="kbd">2</span>
+                  </button>
+                  <button type="button">
+                    <svg class="i i-sm" viewBox="0 0 16 16">
+                      <path d="M3 4h10M3 8h10M3 12h6"></path></svg
+                    >Blackwall<span class="kbd">3</span>
+                  </button>
+                </div>
+                <label style="display: flex; flex-direction: column; gap: 6px">
+                  <span
+                    style="
+                      position: absolute;
+                      width: 1px;
+                      height: 1px;
+                      overflow: hidden;
+                      clip: rect(0 0 0 0);
+                    "
+                    >Pull request URL</span
+                  >
+                  <input
+                    class="input mono is-focus"
+                    type="url"
+                    value="https://github.com/acme/web/pull/914"
+                    style="font-size: 12.5px"
+                  />
+                </label>
+                <div
+                  style="
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    font-size: 12px;
+                    color: var(--fg-muted);
+                  "
+                >
+                  <svg class="i i-sm" viewBox="0 0 16 16" style="color: var(--st-done)">
+                    <path d="m3.5 8.5 3 3 6-7"></path>
+                  </svg>
+                  <span class="mono">acme/web#914</span
+                  ><span>Onboarding: persist wizard progress across reloads</span
+                  ><span class="faint">· open · 6 files</span>
+                </div>
               </div>
-            </div>
-            <div style="display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border)">
-              <span class="muted" style="font-size: 12px">Implementer</span>
-              <button class="btn btn-sm" type="button" style="justify-self: start"><span class="agent agent-cc">CC</span>Implementer<span class="mono faint" style="font-size: 11px">sonnet</span><svg class="i i-sm" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"></path></svg></button>
-            </div>
-            <div style="display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border)">
-              <span class="muted" style="font-size: 12px">Code reviewers</span>
-              <div style="display: flex; flex-wrap: wrap; gap: 4px">
-                <span class="chip" style="color: var(--fg-strong); height: 24px"><span class="agent agent-cc">CC</span>Security reviewer<button class="btn btn-ghost" type="button" aria-label="Remove" style="height: 16px; width: 16px; padding: 0; justify-content: center">×</button></span>
-                <span class="chip" style="color: var(--fg-strong); height: 24px"><span class="agent agent-cc">CC</span>UX reviewer<button class="btn btn-ghost" type="button" aria-label="Remove" style="height: 16px; width: 16px; padding: 0; justify-content: center">×</button></span>
-                <span class="chip" style="color: var(--fg-strong); height: 24px"><span class="agent agent-cp">CP</span>Code reviewer<button class="btn btn-ghost" type="button" aria-label="Remove" style="height: 16px; width: 16px; padding: 0; justify-content: center">×</button></span>
-                <button class="btn btn-sm btn-ghost" type="button">+ Add</button>
+
+              <div
+                style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px"
+              >
+                <div style="display: flex; flex-direction: column; gap: 6px">
+                  <span class="field-label">Mode</span>
+                  <div class="seg" style="align-self: flex-start">
+                    <button type="button" class="on">Work on PR</button>
+                    <button type="button">Review PR</button>
+                  </div>
+                  <span style="font-size: 11.5px; color: var(--fg-muted)"
+                    >Agents commit to the PR branch. Review PR only posts findings.</span
+                  >
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 6px">
+                  <span class="field-label">Repository</span>
+                  <button
+                    class="btn"
+                    type="button"
+                    style="height: 30px; justify-content: flex-start; font-weight: 400"
+                  >
+                    <span class="mono" style="color: var(--fg-strong)">acme/web</span
+                    ><span class="mono faint" style="font-size: 11.5px">~/code/acme/web</span>
+                    <span style="flex: 1"></span
+                    ><svg class="i i-sm" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"></path></svg>
+                  </button>
+                  <span style="font-size: 11.5px; color: var(--fg-muted)"
+                    >Matched from the PR remote.</span
+                  >
+                </div>
               </div>
+
+              <label style="display: flex; flex-direction: column; gap: 6px">
+                <span class="field-label"
+                  >Context <span class="faint" style="font-weight: 400">optional</span></span
+                >
+                <textarea class="textarea" rows="2">
+Reviewer wants progress kept across reloads. Use sessionStorage, not a new API endpoint.</textarea>
+              </label>
+
+              <div style="display: flex; flex-direction: column; gap: 8px">
+                <div style="display: flex; align-items: center">
+                  <span class="field-label">Agents</span>
+                  <span style="flex: 1"></span>
+                  <button class="btn btn-sm btn-ghost" type="button">Reset to defaults</button>
+                </div>
+                <div
+                  class="card"
+                  style="background: var(--bg-2); display: flex; flex-direction: column"
+                >
+                  <div
+                    style="
+                      display: grid;
+                      grid-template-columns: 120px minmax(0, 1fr);
+                      align-items: center;
+                      gap: 10px;
+                      padding: 8px 12px;
+                      border-bottom: 1px solid var(--border);
+                    "
+                  >
+                    <span class="muted" style="font-size: 12px">Planner</span>
+                    <button class="btn btn-sm" type="button" style="justify-self: start">
+                      <span class="agent agent-cc">CC</span>Planner<span
+                        class="mono faint"
+                        style="font-size: 11px"
+                        >opus</span
+                      ><svg class="i i-sm" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"></path></svg>
+                    </button>
+                  </div>
+                  <div
+                    style="
+                      display: grid;
+                      grid-template-columns: 120px minmax(0, 1fr);
+                      align-items: center;
+                      gap: 10px;
+                      padding: 8px 12px;
+                      border-bottom: 1px solid var(--border);
+                    "
+                  >
+                    <span class="muted" style="font-size: 12px">Plan reviewers</span>
+                    <div style="display: flex; flex-wrap: wrap; gap: 4px">
+                      <span class="chip" style="color: var(--fg-strong); height: 24px"
+                        ><span class="agent agent-cc">CC</span>Security reviewer<button
+                          class="btn btn-ghost"
+                          type="button"
+                          aria-label="Remove"
+                          style="height: 16px; width: 16px; padding: 0; justify-content: center"
+                        >
+                          ×
+                        </button></span
+                      >
+                      <span class="chip" style="color: var(--fg-strong); height: 24px"
+                        ><span class="agent agent-cp">CP</span>Architecture reviewer<button
+                          class="btn btn-ghost"
+                          type="button"
+                          aria-label="Remove"
+                          style="height: 16px; width: 16px; padding: 0; justify-content: center"
+                        >
+                          ×
+                        </button></span
+                      >
+                      <button class="btn btn-sm btn-ghost" type="button">+ Add</button>
+                    </div>
+                  </div>
+                  <div
+                    style="
+                      display: grid;
+                      grid-template-columns: 120px minmax(0, 1fr);
+                      align-items: center;
+                      gap: 10px;
+                      padding: 8px 12px;
+                      border-bottom: 1px solid var(--border);
+                    "
+                  >
+                    <span class="muted" style="font-size: 12px">Implementer</span>
+                    <button class="btn btn-sm" type="button" style="justify-self: start">
+                      <span class="agent agent-cc">CC</span>Implementer<span
+                        class="mono faint"
+                        style="font-size: 11px"
+                        >sonnet</span
+                      ><svg class="i i-sm" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"></path></svg>
+                    </button>
+                  </div>
+                  <div
+                    style="
+                      display: grid;
+                      grid-template-columns: 120px minmax(0, 1fr);
+                      align-items: center;
+                      gap: 10px;
+                      padding: 8px 12px;
+                      border-bottom: 1px solid var(--border);
+                    "
+                  >
+                    <span class="muted" style="font-size: 12px">Code reviewers</span>
+                    <div style="display: flex; flex-wrap: wrap; gap: 4px">
+                      <span class="chip" style="color: var(--fg-strong); height: 24px"
+                        ><span class="agent agent-cc">CC</span>Security reviewer<button
+                          class="btn btn-ghost"
+                          type="button"
+                          aria-label="Remove"
+                          style="height: 16px; width: 16px; padding: 0; justify-content: center"
+                        >
+                          ×
+                        </button></span
+                      >
+                      <span class="chip" style="color: var(--fg-strong); height: 24px"
+                        ><span class="agent agent-cc">CC</span>UX reviewer<button
+                          class="btn btn-ghost"
+                          type="button"
+                          aria-label="Remove"
+                          style="height: 16px; width: 16px; padding: 0; justify-content: center"
+                        >
+                          ×
+                        </button></span
+                      >
+                      <span class="chip" style="color: var(--fg-strong); height: 24px"
+                        ><span class="agent agent-cp">CP</span>Code reviewer<button
+                          class="btn btn-ghost"
+                          type="button"
+                          aria-label="Remove"
+                          style="height: 16px; width: 16px; padding: 0; justify-content: center"
+                        >
+                          ×
+                        </button></span
+                      >
+                      <button class="btn btn-sm btn-ghost" type="button">+ Add</button>
+                    </div>
+                  </div>
+                  <div
+                    style="
+                      display: grid;
+                      grid-template-columns: 120px minmax(0, 1fr);
+                      align-items: center;
+                      gap: 10px;
+                      padding: 8px 12px;
+                    "
+                  >
+                    <span class="muted" style="font-size: 12px">Summarizer</span>
+                    <button class="btn btn-sm" type="button" style="justify-self: start">
+                      <span class="agent agent-cc">CC</span>Summarizer<span
+                        class="mono faint"
+                        style="font-size: 11px"
+                        >haiku</span
+                      ><svg class="i i-sm" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"></path></svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <fieldset
+                style="
+                  border: none;
+                  margin: 0;
+                  padding: 0;
+                  display: flex;
+                  flex-direction: column;
+                  gap: 8px;
+                "
+              >
+                <legend class="field-label" style="margin-bottom: 8px">Triage</legend>
+                <div
+                  style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px"
+                >
+                  <label
+                    class="card"
+                    style="
+                      display: flex;
+                      gap: 10px;
+                      padding: 10px 12px;
+                      cursor: pointer;
+                      border-color: var(--primary);
+                      box-shadow: var(--glow-violet);
+                      background: var(--bg-2);
+                    "
+                  >
+                    <input type="radio" name="triage" checked="" style="margin-top: 2px" />
+                    <span style="display: flex; flex-direction: column; gap: 2px"
+                      ><span class="strong" style="font-weight: 500">Run and let me intervene</span
+                      ><span style="font-size: 12px; color: var(--fg-muted)"
+                        >Loops up to 3 rounds; pings you on escalation.</span
+                      ></span
+                    >
+                  </label>
+                  <label
+                    class="card"
+                    style="
+                      display: flex;
+                      gap: 10px;
+                      padding: 10px 12px;
+                      cursor: pointer;
+                      background: var(--bg-2);
+                    "
+                  >
+                    <input type="radio" name="triage" style="margin-top: 2px" />
+                    <span style="display: flex; flex-direction: column; gap: 2px"
+                      ><span class="strong" style="font-weight: 500">Pause each review round</span
+                      ><span style="font-size: 12px; color: var(--fg-muted)"
+                        >You triage findings before every fix round.</span
+                      ></span
+                    >
+                  </label>
+                </div>
+              </fieldset>
             </div>
-            <div style="display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: 10px; padding: 8px 12px">
-              <span class="muted" style="font-size: 12px">Summarizer</span>
-              <button class="btn btn-sm" type="button" style="justify-self: start"><span class="agent agent-cc">CC</span>Summarizer<span class="mono faint" style="font-size: 11px">haiku</span><svg class="i i-sm" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"></path></svg></button>
+
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 12px 18px;
+                border-top: 1px solid var(--border);
+                background: var(--bg-2);
+              "
+            >
+              <span class="mono faint" style="font-size: 11px"
+                >worktree → ~/.blackwall/wt/acme-web-914</span
+              >
+              <span style="flex: 1"></span>
+              <button class="btn btn-ghost" type="button">Cancel</button>
+              <button class="btn btn-primary" type="submit">
+                Create task<span class="kbd">⌘↵</span>
+              </button>
             </div>
-          </div>
+          </form>
         </div>
-
-        <fieldset style="border: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px">
-          <legend class="field-label" style="margin-bottom: 8px">Triage</legend>
-          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
-            <label class="card" style="display: flex; gap: 10px; padding: 10px 12px; cursor: pointer; border-color: var(--primary); box-shadow: var(--glow-violet); background: var(--bg-2)">
-              <input type="radio" name="triage" checked="" style="margin-top: 2px">
-              <span style="display: flex; flex-direction: column; gap: 2px"><span class="strong" style="font-weight: 500">Run and let me intervene</span><span style="font-size: 12px; color: var(--fg-muted)">Loops up to 3 rounds; pings you on escalation.</span></span>
-            </label>
-            <label class="card" style="display: flex; gap: 10px; padding: 10px 12px; cursor: pointer; background: var(--bg-2)">
-              <input type="radio" name="triage" style="margin-top: 2px">
-              <span style="display: flex; flex-direction: column; gap: 2px"><span class="strong" style="font-weight: 500">Pause each review round</span><span style="font-size: 12px; color: var(--fg-muted)">You triage findings before every fix round.</span></span>
-            </label>
-          </div>
-        </fieldset>
       </div>
-
-      <div style="display: flex; align-items: center; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--border); background: var(--bg-2)">
-        <span class="mono faint" style="font-size: 11px">worktree → ~/.blackwall/wt/acme-web-914</span>
-        <span style="flex: 1"></span>
-        <button class="btn btn-ghost" type="button">Cancel</button>
-        <button class="btn btn-primary" type="submit">Create task<span class="kbd">⌘↵</span></button>
-      </div>
-    </form>
-  </div>
-</div>
-</x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":1440,"height":900}}'>
-class Component extends DCLogic {
-  renderVals() {
-    return { theme: this.props.theme ?? 'dark' };
-  }
-}
-</script>
-</body>
+    </x-dc>
+    <script
+      type="text/x-dc"
+      data-dc-script
+      data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":1440,"height":900}}'
+    >
+      class Component extends DCLogic {
+        renderVals() {
+          return { theme: this.props.theme ?? 'dark' };
+        }
+      }
+    </script>
+  </body>
 </html>

@@ -1,116 +1,308 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<title>(3) blackwall · interrupted and failed</title>
-<script src="./support.js"></script>
-<link rel="stylesheet" href="./bw.css">
-</head>
-<body>
-<x-dc>
-<helmet>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500;600&amp;family=Chakra+Petch:wght@500;600&amp;display=swap" rel="stylesheet">
-<style>body{margin:0}</style>
-</helmet>
-<div class="bw" data-theme="{{theme}}" style="height: 100vh; min-height: 760px; display: flex; flex-wrap: wrap; overflow: hidden; background: var(--bg-0)">
-  <div style="flex: 0 1 352px; width: 352px; min-width: 0">
-    <dc-import name="Inbox" theme="{{theme}}" selected="ABC-468" hint-size="352px,100%"></dc-import>
-  </div>
+  <head>
+    <meta charset="utf-8" />
+    <title>(3) blackwall · interrupted and failed</title>
+    <script src="./support.js"></script>
+    <link rel="stylesheet" href="./bw.css" />
+  </head>
+  <body>
+    <x-dc>
+      <helmet>
+        <link
+          href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500;600&amp;family=Chakra+Petch:wght@500;600&amp;display=swap"
+          rel="stylesheet"
+        />
+        <style>
+          body {
+            margin: 0;
+          }
+        </style>
+      </helmet>
+      <div
+        class="bw"
+        data-theme="{{theme}}"
+        style="
+          height: 100vh;
+          min-height: 760px;
+          display: flex;
+          flex-wrap: wrap;
+          overflow: hidden;
+          background: var(--bg-0);
+        "
+      >
+        <div style="flex: 0 1 352px; width: 352px; min-width: 0">
+          <dc-import
+            name="Inbox"
+            theme="{{theme}}"
+            selected="ABC-468"
+            hint-size="352px,100%"
+          ></dc-import>
+        </div>
 
-  <main style="flex: 999 1 560px; min-width: 0; height: 100vh; overflow: auto; display: flex; flex-direction: column; gap: 0; background: var(--bg-0)">
-    <!-- INTERRUPTED -->
-    <section aria-label="Interrupted task" style="display: flex; flex-direction: column; border-bottom: 1px solid var(--border-strong)">
-      <header style="display: flex; flex-direction: column; gap: 8px; padding: 14px 20px 12px; border-bottom: 1px solid var(--border); background: var(--bg-1)">
-        <div style="display: flex; align-items: center; gap: 8px; font-size: 12px">
-          <svg class="i i-sm" viewBox="0 0 16 16" style="color: var(--fg-muted)"><rect x="2.5" y="2.5" width="11" height="11" rx="2"></rect><path d="M5.5 6h5M5.5 8.5h5M5.5 11h3"></path></svg>
-          <a class="mono" href="https://acme.atlassian.net/browse/ABC-468">ABC-468</a>
-          <span class="chip">Jira</span>
-          <span class="status st-interrupted"><span class="sdot"></span>Interrupted</span>
-          <span class="muted">1h ago</span>
-        </div>
-        <h1 style="margin: 0; font-size: 18px; line-height: 24px; font-weight: 600; color: var(--fg-strong)">Upgrade billing service to NServiceBus 9</h1>
-        <nav class="stepper" aria-label="Pipeline" style="--c: var(--st-interrupted)">
-          <span class="step done"><span class="snum">✓</span>Inform</span><span class="step-line done"></span>
-          <span class="step done"><span class="snum">✓</span>Plan review</span><span class="step-line done"></span>
-          <span class="step cur"><span class="snum">3</span>Implement<span class="mono faint" style="font-size: 11px">r1</span></span><span class="step-line"></span>
-          <span class="step"><span class="snum">4</span>Checks</span><span class="step-line"></span>
-          <span class="step"><span class="snum">5</span>Code review</span><span class="step-line"></span>
-          <span class="step"><span class="snum">6</span>Finish</span>
-        </nav>
-      </header>
-      <div style="padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 12px">
-        <div class="card" style="display: flex; gap: 14px; padding: 14px 16px; background: var(--bg-1); border-color: color-mix(in oklab, var(--st-interrupted) 40%, transparent)">
-          <svg class="i" viewBox="0 0 16 16" style="width: 18px; height: 18px; color: var(--st-interrupted); margin-top: 1px"><circle cx="8" cy="8" r="6"></circle><path d="M6.5 5.5v5M9.5 5.5v5"></path></svg>
-          <div style="display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0">
-            <span class="strong" style="font-weight: 600">Stopped mid-step: blackwall shut down while the implementer was running</span>
-            <span style="font-size: 12.5px">The worktree is intact. 3 files changed since the last checkpoint; the agent's session can be resumed with its context.</span>
-            <div class="mono" style="display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11.5px; color: var(--fg-muted)">
-              <span>last tool: Edit src/Billing/Endpoints/InvoiceSaga.cs</span>
-              <span>checkpoint 7f3e0a2</span>
+        <main
+          style="
+            flex: 999 1 560px;
+            min-width: 0;
+            height: 100vh;
+            overflow: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+            background: var(--bg-0);
+          "
+        >
+          <!-- INTERRUPTED -->
+          <section
+            aria-label="Interrupted task"
+            style="
+              display: flex;
+              flex-direction: column;
+              border-bottom: 1px solid var(--border-strong);
+            "
+          >
+            <header
+              style="
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+                padding: 14px 20px 12px;
+                border-bottom: 1px solid var(--border);
+                background: var(--bg-1);
+              "
+            >
+              <div style="display: flex; align-items: center; gap: 8px; font-size: 12px">
+                <svg class="i i-sm" viewBox="0 0 16 16" style="color: var(--fg-muted)">
+                  <rect x="2.5" y="2.5" width="11" height="11" rx="2"></rect>
+                  <path d="M5.5 6h5M5.5 8.5h5M5.5 11h3"></path>
+                </svg>
+                <a class="mono" href="https://acme.atlassian.net/browse/ABC-468">ABC-468</a>
+                <span class="chip">Jira</span>
+                <span class="status st-interrupted"><span class="sdot"></span>Interrupted</span>
+                <span class="muted">1h ago</span>
+              </div>
+              <h1
+                style="
+                  margin: 0;
+                  font-size: 18px;
+                  line-height: 24px;
+                  font-weight: 600;
+                  color: var(--fg-strong);
+                "
+              >
+                Upgrade billing service to NServiceBus 9
+              </h1>
+              <nav class="stepper" aria-label="Pipeline" style="--c: var(--st-interrupted)">
+                <span class="step done"><span class="snum">✓</span>Inform</span
+                ><span class="step-line done"></span>
+                <span class="step done"><span class="snum">✓</span>Plan review</span
+                ><span class="step-line done"></span>
+                <span class="step cur"
+                  ><span class="snum">3</span>Implement<span
+                    class="mono faint"
+                    style="font-size: 11px"
+                    >r1</span
+                  ></span
+                ><span class="step-line"></span>
+                <span class="step"><span class="snum">4</span>Checks</span
+                ><span class="step-line"></span>
+                <span class="step"><span class="snum">5</span>Code review</span
+                ><span class="step-line"></span>
+                <span class="step"><span class="snum">6</span>Finish</span>
+              </nav>
+            </header>
+            <div style="padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 12px">
+              <div
+                class="card"
+                style="
+                  display: flex;
+                  gap: 14px;
+                  padding: 14px 16px;
+                  background: var(--bg-1);
+                  border-color: color-mix(in oklab, var(--st-interrupted) 40%, transparent);
+                "
+              >
+                <svg
+                  class="i"
+                  viewBox="0 0 16 16"
+                  style="width: 18px; height: 18px; color: var(--st-interrupted); margin-top: 1px"
+                >
+                  <circle cx="8" cy="8" r="6"></circle>
+                  <path d="M6.5 5.5v5M9.5 5.5v5"></path>
+                </svg>
+                <div style="display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0">
+                  <span class="strong" style="font-weight: 600"
+                    >Stopped mid-step: blackwall shut down while the implementer was running</span
+                  >
+                  <span style="font-size: 12.5px"
+                    >The worktree is intact. 3 files changed since the last checkpoint; the agent's
+                    session can be resumed with its context.</span
+                  >
+                  <div
+                    class="mono"
+                    style="
+                      display: flex;
+                      flex-wrap: wrap;
+                      gap: 4px 14px;
+                      font-size: 11.5px;
+                      color: var(--fg-muted);
+                    "
+                  >
+                    <span>last tool: Edit src/Billing/Endpoints/InvoiceSaga.cs</span>
+                    <span>checkpoint 7f3e0a2</span>
+                  </div>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 6px; align-items: stretch">
+                  <button class="btn btn-primary" type="button" style="justify-content: center">
+                    Resume<span class="kbd">R</span>
+                  </button>
+                  <button class="btn btn-sm btn-ghost" type="button">
+                    Restart step from checkpoint
+                  </button>
+                  <button class="btn btn-sm btn-ghost" type="button">View partial diff</button>
+                </div>
+              </div>
             </div>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 6px; align-items: stretch">
-            <button class="btn btn-primary" type="button" style="justify-content: center">Resume<span class="kbd">R</span></button>
-            <button class="btn btn-sm btn-ghost" type="button">Restart step from checkpoint</button>
-            <button class="btn btn-sm btn-ghost" type="button">View partial diff</button>
-          </div>
-        </div>
-      </div>
-    </section>
+          </section>
 
-    <!-- FAILED -->
-    <section aria-label="Failed task" style="display: flex; flex-direction: column; flex: 1">
-      <header style="display: flex; flex-direction: column; gap: 8px; padding: 14px 20px 12px; border-bottom: 1px solid var(--border); background: var(--bg-1)">
-        <div style="display: flex; align-items: center; gap: 8px; font-size: 12px">
-          <svg class="i i-sm" viewBox="0 0 16 16" style="color: var(--fg-muted)"><path d="M3 4h10M3 8h10M3 12h6"></path></svg>
-          <span class="mono muted">blackwall</span>
-          <span class="status st-failed"><span class="sdot"></span>Failed</span>
-          <span class="muted">3h ago</span>
-        </div>
-        <h1 style="margin: 0; font-size: 18px; line-height: 24px; font-weight: 600; color: var(--fg-strong)">Spike: replace moment with date-fns in reports</h1>
-        <nav class="stepper" aria-label="Pipeline" style="--c: var(--st-failed)">
-          <span class="step done"><span class="snum">✓</span>Inform</span><span class="step-line done"></span>
-          <span class="step done"><span class="snum">✓</span>Plan review</span><span class="step-line done"></span>
-          <span class="step done"><span class="snum">✓</span>Implement</span><span class="step-line done"></span>
-          <span class="step cur"><span class="snum">4</span>Checks<span class="mono faint" style="font-size: 11px">attempt 3/3</span></span><span class="step-line"></span>
-          <span class="step"><span class="snum">5</span>Code review</span><span class="step-line"></span>
-          <span class="step"><span class="snum">6</span>Finish</span>
-        </nav>
-      </header>
-      <div style="padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 12px">
-        <div class="card" style="display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; background: var(--bg-1); border-color: color-mix(in oklab, var(--st-failed) 45%, transparent)">
-          <div style="display: flex; gap: 14px; align-items: flex-start">
-            <svg class="i" viewBox="0 0 16 16" style="width: 18px; height: 18px; color: var(--st-failed); margin-top: 1px"><circle cx="8" cy="8" r="6"></circle><path d="m6 6 4 4M10 6l-4 4"></path></svg>
-            <div style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0">
-              <span class="strong" style="font-weight: 600"><span class="mono">pnpm test</span> still failing after 3 fix attempts</span>
-              <span style="font-size: 12.5px">2 tests in <span class="mono">reports/weekly.test.ts</span> expect ISO week numbers; <span class="mono">date-fns</span> defaults to locale weeks. The implementer tried twice and reverted.</span>
+          <!-- FAILED -->
+          <section aria-label="Failed task" style="display: flex; flex-direction: column; flex: 1">
+            <header
+              style="
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+                padding: 14px 20px 12px;
+                border-bottom: 1px solid var(--border);
+                background: var(--bg-1);
+              "
+            >
+              <div style="display: flex; align-items: center; gap: 8px; font-size: 12px">
+                <svg class="i i-sm" viewBox="0 0 16 16" style="color: var(--fg-muted)">
+                  <path d="M3 4h10M3 8h10M3 12h6"></path>
+                </svg>
+                <span class="mono muted">blackwall</span>
+                <span class="status st-failed"><span class="sdot"></span>Failed</span>
+                <span class="muted">3h ago</span>
+              </div>
+              <h1
+                style="
+                  margin: 0;
+                  font-size: 18px;
+                  line-height: 24px;
+                  font-weight: 600;
+                  color: var(--fg-strong);
+                "
+              >
+                Spike: replace moment with date-fns in reports
+              </h1>
+              <nav class="stepper" aria-label="Pipeline" style="--c: var(--st-failed)">
+                <span class="step done"><span class="snum">✓</span>Inform</span
+                ><span class="step-line done"></span>
+                <span class="step done"><span class="snum">✓</span>Plan review</span
+                ><span class="step-line done"></span>
+                <span class="step done"><span class="snum">✓</span>Implement</span
+                ><span class="step-line done"></span>
+                <span class="step cur"
+                  ><span class="snum">4</span>Checks<span class="mono faint" style="font-size: 11px"
+                    >attempt 3/3</span
+                  ></span
+                ><span class="step-line"></span>
+                <span class="step"><span class="snum">5</span>Code review</span
+                ><span class="step-line"></span>
+                <span class="step"><span class="snum">6</span>Finish</span>
+              </nav>
+            </header>
+            <div style="padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 12px">
+              <div
+                class="card"
+                style="
+                  display: flex;
+                  flex-direction: column;
+                  gap: 12px;
+                  padding: 14px 16px;
+                  background: var(--bg-1);
+                  border-color: color-mix(in oklab, var(--st-failed) 45%, transparent);
+                "
+              >
+                <div style="display: flex; gap: 14px; align-items: flex-start">
+                  <svg
+                    class="i"
+                    viewBox="0 0 16 16"
+                    style="width: 18px; height: 18px; color: var(--st-failed); margin-top: 1px"
+                  >
+                    <circle cx="8" cy="8" r="6"></circle>
+                    <path d="m6 6 4 4M10 6l-4 4"></path>
+                  </svg>
+                  <div
+                    style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0"
+                  >
+                    <span class="strong" style="font-weight: 600"
+                      ><span class="mono">pnpm test</span> still failing after 3 fix attempts</span
+                    >
+                    <span style="font-size: 12.5px"
+                      >2 tests in <span class="mono">reports/weekly.test.ts</span> expect ISO week
+                      numbers; <span class="mono">date-fns</span> defaults to locale weeks. The
+                      implementer tried twice and reverted.</span
+                    >
+                  </div>
+                  <div style="display: flex; gap: 6px">
+                    <button class="btn btn-sm btn-ghost" type="button">Retry checks</button>
+                    <button class="btn btn-sm" type="button">
+                      Back to implementer with a hint
+                    </button>
+                  </div>
+                </div>
+                <div class="code" style="padding: 8px 0">
+                  <div
+                    style="
+                      display: flex;
+                      align-items: center;
+                      gap: 8px;
+                      padding: 0 12px 6px;
+                      color: var(--fg-muted);
+                    "
+                  >
+                    <svg class="i i-sm" viewBox="0 0 16 16" style="transform: rotate(90deg)">
+                      <path d="m6 4 4 4-4 4"></path></svg
+                    >pnpm test · exit 1 · 14.2s<span style="flex: 1"></span
+                    ><span>show full log</span>
+                  </div>
+                  <div style="padding: 0 12px; white-space: pre; color: var(--fg-muted)">
+                    ✓ reports/monthly.test.ts (12)
+                  </div>
+                  <div style="padding: 0 12px; white-space: pre; color: var(--st-failed)">
+                    ✗ reports/weekly.test.ts (2 failed / 9)
+                  </div>
+                  <div style="padding: 0 12px; white-space: pre; color: var(--fg)">
+                    › groups 2026-12-31 into week 53
+                  </div>
+                  <div style="padding: 0 12px; white-space: pre; color: var(--diff-add-fg)">
+                    Expected: 53
+                  </div>
+                  <div style="padding: 0 12px; white-space: pre; color: var(--diff-del-fg)">
+                    Received: 1
+                  </div>
+                  <div style="padding: 0 12px; white-space: pre; color: var(--fg-muted)">
+                    at reports/weekly.test.ts:48:31
+                  </div>
+                </div>
+              </div>
             </div>
-            <div style="display: flex; gap: 6px">
-              <button class="btn btn-sm btn-ghost" type="button">Retry checks</button>
-              <button class="btn btn-sm" type="button">Back to implementer with a hint</button>
-            </div>
-          </div>
-          <div class="code" style="padding: 8px 0">
-            <div style="display: flex; align-items: center; gap: 8px; padding: 0 12px 6px; color: var(--fg-muted)"><svg class="i i-sm" viewBox="0 0 16 16" style="transform: rotate(90deg)"><path d="m6 4 4 4-4 4"></path></svg>pnpm test · exit 1 · 14.2s<span style="flex: 1"></span><span>show full log</span></div>
-            <div style="padding: 0 12px; white-space: pre; color: var(--fg-muted)"> ✓ reports/monthly.test.ts (12)</div>
-            <div style="padding: 0 12px; white-space: pre; color: var(--st-failed)"> ✗ reports/weekly.test.ts (2 failed / 9)</div>
-            <div style="padding: 0 12px; white-space: pre; color: var(--fg)">   › groups 2026-12-31 into week 53</div>
-            <div style="padding: 0 12px; white-space: pre; color: var(--diff-add-fg)">     Expected: 53</div>
-            <div style="padding: 0 12px; white-space: pre; color: var(--diff-del-fg)">     Received: 1</div>
-            <div style="padding: 0 12px; white-space: pre; color: var(--fg-muted)">     at reports/weekly.test.ts:48:31</div>
-          </div>
-        </div>
+          </section>
+        </main>
       </div>
-    </section>
-  </main>
-</div>
-</x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":1440,"height":900}}'>
-class Component extends DCLogic {
-  renderVals() {
-    return { theme: this.props.theme ?? 'dark' };
-  }
-}
-</script>
-</body>
+    </x-dc>
+    <script
+      type="text/x-dc"
+      data-dc-script
+      data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":1440,"height":900}}'
+    >
+      class Component extends DCLogic {
+        renderVals() {
+          return { theme: this.props.theme ?? 'dark' };
+        }
+      }
+    </script>
+  </body>
 </html>

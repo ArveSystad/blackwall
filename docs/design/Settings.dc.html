@@ -1,176 +1,440 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<title>blackwall · settings · agent library</title>
-<script src="./support.js"></script>
-<link rel="stylesheet" href="./bw.css">
-</head>
-<body>
-<x-dc>
-<helmet>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500;600&amp;family=Chakra+Petch:wght@500;600&amp;display=swap" rel="stylesheet">
-<style>body{margin:0}</style>
-</helmet>
-<div class="bw" data-theme="{{theme}}" style="height: 100vh; min-height: 760px; display: flex; flex-wrap: wrap; overflow: hidden; background: var(--bg-0)">
-  <!-- settings nav -->
-  <nav aria-label="Settings" style="flex: 0 1 232px; min-width: 0; height: 100vh; display: flex; flex-direction: column; gap: 2px; padding: 12px 10px; background: var(--bg-1); border-right: 1px solid var(--border)">
-    <div style="display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 6px; margin-bottom: 10px">
-      <svg class="i" viewBox="0 0 16 16" style="color: var(--cyan); width: 16px; height: 16px"><path d="M2 3h12M2 6.5h12M2 10h12M2 13.5h12"></path><path d="M5 3v3.5M10 6.5V10M5 10v3.5"></path></svg>
-      <span class="wordmark">black<span class="w-accent">wall</span></span>
-    </div>
-    <a href="Main.dc.html" class="btn btn-ghost btn-sm" style="justify-content: flex-start; margin-bottom: 8px; text-decoration: none"><svg class="i i-sm" viewBox="0 0 16 16"><path d="M10 4 6 8l4 4"></path></svg>Inbox<span style="flex: 1"></span><span class="kbd">Esc</span></a>
-    <span class="label" style="padding: 4px 8px">Settings</span>
-    <a href="#" class="btn btn-ghost" style="justify-content: flex-start; text-decoration: none; color: var(--fg)">Connections<span style="flex: 1"></span><span class="status st-needs" style="height: 18px">1 missing</span></a>
-    <a href="#" class="btn btn-ghost" style="justify-content: flex-start; text-decoration: none; color: var(--fg)">Repositories<span style="flex: 1"></span><span class="mono" style="font-size: 11px; color: var(--sev-medium)">1 stale</span></a>
-    <a href="#" class="btn" aria-current="page" style="justify-content: flex-start; text-decoration: none; background: var(--bg-3); border-color: var(--border-strong)">Agent library<span style="flex: 1"></span><span class="mono faint" style="font-size: 11px">8</span></a>
-    <a href="#" class="btn btn-ghost" style="justify-content: flex-start; text-decoration: none; color: var(--fg)">Tags<span style="flex: 1"></span><span class="mono faint" style="font-size: 11px">9</span></a>
-    <a href="#" class="btn btn-ghost" style="justify-content: flex-start; text-decoration: none; color: var(--fg)">Defaults</a>
-  </nav>
-
-  <!-- agent list -->
-  <section aria-label="Agents" style="flex: 0 1 360px; min-width: 0; height: 100vh; display: flex; flex-direction: column; border-right: 1px solid var(--border); background: var(--bg-0)">
-    <div style="display: flex; flex-direction: column; gap: 10px; padding: 14px 14px 10px; border-bottom: 1px solid var(--border)">
-      <div style="display: flex; align-items: center; gap: 8px">
-        <h1 style="margin: 0; font-size: 15px; font-weight: 600; color: var(--fg-strong)">Agent library</h1>
-        <span style="flex: 1"></span>
-        <button class="btn btn-sm btn-primary" type="button">+ New agent</button>
-      </div>
-      <input class="input" type="search" placeholder="Filter agents" aria-label="Filter agents" style="height: 28px">
-    </div>
-    <div style="flex: 1; min-height: 0; overflow: auto; padding: 6px">
-      <sc-for list="{{agents}}" as="a" hint-placeholder-count="8">
-        <a href="#" class="{{a.cls}}" style="display: flex; flex-direction: column; gap: 4px; padding: 9px 10px; border-radius: var(--r-lg); text-decoration: none; color: inherit; border: 1px solid {{a.border}}; background: {{a.bg}}">
-          <span style="display: flex; align-items: center; gap: 8px">
-            <span class="{{a.agentCls}}">{{a.mono}}</span>
-            <span class="strong" style="font-weight: 500">{{a.name}}</span>
-            <span style="flex: 1"></span>
-            <span class="mono faint" style="font-size: 11px">{{a.model}}</span>
-          </span>
-          <span style="display: flex; gap: 4px; padding-left: 24px; flex-wrap: wrap">
-            <sc-for list="{{a.stages}}" as="s" hint-placeholder-count="1"><span class="tag">{{s}}</span></sc-for>
-            <span class="tag" style="background: transparent; border: 1px solid var(--border)">{{a.perm}}</span>
-          </span>
-        </a>
-      </sc-for>
-    </div>
-  </section>
-
-  <!-- editor -->
-  <section aria-label="Edit agent" style="flex: 999 1 520px; min-width: 0; height: 100vh; display: flex; flex-direction: column; background: var(--bg-1)">
-    <div style="display: flex; align-items: center; gap: 10px; padding: 14px 20px; border-bottom: 1px solid var(--border)">
-      <span class="agent agent-cc agent-lg">CC</span>
-      <span class="strong" style="font-size: 15px; font-weight: 600">Security reviewer</span>
-      <span class="muted" style="font-size: 12px">used by 4 tasks</span>
-      <span style="flex: 1"></span>
-      <button class="btn btn-sm btn-ghost" type="button">Duplicate</button>
-      <button class="btn btn-sm btn-ghost" type="button" style="color: var(--st-failed)">Delete</button>
-    </div>
-
-    <div style="flex: 1; min-height: 0; overflow: auto; padding: 18px 20px; display: flex; flex-direction: column; gap: 18px">
-      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px">
-        <label style="display: flex; flex-direction: column; gap: 6px">
-          <span class="field-label">Name</span>
-          <input class="input" type="text" value="Security reviewer">
-        </label>
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <span class="field-label">CLI</span>
-          <div class="seg" style="align-self: flex-start">
-            <button type="button" class="on"><span class="agent agent-cc">CC</span>Claude Code</button>
-            <button type="button"><span class="agent agent-cp">CP</span>Copilot CLI</button>
+  <head>
+    <meta charset="utf-8" />
+    <title>blackwall · settings · agent library</title>
+    <script src="./support.js"></script>
+    <link rel="stylesheet" href="./bw.css" />
+  </head>
+  <body>
+    <x-dc>
+      <helmet>
+        <link
+          href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500;600&amp;family=Chakra+Petch:wght@500;600&amp;display=swap"
+          rel="stylesheet"
+        />
+        <style>
+          body {
+            margin: 0;
+          }
+        </style>
+      </helmet>
+      <div
+        class="bw"
+        data-theme="{{theme}}"
+        style="
+          height: 100vh;
+          min-height: 760px;
+          display: flex;
+          flex-wrap: wrap;
+          overflow: hidden;
+          background: var(--bg-0);
+        "
+      >
+        <!-- settings nav -->
+        <nav
+          aria-label="Settings"
+          style="
+            flex: 0 1 232px;
+            min-width: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding: 12px 10px;
+            background: var(--bg-1);
+            border-right: 1px solid var(--border);
+          "
+        >
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              height: 28px;
+              padding: 0 6px;
+              margin-bottom: 10px;
+            "
+          >
+            <svg
+              class="i"
+              viewBox="0 0 16 16"
+              style="color: var(--cyan); width: 16px; height: 16px"
+            >
+              <path d="M2 3h12M2 6.5h12M2 10h12M2 13.5h12"></path>
+              <path d="M5 3v3.5M10 6.5V10M5 10v3.5"></path>
+            </svg>
+            <span class="wordmark">black<span class="w-accent">wall</span></span>
           </div>
-        </div>
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <span class="field-label">Model</span>
-          <button class="btn" type="button" style="height: 30px; justify-content: flex-start; font-weight: 400"><span class="mono" style="color: var(--fg-strong)">opus</span><span style="flex: 1"></span><svg class="i i-sm" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"></path></svg></button>
-        </div>
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <span class="field-label">Permission profile</span>
-          <button class="btn" type="button" style="height: 30px; justify-content: flex-start; font-weight: 400"><svg class="i i-sm" viewBox="0 0 16 16"><path d="M8 2 13 4v4c0 3-2.2 5-5 6-2.8-1-5-3-5-6V4Z"></path></svg><span style="color: var(--fg-strong)">Read-only</span><span class="faint" style="font-size: 12px">read worktree, no edits, no shell</span><span style="flex: 1"></span><svg class="i i-sm" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"></path></svg></button>
-        </div>
+          <a
+            href="Main.dc.html"
+            class="btn btn-ghost btn-sm"
+            style="justify-content: flex-start; margin-bottom: 8px; text-decoration: none"
+            ><svg class="i i-sm" viewBox="0 0 16 16"><path d="M10 4 6 8l4 4"></path></svg>Inbox<span
+              style="flex: 1"
+            ></span
+            ><span class="kbd">Esc</span></a
+          >
+          <span class="label" style="padding: 4px 8px">Settings</span>
+          <a
+            href="#"
+            class="btn btn-ghost"
+            style="justify-content: flex-start; text-decoration: none; color: var(--fg)"
+            >Connections<span style="flex: 1"></span
+            ><span class="status st-needs" style="height: 18px">1 missing</span></a
+          >
+          <a
+            href="#"
+            class="btn btn-ghost"
+            style="justify-content: flex-start; text-decoration: none; color: var(--fg)"
+            >Repositories<span style="flex: 1"></span
+            ><span class="mono" style="font-size: 11px; color: var(--sev-medium)">1 stale</span></a
+          >
+          <a
+            href="#"
+            class="btn"
+            aria-current="page"
+            style="
+              justify-content: flex-start;
+              text-decoration: none;
+              background: var(--bg-3);
+              border-color: var(--border-strong);
+            "
+            >Agent library<span style="flex: 1"></span
+            ><span class="mono faint" style="font-size: 11px">8</span></a
+          >
+          <a
+            href="#"
+            class="btn btn-ghost"
+            style="justify-content: flex-start; text-decoration: none; color: var(--fg)"
+            >Tags<span style="flex: 1"></span
+            ><span class="mono faint" style="font-size: 11px">9</span></a
+          >
+          <a
+            href="#"
+            class="btn btn-ghost"
+            style="justify-content: flex-start; text-decoration: none; color: var(--fg)"
+            >Defaults</a
+          >
+        </nav>
+
+        <!-- agent list -->
+        <section
+          aria-label="Agents"
+          style="
+            flex: 0 1 360px;
+            min-width: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border);
+            background: var(--bg-0);
+          "
+        >
+          <div
+            style="
+              display: flex;
+              flex-direction: column;
+              gap: 10px;
+              padding: 14px 14px 10px;
+              border-bottom: 1px solid var(--border);
+            "
+          >
+            <div style="display: flex; align-items: center; gap: 8px">
+              <h1 style="margin: 0; font-size: 15px; font-weight: 600; color: var(--fg-strong)">
+                Agent library
+              </h1>
+              <span style="flex: 1"></span>
+              <button class="btn btn-sm btn-primary" type="button">+ New agent</button>
+            </div>
+            <input
+              class="input"
+              type="search"
+              placeholder="Filter agents"
+              aria-label="Filter agents"
+              style="height: 28px"
+            />
+          </div>
+          <div style="flex: 1; min-height: 0; overflow: auto; padding: 6px">
+            <sc-for list="{{agents}}" as="a" hint-placeholder-count="8">
+              <a
+                href="#"
+                class="{{a.cls}}"
+                style="display: flex; flex-direction: column; gap: 4px; padding: 9px 10px; border-radius: var(--r-lg); text-decoration: none; color: inherit; border: 1px solid {{a.border}}; background: {{a.bg}}"
+              >
+                <span style="display: flex; align-items: center; gap: 8px">
+                  <span class="{{a.agentCls}}">{{a.mono}}</span>
+                  <span class="strong" style="font-weight: 500">{{a.name}}</span>
+                  <span style="flex: 1"></span>
+                  <span class="mono faint" style="font-size: 11px">{{a.model}}</span>
+                </span>
+                <span style="display: flex; gap: 4px; padding-left: 24px; flex-wrap: wrap">
+                  <sc-for list="{{a.stages}}" as="s" hint-placeholder-count="1"
+                    ><span class="tag">{{s}}</span></sc-for
+                  >
+                  <span class="tag" style="background: transparent; border: 1px solid var(--border)"
+                    >{{a.perm}}</span
+                  >
+                </span>
+              </a>
+            </sc-for>
+          </div>
+        </section>
+
+        <!-- editor -->
+        <section
+          aria-label="Edit agent"
+          style="
+            flex: 999 1 520px;
+            min-width: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-1);
+          "
+        >
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              gap: 10px;
+              padding: 14px 20px;
+              border-bottom: 1px solid var(--border);
+            "
+          >
+            <span class="agent agent-cc agent-lg">CC</span>
+            <span class="strong" style="font-size: 15px; font-weight: 600">Security reviewer</span>
+            <span class="muted" style="font-size: 12px">used by 4 tasks</span>
+            <span style="flex: 1"></span>
+            <button class="btn btn-sm btn-ghost" type="button">Duplicate</button>
+            <button class="btn btn-sm btn-ghost" type="button" style="color: var(--st-failed)">
+              Delete
+            </button>
+          </div>
+
+          <div
+            style="
+              flex: 1;
+              min-height: 0;
+              overflow: auto;
+              padding: 18px 20px;
+              display: flex;
+              flex-direction: column;
+              gap: 18px;
+            "
+          >
+            <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px">
+              <label style="display: flex; flex-direction: column; gap: 6px">
+                <span class="field-label">Name</span>
+                <input class="input" type="text" value="Security reviewer" />
+              </label>
+              <div style="display: flex; flex-direction: column; gap: 6px">
+                <span class="field-label">CLI</span>
+                <div class="seg" style="align-self: flex-start">
+                  <button type="button" class="on">
+                    <span class="agent agent-cc">CC</span>Claude Code
+                  </button>
+                  <button type="button"><span class="agent agent-cp">CP</span>Copilot CLI</button>
+                </div>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 6px">
+                <span class="field-label">Model</span>
+                <button
+                  class="btn"
+                  type="button"
+                  style="height: 30px; justify-content: flex-start; font-weight: 400"
+                >
+                  <span class="mono" style="color: var(--fg-strong)">opus</span
+                  ><span style="flex: 1"></span
+                  ><svg class="i i-sm" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"></path></svg>
+                </button>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 6px">
+                <span class="field-label">Permission profile</span>
+                <button
+                  class="btn"
+                  type="button"
+                  style="height: 30px; justify-content: flex-start; font-weight: 400"
+                >
+                  <svg class="i i-sm" viewBox="0 0 16 16">
+                    <path d="M8 2 13 4v4c0 3-2.2 5-5 6-2.8-1-5-3-5-6V4Z"></path></svg
+                  ><span style="color: var(--fg-strong)">Read-only</span
+                  ><span class="faint" style="font-size: 12px"
+                    >read worktree, no edits, no shell</span
+                  ><span style="flex: 1"></span
+                  ><svg class="i i-sm" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"></path></svg>
+                </button>
+              </div>
+            </div>
+
+            <fieldset style="border: none; margin: 0; padding: 0">
+              <legend class="field-label" style="margin-bottom: 8px">Eligible stages</legend>
+              <div style="display: flex; flex-wrap: wrap; gap: 6px">
+                <label
+                  class="chip"
+                  style="
+                    height: 28px;
+                    padding: 0 10px;
+                    gap: 6px;
+                    color: var(--fg-muted);
+                    font-size: 12.5px;
+                  "
+                  ><input type="checkbox" />Plan</label
+                >
+                <label
+                  class="chip"
+                  style="
+                    height: 28px;
+                    padding: 0 10px;
+                    gap: 6px;
+                    color: var(--fg-strong);
+                    border-color: var(--primary);
+                    font-size: 12.5px;
+                  "
+                  ><input type="checkbox" checked="" />Plan review</label
+                >
+                <label
+                  class="chip"
+                  style="
+                    height: 28px;
+                    padding: 0 10px;
+                    gap: 6px;
+                    color: var(--fg-muted);
+                    font-size: 12.5px;
+                  "
+                  ><input type="checkbox" />Implement</label
+                >
+                <label
+                  class="chip"
+                  style="
+                    height: 28px;
+                    padding: 0 10px;
+                    gap: 6px;
+                    color: var(--fg-strong);
+                    border-color: var(--primary);
+                    font-size: 12.5px;
+                  "
+                  ><input type="checkbox" checked="" />Code review</label
+                >
+                <label
+                  class="chip"
+                  style="
+                    height: 28px;
+                    padding: 0 10px;
+                    gap: 6px;
+                    color: var(--fg-muted);
+                    font-size: 12.5px;
+                  "
+                  ><input type="checkbox" />Finish</label
+                >
+              </div>
+            </fieldset>
+
+            <div
+              style="display: flex; flex-direction: column; gap: 6px; flex: 1; min-height: 300px"
+            >
+              <div style="display: flex; align-items: center; gap: 8px">
+                <span class="field-label">Prompt</span>
+                <span class="faint" style="font-size: 12px">Variables:</span>
+                <span class="tag">{repo}</span><span class="tag">{worktree}</span
+                ><span class="tag">{plan}</span><span class="tag">{tags}</span>
+              </div>
+              <div
+                class="code"
+                style="
+                  flex: 1;
+                  display: grid;
+                  grid-template-columns: 36px minmax(0, 1fr);
+                  background: var(--code-bg);
+                  border-color: var(--cyan);
+                  box-shadow: var(--ring);
+                "
+              >
+                <div
+                  style="
+                    padding: 10px 8px 10px 0;
+                    text-align: right;
+                    color: var(--fg-faint);
+                    border-right: 1px solid var(--border);
+                    white-space: pre;
+                    user-select: none;
+                  "
+                >
+                  1 2 3 4 5 6 7 8 9 10 11 12 13
+                </div>
+                <div style="padding: 10px 12px; white-space: pre-wrap; color: var(--fg)">
+                  You are a security reviewer for <span style="color: var(--cyan)">{repo}</span>.
+                  Review the diff in <span style="color: var(--cyan)">{worktree}</span> against the
+                  approved plan. Report each finding as JSON with: severity, tags, file, line,
+                  title, explanation, suggested_fix. Severity: - critical: exploitable now (auth
+                  bypass, secret exposure, RCE) - high: likely exploitable, or a data-integrity risk
+                  - medium: defence-in-depth gap - low: hardening or hygiene Tags must come from
+                  <span style="color: var(--cyan)">{tags}</span>. Never modify files.<span
+                    class="caret"
+                    style="margin-left: 1px"
+                  ></span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              gap: 10px;
+              padding: 12px 20px;
+              border-top: 1px solid var(--border);
+            "
+          >
+            <span
+              style="
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 12px;
+                color: var(--fg-muted);
+              "
+              ><span
+                style="width: 6px; height: 6px; border-radius: 50%; background: var(--sev-medium)"
+              ></span
+              >Unsaved changes</span
+            >
+            <span style="flex: 1"></span>
+            <button class="btn btn-ghost" type="button">Discard</button>
+            <button class="btn btn-primary" type="button">Save<span class="kbd">⌘S</span></button>
+          </div>
+        </section>
       </div>
-
-      <fieldset style="border: none; margin: 0; padding: 0">
-        <legend class="field-label" style="margin-bottom: 8px">Eligible stages</legend>
-        <div style="display: flex; flex-wrap: wrap; gap: 6px">
-          <label class="chip" style="height: 28px; padding: 0 10px; gap: 6px; color: var(--fg-muted); font-size: 12.5px"><input type="checkbox">Plan</label>
-          <label class="chip" style="height: 28px; padding: 0 10px; gap: 6px; color: var(--fg-strong); border-color: var(--primary); font-size: 12.5px"><input type="checkbox" checked="">Plan review</label>
-          <label class="chip" style="height: 28px; padding: 0 10px; gap: 6px; color: var(--fg-muted); font-size: 12.5px"><input type="checkbox">Implement</label>
-          <label class="chip" style="height: 28px; padding: 0 10px; gap: 6px; color: var(--fg-strong); border-color: var(--primary); font-size: 12.5px"><input type="checkbox" checked="">Code review</label>
-          <label class="chip" style="height: 28px; padding: 0 10px; gap: 6px; color: var(--fg-muted); font-size: 12.5px"><input type="checkbox">Finish</label>
-        </div>
-      </fieldset>
-
-      <div style="display: flex; flex-direction: column; gap: 6px; flex: 1; min-height: 300px">
-        <div style="display: flex; align-items: center; gap: 8px">
-          <span class="field-label">Prompt</span>
-          <span class="faint" style="font-size: 12px">Variables:</span>
-          <span class="tag">{repo}</span><span class="tag">{worktree}</span><span class="tag">{plan}</span><span class="tag">{tags}</span>
-        </div>
-        <div class="code" style="flex: 1; display: grid; grid-template-columns: 36px minmax(0, 1fr); background: var(--code-bg); border-color: var(--cyan); box-shadow: var(--ring)">
-          <div style="padding: 10px 8px 10px 0; text-align: right; color: var(--fg-faint); border-right: 1px solid var(--border); white-space: pre; user-select: none">1
-2
-3
-4
-5
-6
-7
-8
-9
-10
-11
-12
-13</div>
-          <div style="padding: 10px 12px; white-space: pre-wrap; color: var(--fg)">You are a security reviewer for <span style="color: var(--cyan)">{repo}</span>.
-Review the diff in <span style="color: var(--cyan)">{worktree}</span> against the approved plan.
-
-Report each finding as JSON with: severity, tags, file, line,
-title, explanation, suggested_fix.
-
-Severity:
-- critical: exploitable now (auth bypass, secret exposure, RCE)
-- high: likely exploitable, or a data-integrity risk
-- medium: defence-in-depth gap
-- low: hardening or hygiene
-
-Tags must come from <span style="color: var(--cyan)">{tags}</span>. Never modify files.<span class="caret" style="margin-left: 1px"></span></div>
-        </div>
-      </div>
-    </div>
-
-    <div style="display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-top: 1px solid var(--border)">
-      <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-muted)"><span style="width: 6px; height: 6px; border-radius: 50%; background: var(--sev-medium)"></span>Unsaved changes</span>
-      <span style="flex: 1"></span>
-      <button class="btn btn-ghost" type="button">Discard</button>
-      <button class="btn btn-primary" type="button">Save<span class="kbd">⌘S</span></button>
-    </div>
-  </section>
-</div>
-</x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":1440,"height":900}}'>
-class Component extends DCLogic {
-  renderVals() {
-    const theme = this.props.theme ?? 'dark';
-    const raw = [
-      ['Planner', 'cc', 'opus', ['plan'], 'read-only'],
-      ['Implementer', 'cc', 'sonnet', ['implement'], 'edit + shell'],
-      ['Security reviewer', 'cc', 'opus', ['plan review', 'code review'], 'read-only', true],
-      ['Architecture reviewer', 'cp', 'gpt-5', ['plan review'], 'read-only'],
-      ['Performance reviewer', 'cp', 'gpt-5', ['plan review'], 'read-only'],
-      ['UX reviewer', 'cc', 'sonnet', ['code review'], 'read-only'],
-      ['Code reviewer', 'cp', 'gpt-5', ['code review'], 'read + tests'],
-      ['Summarizer', 'cc', 'haiku', ['finish'], 'read-only']
-    ];
-    const agents = raw.map(([name, cli, model, stages, perm, sel]) => ({
-      name, model, stages, perm,
-      agentCls: 'agent agent-' + cli, mono: cli === 'cc' ? 'CC' : 'CP',
-      cls: sel ? 'is-sel' : '',
-      border: sel ? 'var(--border-strong)' : 'transparent',
-      bg: sel ? 'var(--bg-3)' : 'transparent'
-    }));
-    return { theme, agents };
-  }
-}
-</script>
-</body>
+    </x-dc>
+    <script
+      type="text/x-dc"
+      data-dc-script
+      data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":1440,"height":900}}'
+    >
+      class Component extends DCLogic {
+        renderVals() {
+          const theme = this.props.theme ?? 'dark';
+          const raw = [
+            ['Planner', 'cc', 'opus', ['plan'], 'read-only'],
+            ['Implementer', 'cc', 'sonnet', ['implement'], 'edit + shell'],
+            ['Security reviewer', 'cc', 'opus', ['plan review', 'code review'], 'read-only', true],
+            ['Architecture reviewer', 'cp', 'gpt-5', ['plan review'], 'read-only'],
+            ['Performance reviewer', 'cp', 'gpt-5', ['plan review'], 'read-only'],
+            ['UX reviewer', 'cc', 'sonnet', ['code review'], 'read-only'],
+            ['Code reviewer', 'cp', 'gpt-5', ['code review'], 'read + tests'],
+            ['Summarizer', 'cc', 'haiku', ['finish'], 'read-only']
+          ];
+          const agents = raw.map(([name, cli, model, stages, perm, sel]) => ({
+            name, model, stages, perm,
+            agentCls: 'agent agent-' + cli, mono: cli === 'cc' ? 'CC' : 'CP',
+            cls: sel ? 'is-sel' : '',
+            border: sel ? 'var(--border-strong)' : 'transparent',
+            bg: sel ? 'var(--bg-3)' : 'transparent'
+          }));
+          return { theme, agents };
+        }
+      }
+    </script>
+  </body>
 </html>

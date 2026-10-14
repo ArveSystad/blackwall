@@ -1,6 +1,7 @@
 import {
   AgentNotFoundError,
   ChatActionNotFoundError,
+  ChatMessageNotFoundError,
   ConnectionNotFoundError,
   DataArchiveTooNewError,
   DataImportBusyError,
@@ -65,7 +66,8 @@ export function errorResponse(error: unknown, c: Context) {
     error instanceof TaskNotFoundError ||
     error instanceof GrillQuestionNotFoundError ||
     error instanceof FindingNotFoundError ||
-    error instanceof ChatActionNotFoundError
+    error instanceof ChatActionNotFoundError ||
+    error instanceof ChatMessageNotFoundError
   ) {
     return c.json({ error: error.message }, 404);
   }

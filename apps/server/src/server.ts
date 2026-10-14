@@ -38,7 +38,7 @@ export interface StartOptions {
   pipeline?: TaskPipeline;
   taskServices?: TaskRouteServices;
   backlog?: BacklogRouteOptions;
-  chat?: Pick<ChatService, "get" | "send" | "markApplied">;
+  chat?: Pick<ChatService, "get" | "send" | "markApplied" | "addAction">;
   quota?: Pick<QuotaTracker, "state">;
   clis?: () => Promise<CliStatus[]>;
   data?: Pick<DataService, "export" | "import">;

@@ -1,201 +1,574 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<title>(3) blackwall · plan review</title>
-<script src="./support.js"></script>
-<link rel="stylesheet" href="./bw.css">
-</head>
-<body>
-<x-dc>
-<helmet>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500;600&amp;family=Chakra+Petch:wght@500;600&amp;display=swap" rel="stylesheet">
-<style>body{margin:0}</style>
-</helmet>
-<div class="bw" data-theme="{{theme}}" style="height: 100vh; min-height: 760px; display: flex; flex-wrap: wrap; overflow: hidden; background: var(--bg-0)">
-  <div style="flex: 0 1 352px; width: 352px; min-width: 0">
-    <dc-import name="Inbox" theme="{{theme}}" selected="ABC-490" hint-size="352px,100%"></dc-import>
-  </div>
-
-  <main style="flex: 999 1 560px; min-width: 0; height: 100vh; display: flex; flex-direction: column; background: var(--bg-0)">
-    <header style="display: flex; flex-direction: column; gap: 8px; padding: 14px 20px 12px; border-bottom: 1px solid var(--border); background: var(--bg-1)">
-      <div style="display: flex; align-items: center; gap: 8px; font-size: 12px">
-        <svg class="i i-sm" viewBox="0 0 16 16" style="color: var(--fg-muted)"><rect x="2.5" y="2.5" width="11" height="11" rx="2"></rect><path d="M5.5 6h5M5.5 8.5h5M5.5 11h3"></path></svg>
-        <a class="mono" href="https://acme.atlassian.net/browse/ABC-490">ABC-490</a>
-        <span class="chip">Jira</span>
-        <span class="faint">·</span>
-        <span class="muted">Started 9m ago</span>
-        <span style="flex: 1"></span>
-        <button class="btn btn-sm btn-ghost" type="button">Pause<span class="kbd">P</span></button>
-        <button class="btn btn-sm btn-ghost btn-icon" type="button" aria-label="More actions"><svg class="i" viewBox="0 0 16 16"><path d="M4 8h.01M8 8h.01M12 8h.01" stroke-width="2.5"></path></svg></button>
-      </div>
-      <h1 style="margin: 0; font-size: 18px; line-height: 24px; font-weight: 600; color: var(--fg-strong); letter-spacing: -0.01em">Add rate limiting to public API endpoints</h1>
-      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 14px; font-size: 12px; color: var(--fg-muted)">
-        <span style="display: inline-flex; align-items: center; gap: 5px"><svg class="i i-sm" viewBox="0 0 16 16"><path d="M3 2.5h8.5v11H3a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1Z"></path><path d="M5 2.5v11"></path></svg><span class="mono">acme/api</span></span>
-        <span style="display: inline-flex; align-items: center; gap: 5px"><svg class="i i-sm" viewBox="0 0 16 16"><circle cx="4.5" cy="3.5" r="1.5"></circle><circle cx="4.5" cy="12.5" r="1.5"></circle><circle cx="11.5" cy="5.5" r="1.5"></circle><path d="M4.5 5v6M11.5 7c0 3-7 2-7 4"></path></svg><span class="mono" style="color: var(--fg)">feature/abc-490-rate-limits</span></span>
-        <span style="display: inline-flex; align-items: center; gap: 6px"><span class="agent agent-cc">CC</span>planner<span class="agent agent-cc" style="margin-left: 6px">CC</span><span class="agent agent-cp">CP</span>3 plan reviewers</span>
-      </div>
-      <nav class="stepper" aria-label="Pipeline" style="margin-top: 4px; --c: var(--magenta)">
-        <span class="step done"><span class="snum">✓</span>Inform</span><span class="step-line done"></span>
-        <span class="step cur"><span class="snum">2</span>Plan review<span class="status st-needs" style="margin-left: 4px">2 decisions</span></span><span class="step-line"></span>
-        <span class="step"><span class="snum">3</span>Implement</span><span class="step-line"></span>
-        <span class="step"><span class="snum">4</span>Checks</span><span class="step-line"></span>
-        <span class="step"><span class="snum">5</span>Code review</span><span class="step-line"></span>
-        <span class="step"><span class="snum">6</span>Finish</span>
-      </nav>
-    </header>
-
-    <div class="tabs" role="tablist" style="background: var(--bg-0)">
-      <button class="tab" type="button" role="tab">Context</button>
-      <button class="tab" type="button" role="tab">Plan<span class="count">v2</span></button>
-      <button class="tab on" type="button" role="tab" aria-selected="true">Grill<span class="count count-needs">2</span></button>
-      <button class="tab" type="button" role="tab">Agent output</button>
-      <button class="tab" type="button" role="tab" disabled="" style="opacity: .5">Findings</button>
-      <button class="tab" type="button" role="tab" disabled="" style="opacity: .5">Diff</button>
-      <button class="tab" type="button" role="tab" disabled="" style="opacity: .5">Checks</button>
-    </div>
-
-    <div style="flex: 1; min-height: 0; display: flex; flex-wrap: wrap">
-      <!-- grill thread -->
-      <section aria-label="Grill" style="flex: 999 1 520px; min-width: 0; height: 100%; overflow: auto; padding: 16px 20px 24px; display: flex; flex-direction: column; gap: 12px">
-        <div style="display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--fg-muted)">
-          <span class="label">Round 1</span>
-          <span>4 questions</span><span class="faint">·</span>
-          <span>2 answered by planner</span><span class="faint">·</span>
-          <span style="color: var(--magenta); font-weight: 600">2 need your decision</span>
-          <span style="flex: 1"></span>
-          <span style="display: inline-flex; gap: 4px; align-items: center"><span class="kbd">G</span><span class="kbd">N</span> next open</span>
+  <head>
+    <meta charset="utf-8" />
+    <title>(3) blackwall · plan review</title>
+    <script src="./support.js"></script>
+    <link rel="stylesheet" href="./bw.css" />
+  </head>
+  <body>
+    <x-dc>
+      <helmet>
+        <link
+          href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500;600&amp;family=Chakra+Petch:wght@500;600&amp;display=swap"
+          rel="stylesheet"
+        />
+        <style>
+          body {
+            margin: 0;
+          }
+        </style>
+      </helmet>
+      <div
+        class="bw"
+        data-theme="{{theme}}"
+        style="
+          height: 100vh;
+          min-height: 760px;
+          display: flex;
+          flex-wrap: wrap;
+          overflow: hidden;
+          background: var(--bg-0);
+        "
+      >
+        <div style="flex: 0 1 352px; width: 352px; min-width: 0">
+          <dc-import
+            name="Inbox"
+            theme="{{theme}}"
+            selected="ABC-490"
+            hint-size="352px,100%"
+          ></dc-import>
         </div>
 
-        <!-- Q1 answered -->
-        <article class="card" style="padding: 12px 14px; display: flex; flex-direction: column; gap: 8px">
-          <div style="display: flex; align-items: center; gap: 8px; font-size: 12px">
-            <span class="mono faint">Q1</span>
-            <span class="chip" style="color: var(--st-done); border-color: color-mix(in oklab, var(--st-done) 40%, transparent)">Answered by planner</span>
-            <span style="flex: 1"></span>
-            <span class="agent agent-cc">CC</span><span class="muted">Security reviewer</span>
-          </div>
-          <div class="strong" style="font-weight: 500">Should limits key on API key or IP for unauthenticated routes?</div>
-          <div style="display: flex; gap: 10px; padding-left: 2px">
-            <span class="agent agent-cc" style="margin-top: 2px">CC</span>
-            <div style="color: var(--fg); font-size: 12.5px">API key when present, otherwise client IP from <span class="mono">X-Forwarded-For</span> (trusted proxy list only). Plan §2 updated.</div>
-          </div>
-          <div style="display: flex; gap: 6px"><button class="btn btn-sm btn-ghost" type="button">Override answer</button></div>
-        </article>
-
-        <!-- Q2 needs decision (focused) -->
-        <article class="card" style="padding: 14px; display: flex; flex-direction: column; gap: 10px; border-color: var(--magenta); box-shadow: var(--glow-magenta); background: var(--bg-1)">
-          <div style="display: flex; align-items: center; gap: 8px; font-size: 12px">
-            <span class="mono faint">Q2</span>
-            <span class="status st-needs"><span class="sdot"></span>Needs your decision</span>
-            <span style="flex: 1"></span>
-            <span class="agent agent-cp">CP</span><span class="muted">Performance reviewer</span><span class="mono faint">gpt-5</span>
-          </div>
-          <div class="strong" style="font-weight: 500; font-size: 14px">acme/api has no Redis today. Is adding one acceptable, or should the limiter stay in memory per instance?</div>
-          <div style="font-size: 12px; color: var(--fg-muted)">With 3 replicas behind the load balancer, in-memory limits are effectively 3× the configured value.</div>
-          <div style="display: flex; gap: 10px; padding: 10px 12px; border-radius: var(--r-md); background: var(--bg-2); border: 1px solid var(--border)">
-            <span class="agent agent-cc" style="margin-top: 2px">CC</span>
-            <div style="display: flex; flex-direction: column; gap: 2px">
-              <span style="font-size: 11px; color: var(--fg-muted)">Planner's take</span>
-              <span style="font-size: 12.5px">Redis is the correct answer for a shared limit, but it is new infrastructure, so this is your call. I can do either.</span>
+        <main
+          style="
+            flex: 999 1 560px;
+            min-width: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-0);
+          "
+        >
+          <header
+            style="
+              display: flex;
+              flex-direction: column;
+              gap: 8px;
+              padding: 14px 20px 12px;
+              border-bottom: 1px solid var(--border);
+              background: var(--bg-1);
+            "
+          >
+            <div style="display: flex; align-items: center; gap: 8px; font-size: 12px">
+              <svg class="i i-sm" viewBox="0 0 16 16" style="color: var(--fg-muted)">
+                <rect x="2.5" y="2.5" width="11" height="11" rx="2"></rect>
+                <path d="M5.5 6h5M5.5 8.5h5M5.5 11h3"></path>
+              </svg>
+              <a class="mono" href="https://acme.atlassian.net/browse/ABC-490">ABC-490</a>
+              <span class="chip">Jira</span>
+              <span class="faint">·</span>
+              <span class="muted">Started 9m ago</span>
+              <span style="flex: 1"></span>
+              <button class="btn btn-sm btn-ghost" type="button">
+                Pause<span class="kbd">P</span>
+              </button>
+              <button class="btn btn-sm btn-ghost btn-icon" type="button" aria-label="More actions">
+                <svg class="i" viewBox="0 0 16 16">
+                  <path d="M4 8h.01M8 8h.01M12 8h.01" stroke-width="2.5"></path>
+                </svg>
+              </button>
             </div>
-          </div>
-          <fieldset style="border: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px">
-            <legend class="field-label" style="margin-bottom: 6px">Your answer</legend>
-            <label class="chip" style="height: 28px; padding: 0 10px; gap: 6px; color: var(--fg-strong); border-color: var(--cyan); box-shadow: var(--ring); font-size: 12.5px"><input type="radio" name="q2" checked="">Add Redis (shared limits)<span class="kbd">1</span></label>
-            <label class="chip" style="height: 28px; padding: 0 10px; gap: 6px; color: var(--fg); font-size: 12.5px"><input type="radio" name="q2">In-memory per instance<span class="kbd">2</span></label>
-            <label class="chip" style="height: 28px; padding: 0 10px; gap: 6px; color: var(--fg); font-size: 12.5px"><input type="radio" name="q2">Something else<span class="kbd">3</span></label>
-          </fieldset>
-          <label style="display: flex; flex-direction: column; gap: 4px">
-            <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Note for the planner</span>
-            <textarea class="textarea" rows="2" placeholder="Optional note for the planner">Use the existing Azure Cache for Redis instance in the shared rg, not a new one.</textarea>
-          </label>
-          <div style="display: flex; align-items: center; gap: 8px">
-            <span class="faint" style="font-size: 12px">Goes back to the planner, who revises the plan.</span>
-            <span style="flex: 1"></span>
-            <button class="btn btn-sm btn-ghost" type="button">Skip</button>
-            <button class="btn btn-sm btn-needs" type="button">Answer<span class="kbd" style="color: inherit; background: rgba(0,0,0,.15); border-color: rgba(0,0,0,.25)">⌘↵</span></button>
-          </div>
-        </article>
+            <h1
+              style="
+                margin: 0;
+                font-size: 18px;
+                line-height: 24px;
+                font-weight: 600;
+                color: var(--fg-strong);
+                letter-spacing: -0.01em;
+              "
+            >
+              Add rate limiting to public API endpoints
+            </h1>
+            <div
+              style="
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 14px;
+                font-size: 12px;
+                color: var(--fg-muted);
+              "
+            >
+              <span style="display: inline-flex; align-items: center; gap: 5px"
+                ><svg class="i i-sm" viewBox="0 0 16 16">
+                  <path d="M3 2.5h8.5v11H3a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1Z"></path>
+                  <path d="M5 2.5v11"></path></svg
+                ><span class="mono">acme/api</span></span
+              >
+              <span style="display: inline-flex; align-items: center; gap: 5px"
+                ><svg class="i i-sm" viewBox="0 0 16 16">
+                  <circle cx="4.5" cy="3.5" r="1.5"></circle>
+                  <circle cx="4.5" cy="12.5" r="1.5"></circle>
+                  <circle cx="11.5" cy="5.5" r="1.5"></circle>
+                  <path d="M4.5 5v6M11.5 7c0 3-7 2-7 4"></path></svg
+                ><span class="mono" style="color: var(--fg)"
+                  >feature/abc-490-rate-limits</span
+                ></span
+              >
+              <span style="display: inline-flex; align-items: center; gap: 6px"
+                ><span class="agent agent-cc">CC</span>planner<span
+                  class="agent agent-cc"
+                  style="margin-left: 6px"
+                  >CC</span
+                ><span class="agent agent-cp">CP</span>3 plan reviewers</span
+              >
+            </div>
+            <nav class="stepper" aria-label="Pipeline" style="margin-top: 4px; --c: var(--magenta)">
+              <span class="step done"><span class="snum">✓</span>Inform</span
+              ><span class="step-line done"></span>
+              <span class="step cur"
+                ><span class="snum">2</span>Plan review<span
+                  class="status st-needs"
+                  style="margin-left: 4px"
+                  >2 decisions</span
+                ></span
+              ><span class="step-line"></span>
+              <span class="step"><span class="snum">3</span>Implement</span
+              ><span class="step-line"></span>
+              <span class="step"><span class="snum">4</span>Checks</span
+              ><span class="step-line"></span>
+              <span class="step"><span class="snum">5</span>Code review</span
+              ><span class="step-line"></span>
+              <span class="step"><span class="snum">6</span>Finish</span>
+            </nav>
+          </header>
 
-        <!-- Q3 answered -->
-        <article class="card" style="padding: 12px 14px; display: flex; flex-direction: column; gap: 8px">
-          <div style="display: flex; align-items: center; gap: 8px; font-size: 12px">
-            <span class="mono faint">Q3</span>
-            <span class="chip" style="color: var(--st-done); border-color: color-mix(in oklab, var(--st-done) 40%, transparent)">Answered by planner</span>
-            <span style="flex: 1"></span>
-            <span class="agent agent-cc">CC</span><span class="muted">Security reviewer</span>
+          <div class="tabs" role="tablist" style="background: var(--bg-0)">
+            <button class="tab" type="button" role="tab">Context</button>
+            <button class="tab" type="button" role="tab">Plan<span class="count">v2</span></button>
+            <button class="tab on" type="button" role="tab" aria-selected="true">
+              Grill<span class="count count-needs">2</span>
+            </button>
+            <button class="tab" type="button" role="tab">Agent output</button>
+            <button class="tab" type="button" role="tab" disabled="" style="opacity: 0.5">
+              Findings
+            </button>
+            <button class="tab" type="button" role="tab" disabled="" style="opacity: 0.5">
+              Diff
+            </button>
+            <button class="tab" type="button" role="tab" disabled="" style="opacity: 0.5">
+              Checks
+            </button>
           </div>
-          <div class="strong" style="font-weight: 500">What does a limited client get back?</div>
-          <div style="display: flex; gap: 10px; padding-left: 2px">
-            <span class="agent agent-cc" style="margin-top: 2px">CC</span>
-            <div style="font-size: 12.5px"><span class="mono">429</span> with <span class="mono">Retry-After</span> and <span class="mono">X-RateLimit-Limit/Remaining/Reset</span>. Body follows the existing problem+json error shape.</div>
-          </div>
-        </article>
 
-        <!-- Q4 needs decision (collapsed answer box) -->
-        <article class="card" style="padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; border-color: color-mix(in oklab, var(--magenta) 45%, transparent); background: var(--needs-wash)">
-          <div style="display: flex; align-items: center; gap: 8px; font-size: 12px">
-            <span class="mono faint">Q4</span>
-            <span class="status st-needs"><span class="sdot"></span>Needs your decision</span>
-            <span style="flex: 1"></span>
-            <span class="agent agent-cc">CC</span><span class="muted">UX reviewer</span>
-          </div>
-          <div class="strong" style="font-weight: 500">Should the public API docs list the new limits as part of this ticket?</div>
-          <div style="display: flex; gap: 8px">
-            <input class="input" type="text" placeholder="Type an answer, or 1 = yes / 2 = no" aria-label="Answer to Q4">
-            <button class="btn" type="button">Answer</button>
-          </div>
-        </article>
-      </section>
+          <div style="flex: 1; min-height: 0; display: flex; flex-wrap: wrap">
+            <!-- grill thread -->
+            <section
+              aria-label="Grill"
+              style="
+                flex: 999 1 520px;
+                min-width: 0;
+                height: 100%;
+                overflow: auto;
+                padding: 16px 20px 24px;
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+              "
+            >
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  gap: 10px;
+                  font-size: 12px;
+                  color: var(--fg-muted);
+                "
+              >
+                <span class="label">Round 1</span>
+                <span>4 questions</span><span class="faint">·</span>
+                <span>2 answered by planner</span><span class="faint">·</span>
+                <span style="color: var(--magenta); font-weight: 600">2 need your decision</span>
+                <span style="flex: 1"></span>
+                <span style="display: inline-flex; gap: 4px; align-items: center"
+                  ><span class="kbd">G</span><span class="kbd">N</span> next open</span
+                >
+              </div>
 
-      <!-- plan side pane -->
-      <aside aria-label="Plan" style="flex: 1 1 420px; max-width: 480px; min-width: 0; height: 100%; display: flex; flex-direction: column; border-left: 1px solid var(--border); background: var(--bg-1)">
-        <div style="display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border)">
-          <span class="strong" style="font-weight: 600">Plan</span>
-          <span class="chip mono" style="font-size: 11px">v2</span>
-          <span class="muted" style="font-size: 12px">updated after Q1, Q3</span>
-          <span style="flex: 1"></span>
-          <button class="btn btn-sm btn-ghost" type="button">Diff v1</button>
-        </div>
-        <div style="flex: 1; min-height: 0; overflow: auto; padding: 14px 18px; font-size: 13px; line-height: 21px; display: flex; flex-direction: column; gap: 10px">
-          <h3 style="margin: 0; font-size: 13px; color: var(--fg-strong)">Goal</h3>
-          <p style="margin: 0">Stop a single client from starving <span class="mono">/v1/public/*</span> for everyone else.</p>
-          <h3 style="margin: 4px 0 0; font-size: 13px; color: var(--fg-strong)">Approach</h3>
-          <ol style="margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px">
-            <li>Token-bucket middleware in <span class="mono">src/middleware/rateLimit.ts</span>, keyed by API key, falling back to client IP.</li>
-            <li><span style="color: var(--magenta); font-weight: 500">Store: pending Q2.</span> Redis-backed if shared, otherwise in-memory.</li>
-            <li>429 with <span class="mono">Retry-After</span> and <span class="mono">X-RateLimit-*</span> headers.</li>
-            <li>Limits per route in <span class="mono">config/rate-limits.yaml</span>.</li>
-          </ol>
-          <h3 style="margin: 4px 0 0; font-size: 13px; color: var(--fg-strong)">Files</h3>
-          <div class="code" style="padding: 8px 10px; display: flex; flex-direction: column; gap: 2px">
-            <span><span style="color: var(--diff-add-fg)">A</span>  src/middleware/rateLimit.ts</span>
-            <span><span style="color: var(--sev-medium)">M</span>  src/routes/public/index.ts</span>
-            <span><span style="color: var(--diff-add-fg)">A</span>  config/rate-limits.yaml</span>
-            <span><span style="color: var(--diff-add-fg)">A</span>  test/rateLimit.test.ts</span>
+              <!-- Q1 answered -->
+              <article
+                class="card"
+                style="padding: 12px 14px; display: flex; flex-direction: column; gap: 8px"
+              >
+                <div style="display: flex; align-items: center; gap: 8px; font-size: 12px">
+                  <span class="mono faint">Q1</span>
+                  <span
+                    class="chip"
+                    style="
+                      color: var(--st-done);
+                      border-color: color-mix(in oklab, var(--st-done) 40%, transparent);
+                    "
+                    >Answered by planner</span
+                  >
+                  <span style="flex: 1"></span>
+                  <span class="agent agent-cc">CC</span><span class="muted">Security reviewer</span>
+                </div>
+                <div class="strong" style="font-weight: 500">
+                  Should limits key on API key or IP for unauthenticated routes?
+                </div>
+                <div style="display: flex; gap: 10px; padding-left: 2px">
+                  <span class="agent agent-cc" style="margin-top: 2px">CC</span>
+                  <div style="color: var(--fg); font-size: 12.5px">
+                    API key when present, otherwise client IP from
+                    <span class="mono">X-Forwarded-For</span> (trusted proxy list only). Plan §2
+                    updated.
+                  </div>
+                </div>
+                <div style="display: flex; gap: 6px">
+                  <button class="btn btn-sm btn-ghost" type="button">Override answer</button>
+                </div>
+              </article>
+
+              <!-- Q2 needs decision (focused) -->
+              <article
+                class="card"
+                style="
+                  padding: 14px;
+                  display: flex;
+                  flex-direction: column;
+                  gap: 10px;
+                  border-color: var(--magenta);
+                  box-shadow: var(--glow-magenta);
+                  background: var(--bg-1);
+                "
+              >
+                <div style="display: flex; align-items: center; gap: 8px; font-size: 12px">
+                  <span class="mono faint">Q2</span>
+                  <span class="status st-needs"><span class="sdot"></span>Needs your decision</span>
+                  <span style="flex: 1"></span>
+                  <span class="agent agent-cp">CP</span
+                  ><span class="muted">Performance reviewer</span
+                  ><span class="mono faint">gpt-5</span>
+                </div>
+                <div class="strong" style="font-weight: 500; font-size: 14px">
+                  acme/api has no Redis today. Is adding one acceptable, or should the limiter stay
+                  in memory per instance?
+                </div>
+                <div style="font-size: 12px; color: var(--fg-muted)">
+                  With 3 replicas behind the load balancer, in-memory limits are effectively 3× the
+                  configured value.
+                </div>
+                <div
+                  style="
+                    display: flex;
+                    gap: 10px;
+                    padding: 10px 12px;
+                    border-radius: var(--r-md);
+                    background: var(--bg-2);
+                    border: 1px solid var(--border);
+                  "
+                >
+                  <span class="agent agent-cc" style="margin-top: 2px">CC</span>
+                  <div style="display: flex; flex-direction: column; gap: 2px">
+                    <span style="font-size: 11px; color: var(--fg-muted)">Planner's take</span>
+                    <span style="font-size: 12.5px"
+                      >Redis is the correct answer for a shared limit, but it is new infrastructure,
+                      so this is your call. I can do either.</span
+                    >
+                  </div>
+                </div>
+                <fieldset
+                  style="
+                    border: none;
+                    margin: 0;
+                    padding: 0;
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 6px;
+                  "
+                >
+                  <legend class="field-label" style="margin-bottom: 6px">Your answer</legend>
+                  <label
+                    class="chip"
+                    style="
+                      height: 28px;
+                      padding: 0 10px;
+                      gap: 6px;
+                      color: var(--fg-strong);
+                      border-color: var(--cyan);
+                      box-shadow: var(--ring);
+                      font-size: 12.5px;
+                    "
+                    ><input type="radio" name="q2" checked="" />Add Redis (shared limits)<span
+                      class="kbd"
+                      >1</span
+                    ></label
+                  >
+                  <label
+                    class="chip"
+                    style="
+                      height: 28px;
+                      padding: 0 10px;
+                      gap: 6px;
+                      color: var(--fg);
+                      font-size: 12.5px;
+                    "
+                    ><input type="radio" name="q2" />In-memory per instance<span class="kbd"
+                      >2</span
+                    ></label
+                  >
+                  <label
+                    class="chip"
+                    style="
+                      height: 28px;
+                      padding: 0 10px;
+                      gap: 6px;
+                      color: var(--fg);
+                      font-size: 12.5px;
+                    "
+                    ><input type="radio" name="q2" />Something else<span class="kbd">3</span></label
+                  >
+                </fieldset>
+                <label style="display: flex; flex-direction: column; gap: 4px">
+                  <span
+                    style="
+                      position: absolute;
+                      width: 1px;
+                      height: 1px;
+                      overflow: hidden;
+                      clip: rect(0 0 0 0);
+                    "
+                    >Note for the planner</span
+                  >
+                  <textarea class="textarea" rows="2" placeholder="Optional note for the planner">
+Use the existing Azure Cache for Redis instance in the shared rg, not a new one.</textarea>
+                </label>
+                <div style="display: flex; align-items: center; gap: 8px">
+                  <span class="faint" style="font-size: 12px"
+                    >Goes back to the planner, who revises the plan.</span
+                  >
+                  <span style="flex: 1"></span>
+                  <button class="btn btn-sm btn-ghost" type="button">Skip</button>
+                  <button class="btn btn-sm btn-needs" type="button">
+                    Answer<span
+                      class="kbd"
+                      style="
+                        color: inherit;
+                        background: rgba(0, 0, 0, 0.15);
+                        border-color: rgba(0, 0, 0, 0.25);
+                      "
+                      >⌘↵</span
+                    >
+                  </button>
+                </div>
+              </article>
+
+              <!-- Q3 answered -->
+              <article
+                class="card"
+                style="padding: 12px 14px; display: flex; flex-direction: column; gap: 8px"
+              >
+                <div style="display: flex; align-items: center; gap: 8px; font-size: 12px">
+                  <span class="mono faint">Q3</span>
+                  <span
+                    class="chip"
+                    style="
+                      color: var(--st-done);
+                      border-color: color-mix(in oklab, var(--st-done) 40%, transparent);
+                    "
+                    >Answered by planner</span
+                  >
+                  <span style="flex: 1"></span>
+                  <span class="agent agent-cc">CC</span><span class="muted">Security reviewer</span>
+                </div>
+                <div class="strong" style="font-weight: 500">
+                  What does a limited client get back?
+                </div>
+                <div style="display: flex; gap: 10px; padding-left: 2px">
+                  <span class="agent agent-cc" style="margin-top: 2px">CC</span>
+                  <div style="font-size: 12.5px">
+                    <span class="mono">429</span> with <span class="mono">Retry-After</span> and
+                    <span class="mono">X-RateLimit-Limit/Remaining/Reset</span>. Body follows the
+                    existing problem+json error shape.
+                  </div>
+                </div>
+              </article>
+
+              <!-- Q4 needs decision (collapsed answer box) -->
+              <article
+                class="card"
+                style="
+                  padding: 12px 14px;
+                  display: flex;
+                  flex-direction: column;
+                  gap: 10px;
+                  border-color: color-mix(in oklab, var(--magenta) 45%, transparent);
+                  background: var(--needs-wash);
+                "
+              >
+                <div style="display: flex; align-items: center; gap: 8px; font-size: 12px">
+                  <span class="mono faint">Q4</span>
+                  <span class="status st-needs"><span class="sdot"></span>Needs your decision</span>
+                  <span style="flex: 1"></span>
+                  <span class="agent agent-cc">CC</span><span class="muted">UX reviewer</span>
+                </div>
+                <div class="strong" style="font-weight: 500">
+                  Should the public API docs list the new limits as part of this ticket?
+                </div>
+                <div style="display: flex; gap: 8px">
+                  <input
+                    class="input"
+                    type="text"
+                    placeholder="Type an answer, or 1 = yes / 2 = no"
+                    aria-label="Answer to Q4"
+                  />
+                  <button class="btn" type="button">Answer</button>
+                </div>
+              </article>
+            </section>
+
+            <!-- plan side pane -->
+            <aside
+              aria-label="Plan"
+              style="
+                flex: 1 1 420px;
+                max-width: 480px;
+                min-width: 0;
+                height: 100%;
+                display: flex;
+                flex-direction: column;
+                border-left: 1px solid var(--border);
+                background: var(--bg-1);
+              "
+            >
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  gap: 8px;
+                  padding: 10px 16px;
+                  border-bottom: 1px solid var(--border);
+                "
+              >
+                <span class="strong" style="font-weight: 600">Plan</span>
+                <span class="chip mono" style="font-size: 11px">v2</span>
+                <span class="muted" style="font-size: 12px">updated after Q1, Q3</span>
+                <span style="flex: 1"></span>
+                <button class="btn btn-sm btn-ghost" type="button">Diff v1</button>
+              </div>
+              <div
+                style="
+                  flex: 1;
+                  min-height: 0;
+                  overflow: auto;
+                  padding: 14px 18px;
+                  font-size: 13px;
+                  line-height: 21px;
+                  display: flex;
+                  flex-direction: column;
+                  gap: 10px;
+                "
+              >
+                <h3 style="margin: 0; font-size: 13px; color: var(--fg-strong)">Goal</h3>
+                <p style="margin: 0">
+                  Stop a single client from starving <span class="mono">/v1/public/*</span> for
+                  everyone else.
+                </p>
+                <h3 style="margin: 4px 0 0; font-size: 13px; color: var(--fg-strong)">Approach</h3>
+                <ol
+                  style="
+                    margin: 0;
+                    padding-left: 18px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 6px;
+                  "
+                >
+                  <li>
+                    Token-bucket middleware in
+                    <span class="mono">src/middleware/rateLimit.ts</span>, keyed by API key, falling
+                    back to client IP.
+                  </li>
+                  <li>
+                    <span style="color: var(--magenta); font-weight: 500">Store: pending Q2.</span>
+                    Redis-backed if shared, otherwise in-memory.
+                  </li>
+                  <li>
+                    429 with <span class="mono">Retry-After</span> and
+                    <span class="mono">X-RateLimit-*</span> headers.
+                  </li>
+                  <li>Limits per route in <span class="mono">config/rate-limits.yaml</span>.</li>
+                </ol>
+                <h3 style="margin: 4px 0 0; font-size: 13px; color: var(--fg-strong)">Files</h3>
+                <div
+                  class="code"
+                  style="padding: 8px 10px; display: flex; flex-direction: column; gap: 2px"
+                >
+                  <span
+                    ><span style="color: var(--diff-add-fg)">A</span>
+                    src/middleware/rateLimit.ts</span
+                  >
+                  <span
+                    ><span style="color: var(--sev-medium)">M</span>
+                    src/routes/public/index.ts</span
+                  >
+                  <span
+                    ><span style="color: var(--diff-add-fg)">A</span> config/rate-limits.yaml</span
+                  >
+                  <span
+                    ><span style="color: var(--diff-add-fg)">A</span> test/rateLimit.test.ts</span
+                  >
+                </div>
+                <h3 style="margin: 4px 0 0; font-size: 13px; color: var(--fg-strong)">
+                  Out of scope
+                </h3>
+                <p style="margin: 0; color: var(--fg-muted)">
+                  Public docs, <span style="color: var(--magenta)">pending Q4</span>.
+                </p>
+              </div>
+              <div
+                style="
+                  display: flex;
+                  flex-direction: column;
+                  gap: 8px;
+                  padding: 12px 16px;
+                  border-top: 1px solid var(--border);
+                "
+              >
+                <div style="display: flex; gap: 8px">
+                  <button class="btn" type="button" style="flex: 1; justify-content: center">
+                    Request changes<span class="kbd">R</span>
+                  </button>
+                  <button
+                    class="btn btn-primary"
+                    type="button"
+                    disabled=""
+                    style="flex: 1; justify-content: center"
+                  >
+                    Approve plan<span class="kbd">A</span>
+                  </button>
+                </div>
+                <span style="font-size: 11.5px; color: var(--fg-muted); text-align: center"
+                  >Approve unlocks when Q2 and Q4 are answered. <a href="#">Approve anyway</a></span
+                >
+              </div>
+            </aside>
           </div>
-          <h3 style="margin: 4px 0 0; font-size: 13px; color: var(--fg-strong)">Out of scope</h3>
-          <p style="margin: 0; color: var(--fg-muted)">Public docs, <span style="color: var(--magenta)">pending Q4</span>.</p>
-        </div>
-        <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border)">
-          <div style="display: flex; gap: 8px">
-            <button class="btn" type="button" style="flex: 1; justify-content: center">Request changes<span class="kbd">R</span></button>
-            <button class="btn btn-primary" type="button" disabled="" style="flex: 1; justify-content: center">Approve plan<span class="kbd">A</span></button>
-          </div>
-          <span style="font-size: 11.5px; color: var(--fg-muted); text-align: center">Approve unlocks when Q2 and Q4 are answered. <a href="#">Approve anyway</a></span>
-        </div>
-      </aside>
-    </div>
-  </main>
-</div>
-</x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":1440,"height":900}}'>
-class Component extends DCLogic {
-  renderVals() {
-    return { theme: this.props.theme ?? 'dark' };
-  }
-}
-</script>
-</body>
+        </main>
+      </div>
+    </x-dc>
+    <script
+      type="text/x-dc"
+      data-dc-script
+      data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":1440,"height":900}}'
+    >
+      class Component extends DCLogic {
+        renderVals() {
+          return { theme: this.props.theme ?? 'dark' };
+        }
+      }
+    </script>
+  </body>
 </html>

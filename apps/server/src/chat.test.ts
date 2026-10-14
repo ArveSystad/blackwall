@@ -1,5 +1,10 @@
-import { ChatActionNotFoundError, ChatBusyError, RepoNotFoundError } from "@blackwall/core";
-import { chatStateSchema, type ChatState } from "@blackwall/shared";
+import {
+  ChatActionNotFoundError,
+  ChatBusyError,
+  ChatMessageNotFoundError,
+  RepoNotFoundError,
+} from "@blackwall/core";
+import { MAX_TITLE_CHARS, chatStateSchema, type ChatState } from "@blackwall/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.js";
 import { tokenCookieName } from "./auth.js";
@@ -33,6 +38,11 @@ beforeEach(() => {
     markApplied: vi.fn((repoId: string, actionId: string) => {
       known(repoId);
       if (actionId !== "a1") throw new ChatActionNotFoundError(actionId);
+      return state(repoId);
+    }),
+    addAction: vi.fn((repoId: string, messageId: string) => {
+      known(repoId);
+      if (messageId !== "m1") throw new ChatMessageNotFoundError(messageId);
       return state(repoId);
     }),
   };
@@ -82,5 +92,29 @@ describe("chat routes", () => {
     expect(chat.markApplied).toHaveBeenCalledWith("r1", "a1");
     expect((await request("r1/chat/actions/zz/applied", { method: "POST" })).status).toBe(404);
     expect((await request("nope/chat/actions/a1/applied", { method: "POST" })).status).toBe(404);
+  });
+
+  it("adds an action to a message", async () => {
+    const path = "r1/chat/messages/m1/actions";
+    const post = (to: string, body?: unknown) =>
+      request(to, { method: "POST", ...(body !== undefined ? { body } : {}) });
+    const res = await post(path, { kind: "create-task", title: " Fix it ", description: " Why " });
+    expect(res.status).toBe(200);
+    expect(chatStateSchema.parse(await res.json())).toEqual(state("r1"));
+    expect(chat.addAction).toHaveBeenCalledWith("r1", "m1", {
+      kind: "create-task",
+      title: "Fix it",
+      description: "Why",
+    });
+
+    const valid = { kind: "create-task", title: "T", description: "D" };
+    expect((await post(path, { ...valid, title: "  " })).status).toBe(400);
+    expect((await post(path, { ...valid, title: "x".repeat(MAX_TITLE_CHARS + 1) })).status).toBe(
+      400,
+    );
+    expect((await post(path)).status).toBe(400);
+    expect((await post(path, { ...valid, kind: "delete-repo" })).status).toBe(400);
+    expect((await post("r1/chat/messages/zz/actions", valid)).status).toBe(404);
+    expect((await post("nope/chat/messages/m1/actions", valid)).status).toBe(404);
   });
 });
