@@ -164,6 +164,12 @@ Rules:
   error with Retry, empty, busy (a cyan activity line with the running pulse; Send is disabled
   except for `/clear`), send error inline. Clear (and a typed `/clear`) clears at once when idle,
   and asks first ("Stop and clear the chat?") only while an answer is running.
+- **Search palette:** `⌘K` / `Ctrl K` or the top bar's search button opens a dialog anchored near
+  the top (640px). The input keeps focus (combobox) over a listbox grouped Tasks → Backlog → Repos,
+  each with a `label` heading; the active row is `bg-muted` with a cyan border. An "All repos" /
+  "This repo" `Segmented` sets the scope (the selected repo comes first either way; disabled with
+  no repo). Rows: origin icon, title, mono key and repo, status (or an Archived chip), and a faint
+  snippet line when the match is outside the title. ↑/↓ (and Ctrl N/P) wrap, ↵ opens, Esc closes.
 - **Modals** (new task, missing token): over a dimmed shell, Esc closes, ⌘↵ / ↵ submits. Never display
   tokens; show configured or missing status only.
 
@@ -174,7 +180,7 @@ real CLI marks are added), `TaskCard`, `NeedsBanner`, `FindingRow` (expandable: 
 diff + Force fix / Force ignore), `DiffView`, `ToolCall` (collapsible: verb + mono target + result),
 `Kbd`, `Segmented`, `OutboundAction`, `ChatPanel` (with its action cards: a summary label such as
 "Request changes · planner", the task title linked to the task with its status pill, the gate
-reason, and the full message or a clamped description with Show more), `ChatToggle`. Mockup class
+reason, and the full message or a clamped description with Show more), `ChatToggle`, `SearchPalette`. Mockup class
 names map 1:1 (`.status`, `.sev`, `.pips`, `.stepper`, `.agent`, `.tcard`, `.needs-banner`,
 `.frow`, `.dl`, `.tool`, `.kbd`, `.seg`).
 
@@ -185,10 +191,10 @@ only `primary` button.
 
 ## Keyboard
 
-J/K move · Enter open · G N next needs-you · N new task · / search · ⌘↵ confirm/send · F force fix ·
+J/K move · Enter open · G N next needs-you · N new task · / filter inbox · ⌘K / Ctrl K search palette · ⌘↵ confirm/send · F force fix ·
 I force ignore · O open in editor · A approve plan · R request changes (Grill) / resume (interrupted) ·
 P pause · T toggle theme · C toggle chat · Esc close · ? shortcut sheet. Show `Kbd` hints next to the actions they trigger. Never
-bind a global shortcut while focus is in a text field.
+bind a plain-key global shortcut while focus is in a text field; ⌘/Ctrl shortcuts (⌘S, ⌘K) may fire there.
 
 ## Copy
 

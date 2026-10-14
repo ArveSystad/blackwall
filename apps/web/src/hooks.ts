@@ -13,6 +13,16 @@ export function useNow(ms = 60_000): Date {
   return now;
 }
 
+/** `value`, once it has stopped changing for `ms`. */
+export function useDebounced<T>(value: T, ms: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), ms);
+    return () => clearTimeout(timer);
+  }, [value, ms]);
+  return debounced;
+}
+
 /** The agent library by id; empty until it loads. */
 export function useAgentLibrary(): ReadonlyMap<string, Agent> {
   const agents = useQuery(agentsQuery);

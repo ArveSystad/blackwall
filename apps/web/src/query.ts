@@ -1,5 +1,9 @@
-import { DEFAULT_GITHUB_ISSUES_REFRESH_SECONDS, type GeneralSettings } from "@blackwall/shared";
-import { QueryClient, queryOptions } from "@tanstack/react-query";
+import {
+  DEFAULT_GITHUB_ISSUES_REFRESH_SECONDS,
+  type GeneralSettings,
+  type SearchScope,
+} from "@blackwall/shared";
+import { QueryClient, keepPreviousData, queryOptions } from "@tanstack/react-query";
 import {
   ApiError,
   getBacklogRunner,
@@ -32,7 +36,9 @@ import {
   listReviewRequests,
   listTags,
   listTasks,
+  searchAll,
 } from "./api";
+import { SEARCH_MIN_CHARS } from "./search";
 
 /**
  * Query keys. Task-scoped data nests under `["tasks", id]`, so live events can
@@ -79,6 +85,8 @@ export const queryKeys = {
   reviewRequests: ["review-requests"] as const,
   assignedIssues: ["assigned-issues"] as const,
   repoIssues: (repoId: string) => ["repo-issues", repoId] as const,
+  search: (q: string, repoId: string | null, scope: SearchScope) =>
+    ["search", q, repoId, scope] as const,
 };
 
 export const tasksQuery = queryOptions({ queryKey: queryKeys.tasks, queryFn: listTasks });
@@ -250,6 +258,16 @@ export const repoIssuesQuery = (repoId: string, refreshSeconds: number) =>
     queryKey: queryKeys.repoIssues(repoId),
     queryFn: () => listRepoIssues(repoId),
     ...issuesPolling(refreshSeconds),
+  });
+
+/** Fresh on every query change; the previous results stay up while the next ones load. */
+export const searchQuery = (q: string, repoId: string | null, scope: SearchScope) =>
+  queryOptions({
+    queryKey: queryKeys.search(q, repoId, scope),
+    queryFn: () => searchAll({ q, repoId, scope }),
+    enabled: q.trim().length >= SEARCH_MIN_CHARS,
+    staleTime: 0,
+    placeholderData: keepPreviousData,
   });
 
 export function createQueryClient(): QueryClient {

@@ -10,6 +10,7 @@ import { ArchiveLaunchesProvider } from "./components/ArchiveLaunchesProvider";
 import { ChatPanel } from "./components/ChatPanel";
 import { Inbox } from "./components/Inbox";
 import { NotFound } from "./components/NotFound";
+import { SearchPalette } from "./components/SearchPalette";
 import { TopBar } from "./components/TopBar";
 import { ActiveAgents } from "./routes/ActiveAgents";
 import { AssignedIssues } from "./routes/AssignedIssues";
@@ -21,6 +22,7 @@ import { Stats } from "./routes/Stats";
 import { TaskView } from "./routes/TaskView";
 import { isSettingsSection } from "./settings-sections";
 import { useChatHotkey } from "./chat";
+import { useSearchHotkey } from "./search-palette";
 import { useThemeHotkey } from "./theme";
 
 const rootRoute = createRootRoute({
@@ -28,6 +30,7 @@ const rootRoute = createRootRoute({
     // App-wide shortcuts that must work on every route, Settings included.
     useThemeHotkey();
     useChatHotkey();
+    useSearchHotkey();
     return (
       <div className="flex h-full min-h-0 flex-col bg-background">
         <div className="bw-titlebar" aria-hidden />
@@ -39,6 +42,7 @@ const rootRoute = createRootRoute({
           </div>
           <ChatPanel />
         </div>
+        <SearchPalette />
       </div>
     );
   },
@@ -82,9 +86,13 @@ const taskRoute = createRoute({
 const backlogRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/repos/$repoId/backlog",
+  /** `item`: a backlog item to open in the editor, from the search palette; cleared once read. */
+  validateSearch: (search: Record<string, unknown>): { item?: string } =>
+    typeof search.item === "string" ? { item: search.item } : {},
   component: function BacklogRoute() {
     const { repoId } = backlogRoute.useParams();
-    return <Backlog key={repoId} repoId={repoId} />;
+    const { item } = backlogRoute.useSearch();
+    return <Backlog key={repoId} repoId={repoId} openItemId={item} />;
   },
 });
 

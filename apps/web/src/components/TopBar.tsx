@@ -2,9 +2,16 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { pendingCount, repoStatusLine } from "../backlog";
 import { backlogQuery, backlogRunnerQuery, reposQuery, settingsQuery, tasksQuery } from "../query";
-import { resolveSelectedRepo, setSelectedRepo, useSelectedRepoId } from "../selected-repo";
+import { modKeyLabel } from "../keyboard";
+import { openSearch } from "../search-palette";
+import {
+  resolveSelectedRepo,
+  selectRepo,
+  setSelectedRepo,
+  useSelectedRepoId,
+} from "../selected-repo";
 import { ChatToggle } from "./ChatToggle";
-import { BacklogIcon, GearIcon, StatsIcon } from "./icons";
+import { BacklogIcon, GearIcon, SearchIcon, StatsIcon } from "./icons";
 import { QuotaChip } from "./QuotaChip";
 import { RepoMenuItems } from "./RepoMenuItems";
 import { ThemeToggle } from "./ThemeToggle";
@@ -50,8 +57,7 @@ export function TopBar() {
       setSelectedRepo(null);
       return;
     }
-    setSelectedRepo(id);
-    void navigate({ to: "/repos/$repoId/backlog", params: { repoId: id } });
+    selectRepo(navigate, id);
   };
 
   return (
@@ -118,6 +124,17 @@ export function TopBar() {
         <div className="flex min-w-0 items-center gap-2 overflow-hidden">
           <QuotaChip />
         </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="shrink-0"
+          aria-label="Search"
+          aria-keyshortcuts="Control+K Meta+K"
+          title={`Search (${modKeyLabel("K")})`}
+          onClick={openSearch}
+        >
+          <SearchIcon />
+        </Button>
         <ChatToggle className="shrink-0" />
         <ThemeToggle className="shrink-0" />
         <Button variant="ghost" size="icon" className={ACTIVE_ICON} asChild>

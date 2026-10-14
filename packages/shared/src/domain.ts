@@ -1745,3 +1745,60 @@ export const compactResultSchema = z.object({
   freedBytes: z.number().int(),
 });
 export type CompactResult = z.infer<typeof compactResultSchema>;
+
+// ---------------------------------------------------------------------------
+// Search
+// ---------------------------------------------------------------------------
+
+/** `all` searches every repo (the current one first); `repo` only the current one. */
+export const SEARCH_SCOPES = ["all", "repo"] as const;
+export const searchScopeSchema = z.enum(SEARCH_SCOPES);
+export type SearchScope = z.infer<typeof searchScopeSchema>;
+
+/** `GET /api/search` query: the text, the current repo and the scope. */
+export const searchQuerySchema = z.object({
+  q: z.string().trim().max(200),
+  /** Listed first; the only repo searched under `repo` scope. */
+  repoId: z.string().optional(),
+  scope: searchScopeSchema.default("all"),
+});
+export type SearchQuery = z.input<typeof searchQuerySchema>;
+
+/** A matching task, archived ones included. */
+export const searchTaskHitSchema = z.object({
+  id,
+  title: z.string(),
+  repoId: id,
+  repoName: z.string(),
+  status: taskStatusSchema,
+  archived: z.boolean(),
+  origin: taskOriginSchema,
+  /** Excerpt around the match when it is not in the title; null otherwise. */
+  snippet: z.string().nullable(),
+});
+export type SearchTaskHit = z.infer<typeof searchTaskHitSchema>;
+
+/** A matching waiting or paused backlog item; promoted ones show as their task. */
+export const searchBacklogHitSchema = z.object({
+  id,
+  title: z.string(),
+  repoId: id,
+  repoName: z.string(),
+  status: z.enum(["waiting", "paused"]),
+  origin: taskOriginSchema,
+  /** Excerpt around the match when it is not in the title; null otherwise. */
+  snippet: z.string().nullable(),
+});
+export type SearchBacklogHit = z.infer<typeof searchBacklogHitSchema>;
+
+/** A registered repo whose name matches. */
+export const searchRepoHitSchema = z.object({ id, name: z.string(), path: z.string() });
+export type SearchRepoHit = z.infer<typeof searchRepoHitSchema>;
+
+/** `GET /api/search` response, grouped and each group capped. */
+export const searchResultsSchema = z.object({
+  tasks: z.array(searchTaskHitSchema),
+  backlogItems: z.array(searchBacklogHitSchema),
+  repos: z.array(searchRepoHitSchema),
+});
+export type SearchResults = z.infer<typeof searchResultsSchema>;

@@ -36,6 +36,7 @@ import {
   repoSyncSchema,
   repoViewSchema,
   runSchema,
+  searchResultsSchema,
   staleRepoSchema,
   stepEventSchema,
   stepSchema,
@@ -93,6 +94,8 @@ import {
   type ReviewRequests,
   type RoleAgents,
   type Run,
+  type SearchResults,
+  type SearchScope,
   type StaleRepo,
   type Step,
   type StepEvent,
@@ -191,6 +194,20 @@ export function listTasks(): Promise<Task[]> {
 
 export function getTask(id: string): Promise<Task> {
   return request(`/api/tasks/${encodeURIComponent(id)}`, taskSchema);
+}
+
+/** Tasks, backlog items and repos matching `q`; `repoId` is listed first (or alone under `repo` scope). */
+export function searchAll({
+  q,
+  repoId,
+  scope,
+}: {
+  q: string;
+  repoId: string | null;
+  scope: SearchScope;
+}): Promise<SearchResults> {
+  const params = new URLSearchParams({ q, scope, ...(repoId === null ? {} : { repoId }) });
+  return request(`/api/search?${params}`, searchResultsSchema);
 }
 
 /** Creates and queues a task right away, outside the backlog. */

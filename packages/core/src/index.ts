@@ -12,6 +12,7 @@ export * from "./db/index.js";
 export * from "./git/index.js";
 export * from "./pipeline/index.js";
 export * from "./repos/index.js";
+export * from "./search/index.js";
 export * from "./secrets/index.js";
 export * from "./settings/index.js";
 export * from "./system/index.js";

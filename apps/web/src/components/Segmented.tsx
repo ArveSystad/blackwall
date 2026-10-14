@@ -13,12 +13,14 @@ export function Segmented<T extends string>({
   options,
   onChange,
   label,
+  disabled = false,
   className,
 }: {
   value: T;
   options: readonly SegmentedOption<T>[];
   onChange: (value: T) => void;
   label: string;
+  disabled?: boolean;
   className?: string;
 }) {
   return (
@@ -26,6 +28,7 @@ export function Segmented<T extends string>({
       type="single"
       aria-label={label}
       value={value}
+      disabled={disabled}
       // Radix reports "" when the selected item is pressed again; keep the selection.
       onValueChange={(next) => {
         const option = options.find((o) => o.value === next);
@@ -40,7 +43,7 @@ export function Segmented<T extends string>({
         <ToggleGroup.Item
           key={option.value}
           value={option.value}
-          className="inline-flex h-[26px] cursor-pointer items-center gap-1.5 rounded-sm px-2.5 text-meta font-medium text-muted-foreground focus-visible:shadow-ring focus-visible:outline-none data-[state=on]:bg-seg-on data-[state=on]:text-foreground-strong data-[state=on]:ring-1 data-[state=on]:ring-seg-on-ring"
+          className="inline-flex h-[26px] cursor-pointer items-center gap-1.5 rounded-sm px-2.5 text-meta font-medium text-muted-foreground focus-visible:shadow-ring focus-visible:outline-none data-[state=on]:bg-seg-on data-[state=on]:text-foreground-strong data-[state=on]:ring-1 data-[state=on]:ring-seg-on-ring data-disabled:cursor-default data-disabled:opacity-50"
         >
           {option.label}
         </ToggleGroup.Item>

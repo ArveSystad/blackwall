@@ -40,6 +40,8 @@ import {
   reviewOutputJsonSchema,
   reviewOutputSchema,
   reviewRequestsSchema,
+  searchQuerySchema,
+  searchResultsSchema,
   settingsSchema,
   stagePermissionProfile,
   taskSchema,
@@ -857,5 +859,45 @@ describe("chat schemas", () => {
     const noId = structuredClone(state);
     delete (noId.messages[0]!.actions[0] as { id?: string }).id;
     expect(chatStateSchema.safeParse(noId).success).toBe(false);
+  });
+});
+
+describe("search schemas", () => {
+  it("trims the query and defaults the scope to all", () => {
+    expect(searchQuerySchema.parse({ q: "  login " })).toEqual({ q: "login", scope: "all" });
+    expect(searchQuerySchema.safeParse({ q: "x", scope: "elsewhere" }).success).toBe(false);
+  });
+
+  it("parses grouped results", () => {
+    const results = {
+      tasks: [
+        {
+          id: "t1",
+          title: "Fix login",
+          repoId: "r1",
+          repoName: "app",
+          status: "done",
+          archived: true,
+          origin: { kind: "free-text" },
+          snippet: "…the login form…",
+        },
+      ],
+      backlogItems: [
+        {
+          id: "b1",
+          title: "Login tests",
+          repoId: "r1",
+          repoName: "app",
+          status: "paused",
+          origin: { kind: "free-text" },
+          snippet: null,
+        },
+      ],
+      repos: [{ id: "r1", name: "app", path: "/code/app" }],
+    };
+    expect(searchResultsSchema.parse(results)).toEqual(results);
+    const promoted = structuredClone(results);
+    (promoted.backlogItems[0] as { status: string }).status = "promoted";
+    expect(searchResultsSchema.safeParse(promoted).success).toBe(false);
   });
 });

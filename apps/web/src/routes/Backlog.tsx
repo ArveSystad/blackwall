@@ -636,7 +636,13 @@ type Dialog =
   | null;
 
 /** A repo's backlog: what waits, in pick order, and why the runner is or isn't promoting it. */
-export function Backlog({ repoId }: { repoId: string }) {
+export function Backlog({
+  repoId,
+  openItemId,
+}: {
+  repoId: string;
+  openItemId?: string | undefined;
+}) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const repos = useQuery(reposQuery);
@@ -735,6 +741,22 @@ export function Backlog({ repoId }: { repoId: string }) {
   useEffect(() => {
     if (!missing) setSelectedRepo(repoId);
   }, [repoId, missing]);
+
+  // An item picked in the search palette opens in the editor once loaded; the URL then forgets it,
+  // so Back or a reload does not open it again. A promoted or deleted item just shows the list.
+  const [openedItemId, setOpenedItemId] = useState<string | undefined>(undefined);
+  if (openItemId !== openedItemId && (!openItemId || backlog.data)) {
+    setOpenedItemId(openItemId);
+    const item = openItemId ? backlog.data?.find((i) => i.id === openItemId) : undefined;
+    if (item && item.status !== "promoted") setDialog({ kind: "edit", item });
+  }
+  useEffect(() => {
+    if (!openedItemId) return;
+    document
+      .querySelector(`[data-item-id="${CSS.escape(openedItemId)}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+    void navigate({ to: "/repos/$repoId/backlog", params: { repoId }, search: {}, replace: true });
+  }, [openedItemId, navigate, repoId]);
 
   // Keep focus on a row the keyboard just moved.
   useEffect(() => {

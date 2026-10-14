@@ -1,3 +1,4 @@
+import type { useNavigate } from "@tanstack/react-router";
 import { useSyncExternalStore } from "react";
 
 /**
@@ -56,4 +57,10 @@ export function resolveSelectedRepo<R extends { id: string; exists: boolean }>(
 ): R | undefined {
   if (id === null) return undefined;
   return repos?.find((repo) => repo.id === id && repo.exists);
+}
+
+/** Works in a repo: selects it and opens its backlog, as the top bar's picker does. */
+export function selectRepo(navigate: ReturnType<typeof useNavigate>, id: string): void {
+  setSelectedRepo(id);
+  void navigate({ to: "/repos/$repoId/backlog", params: { repoId: id } });
 }

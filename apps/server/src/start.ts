@@ -19,6 +19,7 @@ import {
   createQuotaTracker,
   createRepoService,
   createRepositories,
+  createSearch,
   createSettingsService,
   createSystemService,
   createTaskArtifacts,
@@ -267,6 +268,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
         db: database.db,
         tasks: repositories.tasks,
       }),
+      search: createSearch(database.db),
       shutdown,
     });
     broadcast = send;

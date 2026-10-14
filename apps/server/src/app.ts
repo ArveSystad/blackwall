@@ -16,6 +16,7 @@ import type {
   DataService,
   QuotaTracker,
   RepoService,
+  Search,
   SettingsService,
   SystemService,
 } from "@blackwall/core";
@@ -31,6 +32,7 @@ import { errorResponse } from "./errors.js";
 import { issueRoutes, pullRequestRoutes } from "./github.js";
 import { quotaRoutes } from "./quota.js";
 import { repoRoutes } from "./repos.js";
+import { searchRoutes } from "./search.js";
 import { settingsRoutes, tagRoutes } from "./settings.js";
 import { systemRoutes } from "./system.js";
 import {
@@ -72,6 +74,8 @@ export interface AppOptions {
   data?: Pick<DataService, "export" | "import">;
   /** Database and disk stats and compacting; omit to leave the system routes out (e.g. in tests). */
   system?: Pick<SystemService, "snapshot" | "compact">;
+  /** Global search over tasks, backlog items and repos; omit to leave the search route out (e.g. in tests). */
+  search?: Pick<Search, "search">;
 }
 
 function send(ws: { send(data: string): void }, event: ServerEvent): void {
@@ -103,6 +107,7 @@ export function createApp({
   clis,
   data,
   system,
+  search,
 }: AppOptions): CreatedApp {
   const app = new Hono();
   const { upgradeWebSocket, injectWebSocket, wss } = createNodeWebSocket({ app });
@@ -154,6 +159,7 @@ export function createApp({
   if (quota) app.route("/api/quota", quotaRoutes(quota));
   if (data) app.route("/api/data", dataRoutes(data));
   if (system) app.route("/api/system", systemRoutes({ system }));
+  if (search) app.route("/api/search", searchRoutes(search));
 
   app.all("/api/*", (c) => c.json({ error: "not found" }, 404));
 

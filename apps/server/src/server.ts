@@ -7,6 +7,7 @@ import type {
   DataService,
   QuotaTracker,
   RepoService,
+  Search,
   SettingsService,
   SystemService,
 } from "@blackwall/core";
@@ -42,6 +43,7 @@ export interface StartOptions {
   clis?: () => Promise<CliStatus[]>;
   data?: Pick<DataService, "export" | "import">;
   system?: Pick<SystemService, "snapshot" | "compact">;
+  search?: Pick<Search, "search">;
   shutdown: Shutdown;
 }
 
@@ -73,6 +75,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     ...(options.clis ? { clis: options.clis } : {}),
     ...(options.data ? { data: options.data } : {}),
     ...(options.system ? { system: options.system } : {}),
+    ...(options.search ? { search: options.search } : {}),
     ...(options.dev ? {} : { webDist: WEB_DIST }),
   });
 
