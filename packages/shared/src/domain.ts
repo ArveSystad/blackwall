@@ -1541,6 +1541,92 @@ export function summaryOutputJsonSchema(): Record<string, unknown> {
   return z.toJSONSchema(summaryOutputSchema);
 }
 
+// ---------------------------------------------------------------------------
+// Chat
+// ---------------------------------------------------------------------------
+
+/**
+ * An action the chat agent proposes; nothing happens until the user applies
+ * it. `create-task` adds a free-text backlog item; `message-task` answers a
+ * task waiting at a gate; `stop-task` and `resume-task` stop or resume a task.
+ * A plain union on `kind`, so its JSON Schema is an `anyOf`, which every CLI's
+ * structured output accepts.
+ */
+export const chatActionProposalSchema = z.union([
+  z
+    .object({
+      kind: z.literal("create-task"),
+      title: z.string().trim().min(1).max(MAX_TITLE_CHARS),
+      description: z.string().trim().min(1),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("message-task"),
+      taskId: z.string().min(1),
+      message: z.string().trim().min(1),
+    })
+    .strict(),
+  z.object({ kind: z.literal("stop-task"), taskId: z.string().min(1) }).strict(),
+  z.object({ kind: z.literal("resume-task"), taskId: z.string().min(1) }).strict(),
+]);
+export type ChatActionProposal = z.infer<typeof chatActionProposalSchema>;
+export type ChatActionKind = ChatActionProposal["kind"];
+
+/** The chat agent's structured answer: a markdown reply and the actions it proposes. */
+export const chatReplySchema = z
+  .object({
+    reply: z.string(),
+    actions: z.array(chatActionProposalSchema),
+  })
+  .strict();
+export type ChatReply = z.infer<typeof chatReplySchema>;
+
+/** JSON Schema of the chat agent's answer. */
+export function chatReplyJsonSchema(): Record<string, unknown> {
+  return z.toJSONSchema(chatReplySchema);
+}
+
+/** A proposed action as stored: a server-generated id, and when the user applied it (ISO), or null. */
+export const chatActionSchema = z.intersection(
+  chatActionProposalSchema,
+  z.object({ id, appliedAt: z.string().nullable() }),
+);
+export type ChatAction = z.infer<typeof chatActionSchema>;
+
+/** `error`: a turn that failed; its text says why. */
+export const CHAT_ROLES = ["user", "assistant", "error"] as const;
+export const chatRoleSchema = z.enum(CHAT_ROLES);
+export type ChatRole = z.infer<typeof chatRoleSchema>;
+
+export const chatMessageSchema = z.object({
+  id,
+  role: chatRoleSchema,
+  text: z.string(),
+  /** Actions the assistant proposed; empty for other roles. */
+  actions: z.array(chatActionSchema),
+  createdAt: z.string(),
+});
+export type ChatMessage = z.infer<typeof chatMessageSchema>;
+
+/** A repo's chat, kept in server memory. */
+export const chatStateSchema = z.object({
+  repoId: id,
+  /** True while the agent answers. */
+  busy: z.boolean(),
+  /** What the agent is doing right now (e.g. `Grep · useTheme`); null when idle or unknown. */
+  activity: z.string().nullable(),
+  messages: z.array(chatMessageSchema),
+});
+export type ChatState = z.infer<typeof chatStateSchema>;
+
+/** The chat message that starts the conversation over. */
+export const CHAT_CLEAR_COMMAND = "/clear";
+
+/** `POST /api/repos/:repoId/chat` body; {@link CHAT_CLEAR_COMMAND} starts over. */
+export const chatSendInputSchema = z.object({ text: z.string().trim().min(1) });
+export type ChatSendInput = z.infer<typeof chatSendInputSchema>;
+
 /** Whether an agent CLI is installed, detected at startup via `<cli> --version`. */
 export const cliStatusSchema = z.object({
   cli: agentCliSchema,

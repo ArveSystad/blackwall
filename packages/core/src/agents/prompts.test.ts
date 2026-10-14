@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildSystemPrompt, findingsContract, missingPlanSections } from "./prompts.js";
+import {
+  buildSystemPrompt,
+  chatStatePrompt,
+  chatSystemPrompt,
+  findingsContract,
+  missingPlanSections,
+} from "./prompts.js";
 
 const agent = { prompt: "You are the security reviewer." };
 
@@ -128,5 +134,39 @@ describe("missingPlanSections", () => {
       .map((s) => `## ${s}\n\ntext`)
       .join("\n\n");
     expect(missingPlanSections(plan)).toEqual([]);
+  });
+});
+
+describe("chat prompts", () => {
+  it("gives the chat the read-only rules and every action kind", () => {
+    const prompt = chatSystemPrompt();
+    expect(prompt).toContain("You are read-only.");
+    for (const kind of ["create-task", "message-task", "stop-task", "resume-task"]) {
+      expect(prompt).toContain(`\`${kind}\``);
+    }
+  });
+
+  it("lists the tasks and backlog before the user's text", () => {
+    const prompt = chatStatePrompt({
+      tasks: [
+        {
+          id: "t1",
+          title: "Add dark mode",
+          origin: { kind: "free-text" },
+          mode: null,
+          status: "needs-you",
+          stage: "inform",
+          gate: "plan-approval",
+          shortSummary: null,
+        },
+      ],
+      backlog: [],
+      text: "What is waiting?",
+    });
+    expect(prompt).toContain(
+      "- `t1` Add dark mode · origin free-text · status needs-you · stage inform · gate plan-approval",
+    );
+    expect(prompt).toContain("### Backlog\n\n(none)");
+    expect(prompt.endsWith("What is waiting?")).toBe(true);
   });
 });

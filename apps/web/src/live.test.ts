@@ -268,6 +268,13 @@ describe("applyServerEvent", () => {
     expect(client.getQueryData(queryKeys.quota)).toEqual(quota);
   });
 
+  it("writes a repo's chat into its query", () => {
+    const chat = { repoId: "r1", busy: true, activity: "Grep · useTheme", messages: [] };
+    applyServerEvent(client, { type: "chat.upserted", payload: { chat } });
+    expect(client.getQueryData(queryKeys.chat("r1"))).toEqual(chat);
+    expect(client.getQueryData(queryKeys.chat("r2"))).toBeUndefined();
+  });
+
   it("refetches the repo's backlog when one of its tasks is done", () => {
     client.setQueryData(queryKeys.backlog("r1"), []);
     applyServerEvent(client, {

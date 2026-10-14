@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  chatStateSchema,
   connectionKindSchema,
   findingSchema,
   grillQuestionSchema,
@@ -86,6 +87,8 @@ export const serverEventSchema = z.discriminatedUnion("type", [
   envelope("backlog.changed", z.object({ repoId: z.string() })),
   /** An agent CLI hit or recovered from its usage limit. */
   envelope("quota.changed", z.object({ quota: z.array(quotaStateSchema) })),
+  /** A repo's chat changed (message, activity, busy or an applied action). */
+  envelope("chat.upserted", z.object({ chat: chatStateSchema })),
 ]);
 export type ServerEvent = z.infer<typeof serverEventSchema>;
 

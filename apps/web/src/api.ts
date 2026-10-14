@@ -10,6 +10,7 @@ import {
   backlogItemSchema,
   backlogItemViewSchema,
   branchDiffSchema,
+  chatStateSchema,
   cliStatusSchema,
   connectionTestResultSchema,
   connectionViewSchema,
@@ -49,6 +50,7 @@ import {
   type BacklogItem,
   type BacklogItemView,
   type BranchDiff,
+  type ChatState,
   type CliStatus,
   type ConnectionInput,
   type ConnectionTestResult,
@@ -432,6 +434,28 @@ export function deleteBacklogItem(repoId: string, id: string): Promise<void> {
 /** Promotes the item now: the server creates a normal queued task from it. */
 export function runBacklogItem(repoId: string, id: string): Promise<Task> {
   return request(`${at(backlogPath(repoId), id)}/run`, taskSchema, { method: "POST" });
+}
+
+const chatPath = (repoId: string) => `${at("/api/repos", repoId)}/chat`;
+
+/** The repo's chat, kept in server memory. */
+export function getChat(repoId: string): Promise<ChatState> {
+  return request(chatPath(repoId), chatStateSchema);
+}
+
+/**
+ * Sends a chat message; the answer arrives as `chat.upserted`. `/clear` starts
+ * over; any other text answers 409 while the chat still answers.
+ */
+export function sendChat(repoId: string, text: string): Promise<ChatState> {
+  return request(chatPath(repoId), chatStateSchema, { method: "POST", body: { text } });
+}
+
+/** Records that a proposed action was applied, so its card stays done; 404 once the chat is cleared. */
+export function markChatActionApplied(repoId: string, actionId: string): Promise<ChatState> {
+  return request(`${at(`${chatPath(repoId)}/actions`, actionId)}/applied`, chatStateSchema, {
+    method: "POST",
+  });
 }
 
 /** Sets the manual order; `ids` must list every item of the repo once. */

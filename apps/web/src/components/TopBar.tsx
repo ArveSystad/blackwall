@@ -3,6 +3,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { pendingCount, repoStatusLine } from "../backlog";
 import { backlogQuery, backlogRunnerQuery, reposQuery, settingsQuery, tasksQuery } from "../query";
 import { resolveSelectedRepo, setSelectedRepo, useSelectedRepoId } from "../selected-repo";
+import { ChatToggle } from "./ChatToggle";
 import { BacklogIcon, GearIcon, StatsIcon } from "./icons";
 import { QuotaChip } from "./QuotaChip";
 import { RepoMenuItems } from "./RepoMenuItems";
@@ -117,6 +118,7 @@ export function TopBar() {
         <div className="flex min-w-0 items-center gap-2 overflow-hidden">
           <QuotaChip />
         </div>
+        <ChatToggle className="shrink-0" />
         <ThemeToggle className="shrink-0" />
         <Button variant="ghost" size="icon" className={ACTIVE_ICON} asChild>
           <Link to="/stats" aria-label="Stats" title="Stats">

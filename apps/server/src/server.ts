@@ -1,7 +1,13 @@
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
-import type { AgentService, QuotaTracker, RepoService, SettingsService } from "@blackwall/core";
+import type {
+  AgentService,
+  ChatService,
+  QuotaTracker,
+  RepoService,
+  SettingsService,
+} from "@blackwall/core";
 import { TOKEN_QUERY_PARAM, type CliStatus, type ServerEvent } from "@blackwall/shared";
 import { createApp } from "./app.js";
 import { generateToken } from "./auth.js";
@@ -29,6 +35,7 @@ export interface StartOptions {
   pipeline?: TaskPipeline;
   taskServices?: TaskRouteServices;
   backlog?: BacklogRouteOptions;
+  chat?: Pick<ChatService, "get" | "send" | "markApplied">;
   quota?: Pick<QuotaTracker, "state">;
   clis?: () => Promise<CliStatus[]>;
   shutdown: Shutdown;
@@ -57,6 +64,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     ...(options.pipeline ? { pipeline: options.pipeline } : {}),
     ...(options.taskServices ? { taskServices: options.taskServices } : {}),
     ...(options.backlog ? { backlog: options.backlog } : {}),
+    ...(options.chat ? { chat: options.chat } : {}),
     ...(options.quota ? { quota: options.quota } : {}),
     ...(options.clis ? { clis: options.clis } : {}),
     ...(options.dev ? {} : { webDist: WEB_DIST }),

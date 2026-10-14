@@ -7,6 +7,7 @@ import {
   redirect,
 } from "@tanstack/react-router";
 import { ArchiveLaunchesProvider } from "./components/ArchiveLaunchesProvider";
+import { ChatPanel } from "./components/ChatPanel";
 import { Inbox } from "./components/Inbox";
 import { NotFound } from "./components/NotFound";
 import { TopBar } from "./components/TopBar";
@@ -19,18 +20,24 @@ import { Settings } from "./routes/Settings";
 import { Stats } from "./routes/Stats";
 import { TaskView } from "./routes/TaskView";
 import { isSettingsSection } from "./settings-sections";
+import { useChatHotkey } from "./chat";
 import { useThemeHotkey } from "./theme";
 
 const rootRoute = createRootRoute({
   component: function Root() {
     // App-wide shortcuts that must work on every route, Settings included.
     useThemeHotkey();
+    useChatHotkey();
     return (
       <div className="flex h-full min-h-0 flex-col bg-background">
         <div className="bw-titlebar" aria-hidden />
         <TopBar />
-        <div className="min-h-0 flex-1">
-          <Outlet />
+        {/* The chat stays open beside every page: the shell, Settings and Stats. */}
+        <div className="flex min-h-0 flex-1">
+          <div className="min-h-0 min-w-0 flex-1">
+            <Outlet />
+          </div>
+          <ChatPanel />
         </div>
       </div>
     );

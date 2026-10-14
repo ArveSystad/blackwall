@@ -1,9 +1,12 @@
 import {
+  MAX_TITLE_CHARS,
   SEVERITIES,
   type Agent,
   type AgentCli,
+  type BacklogItem,
   type PermissionProfile,
   type Stage,
+  type Task,
 } from "@blackwall/shared";
 import { SUBAGENT_CLIS, SUBAGENT_NAME, subagentTool } from "./subagents.js";
 
@@ -170,6 +173,102 @@ export function subagentGuide(cli: AgentCli): string {
     "- Keep design decisions, tricky logic and the final check of the worker's changes for yourself.",
     "- Brief it with only the exact files, the change or command, and what to report back. Never paste the plan, the task context or the conversation: it sees only the brief.",
     "- Run independent jobs in parallel, never in the background. Skip delegation when doing the job yourself is quicker.",
+  ].join("\n");
+}
+
+/**
+ * The system prompt of the repo chat: the role, the read-only workspace rules
+ * and the actions contract. The agent proposes actions; the user applies them.
+ */
+export function chatSystemPrompt(): string {
+  return [
+    "You are Blackwall's chat assistant for one repository. Answer questions about its code, its backlog and its tasks.",
+    "Keep replies short and concrete; use markdown, and cite files as repo-relative paths.",
+    "",
+    "## Workspace rules",
+    "",
+    workspaceRules("read-only"),
+    "",
+    "## Actions contract",
+    "",
+    "Each message starts with a fresh `Blackwall state` block listing the repo's tasks and backlog items. It is the only source of task ids.",
+    "Reply with one JSON object: `reply` is your markdown answer, `actions` lists actions you propose. Nothing happens until the user applies one.",
+    "",
+    `- \`create-task\` \`{ title, description }\`: add a task to the repo's backlog. A title of at most ${MAX_TITLE_CHARS} characters; a description an engineer could plan from.`,
+    "- `message-task` `{ taskId, message }`: instructions for a task waiting at a gate (status `needs-you`). Running tasks only read messages at a gate, so never propose it for a task that is not at one.",
+    "- `stop-task` `{ taskId }`: stop a `queued` or `running` task.",
+    "- `resume-task` `{ taskId }`: resume an `interrupted` or `failed` task.",
+    "",
+    "Use only task ids from the state block and never invent tasks. Propose actions only when the user asks for them or they clearly help;",
+    "otherwise reply with an empty `actions` list.",
+  ].join("\n");
+}
+
+/** A task as the chat's state block lists it. */
+export type ChatStateTask = Pick<
+  Task,
+  "id" | "title" | "origin" | "mode" | "status" | "stage" | "gate" | "shortSummary"
+>;
+
+/** A backlog item as the chat's state block lists it. */
+export type ChatStateBacklogItem = Pick<
+  BacklogItem,
+  "id" | "title" | "status" | "priority" | "freeText"
+>;
+
+/** Longest backlog description excerpt in the chat's state block. */
+const STATE_EXCERPT_CHARS = 200;
+
+function excerpt(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > STATE_EXCERPT_CHARS ? `${flat.slice(0, STATE_EXCERPT_CHARS - 1)}…` : flat;
+}
+
+/**
+ * One chat message's prompt: a fresh `Blackwall state` block with the repo's
+ * unarchived tasks and backlog items, then the user's text.
+ */
+export function chatStatePrompt({
+  tasks,
+  backlog,
+  text,
+}: {
+  tasks: readonly ChatStateTask[];
+  backlog: readonly ChatStateBacklogItem[];
+  text: string;
+}): string {
+  const taskLines = tasks.map((t) =>
+    [
+      `- \`${t.id}\` ${t.title}`,
+      `origin ${t.origin.kind}${t.mode ? ` (${t.mode})` : ""}`,
+      `status ${t.status}`,
+      `stage ${t.stage ?? "none"}`,
+      `gate ${t.gate ?? "none"}`,
+      ...(t.shortSummary ? [`summary: ${excerpt(t.shortSummary)}`] : []),
+    ].join(" · "),
+  );
+  const backlogLines = backlog.map((i) =>
+    [
+      `- \`${i.id}\` ${i.title}`,
+      `status ${i.status}`,
+      `priority ${i.priority}`,
+      ...(i.freeText.trim() ? [excerpt(i.freeText)] : []),
+    ].join(" · "),
+  );
+  return [
+    "## Blackwall state",
+    "",
+    "### Tasks",
+    "",
+    ...(taskLines.length > 0 ? taskLines : ["(none)"]),
+    "",
+    "### Backlog",
+    "",
+    ...(backlogLines.length > 0 ? backlogLines : ["(none)"]),
+    "",
+    "## Message",
+    "",
+    text,
   ].join("\n");
 }
 

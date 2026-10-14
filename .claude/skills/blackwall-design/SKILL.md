@@ -152,6 +152,18 @@ Rules:
   checkbox showing exactly what is sent (branch → remote, PR title/base, comment text). Optional
   actions start unticked. One confirm button states the count, e.g. "Confirm and send 3 actions".
   Nothing outward happens anywhere else in the UI.
+- **Chat:** a right-hand panel beside every page (shell, Settings, Stats), toggled by the top bar's
+  chat button or `C`. It follows the repo picked in the top bar ("Pick a repo to chat about it"
+  otherwise). Its preferred width is 250–900px (default 380px), remembered per browser with the open
+  state; the rendered width re-clamps live so the main area keeps at least 360px beside the 352px
+  sidebar. It never overlays the page and never closes itself; below ~960px it stays at 250px and
+  the main area shrinks. The left edge is a separator: an 8px hit area over a 1px `border` line that
+  turns 2px cyan on hover, while dragging and on keyboard focus (with the focus ring); Left/Right
+  step 16px, Home/End jump to the bounds. Opening has no animation. Only messages appended while the
+  panel is open fade in (`animate-fade-in`, 150ms); history never does. States: loading, load
+  error with Retry, empty, busy (a cyan activity line with the running pulse; Send is disabled
+  except for `/clear`), send error inline. Clear (and a typed `/clear`) clears at once when idle,
+  and asks first ("Stop and clear the chat?") only while an answer is running.
 - **Modals** (new task, missing token): over a dimmed shell, Esc closes, ⌘↵ / ↵ submits. Never display
   tokens; show configured or missing status only.
 
@@ -160,14 +172,22 @@ Rules:
 `StatusBadge`, `SeverityChip`, `StagePips`, `StageStepper`, `AgentTile` (CC/CP placeholders until
 real CLI marks are added), `TaskCard`, `NeedsBanner`, `FindingRow` (expandable: why + suggested-fix
 diff + Force fix / Force ignore), `DiffView`, `ToolCall` (collapsible: verb + mono target + result),
-`Kbd`, `Segmented`, `OutboundAction`. Mockup class names map 1:1 (`.status`, `.sev`, `.pips`,
-`.stepper`, `.agent`, `.tcard`, `.needs-banner`, `.frow`, `.dl`, `.tool`, `.kbd`, `.seg`).
+`Kbd`, `Segmented`, `OutboundAction`, `ChatPanel` (with its action cards: a summary label such as
+"Request changes · planner", the task title linked to the task with its status pill, the gate
+reason, and the full message or a clamped description with Show more), `ChatToggle`. Mockup class
+names map 1:1 (`.status`, `.sev`, `.pips`, `.stepper`, `.agent`, `.tcard`, `.needs-banner`,
+`.frow`, `.dl`, `.tool`, `.kbd`, `.seg`).
+
+Chat card buttons are `size="sm"` and say Apply (Done once applied). `create-task` and
+`resume-task` use `default`, `stop-task` uses `destructive-ghost`, and only the first available
+`message-task` card of the newest reply uses `needs`; the rest use `default`. Send is the chat's
+only `primary` button.
 
 ## Keyboard
 
 J/K move · Enter open · G N next needs-you · N new task · / search · ⌘↵ confirm/send · F force fix ·
 I force ignore · O open in editor · A approve plan · R request changes (Grill) / resume (interrupted) ·
-P pause · T toggle theme · Esc close · ? shortcut sheet. Show `Kbd` hints next to the actions they trigger. Never
+P pause · T toggle theme · C toggle chat · Esc close · ? shortcut sheet. Show `Kbd` hints next to the actions they trigger. Never
 bind a global shortcut while focus is in a text field.
 
 ## Copy

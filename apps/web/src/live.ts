@@ -1,5 +1,6 @@
 import {
   parseServerEvent,
+  type ChatState,
   type ClientEvent,
   type Finding,
   type QuotaState,
@@ -202,6 +203,11 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     case "quota.changed":
       client.setQueryData<QuotaState[]>(queryKeys.quota, event.payload.quota);
       break;
+    case "chat.upserted": {
+      const { chat } = event.payload;
+      client.setQueryData<ChatState>(queryKeys.chat(chat.repoId), chat);
+      break;
+    }
     case "pong":
     case "error":
       break;

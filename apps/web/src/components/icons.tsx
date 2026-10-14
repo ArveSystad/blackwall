@@ -91,6 +91,10 @@ export const IssueIcon = icon(
 
 export const TextIcon = icon(<path d="M3 4h10M3 8h10M3 12h6" />);
 
+export const ChatIcon = icon(
+  <path d="M3 3.5h10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7.5L4.5 14v-2.5H3a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1Z" />,
+);
+
 export const StatsIcon = icon(<path d="M3 13V9M8 13V3M13 13V6" />);
 
 export const RepoIcon = icon(

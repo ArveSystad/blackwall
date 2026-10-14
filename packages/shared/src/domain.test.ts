@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  chatReplyJsonSchema,
+  chatReplySchema,
+  chatStateSchema,
   assignedIssuesSchema,
   repoIssuesSchema,
   deliveryConfirmationSchema,
@@ -818,5 +821,41 @@ describe("parseFollowUps", () => {
     expect(parsed).toHaveLength(MAX_FOLLOW_UPS);
     expect(parsed[0]).toEqual({ title: "Add tests", description: "Cover login", repoId: "r2" });
     expect(parsed.slice(1).map((f) => f.title)).toEqual(["Task 1", "Task 2", "Task 3", "Task 4"]);
+  });
+});
+
+describe("chat schemas", () => {
+  it("accepts every action kind in a reply and rejects an overlong title", () => {
+    const actions = [
+      { kind: "create-task", title: "Add tests", description: "Cover the parser" },
+      { kind: "message-task", taskId: "t1", message: "Keep the API stable" },
+      { kind: "stop-task", taskId: "t1" },
+      { kind: "resume-task", taskId: "t2" },
+    ];
+    expect(chatReplySchema.parse({ reply: "Done", actions }).actions).toEqual(actions);
+    const overlong = { kind: "create-task", title: "x".repeat(121), description: "d" };
+    expect(chatReplySchema.safeParse({ reply: "", actions: [overlong] }).success).toBe(false);
+    expect(JSON.stringify(chatReplyJsonSchema())).toContain('"anyOf"');
+  });
+
+  it("accepts a stored action with its id and applied time", () => {
+    const state = {
+      repoId: "r1",
+      busy: false,
+      activity: null,
+      messages: [
+        {
+          id: "m1",
+          role: "assistant",
+          text: "Ok",
+          createdAt: "2026-10-14T10:00:00.000Z",
+          actions: [{ kind: "stop-task", taskId: "t1", id: "a1", appliedAt: null }],
+        },
+      ],
+    };
+    expect(chatStateSchema.parse(state)).toEqual(state);
+    const noId = structuredClone(state);
+    delete (noId.messages[0]!.actions[0] as { id?: string }).id;
+    expect(chatStateSchema.safeParse(noId).success).toBe(false);
   });
 });

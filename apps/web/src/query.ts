@@ -3,6 +3,7 @@ import { QueryClient, queryOptions } from "@tanstack/react-query";
 import {
   ApiError,
   getBacklogRunner,
+  getChat,
   getQuota,
   getRepoSync,
   getRoleDefaults,
@@ -69,6 +70,8 @@ export const queryKeys = {
    */
   repoSync: (repoId: string) => ["backlog", repoId, "sync"] as const,
   quota: ["quota"] as const,
+  /** A repo's chat; written in place by `chat.upserted`. */
+  chat: (repoId: string) => ["chat", repoId] as const,
   reviewRequests: ["review-requests"] as const,
   assignedIssues: ["assigned-issues"] as const,
   repoIssues: (repoId: string) => ["repo-issues", repoId] as const,
@@ -170,6 +173,14 @@ export const repoSyncQuery = (repoId: string) =>
     queryKey: queryKeys.repoSync(repoId),
     queryFn: () => getRepoSync(repoId),
     refetchOnWindowFocus: "always",
+  });
+
+/** Written in place by `chat.upserted`, so it never goes stale once loaded. */
+export const chatQuery = (repoId: string) =>
+  queryOptions({
+    queryKey: queryKeys.chat(repoId),
+    queryFn: () => getChat(repoId),
+    staleTime: Infinity,
   });
 
 /** Written in place by `quota.changed`. */

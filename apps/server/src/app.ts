@@ -10,10 +10,17 @@ import {
   type HealthResponse,
   type ServerEvent,
 } from "@blackwall/shared";
-import type { AgentService, QuotaTracker, RepoService, SettingsService } from "@blackwall/core";
+import type {
+  AgentService,
+  ChatService,
+  QuotaTracker,
+  RepoService,
+  SettingsService,
+} from "@blackwall/core";
 import { Hono } from "hono";
 import { agentRoutes } from "./agents.js";
 import { backlogRoutes, type BacklogRouteOptions } from "./backlog.js";
+import { chatRoutes } from "./chat.js";
 import { cliRoutes } from "./clis.js";
 import { hostGuard, requireToken, tokenExchange } from "./auth.js";
 import { connectionRoutes, type ConnectionRoutesOptions } from "./connections.js";
@@ -51,6 +58,8 @@ export interface AppOptions {
   taskServices?: TaskRouteServices;
   /** Backlog stores and runner hooks; omit to leave the backlog routes out (e.g. in tests). */
   backlog?: BacklogRouteOptions;
+  /** The repo chat; omit to leave the chat routes out (e.g. in tests). */
+  chat?: Pick<ChatService, "get" | "send" | "markApplied">;
   /** Agent CLI usage limits; omit to leave the quota route out (e.g. in tests). */
   quota?: Pick<QuotaTracker, "state">;
   /** Agent CLI detection, started at launch; omit to leave the CLI route out (e.g. in tests). */
@@ -81,6 +90,7 @@ export function createApp({
   pipeline,
   taskServices,
   backlog,
+  chat,
   quota,
   clis,
 }: AppOptions): CreatedApp {
@@ -115,6 +125,7 @@ export function createApp({
       }),
     );
   }
+  if (chat) app.route("/api/repos/:repoId/chat", chatRoutes(chat));
   if (repos) app.route("/api/repos", repoRoutes(repos));
   if (repos && connections) {
     app.route(

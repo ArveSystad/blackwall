@@ -3,6 +3,7 @@ import {
   createAgentService,
   createBacklogRunner,
   createBranchDiff,
+  createChatService,
   createClaudeAdapter,
   createConnectionService,
   createConnectionTokens,
@@ -25,7 +26,7 @@ import {
   openDatabase,
 } from "@blackwall/core";
 import { parseRemoteSlug, testConnection } from "@blackwall/integrations";
-import type { ServerEvent, TaskOrigin } from "@blackwall/shared";
+import { ROLE_STAGES, type ServerEvent, type TaskOrigin } from "@blackwall/shared";
 import { promoteBacklogItem } from "./backlog.js";
 import type { ServerConfig } from "./config.js";
 import { createGitHubOrigin, firstBranchFor, firstOriginContext } from "./github.js";
@@ -138,14 +139,15 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
         ),
       onHalt: (repoId) => publish({ type: "backlog.changed", payload: { repoId } }),
     });
+    const adapters = {
+      claude: createClaudeAdapter(),
+      copilot: createCopilotAdapter(),
+      opencode: createOpencodeAdapter(),
+    };
     const pipeline = createPipelineEngine({
       repositories,
       invocation: agents.invocation,
-      adapters: {
-        claude: createClaudeAdapter(),
-        copilot: createCopilotAdapter(),
-        opencode: createOpencodeAdapter(),
-      },
+      adapters,
       stages: createDefaultStages({
         originContext: firstOriginContext(jira.originContext, github.originContext),
         stackContext: github.stackContext,
@@ -182,6 +184,24 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
     shutdown.onShutdown(() => pipeline.shutdown());
     // Registered after the engine's hook, so it runs first: no promotions while tasks are aborted.
     shutdown.onShutdown(() => backlogRunner.stop());
+    const chat = createChatService({
+      adapters,
+      repos: repositories.repos,
+      tasks: repositories.tasks,
+      backlogItems: repositories.backlogItems,
+      // The planner's model on the CLI, so the chat answers like the agent that plans.
+      modelFor: (cli) => {
+        const planner = agents.resolveRoles().planner;
+        if (typeof planner !== "string") return undefined;
+        try {
+          return agents.invocation(planner, ROLE_STAGES.planner, cli).model ?? undefined;
+        } catch {
+          return undefined;
+        }
+      },
+      publish,
+    });
+    shutdown.onShutdown(() => chat.shutdown());
 
     const {
       launchUrl,
@@ -217,6 +237,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
         runner: settings,
         onChanged: () => backlogRunner.poke(),
       },
+      chat,
       quota,
       clis: () => clis,
       shutdown,

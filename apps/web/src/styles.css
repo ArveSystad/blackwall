@@ -270,6 +270,17 @@
   --animate-pushed-glow: bw-pushed-glow 1.6s ease-out both;
   --animate-blink-needs: bw-blink 1.2s steps(2, jump-none) infinite;
   --animate-stream: bw-sweep 1.4s linear infinite;
+  /* Chat messages appended while the panel is open fade in once. */
+  --animate-fade-in: bw-fade-in 150ms ease-out both;
+}
+
+@keyframes bw-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes bw-sweep {
