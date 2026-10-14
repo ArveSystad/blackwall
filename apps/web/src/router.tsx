@@ -9,7 +9,7 @@ import {
 import { ArchiveLaunchesProvider } from "./components/ArchiveLaunchesProvider";
 import { Inbox } from "./components/Inbox";
 import { NotFound } from "./components/NotFound";
-import { RepoContextBar } from "./components/RepoContextBar";
+import { TopBar } from "./components/TopBar";
 import { ActiveAgents } from "./routes/ActiveAgents";
 import { AssignedIssues } from "./routes/AssignedIssues";
 import { Backlog } from "./routes/Backlog";
@@ -28,6 +28,7 @@ const rootRoute = createRootRoute({
     return (
       <div className="flex h-full min-h-0 flex-col bg-background">
         <div className="bw-titlebar" aria-hidden />
+        <TopBar />
         <div className="min-h-0 flex-1">
           <Outlet />
         </div>
@@ -37,10 +38,7 @@ const rootRoute = createRootRoute({
   notFoundComponent: NotFound,
 });
 
-/**
- * Two-pane shell: the inbox on the left, the selected task (or home) on the right, under the
- * selected repo's status bar.
- */
+/** Two-pane shell: the inbox on the left, the selected task (or home) on the right. */
 const shellRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: "shell",
@@ -49,7 +47,6 @@ const shellRoute = createRoute({
       <div className="flex h-full min-w-0">
         <Inbox />
         <main className="flex h-full min-w-0 flex-1 flex-col bg-background">
-          <RepoContextBar />
           <div className="min-h-0 flex-1">
             <Outlet />
           </div>

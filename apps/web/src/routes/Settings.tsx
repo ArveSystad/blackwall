@@ -9,10 +9,8 @@ import { NotificationsSection } from "../components/settings/NotificationsSectio
 import { RepositoriesSection } from "../components/settings/RepositoriesSection";
 import { TagsSection } from "../components/settings/TagsSection";
 import { StatusBadge } from "../components/StatusBadge";
-import { ThemeToggle } from "../components/ThemeToggle";
 import { Button } from "../components/ui/button";
 import { Kbd } from "../components/ui/kbd";
-import { Wordmark } from "../components/Wordmark";
 import { useEscapeTo } from "../keyboard";
 import { agentsQuery, connectionsQuery, reposQuery, tagsQuery } from "../query";
 import { SETTINGS_SECTIONS, type SettingsSection } from "../settings-sections";
@@ -78,12 +76,6 @@ export function Settings({ section }: { section: SettingsSection }) {
         aria-label="Settings"
         className="flex h-full w-[352px] shrink-0 flex-col gap-0.5 border-r border-border bg-sidebar px-2.5 py-3"
       >
-        {/* Mirrors the inbox header offsets (14px left, 12px right) so the wordmark stays put. */}
-        <div className="mb-2.5 flex h-7 items-center gap-2 pr-0.5 pl-1">
-          <Wordmark />
-          <span className="flex-1" />
-          <ThemeToggle />
-        </div>
         <Button variant="ghost" size="sm" className="mb-2 justify-start" asChild>
           <Link to="/">
             <BackIcon size="sm" />

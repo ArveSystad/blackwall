@@ -10,16 +10,13 @@ import { useLiveStatus } from "../live-status";
 import { activeAgentsQuery, reposQuery, tasksQuery } from "../query";
 import { agentClis } from "../task-view";
 import { EmptyState } from "./EmptyState";
-import { GearIcon, PlusIcon, SearchIcon, StatsIcon } from "./icons";
+import { PlusIcon, SearchIcon } from "./icons";
 import { NewTaskModal } from "./NewTaskModal";
-import { QuotaChip } from "./QuotaChip";
 import { TaskCard } from "./TaskCard";
-import { ThemeToggle } from "./ThemeToggle";
 import { useArchive } from "./use-archive-launches";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Kbd } from "./ui/kbd";
-import { Wordmark } from "./Wordmark";
 
 const GROUPS = [
   { key: "needsYou", label: "Needs you", tone: "text-magenta" },
@@ -133,26 +130,7 @@ export function Inbox() {
       aria-label="Task inbox"
       className="flex h-full w-[352px] min-w-0 shrink-0 flex-col border-r border-border bg-sidebar"
     >
-      <div className="flex flex-col gap-2.5 border-b border-border py-3 pr-3 pl-3.5">
-        <div className="flex h-7 items-center gap-2">
-          <WordmarkLink />
-          {/* At the widest the quota chip clips, never the buttons. */}
-          <div className="flex min-w-0 items-center gap-2 overflow-hidden">
-            <QuotaChip />
-          </div>
-          <span className="flex-1" />
-          <ThemeToggle className="shrink-0" />
-          <Button variant="ghost" size="icon" className="shrink-0" asChild>
-            <Link to="/stats" aria-label="Stats" title="Stats">
-              <StatsIcon />
-            </Link>
-          </Button>
-          <Button variant="ghost" size="icon" className="shrink-0" asChild>
-            <Link to="/settings" aria-label="Settings" title="Settings">
-              <GearIcon />
-            </Link>
-          </Button>
-        </div>
+      <div className="border-b border-border py-3 pr-3 pl-3.5">
         <div className="flex items-center gap-2">
           <label className="relative block min-w-0 flex-1">
             <span className="pointer-events-none absolute top-[7px] left-[9px] flex text-faint">
@@ -219,17 +197,5 @@ export function Inbox() {
       </div>
       <NewTaskModal open={creating} onClose={() => setCreating(false)} />
     </aside>
-  );
-}
-
-function WordmarkLink() {
-  return (
-    <Link
-      to="/"
-      aria-label="blackwall inbox"
-      className="flex shrink-0 items-center no-underline hover:no-underline"
-    >
-      <Wordmark />
-    </Link>
   );
 }

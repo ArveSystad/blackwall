@@ -4,10 +4,8 @@ import { useMemo, type ReactNode } from "react";
 import { GridBackdrop } from "../components/GridBackdrop";
 import { BackIcon, RepoIcon, WallIcon } from "../components/icons";
 import { ORIGINS } from "../components/origins";
-import { ThemeToggle } from "../components/ThemeToggle";
 import { Button } from "../components/ui/button";
 import { Kbd } from "../components/ui/kbd";
-import { Wordmark } from "../components/Wordmark";
 import { useEscapeTo } from "../keyboard";
 import { cn } from "../lib/utils";
 import { doneTimesQuery, reposQuery, tasksQuery } from "../query";
@@ -116,12 +114,6 @@ export function Stats() {
     <div className="relative isolate flex h-full flex-col overflow-hidden">
       <GridBackdrop />
       <div className="relative z-10 w-[352px] shrink-0 px-2.5 pt-3">
-        {/* Mirrors the inbox header offsets (14px left, 12px right) so the wordmark stays put. */}
-        <div className="mb-2.5 flex h-7 items-center gap-2 pr-0.5 pl-1">
-          <Wordmark />
-          <span className="flex-1" />
-          <ThemeToggle />
-        </div>
         <Button variant="ghost" size="sm" className="mb-2 justify-start" asChild>
           <Link to="/">
             <BackIcon size="sm" />

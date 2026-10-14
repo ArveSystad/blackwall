@@ -337,7 +337,7 @@ export function runnerStatus({
 }
 
 /**
- * The status bar's line for a repo: "3 tasks running · auto-start enabled".
+ * The top bar's line for a repo: "3 tasks running · auto-start enabled".
  * `tasks` are the repo's. Auto-start is disabled when the runner is off in
  * Settings or for the repo, and halted while a failed task holds it.
  */

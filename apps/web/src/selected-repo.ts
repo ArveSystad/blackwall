@@ -1,8 +1,8 @@
 import { useSyncExternalStore } from "react";
 
 /**
- * The repo the user is working in, picked from the status bar or by opening its backlog. It frames
- * the main pane: the status bar shows it, New task starts on it and Escape from a task returns to
+ * The repo the user is working in, picked from the top bar or by opening its backlog. It frames
+ * the main pane: the top bar shows it, New task starts on it and Escape from a task returns to
  * its backlog.
  * Remembered per browser; an id whose repo is gone acts like no selection.
  */
