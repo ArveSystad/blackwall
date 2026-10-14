@@ -194,6 +194,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       repos: repositories.repos,
       tasks: repositories.tasks,
       backlogItems: repositories.backlogItems,
+      messages: repositories.chatMessages,
       // The planner's model on the CLI, so the chat answers like the agent that plans.
       modelFor: (cli) => {
         const planner = agents.resolveRoles().planner;

@@ -467,7 +467,7 @@ export function runBacklogItem(repoId: string, id: string): Promise<Task> {
 
 const chatPath = (repoId: string) => `${at("/api/repos", repoId)}/chat`;
 
-/** The repo's chat, kept in server memory. */
+/** The repo's chat, stored per repo; `busy` and `activity` are live only. */
 export function getChat(repoId: string): Promise<ChatState> {
   return request(chatPath(repoId), chatStateSchema);
 }

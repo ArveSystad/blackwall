@@ -37,6 +37,12 @@ export interface ChatServiceOptions {
   repos: Pick<Repositories["repos"], "get">;
   tasks: Pick<Repositories["tasks"], "list">;
   backlogItems: Pick<Repositories["backlogItems"], "list">;
+  messages: Pick<
+    Repositories["chatMessages"],
+    "list" | "latestSession" | "insert" | "setActions" | "deleteForRepo"
+  >;
+  /** Earlier messages a turn on a fresh CLI session carries; defaults to {@link CHAT_HISTORY_LIMIT}. */
+  historyLimit?: number;
   /** The model chat turns run on for a CLI; undefined runs the CLI's default. */
   modelFor: (cli: AgentCli) => string | undefined;
   publish: (event: ServerEvent) => void;
@@ -44,10 +50,15 @@ export interface ChatServiceOptions {
 
 export type ChatService = ReturnType<typeof createChatService>;
 
+/** Earlier user and assistant messages replayed when the CLI session cannot be resumed. */
+export const CHAT_HISTORY_LIMIT = 20;
+
 /** One repo's chat: the state clients see, plus the CLI session and the running turn. */
 interface ChatEntry {
   state: ChatState;
   sessionId: string | null;
+  /** The CLI `sessionId` belongs to; a turn on another CLI starts a new session. */
+  sessionCli: AgentCli | null;
   /** Bumped by `/clear` and shutdown, so a turn that started before drops its result. */
   generation: number;
   controller: AbortController | null;
@@ -78,9 +89,11 @@ function message(role: ChatMessage["role"], text: string, actions: ChatAction[] 
 }
 
 /**
- * The repo chat, kept in memory: one conversation per repo. Each message runs
- * the repo's default CLI once, headless and read-only in the repo's checkout,
- * continuing the chat's CLI session. The agent answers with a markdown reply
+ * The repo chat: one conversation per repo, stored in SQLite and loaded on
+ * first use. Each message runs the repo's default CLI once, headless and
+ * read-only in the repo's checkout, continuing the chat's CLI session; when
+ * that session cannot be resumed, the prompt carries the last
+ * `historyLimit` messages instead. The agent answers with a markdown reply
  * and proposed actions; the user applies those through the existing endpoints
  * and marks them applied here. Every change is published as `chat.upserted`.
  */
@@ -89,6 +102,8 @@ export function createChatService({
   repos,
   tasks,
   backlogItems,
+  messages,
+  historyLimit = CHAT_HISTORY_LIMIT,
   modelFor,
   publish,
 }: ChatServiceOptions) {
@@ -103,9 +118,11 @@ export function createChatService({
   function entryFor(repoId: string): ChatEntry {
     let entry = chats.get(repoId);
     if (!entry) {
+      const session = messages.latestSession(repoId);
       entry = {
-        state: { repoId, busy: false, activity: null, messages: [] },
-        sessionId: null,
+        state: { repoId, busy: false, activity: null, messages: messages.list(repoId) },
+        sessionId: session?.sessionId ?? null,
+        sessionCli: session?.cli ?? null,
         generation: 0,
         controller: null,
       };
@@ -121,6 +138,30 @@ export function createChatService({
     return entry.state;
   }
 
+  /**
+   * Stores a message, with the CLI session an assistant turn ended on, and
+   * appends it along with any other state change.
+   */
+  function append(
+    entry: ChatEntry,
+    msg: ChatMessage,
+    {
+      session,
+      patch,
+    }: { session?: { sessionId: string; cli: AgentCli }; patch?: Partial<ChatState> } = {},
+  ): ChatState {
+    messages.insert({
+      id: msg.id,
+      repoId: entry.state.repoId,
+      role: msg.role,
+      text: msg.text,
+      actions: msg.actions,
+      createdAt: new Date(msg.createdAt),
+      ...(session ? { sessionId: session.sessionId, cli: session.cli } : {}),
+    });
+    return update(entry, { ...patch, messages: [...entry.state.messages, msg] });
+  }
+
   async function runTurn(entry: ChatEntry, repo: Repo, text: string): Promise<void> {
     const generation = entry.generation;
     const current = () => entry.generation === generation;
@@ -133,17 +174,23 @@ export function createChatService({
     try {
       const adapter = adapters[cli];
       if (!adapter) throw new Error(`No adapter for the ${cli} CLI`);
-      const prompt = chatStatePrompt({
+      const state = {
         tasks: tasks.list().filter((t) => t.repoId === repo.id && t.archivedAt === null),
         backlog: backlogItems.list(repo.id),
         text,
-      });
+      };
+      // The user and assistant messages before the one being answered.
+      const history = entry.state.messages
+        .slice(0, -1)
+        .flatMap((m) => (m.role === "error" ? [] : [{ role: m.role, text: m.text }]))
+        .slice(-historyLimit);
       const model = modelFor(cli);
 
       const attempt = async (resumeSessionId?: string): Promise<AgentResult> => {
         const run = adapter.run({
           cwd: repo.path,
-          prompt,
+          // A resumed session already holds the conversation.
+          prompt: chatStatePrompt(resumeSessionId ? state : { ...state, history }),
           systemPrompt: chatSystemPrompt(),
           permissions: permissionsFor(cli, "read-only"),
           jsonSchema: chatReplyJsonSchema(),
@@ -153,7 +200,10 @@ export function createChatService({
         });
         for await (const event of run) {
           if (!current()) continue;
-          if (event.type === "session") entry.sessionId = event.sessionId;
+          if (event.type === "session") {
+            entry.sessionId = event.sessionId;
+            entry.sessionCli = cli;
+          }
           if (event.type === "rate-limit") {
             const resetsAt = rateLimit?.resetsAt ?? event.resetsAt;
             rateLimit = resetsAt ? { resetsAt } : {};
@@ -165,7 +215,8 @@ export function createChatService({
         return run.result;
       };
 
-      const resumeSessionId = entry.sessionId ?? undefined;
+      const resumeSessionId =
+        entry.sessionId && entry.sessionCli === cli ? entry.sessionId : undefined;
       let result: AgentResult;
       try {
         result = await attempt(resumeSessionId);
@@ -183,6 +234,7 @@ export function createChatService({
       }
       if (!current()) return;
       entry.sessionId = result.sessionId;
+      entry.sessionCli = cli;
       const parsed = chatReplySchema.safeParse(result.structured);
       const reply = parsed.success
         ? message(
@@ -191,7 +243,7 @@ export function createChatService({
             parsed.data.actions.map((a) => ({ ...a, id: randomUUID(), appliedAt: null })),
           )
         : message("assistant", result.text);
-      update(entry, { messages: [...entry.state.messages, reply] });
+      append(entry, reply, { session: { sessionId: result.sessionId, cli } });
     } catch (error) {
       if (!current()) return;
       const text = rateLimit
@@ -199,7 +251,7 @@ export function createChatService({
         : error instanceof Error
           ? error.message
           : "The chat agent failed";
-      update(entry, { messages: [...entry.state.messages, message("error", text)] });
+      append(entry, message("error", text));
     } finally {
       if (current()) {
         entry.controller = null;
@@ -229,13 +281,13 @@ export function createChatService({
         entry.controller = null;
         entry.generation += 1;
         entry.sessionId = null;
+        entry.sessionCli = null;
+        messages.deleteForRepo(repoId);
         return update(entry, { busy: false, activity: null, messages: [] });
       }
       if (entry.state.busy) throw new ChatBusyError();
-      const state = update(entry, {
-        busy: true,
-        activity: null,
-        messages: [...entry.state.messages, message("user", trimmed)],
+      const state = append(entry, message("user", trimmed), {
+        patch: { busy: true, activity: null },
       });
       void runTurn(entry, repo, trimmed);
       return state;
@@ -257,14 +309,12 @@ export function createChatService({
       if (alreadyApplied) return entry.state;
       const appliedAt = new Date().toISOString();
       return update(entry, {
-        messages: entry.state.messages.map((m) =>
-          m.actions.some((a) => a.id === actionId)
-            ? {
-                ...m,
-                actions: m.actions.map((a) => (a.id === actionId ? { ...a, appliedAt } : a)),
-              }
-            : m,
-        ),
+        messages: entry.state.messages.map((m) => {
+          if (!m.actions.some((a) => a.id === actionId)) return m;
+          const actions = m.actions.map((a) => (a.id === actionId ? { ...a, appliedAt } : a));
+          messages.setActions(m.id, actions);
+          return { ...m, actions };
+        }),
       });
     },
 

@@ -28,15 +28,28 @@ beforeEach(() => {
   events = [];
   script = () => ({ structured: { reply: "Hello", actions: [] } });
   adapter = createFakeAdapter("claude", (_options, call) => script(call));
-  chat = createChatService({
-    adapters: { claude: adapter },
+  chat = createService();
+});
+
+/** A chat service on the shared database; a second one stands in for a server restart. */
+function createService(options: { historyLimit?: number } = {}): ChatService {
+  return createChatService({
+    adapters: { claude: adapter, copilot: adapter },
     repos: r.repos,
     tasks: r.tasks,
     backlogItems: r.backlogItems,
+    messages: r.chatMessages,
     modelFor: () => "planner-model",
     publish: (event) => events.push(event),
+    ...options,
   });
-});
+}
+
+/** Stops the current service and starts a new one, as a restart would. */
+function restart(options: { historyLimit?: number } = {}): void {
+  chat.shutdown();
+  chat = createService(options);
+}
 
 afterEach(() => {
   chat.shutdown();
@@ -227,16 +240,19 @@ describe("chat service", () => {
     expect(() => chat.markApplied(repoId, actionId)).toThrow(ChatActionNotFoundError);
   });
 
-  it("reset aborts running answers and forgets every chat", async () => {
+  it("reset aborts running answers and reloads every chat from the database", async () => {
     chat.send(otherRepoId, "Hi");
     await idle(otherRepoId);
     script = () => ({ hang: true });
     chat.send(repoId, "Long question");
 
+    // Stands in for a data import replacing the stored rows.
+    r.chatMessages.deleteForRepo(otherRepoId);
     chat.reset();
     await new Promise((resolve) => setImmediate(resolve));
     expect(adapter.calls[1]!.options.signal?.aborted).toBe(true);
-    expect(chat.get(repoId)).toMatchObject({ busy: false, messages: [] });
+    expect(chat.get(repoId)).toMatchObject({ busy: false });
+    expect(chat.get(repoId).messages).toEqual(r.chatMessages.list(repoId));
     expect(chat.get(otherRepoId).messages).toEqual([]);
 
     // The next message starts a fresh session.
@@ -244,6 +260,101 @@ describe("chat service", () => {
     chat.send(otherRepoId, "Again");
     await idle(otherRepoId);
     expect(adapter.calls[2]!.options.resumeSessionId).toBeUndefined();
+  });
+
+  it("stores the conversation as it goes", async () => {
+    script = () => ({
+      structured: { reply: "Done", actions: [{ kind: "resume-task", taskId: "t1" }] },
+    });
+    chat.send(repoId, "Resume it");
+    const state = await idle();
+    expect(r.chatMessages.list(repoId)).toEqual(state.messages);
+    expect(r.chatMessages.latestSession(repoId)).toEqual({ sessionId: "fake-1", cli: "claude" });
+  });
+
+  it("reloads the conversation and resumes its session after a restart", async () => {
+    script = () => ({
+      structured: { reply: "Ok", actions: [{ kind: "resume-task", taskId: "t1" }] },
+    });
+    chat.send(repoId, "Resume it");
+    const actionId = (await idle()).messages[1]!.actions[0]!.id;
+    const applied = chat.markApplied(repoId, actionId);
+
+    restart();
+    expect(chat.get(repoId).messages).toEqual(applied.messages);
+    expect(chat.get(repoId).messages[1]!.actions[0]!.appliedAt).not.toBeNull();
+
+    chat.send(repoId, "And now?");
+    await idle();
+    const call = adapter.calls[1]!.options;
+    expect(call.resumeSessionId).toBe("fake-1");
+    expect(call.prompt).not.toContain("## Earlier conversation");
+  });
+
+  it("deletes the stored conversation on /clear", async () => {
+    chat.send(repoId, "Hi");
+    await idle();
+    chat.send(otherRepoId, "Other");
+    await idle(otherRepoId);
+
+    script = () => ({ hang: true });
+    chat.send(repoId, "Long question");
+    chat.send(repoId, "/clear");
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(r.chatMessages.list(repoId)).toEqual([]);
+    expect(r.chatMessages.list(otherRepoId)).toHaveLength(2);
+
+    restart();
+    expect(chat.get(repoId).messages).toEqual([]);
+    script = () => ({ structured: { reply: "Fresh", actions: [] } });
+    chat.send(repoId, "Again");
+    await idle();
+    expect(adapter.calls.at(-1)!.options.resumeSessionId).toBeUndefined();
+    expect(adapter.calls.at(-1)!.options.prompt).not.toContain("## Earlier conversation");
+  });
+
+  it("replays the last messages when the session is for another CLI", async () => {
+    restart({ historyLimit: 2 });
+    script = (call) =>
+      call === 1
+        ? { fail: "CLI crashed" }
+        : { structured: { reply: `Answer ${call}`, actions: [] } };
+    chat.send(repoId, "Question 0");
+    await idle();
+    chat.send(repoId, "Question 1");
+    await idle();
+    chat.send(repoId, "Question 2");
+    await idle();
+
+    r.repos.update(repoId, { defaultCli: "copilot" });
+    restart({ historyLimit: 2 });
+    chat.send(repoId, "Question 3");
+    await idle();
+    const call = adapter.calls.at(-1)!.options;
+    expect(call.resumeSessionId).toBeUndefined();
+    const earlier = call.prompt.slice(
+      call.prompt.indexOf("## Earlier conversation"),
+      call.prompt.indexOf("## Message"),
+    );
+    expect(earlier).toContain("**User:** Question 2");
+    expect(earlier).toContain("**Assistant:** Answer 2");
+    expect(earlier).not.toContain("Question 1");
+    expect(earlier).not.toContain("CLI crashed");
+    expect(earlier).not.toContain("Question 3");
+  });
+
+  it("replays the conversation when a lost session is retried", async () => {
+    chat.send(repoId, "First");
+    await idle();
+    script = (call) =>
+      call === 1 ? { missingSession: true } : { structured: { reply: "Back", actions: [] } };
+    chat.send(repoId, "Second");
+    await idle();
+    const [, resumed, retried] = adapter.calls.map((c) => c.options.prompt);
+    expect(resumed).not.toContain("## Earlier conversation");
+    expect(retried).toContain("**User:** First");
+    expect(retried).toContain("**Assistant:** Hello");
+    expect(retried).not.toContain("**User:** Second");
   });
 
   it("throws for an unknown repo", () => {

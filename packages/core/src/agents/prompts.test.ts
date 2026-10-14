@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildSystemPrompt,
+  CHAT_HISTORY_ENTRY_CHARS,
   chatStatePrompt,
   chatSystemPrompt,
   findingsContract,
@@ -168,5 +169,28 @@ describe("chat prompts", () => {
     );
     expect(prompt).toContain("### Backlog\n\n(none)");
     expect(prompt.endsWith("What is waiting?")).toBe(true);
+  });
+
+  it("replays earlier messages before the user's text, truncating long ones", () => {
+    const without = chatStatePrompt({ tasks: [], backlog: [], text: "Next?" });
+    expect(chatStatePrompt({ tasks: [], backlog: [], text: "Next?", history: [] })).toBe(without);
+    expect(without).not.toContain("## Earlier conversation");
+
+    const prompt = chatStatePrompt({
+      tasks: [],
+      backlog: [],
+      text: "Next?",
+      history: [
+        { role: "user", text: "What is waiting?" },
+        { role: "assistant", text: "x".repeat(CHAT_HISTORY_ENTRY_CHARS + 50) },
+      ],
+    });
+    const earlier = prompt.indexOf("## Earlier conversation");
+    expect(earlier).toBeGreaterThan(prompt.indexOf("### Backlog"));
+    expect(earlier).toBeLessThan(prompt.indexOf("## Message"));
+    expect(prompt).toContain("**User:** What is waiting?\n\n**Assistant:** ");
+    expect(prompt).toContain(`**Assistant:** ${"x".repeat(CHAT_HISTORY_ENTRY_CHARS - 1)}…\n`);
+    expect(prompt).not.toContain("x".repeat(CHAT_HISTORY_ENTRY_CHARS));
+    expect(prompt.endsWith("## Message\n\nNext?")).toBe(true);
   });
 });

@@ -3,7 +3,10 @@ import type {
   ActiveAgentStep,
   ActiveSubagent,
   Agent,
+  AgentCli,
   BacklogItem,
+  ChatAction,
+  ChatMessage,
   Connection,
   Finding,
   FindingStatus,
@@ -22,6 +25,7 @@ import type { Db } from "./database.js";
 import {
   agents,
   backlogItems,
+  chatMessages,
   connections,
   findings,
   grillQuestions,
@@ -34,6 +38,7 @@ import {
   tasks,
   type NewAgent,
   type NewBacklogItem,
+  type NewChatMessage,
   type NewConnection,
   type NewFinding,
   type NewGrillQuestion,
@@ -334,6 +339,57 @@ export function createBacklogItemsRepository(db: Db) {
   };
 }
 
+function toChatMessage(row: typeof chatMessages.$inferSelect): ChatMessage {
+  return {
+    id: row.id,
+    role: row.role,
+    text: row.text,
+    actions: row.actions,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+export function createChatMessagesRepository(db: Db) {
+  return {
+    /** A repo's chat, oldest first. */
+    list(repoId: string): ChatMessage[] {
+      return db
+        .select()
+        .from(chatMessages)
+        .where(eq(chatMessages.repoId, repoId))
+        .orderBy(asc(chatMessages.createdAt), asc(rowid))
+        .all()
+        .map(toChatMessage);
+    },
+    /** The CLI session of the repo's newest assistant turn that recorded one. */
+    latestSession(repoId: string): { sessionId: string; cli: AgentCli } | undefined {
+      const row = db
+        .select({ sessionId: chatMessages.sessionId, cli: chatMessages.cli })
+        .from(chatMessages)
+        .where(
+          and(
+            eq(chatMessages.repoId, repoId),
+            isNotNull(chatMessages.sessionId),
+            isNotNull(chatMessages.cli),
+          ),
+        )
+        .orderBy(desc(chatMessages.createdAt), desc(rowid))
+        .limit(1)
+        .get();
+      return row?.sessionId && row.cli ? { sessionId: row.sessionId, cli: row.cli } : undefined;
+    },
+    insert(values: NewChatMessage): ChatMessage {
+      return toChatMessage(db.insert(chatMessages).values(values).returning().get());
+    },
+    setActions(id: string, actions: ChatAction[]): void {
+      db.update(chatMessages).set({ actions }).where(eq(chatMessages.id, id)).run();
+    },
+    deleteForRepo(repoId: string): void {
+      db.delete(chatMessages).where(eq(chatMessages.repoId, repoId)).run();
+    },
+  };
+}
+
 export function createRunsRepository(db: Db) {
   return {
     listByTask(taskId: string): Run[] {
@@ -622,6 +678,7 @@ export function createRepositories(db: Db) {
     tags: createTagsRepository(db),
     tasks: createTasksRepository(db),
     backlogItems: createBacklogItemsRepository(db),
+    chatMessages: createChatMessagesRepository(db),
     runs: createRunsRepository(db),
     steps: createStepsRepository(db),
     stepEvents: createStepEventsRepository(db),

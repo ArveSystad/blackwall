@@ -224,18 +224,40 @@ function excerpt(text: string): string {
   return flat.length > STATE_EXCERPT_CHARS ? `${flat.slice(0, STATE_EXCERPT_CHARS - 1)}…` : flat;
 }
 
+/** Longest earlier chat message carried into a fresh session's prompt. */
+export const CHAT_HISTORY_ENTRY_CHARS = 2000;
+
+/** An earlier chat message, replayed when the CLI session cannot be resumed. */
+export interface ChatHistoryEntry {
+  role: "user" | "assistant";
+  text: string;
+}
+
+function historyEntry({ role, text }: ChatHistoryEntry): string {
+  const trimmed = text.trim();
+  const short =
+    trimmed.length > CHAT_HISTORY_ENTRY_CHARS
+      ? `${trimmed.slice(0, CHAT_HISTORY_ENTRY_CHARS - 1)}…`
+      : trimmed;
+  return `**${role === "user" ? "User" : "Assistant"}:** ${short}`;
+}
+
 /**
  * One chat message's prompt: a fresh `Blackwall state` block with the repo's
- * unarchived tasks and backlog items, then the user's text.
+ * unarchived tasks and backlog items, then the user's text. A turn that starts
+ * a new CLI session also gets the earlier conversation, each message truncated
+ * to {@link CHAT_HISTORY_ENTRY_CHARS}.
  */
 export function chatStatePrompt({
   tasks,
   backlog,
   text,
+  history = [],
 }: {
   tasks: readonly ChatStateTask[];
   backlog: readonly ChatStateBacklogItem[];
   text: string;
+  history?: readonly ChatHistoryEntry[];
 }): string {
   const taskLines = tasks.map((t) =>
     [
@@ -266,6 +288,9 @@ export function chatStatePrompt({
     "",
     ...(backlogLines.length > 0 ? backlogLines : ["(none)"]),
     "",
+    ...(history.length > 0
+      ? ["## Earlier conversation", "", ...history.flatMap((h) => [historyEntry(h), ""])]
+      : []),
     "## Message",
     "",
     text,

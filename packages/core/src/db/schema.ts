@@ -12,6 +12,7 @@ import {
   AGENT_CLIS,
   BACKLOG_PRIORITIES,
   BACKLOG_STATUSES,
+  CHAT_ROLES,
   CONNECTION_KINDS,
   FINDING_STATUSES,
   GATES,
@@ -26,6 +27,7 @@ import {
   type AgentClis,
   type AgentModels,
   type AgentPermissionOverrides,
+  type ChatAction,
   type DeliveryTarget,
   type FollowUp,
   type RoleAgents,
@@ -229,6 +231,30 @@ export const backlogItems = sqliteTable(
   (t) => [index("backlog_items_repo_status_idx").on(t.repoId, t.status)],
 );
 
+/** Per-repo chat conversation, oldest first. */
+export const chatMessages = sqliteTable(
+  "chat_messages",
+  {
+    id: id(),
+    repoId: text("repo_id")
+      .notNull()
+      .references(() => repos.id, { onDelete: "cascade" }),
+    role: text("role", { enum: CHAT_ROLES }).notNull(),
+    text: text("text").notNull().default(""),
+    /** Proposed actions as clients see them, including `appliedAt`. */
+    actions: text("actions", { mode: "json" })
+      .$type<ChatAction[]>()
+      .notNull()
+      .default(sql`'[]'`),
+    /** Assistant turns: the CLI session the turn ended on, used for `--resume`. */
+    sessionId: text("session_id"),
+    /** The CLI that session belongs to. */
+    cli: text("cli", { enum: AGENT_CLIS }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("chat_messages_repo_idx").on(t.repoId, t.createdAt)],
+);
+
 export const runs = sqliteTable(
   "runs",
   {
@@ -351,6 +377,7 @@ export type NewRepo = typeof repos.$inferInsert;
 export type NewAgent = typeof agents.$inferInsert;
 export type NewTask = typeof tasks.$inferInsert;
 export type NewBacklogItem = typeof backlogItems.$inferInsert;
+export type NewChatMessage = typeof chatMessages.$inferInsert;
 export type NewRun = typeof runs.$inferInsert;
 export type NewStep = typeof steps.$inferInsert;
 export type NewFinding = typeof findings.$inferInsert;

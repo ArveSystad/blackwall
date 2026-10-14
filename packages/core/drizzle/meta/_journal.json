@@ -120,6 +120,13 @@
       "when": 1791891277359,
       "tag": "0016_repo_default_branch",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1791968452360,
+      "tag": "0017_chat_messages",
+      "breakpoints": true
     }
   ]
 }

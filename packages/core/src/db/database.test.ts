@@ -247,4 +247,35 @@ describe("openDatabase", () => {
     opened = openDatabase(dir);
     expect(createRepositories(opened.db).repos.get("r1")?.defaultBranch).toBe("main");
   });
+
+  it("adds an empty chat_messages table to an existing database", () => {
+    // Build a database at the migration before the chat messages.
+    const oldMigrations = join(dir, "..", "migrations-0016");
+    cpSync(MIGRATIONS_DIR, oldMigrations, { recursive: true });
+    const journalPath = join(oldMigrations, "meta", "_journal.json");
+    const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
+      entries: { tag: string }[];
+    };
+    journal.entries = journal.entries.slice(
+      0,
+      journal.entries.findIndex((e) => e.tag === "0017_chat_messages"),
+    );
+    expect(journal.entries.at(-1)?.tag).toBe("0016_repo_default_branch");
+    writeFileSync(journalPath, JSON.stringify(journal));
+
+    mkdirSync(dir, { recursive: true });
+    const sqlite = new Database(join(dir, DB_FILENAME));
+    migrate(drizzle(sqlite), { migrationsFolder: oldMigrations });
+    sqlite.exec(
+      "insert into repos (id, path, name, created_at, updated_at) values ('r1', '/code/a', 'a', 0, 0)",
+    );
+    sqlite.close();
+
+    opened = openDatabase(dir);
+    const r = createRepositories(opened.db);
+    expect(r.repos.get("r1")?.name).toBe("a");
+    expect(r.chatMessages.list("r1")).toEqual([]);
+    r.chatMessages.insert({ repoId: "r1", role: "user", text: "Hi" });
+    expect(r.chatMessages.list("r1")).toHaveLength(1);
+  });
 });

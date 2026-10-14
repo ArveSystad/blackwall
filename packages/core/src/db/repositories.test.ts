@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   agentSchema,
   backlogItemSchema,
+  chatMessageSchema,
   connectionSchema,
   findingSchema,
   grillQuestionSchema,
@@ -230,6 +231,75 @@ describe("backlog items", () => {
     });
     r.repos.delete(repo.id);
     expect(r.backlogItems.get(item.id)).toBeUndefined();
+  });
+});
+
+describe("chat messages", () => {
+  it("round-trips messages in order, with actions and the latest session", () => {
+    const repo = r.repos.create({ path: "/code/app", name: "app" });
+    const other = r.repos.create({ path: "/code/other", name: "other" });
+    const at = new Date("2026-10-14T10:00:00.000Z");
+    const actions = [
+      {
+        id: "a1",
+        kind: "create-task" as const,
+        title: "Add tests",
+        description: "Cover it",
+        appliedAt: null,
+      },
+    ];
+    r.chatMessages.insert({ id: "m1", repoId: repo.id, role: "user", text: "Hi", createdAt: at });
+    const reply = r.chatMessages.insert({
+      id: "m2",
+      repoId: repo.id,
+      role: "assistant",
+      text: "Hello",
+      actions,
+      sessionId: "s1",
+      cli: "claude",
+      createdAt: at,
+    });
+    r.chatMessages.insert({
+      id: "m3",
+      repoId: repo.id,
+      role: "assistant",
+      text: "Again",
+      sessionId: "s2",
+      cli: "copilot",
+      createdAt: at,
+    });
+    r.chatMessages.insert({
+      id: "m4",
+      repoId: repo.id,
+      role: "error",
+      text: "Oops",
+      createdAt: at,
+    });
+    r.chatMessages.insert({ id: "o1", repoId: other.id, role: "user", text: "Other" });
+
+    expect(reply).toEqual({
+      id: "m2",
+      role: "assistant",
+      text: "Hello",
+      actions,
+      createdAt: "2026-10-14T10:00:00.000Z",
+    });
+    expect(chatMessageSchema.parse(reply)).toEqual(reply);
+    expect(r.chatMessages.list(repo.id).map((m) => m.id)).toEqual(["m1", "m2", "m3", "m4"]);
+    expect(r.chatMessages.list(repo.id)[0]!.actions).toEqual([]);
+    expect(r.chatMessages.latestSession(repo.id)).toEqual({ sessionId: "s2", cli: "copilot" });
+    expect(r.chatMessages.latestSession(other.id)).toBeUndefined();
+
+    const applied = [{ ...actions[0]!, appliedAt: "2026-10-14T11:00:00.000Z" }];
+    r.chatMessages.setActions("m2", applied);
+    expect(r.chatMessages.list(repo.id)[1]!.actions).toEqual(applied);
+
+    r.chatMessages.deleteForRepo(repo.id);
+    expect(r.chatMessages.list(repo.id)).toEqual([]);
+    expect(r.chatMessages.list(other.id).map((m) => m.id)).toEqual(["o1"]);
+
+    r.repos.delete(other.id);
+    expect(r.chatMessages.list(other.id)).toEqual([]);
   });
 });
 

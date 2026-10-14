@@ -1619,7 +1619,7 @@ export const chatMessageSchema = z.object({
 });
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 
-/** A repo's chat, kept in server memory. */
+/** A repo's chat, stored per repo; `busy` and `activity` are live only. */
 export const chatStateSchema = z.object({
   repoId: id,
   /** True while the agent answers. */
