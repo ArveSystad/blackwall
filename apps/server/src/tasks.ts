@@ -10,6 +10,7 @@ import {
   type TaskBranchDiff,
   type TaskDiffs,
 } from "@blackwall/core";
+import type { PullRequestStackMember } from "@blackwall/integrations";
 import {
   diffCommentsInputSchema,
   findingOverrideInputSchema,
@@ -38,6 +39,7 @@ import {
   type TaskOrigin,
 } from "@blackwall/shared";
 import { Hono } from "hono";
+import { withoutStack } from "./backlog.js";
 
 /** The engine actions the task routes expose. */
 export type TaskPipeline = Pick<
@@ -79,9 +81,15 @@ export interface NewTaskServices {
   commentOnIssue?: (origin: GitHubIssueOrigin, body: string) => Promise<{ url: string }>;
   /** Assigns a GitHub issue to the token's user, for `assignToMe`. */
   assignIssue?: (origin: GitHubIssueOrigin) => Promise<unknown>;
+  /**
+   * The open PRs of the stack a PR belongs to, bottom first; undefined when it
+   * is not stacked. A new backlog PR item adds Review PR items for the others.
+   */
+  pullRequestStack?: (origin: GitHubPrOrigin) => Promise<PullRequestStackMember[] | undefined>;
 }
 
 type GitHubIssueOrigin = Extract<TaskOrigin, { kind: "github-issue" }>;
+type GitHubPrOrigin = Extract<TaskOrigin, { kind: "github-pr" }>;
 
 export interface TaskRouteServices {
   newTask?: NewTaskServices;
@@ -268,7 +276,9 @@ export function taskRoutes(
       if (!input.success) {
         return c.json({ error: input.error.issues.map((i) => i.message).join("; ") }, 400);
       }
-      return c.json<Task>(await createTaskFromInput(pipeline, newTask, input.data), 201);
+      // Only the server links a PR to its stack.
+      const values = { ...input.data, origin: withoutStack(input.data.origin) };
+      return c.json<Task>(await createTaskFromInput(pipeline, newTask, values), 201);
     });
   }
 

@@ -8,6 +8,7 @@ import {
   needsYouCount,
   originKey,
   relativeTime,
+  stackLabel,
   statusLabel,
   uiStageIndex,
 } from "./inbox";
@@ -133,5 +134,28 @@ describe("relativeTime", () => {
     expect(ago(3 * 3_600_000)).toBe("3h");
     expect(ago(30 * 3_600_000)).toBe("yday");
     expect(ago(4 * 86_400_000)).toBe("4d");
+  });
+});
+
+describe("stackLabel", () => {
+  const pr = {
+    kind: "github-pr",
+    url: "https://github.com/acme/web/pull/42",
+    owner: "acme",
+    repo: "web",
+    number: 42,
+    connectionId: null,
+  } as const;
+
+  it("names the stack by its bottom PR and gives this PR's place", () => {
+    expect(stackLabel({ ...pr, stack: { prs: [41, 42, 43] } })).toEqual({
+      text: "stack #41 · 2/3",
+      title: "Stacked PRs: #41 → #42 → #43",
+    });
+  });
+
+  it("is undefined for unstacked PRs and other origins", () => {
+    expect(stackLabel(pr)).toBeUndefined();
+    expect(stackLabel({ kind: "free-text" })).toBeUndefined();
   });
 });

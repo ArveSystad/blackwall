@@ -25,6 +25,12 @@ export interface GitHubUserJson {
   login: string;
 }
 
+/** A PR's head or base repository. */
+export interface GitHubRepoRefJson {
+  full_name: string;
+  default_branch?: string;
+}
+
 /** `GET /repos/{owner}/{repo}/pulls/{n}`, the fields Inform and delivery read. */
 export interface GitHubPullRequestJson {
   number: number;
@@ -36,8 +42,8 @@ export interface GitHubPullRequestJson {
   merged?: boolean;
   user?: GitHubUserJson | null;
   labels?: { name?: string }[];
-  head: { ref: string; sha: string; repo?: { full_name: string } | null };
-  base: { ref: string; sha: string; repo?: { full_name: string } | null };
+  head: { ref: string; sha: string; repo?: GitHubRepoRefJson | null };
+  base: { ref: string; sha: string; repo?: GitHubRepoRefJson | null };
   additions?: number;
   deletions?: number;
   changed_files?: number;
@@ -98,6 +104,16 @@ export interface NewPullRequest {
   title: string;
   body?: string;
   draft?: boolean;
+}
+
+/** Filters for {@link createGitHubClient}'s `listOpenPullRequests`. */
+export interface OpenPullRequestsQuery {
+  owner: string;
+  repo: string;
+  /** Only PRs from this head, as `owner:branch`. */
+  head?: string;
+  /** Only PRs into this base branch. */
+  base?: string;
 }
 
 export interface PullRequestCoordinates {
@@ -368,6 +384,22 @@ export function createGitHubClient(credentials: GitHubCredentials, fetchImpl: Fe
           request: requestOptions(signal),
         });
         return res.data as unknown as string;
+      });
+    },
+
+    /** The repository's open pull requests, optionally only those from `head` or into `base`. */
+    listOpenPullRequests(query: OpenPullRequestsQuery, signal?: AbortSignal) {
+      return call(`${query.owner}/${query.repo}`, signal, async () => {
+        const all = await octokit.paginate(octokit.rest.pulls.list, {
+          owner: query.owner,
+          repo: query.repo,
+          state: "open",
+          ...(query.head !== undefined ? { head: query.head } : {}),
+          ...(query.base !== undefined ? { base: query.base } : {}),
+          per_page: PER_PAGE,
+          request: requestOptions(signal),
+        });
+        return all as unknown as GitHubPullRequestJson[];
       });
     },
 

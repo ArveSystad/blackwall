@@ -1,11 +1,14 @@
 import {
   createsDependencyCycle,
+  MissingCredentialError,
   sortBacklog,
   unmetDependencies,
   type Repositories,
   type SettingsService,
 } from "@blackwall/core";
+import type { PullRequestStackMember } from "@blackwall/integrations";
 import {
+  MAX_TITLE_CHARS,
   newBacklogItemInputSchema,
   repoBacklogRunnerUpdateSchema,
   reorderBacklogInputSchema,
@@ -15,6 +18,7 @@ import {
   type RepoBacklogRunner,
   type ServerEvent,
   type Task,
+  type TaskOrigin,
 } from "@blackwall/shared";
 import { Hono, type Context } from "hono";
 import {
@@ -28,8 +32,8 @@ import {
 export interface BacklogRouteStores {
   backlogItems: Repositories["backlogItems"];
   repos: Pick<Repositories["repos"], "get">;
-  /** Linked tasks, to tell whether a dependency is done. */
-  tasks: Pick<Repositories["tasks"], "get">;
+  /** Linked tasks, to tell whether a dependency is done or a stacked PR is already worked on. */
+  tasks: Pick<Repositories["tasks"], "get" | "list">;
 }
 
 /** The global backlog runner setting, and a repo's backlog runner switch and halt. */
@@ -95,6 +99,77 @@ export function promoteBacklogItem(
   return task;
 }
 
+/** The origin without its stack; only the server links a PR to its stack. */
+export function withoutStack(origin: TaskOrigin): TaskOrigin {
+  if (origin.kind !== "github-pr" || origin.stack === undefined) return origin;
+  const rest = { ...origin };
+  delete rest.stack;
+  return rest;
+}
+
+type PrOrigin = Extract<TaskOrigin, { kind: "github-pr" }>;
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+/** Same host, owner, repo (case-insensitive) and number. */
+function samePullRequest(origin: TaskOrigin, pr: PrOrigin, number: number): boolean {
+  return (
+    origin.kind === "github-pr" &&
+    origin.number === number &&
+    origin.owner.toLowerCase() === pr.owner.toLowerCase() &&
+    origin.repo.toLowerCase() === pr.repo.toLowerCase() &&
+    hostOf(origin.url) === hostOf(pr.url)
+  );
+}
+
+/**
+ * Adds a waiting Review PR item for each other PR of `main`'s stack, bottom
+ * first, with `main`'s agents, triage mode and priority. PRs an unarchived
+ * task or an unpromoted backlog item already works on are skipped; a promoted
+ * item counts through its task. Returns the items added; the caller announces them.
+ */
+export function addStackSiblings(
+  backlogItems: Pick<Repositories["backlogItems"], "list" | "insertMany">,
+  tasks: Pick<Repositories["tasks"], "list">,
+  {
+    repoId,
+    main,
+    members,
+  }: { repoId: string; main: BacklogItem; members: readonly PullRequestStackMember[] },
+): BacklogItem[] {
+  const { origin } = main;
+  if (origin.kind !== "github-pr" || !origin.stack) return [];
+  const live = tasks.list().filter((t) => t.archivedAt === null);
+  const waiting = backlogItems.list().filter((i) => i.status !== "promoted");
+  const tracked = (number: number) =>
+    number === origin.number ||
+    live.some((t) => samePullRequest(t.origin, origin, number)) ||
+    waiting.some((i) => samePullRequest(i.origin, origin, number));
+  const siblings = members.filter((m) => !tracked(m.number));
+  if (siblings.length === 0) return [];
+  return backlogItems.insertMany(
+    siblings.map((m) => ({
+      repoId,
+      title:
+        m.title.trim().slice(0, MAX_TITLE_CHARS) || `${origin.owner}/${origin.repo}#${m.number}`,
+      origin: { ...origin, number: m.number, url: m.url },
+      mode: "review" as const,
+      freeText: "",
+      agents: main.agents,
+      agentClis: main.agentClis,
+      triageMode: main.triageMode,
+      priority: main.priority,
+      dependsOn: [],
+    })),
+  );
+}
+
 function badRequest(c: Context, error: { issues: { message: string }[] }) {
   return c.json({ error: error.issues.map((i) => i.message).join("; ") }, 400);
 }
@@ -103,7 +178,10 @@ function badRequest(c: Context, error: { issues: { message: string }[] }) {
  * A repo's backlog, mounted at `/api/repos/:repoId/backlog`. Items wait until
  * promoted; `run` promotes one now through the same path as the new task
  * form, and a new item sent with `start` is promoted at once when the runner
- * would start it. Every change is announced as `backlog.changed` so clients refetch.
+ * would start it. A new PR item that belongs to a stack is linked to it
+ * (`origin.stack`), and the stack's other open PRs get waiting Review PR
+ * items (see {@link addStackSiblings}). Every change is announced as
+ * `backlog.changed` so clients refetch.
  */
 export function backlogRoutes(
   { backlogItems, repos, tasks }: BacklogRouteStores,
@@ -134,6 +212,22 @@ export function backlogRoutes(
       // Only the dependencies are read, so the item need not exist yet.
       unmetDependencies({ dependsOn } as BacklogItem, byId, isDone).length === 0
     );
+  }
+
+  /**
+   * The open PRs of a PR origin's stack, bottom first; undefined when it is
+   * not stacked or the lookup fails. A missing token still throws.
+   */
+  async function stackOf(origin: TaskOrigin): Promise<PullRequestStackMember[] | undefined> {
+    if (origin.kind !== "github-pr" || !newTask?.pullRequestStack) return undefined;
+    try {
+      const members = await newTask.pullRequestStack(origin);
+      return members && members.length >= 2 ? members : undefined;
+    } catch (error) {
+      // A missing token opens the token modal; other failures leave the PR unstacked.
+      if (error instanceof MissingCredentialError) throw error;
+      return undefined;
+    }
   }
 
   routes.use("*", async (c, next) => {
@@ -188,11 +282,17 @@ export function backlogRoutes(
     if (foreign.length > 0) {
       return c.json({ error: `Unknown dependencies in this repo: ${foreign.join(", ")}` }, 400);
     }
-    const { start, startComment, ...values } = input.data;
+    const { start, startComment, ...parsed } = input.data;
+    // Only the server links a PR to its stack.
+    const values = { ...parsed, origin: withoutStack(parsed.origin) };
     // Everything that can fail runs before the insert, so retries add no duplicates.
     if (newTask && (start || values.title === undefined)) newTask.repos.use(repoId);
     const title =
       values.title ?? (await titleFor(values.origin, values.freeText, newTask?.originTitle));
+    const stack = await stackOf(values.origin);
+    if (stack && values.origin.kind === "github-pr") {
+      values.origin = { ...values.origin, stack: { prs: stack.map((m) => m.number) } };
+    }
     const startsNow = start && shouldStart(repoId, values.dependsOn);
     // The confirmed start comment goes out only with a task that starts now,
     // never later when the runner promotes the item on its own.
@@ -212,6 +312,15 @@ export function backlogRoutes(
       }
     } else {
       changed(repoId);
+    }
+    if (stack) {
+      try {
+        const added = addStackSiblings(backlogItems, tasks, { repoId, main: item, members: stack });
+        // The backlog runner picks them up when the repo's runner is on.
+        if (added.length > 0) changed(repoId);
+      } catch (error) {
+        console.error(`Could not add the other pull requests of the stack: ${String(error)}`);
+      }
     }
     return c.json<BacklogItem>(item, 201);
   });

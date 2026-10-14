@@ -1,4 +1,4 @@
-import type { Stage, Task, TaskStatus } from "@blackwall/shared";
+import type { Stage, Task, TaskOrigin, TaskStatus } from "@blackwall/shared";
 
 /** The six stages the UI shows, in order; aggregate and summarize fold into their neighbours. */
 export const UI_STAGES = [
@@ -47,6 +47,20 @@ export function originKey(task: Pick<Task, "origin">): string {
     case "free-text":
       return "blackwall";
   }
+}
+
+/**
+ * A stacked PR's place in its stack, for metadata lines: `stack #41 · 2/3`,
+ * with the whole stack as tooltip. Undefined for other origins.
+ */
+export function stackLabel(origin: TaskOrigin): { text: string; title: string } | undefined {
+  if (origin.kind !== "github-pr" || !origin.stack) return undefined;
+  const { prs } = origin.stack;
+  const at = prs.indexOf(origin.number);
+  return {
+    text: `stack #${prs[0]}${at === -1 ? "" : ` · ${at + 1}/${prs.length}`}`,
+    title: `Stacked PRs: ${prs.map((n) => `#${n}`).join(" → ")}`,
+  };
 }
 
 export interface InboxGroups {

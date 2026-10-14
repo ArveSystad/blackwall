@@ -4,6 +4,7 @@ import {
   repoIssuesSchema,
   deliveryConfirmationSchema,
   gateResponseInputSchema,
+  githubPrOriginSchema,
   shortSummarySchema,
   summaryCoreSchema,
   summaryOutputJsonSchema,
@@ -115,6 +116,28 @@ describe("taskSchema", () => {
     };
     expect(taskSchema.parse({ ...task, origin: issue }).origin).toEqual(issue);
     expect(taskSchema.safeParse({ ...task, origin: issue, mode: "work" }).success).toBe(false);
+  });
+});
+
+describe("githubPrOriginSchema", () => {
+  const pr = {
+    kind: "github-pr",
+    url: "https://github.com/acme/web/pull/42",
+    owner: "acme",
+    repo: "web",
+    number: 42,
+    connectionId: null,
+  };
+
+  it("parses a PR origin with and without a stack", () => {
+    expect(githubPrOriginSchema.parse(pr)).toEqual(pr);
+    const stacked = { ...pr, stack: { prs: [41, 42, 43] } };
+    expect(githubPrOriginSchema.parse(stacked)).toEqual(stacked);
+  });
+
+  it("rejects a stack of fewer than 2 PRs", () => {
+    expect(githubPrOriginSchema.safeParse({ ...pr, stack: { prs: [42] } }).success).toBe(false);
+    expect(githubPrOriginSchema.safeParse({ ...pr, stack: { prs: [] } }).success).toBe(false);
   });
 });
 

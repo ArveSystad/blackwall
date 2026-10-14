@@ -63,7 +63,7 @@ import {
   taskAgentIds,
 } from "../task-view";
 import { AgentTile } from "./AgentTile";
-import { CheckIcon, CloseIcon, WarnIcon } from "./icons";
+import { CheckIcon, CloseIcon, SpinnerIcon, WarnIcon } from "./icons";
 import { ORIGINS, PR_MODE_LABELS } from "./origins";
 import { RepoMenuItems } from "./RepoMenuItems";
 import { Segmented } from "./Segmented";
@@ -985,6 +985,14 @@ function NewTaskForm({
           Cancel
         </Button>
         <Button variant="primary" type="submit" disabled={submitting}>
+          {submitting && (
+            <SpinnerIcon
+              className="animate-spin"
+              role="status"
+              aria-hidden={false}
+              aria-label="Saving"
+            />
+          )}
           {submitting ? "Saving…" : item ? "Save item" : "Create task"}
           <Kbd onFill aria-hidden="true">
             {modKeyLabel("↵")}

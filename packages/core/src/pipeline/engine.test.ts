@@ -1772,6 +1772,26 @@ describe("code review panel and triage", () => {
     expect(review).toContain("## Details\n\nLogin accepts empty passwords");
   });
 
+  it("gives the code reviewers the other PRs of the stack as context", async () => {
+    const stackContext = vi.fn(async () => "1. #6: Below\n2. #7: This ← this PR");
+    const h = harness(() => ({}), { stages: createDefaultStages({ stackContext }) });
+    await approved(h, { origin: prOrigin(), mode: "work" });
+    const review = h.calls.find((c) => c.stage === "code-review")!.options.prompt;
+    expect(review).toContain("## Other pull requests in the stack\n\n1. #6: Below");
+    expect(stackContext).toHaveBeenCalledTimes(1);
+  });
+
+  it("still reviews when the stack's context fails", async () => {
+    const stackContext = vi.fn(async (): Promise<string | undefined> => {
+      throw new Error("github.com: rate limited");
+    });
+    const h = harness(() => ({}), { stages: createDefaultStages({ stackContext }) });
+    await approved(h, { origin: prOrigin(), mode: "work" });
+    const review = h.calls.find((c) => c.stage === "code-review")!.options.prompt;
+    expect(review).not.toContain("Other pull requests in the stack");
+    expect(stackContext).toHaveBeenCalled();
+  });
+
   it("reviews a PR again at triage with the user's instruction", async () => {
     let reviews = 0;
     const h = harness((stage) => {

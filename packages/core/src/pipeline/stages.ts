@@ -623,10 +623,15 @@ async function reviewRange(
  * after that) and report findings in the findings output contract. Without
  * git (tests) they review the branch as it stands. A round with an empty diff
  * has nothing to review. The prompt carries the task's details and the user's
- * instructions; a Review PR re-review reviews the whole PR again and lists
- * the findings already reported.
+ * instructions, and for a stacked PR the other PRs' changes as context only
+ * (from `stackContext`, whose failures never fail the review); a Review PR
+ * re-review reviews the whole PR again and lists the findings already reported.
  */
-async function codeReview(ctx: StageContext, git: ReviewGit | undefined): Promise<void> {
+async function codeReview(
+  ctx: StageContext,
+  git: ReviewGit | undefined,
+  stackContext: OriginContextProvider | undefined,
+): Promise<void> {
   const { task, run, round, repositories } = ctx;
   const reviewers = panel(task, "codeReviewers");
   if (reviewers.length === 0) return;
@@ -654,6 +659,14 @@ async function codeReview(ctx: StageContext, git: ReviewGit | undefined): Promis
     }
   }
 
+  let stack: string | undefined;
+  try {
+    stack = await stackContext?.(task, ctx.signal);
+  } catch (error) {
+    if (ctx.signal.aborted) throw error;
+    // The review runs without the stack's context.
+  }
+
   const findings = repositories.findings.listByTask(task.id);
   const ignored = findings.filter((f) => f.status === "force-ignore");
   // A Review PR re-review: the user asked the reviewers to look again.
@@ -668,6 +681,7 @@ async function codeReview(ctx: StageContext, git: ReviewGit | undefined): Promis
         section("Details", task.freeText),
         section("Plan", task.plan),
         section("Instructions from the user", ctx.instructions),
+        section("Other pull requests in the stack", stack),
         section("Changes to review", changes),
         section(
           "Findings already reported",
@@ -838,6 +852,11 @@ export type OriginContextProvider = (
 
 export interface DefaultStagesOptions {
   originContext?: OriginContextProvider;
+  /**
+   * A stacked PR task's other PRs and their diffs, for Code review as context
+   * only; undefined for other tasks. Fetched once per visit; errors are ignored.
+   */
+  stackContext?: OriginContextProvider;
   /** Commits each round in Checks; without it nothing is committed (tests). */
   git?: Pick<GitService, "stagedDiff" | "commitAll">;
   /** Runs one check command; defaults to the platform shell in the worktree. */
@@ -850,11 +869,12 @@ export interface DefaultStagesOptions {
  * Baseline stage handlers: each stage runs its role's agents with a plain
  * prompt, Inform adds the origin context when a provider is given, and Checks
  * commits the round and runs the repo's check commands, Code review runs the
- * panel over the round's diff and Aggregate merges duplicate findings. The
+ * panel over the round's diff (with a stacked PR's other PRs as context) and Aggregate merges duplicate findings. The
  * engine's transitions stay the same.
  */
 export function createDefaultStages({
   originContext,
+  stackContext,
   git,
   runCheck = runCheckCommand,
   reviewGit,
@@ -917,7 +937,7 @@ export function createDefaultStages({
 
     checks: (ctx) => runChecks(ctx, git, runCheck),
 
-    "code-review": (ctx) => codeReview(ctx, reviewGit),
+    "code-review": (ctx) => codeReview(ctx, reviewGit, stackContext),
 
     aggregate,
 

@@ -667,6 +667,11 @@ export const jiraIssueOriginSchema = z.object({
   connectionId: id.nullable(),
 });
 
+export const pullRequestStackSchema = z.object({
+  prs: z.array(z.int().positive()).min(2),
+});
+export type PullRequestStack = z.infer<typeof pullRequestStackSchema>;
+
 export const githubPrOriginSchema = z.object({
   kind: z.literal("github-pr"),
   url: z.url(),
@@ -674,6 +679,11 @@ export const githubPrOriginSchema = z.object({
   repo: name,
   number: z.int().positive(),
   connectionId: id.nullable(),
+  /**
+   * PRs of the stack this PR belonged to when it was added, bottom first; the
+   * first is the stack's id. Set by the server only; client-sent values are dropped.
+   */
+  stack: pullRequestStackSchema.optional(),
 });
 
 /** A GitHub/GHE issue: worked on a new branch like a Jira issue, delivered as a PR that closes it. */

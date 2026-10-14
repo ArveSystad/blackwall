@@ -115,6 +115,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
         (await jira.titleFor(origin)) ?? (await github.titleFor(origin)),
       commentOnIssue: github.commentOnIssue,
       assignIssue: github.assignIssue,
+      pullRequestStack: github.pullRequestStack,
     };
     // Uses the engine only once started, after the engine below exists.
     const backlogRunner = createBacklogRunner({
@@ -147,6 +148,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       },
       stages: createDefaultStages({
         originContext: firstOriginContext(jira.originContext, github.originContext),
+        stackContext: github.stackContext,
         git,
         reviewGit: git,
       }),

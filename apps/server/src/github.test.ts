@@ -139,6 +139,87 @@ describe("createGitHubOrigin", () => {
   });
 });
 
+/** acme/shop's open PRs #41 ← #42 ← #43 (each based on the one below), with their diffs. */
+function fakeStack() {
+  const prs = [
+    { number: 41, head: "b41", base: "main" },
+    { number: 42, head: "b42", base: "b41" },
+    { number: 43, head: "b43", base: "b42" },
+  ];
+  const toJson = (pr: (typeof prs)[number]) => ({
+    number: pr.number,
+    html_url: `https://acme.ghe.com/acme/shop/pull/${pr.number}`,
+    title: `PR ${pr.number}`,
+    state: "open",
+    head: { ref: pr.head, sha: "a", repo: { full_name: "acme/shop" } },
+    base: { ref: pr.base, sha: "b", repo: { full_name: "acme/shop", default_branch: "main" } },
+  });
+  return vi.fn<typeof fetch>((input, init) => {
+    const url = new URL(String(input));
+    const accept = new Headers(init?.headers).get("accept") ?? "";
+    const json = (body: unknown) =>
+      new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+    const one = /^\/repos\/acme\/shop\/pulls\/(\d+)$/.exec(url.pathname);
+    const pr = one && prs.find((p) => p.number === Number(one[1]));
+    if (pr) {
+      return Promise.resolve(
+        accept.includes("diff")
+          ? new Response(`diff --git a/pr${pr.number} b/pr${pr.number}\n`, {
+              headers: { "content-type": "text/plain" },
+            })
+          : json(toJson(pr)),
+      );
+    }
+    if (url.pathname === "/repos/acme/shop/pulls") {
+      const head = url.searchParams.get("head");
+      const base = url.searchParams.get("base");
+      return Promise.resolve(
+        json(
+          prs
+            .filter(
+              (p) =>
+                (head === null || head === `acme:${p.head}`) && (base === null || base === p.base),
+            )
+            .map(toJson),
+        ),
+      );
+    }
+    return Promise.resolve(json([]));
+  });
+}
+
+describe("stacked pull requests", () => {
+  const signal = new AbortController().signal;
+
+  it("finds the PR's stack, bottom first, or nothing when it is not stacked", async () => {
+    const origin = prTask("g1").origin as Extract<Task["origin"], { kind: "github-pr" }>;
+    const stacked = createGitHubOrigin({ connections: connections([ghe]), fetch: fakeStack() });
+    const members = await stacked.pullRequestStack(origin);
+    expect(members?.map((m) => m.number)).toEqual([41, 42, 43]);
+
+    const alone = createGitHubOrigin({ connections: connections([ghe]), fetch: fakeGitHub() });
+    expect(await alone.pullRequestStack(origin)).toBeUndefined();
+  });
+
+  it("renders the other PRs' diffs as Code review context", async () => {
+    const github = createGitHubOrigin({ connections: connections([ghe]), fetch: fakeStack() });
+    const context = await github.stackContext(prTask("g1"), signal);
+    expect(context).toContain("2. #42: PR 42 (b42 → b41) ← this PR");
+    expect(context).toContain("### #41: PR 41 (b41 → main), below this PR");
+    expect(context).toContain("a/pr41");
+    expect(context).toContain("### #43: PR 43 (b43 → b42), above this PR");
+    expect(context).toContain("a/pr43");
+    expect(context).not.toContain("a/pr42");
+  });
+
+  it("gives no context for other tasks or PRs that are not stacked", async () => {
+    const alone = createGitHubOrigin({ connections: connections([ghe]), fetch: fakeGitHub() });
+    expect(await alone.stackContext(prTask("g1"), signal)).toBeUndefined();
+    const freeText = { ...prTask(null), origin: { kind: "free-text" } } as Task;
+    expect(await alone.stackContext(freeText, signal)).toBeUndefined();
+  });
+});
+
 const issueOrigin = {
   kind: "github-issue" as const,
   url: "https://acme.ghe.com/acme/shop/issues/7",

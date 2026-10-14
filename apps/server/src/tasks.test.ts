@@ -616,6 +616,15 @@ describe("new tasks", () => {
     expect(originTitle).toHaveBeenCalledWith(prOrigin);
   });
 
+  it("drops a client-sent stack from a PR task's origin", async () => {
+    const res = await request("/api/tasks", {
+      method: "POST",
+      body: { origin: { ...prOrigin, stack: { prs: [1, 2] } }, mode: "review", repoId },
+    });
+    expect(res.status).toBe(201);
+    expect(taskSchema.parse(await res.json()).origin).toEqual(prOrigin);
+  });
+
   it("runs a task on its repo's CLI, keeping only the form's real CLI overrides", async () => {
     const copilotRepo = repositories.repos.create({
       path: "/code/ghe",

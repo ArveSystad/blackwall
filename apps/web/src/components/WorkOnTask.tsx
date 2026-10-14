@@ -6,6 +6,7 @@ import { useWithCredential } from "../credentials";
 import { originKey } from "../inbox";
 import { queryKeys, taskQuery } from "../query";
 import { errorMessage } from "../settings-forms";
+import { SpinnerIcon } from "./icons";
 import { Button } from "./ui/button";
 import { ErrorText } from "./ui/field";
 
@@ -63,6 +64,14 @@ export function WorkOnTask({
         title={title}
         onClick={() => void work()}
       >
+        {pending && (
+          <SpinnerIcon
+            className="animate-spin"
+            role="status"
+            aria-hidden={false}
+            aria-label="Adding"
+          />
+        )}
         Work on task
       </Button>
       {error && <ErrorText className="max-w-60 text-right">{error}</ErrorText>}

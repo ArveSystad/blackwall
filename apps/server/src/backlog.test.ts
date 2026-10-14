@@ -1,4 +1,5 @@
 import {
+  MissingCredentialError,
   createQuotaTracker,
   createRepositories,
   createSettingsService,
@@ -453,6 +454,175 @@ describe("starting new backlog items", () => {
     promoteBacklogItem(item, services);
     expect(() => promoteBacklogItem(item, services)).toThrow("already promoted");
     expect(createTask).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("stacked pull requests", () => {
+  const pr = (number: number) =>
+    ({
+      kind: "github-pr",
+      url: `https://github.com/acme/app/pull/${number}`,
+      owner: "acme",
+      repo: "app",
+      number,
+      connectionId: null,
+    }) as const;
+  const member = (number: number, baseRef: string) => ({
+    number,
+    title: `PR ${number}`,
+    url: `https://github.com/acme/app/pull/${number}`,
+    headRef: `b${number}`,
+    baseRef,
+  });
+  const STACK = [member(41, "main"), member(42, "b41"), member(43, "b42")];
+  let pullRequestStack: ReturnType<typeof vi.fn<NonNullable<NewTaskServices["pullRequestStack"]>>>;
+
+  beforeEach(() => {
+    pullRequestStack = vi.fn(async () => STACK);
+    newTask.pullRequestStack = pullRequestStack;
+    mount();
+  });
+
+  const others = async (main: string) => (await list()).filter((i) => i.id !== main);
+
+  it("links the item to its stack and adds waiting Review PR items for the other PRs", async () => {
+    settings.setRepoBacklogRunnerEnabled(repoId, false);
+    const item = await create({
+      title: "Middle",
+      origin: pr(42),
+      mode: "work",
+      agents: { implementer: "a-impl" },
+      agentClis: { "a-impl": "copilot" },
+      triageMode: "pause",
+      priority: "high",
+    });
+    expect(item.mode).toBe("work");
+    expect(item.origin).toEqual({ ...pr(42), stack: { prs: [41, 42, 43] } });
+    expect(pullRequestStack).toHaveBeenCalledWith(pr(42));
+
+    const siblings = await others(item.id);
+    expect(siblings.map((i) => i.origin)).toEqual([
+      { ...pr(41), stack: { prs: [41, 42, 43] } },
+      { ...pr(43), stack: { prs: [41, 42, 43] } },
+    ]);
+    for (const sibling of siblings) {
+      expect(sibling).toMatchObject({
+        mode: "review",
+        freeText: "",
+        status: "waiting",
+        agents: { implementer: "a-impl" },
+        agentClis: { "a-impl": "copilot" },
+        triageMode: "pause",
+        priority: "high",
+        dependsOn: [],
+      });
+    }
+    expect(siblings.map((i) => i.title)).toEqual(["PR 41", "PR 43"]);
+    expect(events).toEqual([
+      { type: "backlog.changed", payload: { repoId } },
+      { type: "backlog.changed", payload: { repoId } },
+    ]);
+  });
+
+  it("promotes only the main item when it starts now", async () => {
+    const item = await create({ title: "Middle", origin: pr(42), mode: "review", start: true });
+    expect(item.status).toBe("promoted");
+    expect(createTask).toHaveBeenCalledTimes(1);
+    expect(repositories.tasks.get(item.taskId!)?.origin).toEqual({
+      ...pr(42),
+      stack: { prs: [41, 42, 43] },
+    });
+    const siblings = await others(item.id);
+    expect(siblings.map((i) => i.status)).toEqual(["waiting", "waiting"]);
+    expect(events.at(-1)).toEqual({ type: "backlog.changed", payload: { repoId } });
+  });
+
+  it("skips PRs an unarchived task or a waiting item already works on", async () => {
+    repositories.tasks.create({
+      title: "Bottom",
+      origin: pr(41),
+      mode: "review",
+      repoId,
+      status: "queued",
+    });
+    const archived = repositories.tasks.create({
+      title: "Old",
+      origin: pr(43),
+      mode: "review",
+      repoId,
+      status: "done",
+    });
+    repositories.tasks.update(archived.id, { archivedAt: new Date() });
+    const item = await create({ title: "Middle", origin: pr(42), mode: "review" });
+    expect(
+      (await others(item.id)).map((i) => i.origin.kind === "github-pr" && i.origin.number),
+    ).toEqual([43]);
+
+    // Adding the top PR now finds every other PR tracked.
+    events.length = 0;
+    const top = await create({ title: "Top", origin: pr(43), mode: "review" });
+    expect((await list()).filter((i) => i.id !== top.id)).toHaveLength(2);
+    expect(events).toEqual([{ type: "backlog.changed", payload: { repoId } }]);
+  });
+
+  it("adds one unstacked item when discovery fails", async () => {
+    pullRequestStack.mockRejectedValueOnce(new Error("github.com: rate limited"));
+    const item = await create({ title: "Middle", origin: pr(42), mode: "review" });
+    expect(item.origin).toEqual(pr(42));
+    expect(await list()).toHaveLength(1);
+  });
+
+  it("adds nothing when the token is missing", async () => {
+    pullRequestStack.mockRejectedValueOnce(
+      new MissingCredentialError("github", "github.com", null),
+    );
+    const res = await request("", {
+      method: "POST",
+      body: { origin: pr(42), mode: "review", title: "Middle", start: true },
+    });
+    expect(res.status).toBe(500);
+    expect(await list()).toEqual([]);
+    expect(createTask).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
+  });
+
+  it("sets no stack for a PR that is not stacked", async () => {
+    pullRequestStack.mockResolvedValueOnce(undefined);
+    expect((await create({ title: "Alone", origin: pr(42), mode: "review" })).origin).toEqual(
+      pr(42),
+    );
+    pullRequestStack.mockResolvedValueOnce([member(42, "main")]);
+    expect((await create({ title: "Alone", origin: pr(50), mode: "review" })).origin).toEqual(
+      pr(50),
+    );
+    expect(await list()).toHaveLength(2);
+  });
+
+  describe("a client-sent stack", () => {
+    const madeUp = { ...pr(42), stack: { prs: [1, 2] } };
+
+    it("is dropped when discovery finds no stack", async () => {
+      pullRequestStack.mockResolvedValueOnce([member(42, "main")]);
+      expect((await create({ title: "x", origin: madeUp, mode: "review" })).origin).toEqual(pr(42));
+    });
+
+    it("is dropped when discovery throws", async () => {
+      pullRequestStack.mockRejectedValueOnce(new Error("boom"));
+      expect((await create({ title: "x", origin: madeUp, mode: "review" })).origin).toEqual(pr(42));
+    });
+
+    it("is dropped without discovery", async () => {
+      delete newTask.pullRequestStack;
+      mount();
+      expect((await create({ title: "x", origin: madeUp, mode: "review" })).origin).toEqual(pr(42));
+    });
+
+    it("is replaced by the discovered stack", async () => {
+      expect((await create({ title: "x", origin: madeUp, mode: "review" })).origin).toEqual({
+        ...pr(42),
+        stack: { prs: [41, 42, 43] },
+      });
+    });
   });
 });
 

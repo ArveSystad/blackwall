@@ -5,6 +5,7 @@ import {
   type RepoSync,
   type RoleAgents,
   type Task,
+  type TaskOrigin,
 } from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -64,7 +65,7 @@ import { Kbd } from "../components/ui/kbd";
 import { useWithCredential } from "../credentials";
 import { useNow } from "../hooks";
 import { useEscapeTo } from "../keyboard";
-import { matchesFilter, originKey, statusLabel } from "../inbox";
+import { matchesFilter, originKey, stackLabel, statusLabel } from "../inbox";
 import { cn } from "../lib/utils";
 import {
   backlogQuery,
@@ -420,6 +421,7 @@ function BacklogRow({
         </span>
         <span className="flex min-w-0 items-center gap-2 text-label text-faint">
           <span className="mono truncate">{originKey(item)}</span>
+          <StackLabel origin={item.origin} />
           {dependsOn.length > 0 && <span className="truncate">after {dependsOn.join(", ")}</span>}
           {item.sourceTaskId && (
             <Link
@@ -475,6 +477,16 @@ function BacklogRow({
   );
 }
 
+/** A stacked PR's place in its stack (`stack #41 · 2/3`); nothing for other origins. */
+function StackLabel({ origin }: { origin: TaskOrigin }) {
+  const label = stackLabel(origin);
+  return label ? (
+    <span className="whitespace-nowrap" title={label.title}>
+      {label.text}
+    </span>
+  ) : null;
+}
+
 /** A task in the backlog view; the row opens it, except for its trailing `action`. */
 function TaskRow({
   task,
@@ -498,6 +510,7 @@ function TaskRow({
           <span className="truncate font-medium text-foreground-strong">{task.title}</span>
           <span className="flex min-w-0 items-center gap-2 text-label text-faint">
             <span className="mono truncate">{originKey(task)}</span>
+            <StackLabel origin={task.origin} />
             {fromBacklog && <span className="whitespace-nowrap">from backlog</span>}
           </span>
         </span>

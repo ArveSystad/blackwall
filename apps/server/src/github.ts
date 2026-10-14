@@ -10,6 +10,7 @@ import {
   assertNotPullRequest,
   buildReviewPayload,
   createGitHubClient,
+  findPullRequestStack,
   findRepoForPullRequest,
   informFromIssue,
   informFromPullRequest,
@@ -17,11 +18,13 @@ import {
   parseIssueUrl,
   parsePullRequestUrl,
   parseRemoteSlug,
+  renderPullRequestStack,
   signComment,
   type Fetch,
   type GitHubClient,
   type GitHubCredentials,
   type JiraCredentials,
+  type PullRequestStackMember,
 } from "@blackwall/integrations";
 import {
   JIRA_EMAIL_META,
@@ -159,6 +162,39 @@ export function createGitHubOrigin({ connections, fetch: fetchImpl }: GitHubOrig
         ...(fetchImpl ? { fetch: fetchImpl } : {}),
       });
       return result.markdown;
+    }) satisfies OriginContextProvider,
+
+    /**
+     * The open PRs of the stack the PR belongs to, bottom first (see
+     * `findPullRequestStack`); undefined when it is not stacked.
+     */
+    async pullRequestStack(origin: PrOrigin): Promise<PullRequestStackMember[] | undefined> {
+      const members = await findPullRequestStack(await prClient(origin), origin);
+      return members.length >= 2 ? members : undefined;
+    },
+
+    /**
+     * The other PRs of a PR task's stack and their diffs, for Code review,
+     * found again on each call so it holds for older tasks too. Undefined for
+     * other tasks and PRs that are not stacked.
+     */
+    stackContext: (async (task, signal) => {
+      const origin = prOrigin(task);
+      if (!origin) return undefined;
+      const client = await prClient(origin);
+      const members = await findPullRequestStack(client, origin, signal);
+      if (members.length < 2) return undefined;
+      const others = members.filter((m) => m.number !== origin.number);
+      const diffs = await Promise.all(
+        others.map(
+          async (m) =>
+            [
+              m.number,
+              await client.getPullRequestDiff({ ...origin, number: m.number }, signal),
+            ] as const,
+        ),
+      );
+      return renderPullRequestStack(members, origin.number, new Map(diffs));
     }) satisfies OriginContextProvider,
 
     /** Opens a pull request on the host of the repo's remote. */
