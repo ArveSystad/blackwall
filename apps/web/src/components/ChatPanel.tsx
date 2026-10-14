@@ -12,6 +12,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent,
   type PointerEvent,
   type ReactNode,
@@ -28,23 +29,28 @@ import {
   actionAvailability,
   canSendChat,
   canTurnIntoTask,
+  CHAT_PANEL_FALLBACK_MS,
   chatActionSummary,
   chatActionTask,
+  chatPanelMotion,
   chatWidthBounds,
   clampChatWidth,
   clearNeedsConfirm,
   freshMessageIds,
   isClearCommand,
   needsCardId,
+  nextChatPresence,
   nextChatWidth,
   setChatOpen,
   setChatWidth,
+  settleChatPresence,
   takeChatFocusRequest,
   turnIntoTaskProposal,
   useChatLayout,
   useViewportWidth,
   type ChatActionAvailability,
   type ChatActionSummary,
+  type ChatPresence,
 } from "../chat";
 import { isModKey, isPlainKey, modKeyLabel } from "../keyboard";
 import { cn } from "../lib/utils";
@@ -72,27 +78,64 @@ const LONG_DESCRIPTION_CHARS = 280;
 /**
  * The repo chat on the right of every page: ask about the selected repo's code, backlog and tasks,
  * and apply the actions the agent proposes. Its width is the user's preference, clamped so the
- * main pane keeps room; it never overlays the page.
+ * main pane keeps room; it never overlays the page. It slides its width open and closed
+ * (`CHAT_PANEL_MS`), so the main pane eases along.
  */
 export function ChatPanel() {
   const layout = useChatLayout();
   const viewport = useViewportWidth();
-  if (!layout.open) return null;
-  return <OpenChatPanel preferred={layout.width} viewport={viewport} />;
+  // A reload with the panel open shows it without sliding.
+  const [presence, setPresence] = useState<ChatPresence>(() => (layout.open ? "open" : "closed"));
+  const [seenOpen, setSeenOpen] = useState(layout.open);
+
+  if (layout.open !== seenOpen) {
+    setSeenOpen(layout.open);
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    setPresence(nextChatPresence(presence, layout.open, reduced));
+  }
+
+  // `transitionend` may never come (background tab, old engine), so a timeout settles the slide too.
+  useEffect(() => {
+    if (presence !== "opening" && presence !== "closing") return;
+    const timer = window.setTimeout(() => setPresence(settleChatPresence), CHAT_PANEL_FALLBACK_MS);
+    return () => window.clearTimeout(timer);
+  }, [presence]);
+
+  if (presence === "closed") return null;
+  return (
+    <OpenChatPanel
+      preferred={layout.width}
+      viewport={viewport}
+      presence={presence}
+      onSettled={() => setPresence(settleChatPresence)}
+    />
+  );
 }
 
-function OpenChatPanel({ preferred, viewport }: { preferred: number; viewport: number }) {
+function OpenChatPanel({
+  preferred,
+  viewport,
+  presence,
+  onSettled,
+}: {
+  preferred: number;
+  viewport: number;
+  presence: ChatPresence;
+  onSettled: () => void;
+}) {
   const repos = useQuery(reposQuery);
   const repo = resolveSelectedRepo(useSelectedRepoId(), repos.data);
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   const width = clampChatWidth(dragWidth ?? preferred, viewport);
   const closeButton = useRef<HTMLButtonElement>(null);
+  const open = presence === "opening" || presence === "open";
 
+  // Also runs when the panel is reopened mid-close, since it stayed mounted.
   useEffect(() => {
-    if (!takeChatFocusRequest()) return;
+    if (!open || !takeChatFocusRequest()) return;
     const input = document.getElementById(TEXTAREA_ID);
     (input ?? closeButton.current)?.focus();
-  }, []);
+  }, [open]);
 
   function onKeyDown(event: KeyboardEvent<HTMLElement>) {
     // Dialogs render in a portal: their keys bubble here through React but are not in the panel.
@@ -106,9 +149,15 @@ function OpenChatPanel({ preferred, viewport }: { preferred: number; viewport: n
   return (
     <aside
       aria-label="Chat"
-      className="relative flex h-full shrink-0 flex-col border-l border-border bg-sidebar"
-      style={{ width }}
+      className="bw-chat relative h-full shrink-0 border-l border-border bg-sidebar"
+      // A variable, not an inline width, so `@starting-style` in `.bw-chat` can apply.
+      style={{ "--chat-w": `${width}px` } as CSSProperties}
+      data-motion={chatPanelMotion(presence, dragWidth !== null) ?? undefined}
+      inert={presence === "closing"}
       onKeyDown={onKeyDown}
+      onTransitionEnd={(event) => {
+        if (event.target === event.currentTarget && event.propertyName === "width") onSettled();
+      }}
     >
       <ResizeHandle
         width={width}
@@ -120,16 +169,21 @@ function OpenChatPanel({ preferred, viewport }: { preferred: number; viewport: n
           setDragWidth(null);
         }}
       />
-      {repo ? (
-        <ChatBody key={repo.id} repo={repo} closeButton={closeButton} />
-      ) : (
-        <>
-          <ChatHeader title="Chat" closeButton={closeButton} />
-          <EmptyState title="Pick a repo to chat about it">
-            The chat answers about the repo selected in the top bar.
-          </EmptyState>
-        </>
-      )}
+      {/* Clipped and fixed-width while the aside slides, so the text never reflows. */}
+      <div className="absolute inset-0 overflow-hidden">
+        <div className="bw-chat-content absolute inset-y-0 right-0 flex flex-col">
+          {repo ? (
+            <ChatBody key={repo.id} repo={repo} closeButton={closeButton} />
+          ) : (
+            <>
+              <ChatHeader title="Chat" closeButton={closeButton} />
+              <EmptyState title="Pick a repo to chat about it">
+                The chat answers about the repo selected in the top bar.
+              </EmptyState>
+            </>
+          )}
+        </div>
+      </div>
     </aside>
   );
 }

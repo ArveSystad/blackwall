@@ -8,14 +8,18 @@ import {
   canSendChat,
   canTurnIntoTask,
   chatActionSummary,
+  chatPanelMotion,
   chatWidthBounds,
   clampChatWidth,
   clearNeedsConfirm,
   freshMessageIds,
   isClearCommand,
   needsCardId,
+  nextChatPresence,
   nextChatWidth,
+  settleChatPresence,
   turnIntoTaskProposal,
+  type ChatPresence,
 } from "./chat";
 import { makeTask } from "./test-fixtures";
 
@@ -78,6 +82,40 @@ describe("chat width", () => {
     expect(nextChatWidth("ArrowLeft", 388, 1100)).toBe(388);
     expect(nextChatWidth("ArrowRight", CHAT_MIN_WIDTH, 2400)).toBe(CHAT_MIN_WIDTH);
     expect(nextChatWidth("a", 400, 2400)).toBeNull();
+  });
+});
+
+describe("chat panel presence", () => {
+  const all: ChatPresence[] = ["closed", "opening", "open", "closing"];
+
+  it("opens with a slide, or at once under reduced motion", () => {
+    expect(nextChatPresence("closed", true, false)).toBe("opening");
+    expect(nextChatPresence("closed", true, true)).toBe("open");
+    expect(nextChatPresence("open", true, false)).toBe("open");
+    expect(nextChatPresence("opening", true, false)).toBe("opening");
+  });
+
+  it("stays mounted while closing and unmounts once settled", () => {
+    expect(nextChatPresence("open", false, false)).toBe("closing");
+    expect(nextChatPresence("opening", false, false)).toBe("closing");
+    expect(settleChatPresence("closing")).toBe("closed");
+    expect(nextChatPresence("open", false, true)).toBe("closed");
+    expect(nextChatPresence("closed", false, false)).toBe("closed");
+  });
+
+  it("reopens mid-close and settles open", () => {
+    expect(nextChatPresence("closing", true, false)).toBe("opening");
+    expect(settleChatPresence("opening")).toBe("open");
+    expect(settleChatPresence("open")).toBe("open");
+    expect(settleChatPresence("closed")).toBe("closed");
+  });
+
+  it("transitions only while sliding, never while dragging or resting", () => {
+    expect(chatPanelMotion("opening", false)).toBe("opening");
+    expect(chatPanelMotion("closing", false)).toBe("closing");
+    expect(chatPanelMotion("open", false)).toBeNull();
+    expect(chatPanelMotion("closed", false)).toBeNull();
+    for (const presence of all) expect(chatPanelMotion(presence, true)).toBeNull();
   });
 });
 

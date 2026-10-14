@@ -152,6 +152,50 @@ export function nextChatWidth(key: string, width: number, viewport: number): num
   }
 }
 
+/**
+ * Where the panel is in its open/close slide. It stays mounted while `opening` and `closing`, so
+ * reopening mid-close keeps the draft.
+ */
+export type ChatPresence = "closed" | "opening" | "open" | "closing";
+
+/** The open/close slide: 180ms, paired with `.bw-chat` in styles.css. Change them together. */
+export const CHAT_PANEL_MS = 180;
+/** Settles the slide when no `transitionend` comes (reduced motion, background tab, old engine). */
+export const CHAT_PANEL_FALLBACK_MS = CHAT_PANEL_MS + 50;
+
+/** The presence after the layout's `open` changes; reduced motion skips the slide. */
+export function nextChatPresence(
+  presence: ChatPresence,
+  open: boolean,
+  reduced: boolean,
+): ChatPresence {
+  if (open) {
+    if (presence === "closed" || presence === "closing") return reduced ? "open" : "opening";
+    return presence;
+  }
+  if (presence === "open" || presence === "opening") return reduced ? "closed" : "closing";
+  return presence;
+}
+
+/** The presence once the slide ends. Idempotent, so `transitionend` and the fallback can both call it. */
+export function settleChatPresence(presence: ChatPresence): ChatPresence {
+  if (presence === "opening") return "open";
+  if (presence === "closing") return "closed";
+  return presence;
+}
+
+/**
+ * The panel's `data-motion`, which turns its width transition on. Null while resting or dragging,
+ * so resizing and window clamping never animate.
+ */
+export function chatPanelMotion(
+  presence: ChatPresence,
+  dragging: boolean,
+): "opening" | "closing" | null {
+  if (dragging) return null;
+  return presence === "opening" || presence === "closing" ? presence : null;
+}
+
 function subscribeResize(listener: () => void): () => void {
   window.addEventListener("resize", listener);
   return () => window.removeEventListener("resize", listener);

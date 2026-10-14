@@ -23,7 +23,8 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
    rules after it, and the commented `.bw-*` blocks in `@layer components` (`bw-grid*` for
    GridBackdrop.tsx, `.bw-stream` for TaskHeader.tsx, `.bw-laser`, `.bw-boom`,
    `.bw-revive`/`.bw-revive-failed`, `.bw-supernova` and `.bw-launch` for GridAgents.tsx, `.bw-assigned`/
-   `.bw-assigned-flash` for CountPill.tsx, `.bw-running*` for RunningHeadline.tsx).
+   `.bw-assigned-flash` for CountPill.tsx, `.bw-running*` for RunningHeadline.tsx, `.bw-chat`/
+   `.bw-chat-content` for ChatPanel.tsx).
 2. `.claude/skills/blackwall-design/SKILL.md` § Color semantics / Rules: the state-only rule and its
    two decorative exceptions (GridBackdrop, Stats).
 3. Reference code: `apps/web/src/components/GridBackdrop.tsx`, `apps/web/src/components/GridAgents.tsx`,
@@ -56,7 +57,8 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
    `display: none` list next to `.bw-laser`, `.bw-boom`, `.bw-assigned-flash` and `.bw-launch`
    (modifiers of `.bw-boom`, e.g. `.bw-revive` and `.bw-assigned`, inherit it and need no entry).
    `.bw-supernova` is the exception: it keeps a static core (`::before` at `opacity: 1`) and hides
-   only its ring and sparks, and JS shortens its lifetime to a brief flash.
+   only its ring and sparks, and JS shortens its lifetime to a brief flash. ChatPanel needs no entry:
+   it skips its `opening`/`closing` presences in JS, so it opens and closes at once.
 7. If a duration or delay is mirrored elsewhere (another CSS rule or a TS constant), state the
    pairing in the CSS comment and next to the constant.
 8. Run the Checks.
@@ -66,7 +68,10 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
 - Animate only `transform`, `opacity` and `background-position`. Exceptions: `box-shadow` for the
   state pulses (`bw-pulse`, `bw-pulse-needs`, `bw-pulse-done`) and `text-shadow` for one-shot glows
   like `bw-pushed-glow`. Static glows (e.g. `.bw-boom::after`, `.bw-grid-horizon`) are fine; they
-  just don't animate. Never animate layout properties (width, height, top, left, margin).
+  just don't animate. Never animate layout properties (width, height, top, left, margin). One
+  exception: `.bw-chat` transitions `width` on open/close only (the panel is part of the layout and
+  never overlays); content inside is clipped and fixed-width, animating only `transform`/`opacity`;
+  no transition while resizing.
 - Colors come from tokens only: `var(--cyan)`, `--st-*`, `--grid-*`, `color-mix(...)`. No raw hex in
   keyframes or effect classes.
 - Glow is dark only. Every glowing effect needs a light override.
@@ -80,7 +85,9 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
     `use-archive-launches.ts`; `.bw-revive` 1.2s ↔ `REVIVE_MS` (1200) in `use-resume-bursts.ts`;
     `.bw-assigned`/`.bw-assigned-flash` 2.4s ↔ `ASSIGNED_BOOM_MS` (2400) in `count-boom.ts`;
     `.bw-supernova` 1.2s ↔ `SUPERNOVA_MS` (1200), its reduced-motion flash ↔ `SUPERNOVA_FLASH_MS`
-    (300) and its 80ms stagger (`--supernova-delay`) ↔ `SUPERNOVA_STAGGER_MS`, all in `agent-dots.ts`.
+    (300) and its 80ms stagger (`--supernova-delay`) ↔ `SUPERNOVA_STAGGER_MS`, all in `agent-dots.ts`;
+    `.bw-chat` 180ms ↔ `CHAT_PANEL_MS` (180) in `chat.ts`, with the JS fallback at
+    `CHAT_PANEL_FALLBACK_MS` (it settles the presence, since `transitionend` may not come).
 - Booms: `.bw-boom` modifiers set `--boom-color`, `--boom-size` and `--boom-strength` (bloom
   opacity, 22% by default; `.bw-assigned` uses 55%). A large boom must sit inside a
   `pointer-events-none absolute inset-0 overflow-hidden` layer, never directly in a scroll container,

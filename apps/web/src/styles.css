@@ -283,6 +283,20 @@
   }
 }
 
+@keyframes bw-chat-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+
+@keyframes bw-chat-out {
+  to {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+
 @keyframes bw-sweep {
   0% {
     background-position: -120px 0;
@@ -1113,6 +1127,47 @@
   :root[data-theme="light"] .bw-running-hot {
     text-shadow: none;
     color: var(--fg-strong);
+  }
+
+  /* ---------- chat panel open/close (ChatPanel.tsx) ----------
+   * The panel is part of the layout, so its width slides 0 ↔ --chat-w (set
+   * inline) and the main pane eases along; `@starting-style` gives the first
+   * mount its 0 → width. The content is clipped, right-anchored and fixed-width,
+   * so it never reflows; it only fades and shifts. data-motion is set only while
+   * opening or closing, never while dragging or clamping. ChatPanel settles on
+   * the width's transitionend, or after CHAT_PANEL_FALLBACK_MS; 180ms here
+   * pairs with CHAT_PANEL_MS in chat.ts. Change them together. Reduced motion
+   * skips the opening/closing presences in JS, and the base rule drops the
+   * transitions. Nothing glows.
+   */
+  .bw-chat {
+    width: var(--chat-w);
+  }
+
+  .bw-chat[data-motion="opening"] {
+    transition: width 180ms ease-out;
+
+    @starting-style {
+      width: 0;
+    }
+  }
+
+  .bw-chat[data-motion="closing"] {
+    width: 0;
+    transition: width 180ms ease-in;
+  }
+
+  /* The aside is border-box with a 1px left border. */
+  .bw-chat-content {
+    width: calc(var(--chat-w) - 1px);
+  }
+
+  .bw-chat[data-motion="opening"] .bw-chat-content {
+    animation: bw-chat-in 180ms ease-out both;
+  }
+
+  .bw-chat[data-motion="closing"] .bw-chat-content {
+    animation: bw-chat-out 180ms ease-in both;
   }
 
   @media (prefers-reduced-motion: reduce) {
