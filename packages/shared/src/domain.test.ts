@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  stepSchema,
   chatReplyJsonSchema,
   chatReplySchema,
   chatStateSchema,
@@ -899,5 +900,36 @@ describe("search schemas", () => {
     const promoted = structuredClone(results);
     (promoted.backlogItems[0] as { status: string }).status = "promoted";
     expect(searchResultsSchema.safeParse(promoted).success).toBe(false);
+  });
+});
+
+describe("stepSchema", () => {
+  const step = {
+    id: "s1",
+    runId: "r1",
+    stage: "implement",
+    agentId: "a1",
+    cli: "copilot",
+    round: 0,
+    visit: 0,
+    status: "succeeded",
+    sessionId: null,
+    error: null,
+    createdAt: 0,
+    startedAt: null,
+    finishedAt: null,
+    inputTokens: 10,
+    outputTokens: 20,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    costUsd: null,
+  };
+
+  it("parses a step with its usage", () => {
+    expect(stepSchema.parse(step)).toMatchObject({ inputTokens: 10, costUsd: null });
+  });
+
+  it("rejects a negative token count", () => {
+    expect(stepSchema.safeParse({ ...step, outputTokens: -1 }).success).toBe(false);
   });
 });

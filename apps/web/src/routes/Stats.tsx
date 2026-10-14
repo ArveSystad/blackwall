@@ -8,15 +8,17 @@ import { Button } from "../components/ui/button";
 import { Kbd } from "../components/ui/kbd";
 import { useEscapeTo } from "../keyboard";
 import { cn } from "../lib/utils";
-import { doneTimesQuery, reposQuery, tasksQuery } from "../query";
+import { doneTimesQuery, reposQuery, tasksQuery, usageQuery } from "../query";
 import {
   dayLabel,
   shortDayLabel,
   STATS_DAYS,
   TASK_TYPES,
   taskStats,
+  usageStats,
   type TaskStats,
 } from "../stats";
+import { formatCost, formatTokens, usageTitle, type UsageTotal } from "../usage";
 
 function Message({ title, children }: { title: string; children?: ReactNode }) {
   return (
@@ -93,20 +95,61 @@ function PerDayChart({ perDay, now }: { perDay: NonNullable<TaskStats["perDay"]>
   );
 }
 
+/** Usage rows: a label, then tokens and cost, with the breakdown as the tooltip. */
+function UsageList({
+  label,
+  rows,
+}: {
+  label: string;
+  rows: { key: string; name: string; total: UsageTotal }[];
+}) {
+  return (
+    <ul aria-label={label} className="m-0 flex list-none flex-col gap-1 p-0">
+      {rows.map((row) => (
+        <li
+          key={row.key}
+          title={usageTitle(row.total)}
+          className="flex items-baseline gap-3 rounded-md border border-border bg-card px-3 py-1.5"
+        >
+          <span className="min-w-0 flex-1 truncate text-meta text-foreground">{row.name}</span>
+          <span
+            className={cn(
+              "mono text-meta",
+              row.total.tokens > 0 ? "text-foreground-strong" : "text-faint",
+            )}
+          >
+            {formatTokens(row.total.tokens)} tokens
+          </span>
+          <span className="mono w-20 text-right text-meta text-muted-foreground">
+            {formatCost(row.total)}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /**
  * Stats replaces both panes: how many tasks were resolved, of which types,
- * across how many repos, and per day over the last {@link STATS_DAYS} days.
+ * across how many repos, and per day over the last {@link STATS_DAYS} days;
+ * then the tokens and cost the agents used per day and per repo.
  */
 export function Stats() {
   const navigate = useNavigate();
   const tasks = useQuery(tasksQuery);
   const doneTimes = useQuery(doneTimesQuery);
   const repos = useQuery(reposQuery);
-  // Recounted whenever a live event changes the tasks or done times.
-  const { now, stats } = useMemo(() => {
+  const usage = useQuery(usageQuery);
+  // Recounted whenever a live event changes the tasks, done times or usage.
+  const { now, stats, used } = useMemo(() => {
     const now = new Date();
-    return { now, stats: tasks.data && taskStats(tasks.data, doneTimes.data, now) };
-  }, [tasks.data, doneTimes.data]);
+    return {
+      now,
+      stats: tasks.data && taskStats(tasks.data, doneTimes.data, now),
+      used: tasks.data && usage.data && usageStats(usage.data, tasks.data, now),
+    };
+  }, [tasks.data, doneTimes.data, usage.data]);
+  const repoName = (id: string) => repos.data?.find((r) => r.id === id)?.name ?? id;
 
   useEscapeTo(() => void navigate({ to: "/" }));
 
@@ -189,6 +232,51 @@ export function Stats() {
                     stats.perDay && <PerDayChart perDay={stats.perDay} now={now} />
                   )}
                 </section>
+
+                <section className="flex flex-col gap-3">
+                  <h2 className="label m-0 text-muted-foreground">
+                    Usage per day · last {STATS_DAYS} days
+                  </h2>
+                  {usage.isPending ? (
+                    <Message title="Loading usage…" />
+                  ) : usage.isError ? (
+                    <Message title="Could not load usage">
+                      {usage.error.message}{" "}
+                      <Button variant="ghost" size="sm" onClick={() => void usage.refetch()}>
+                        Retry
+                      </Button>
+                    </Message>
+                  ) : (
+                    used && (
+                      <UsageList
+                        label={`Usage per day, last ${STATS_DAYS} days`}
+                        rows={used.perDay.map((day) => ({
+                          key: day.date.toISOString(),
+                          name: shortDayLabel(day.date, now),
+                          total: day.total,
+                        }))}
+                      />
+                    )
+                  )}
+                </section>
+
+                {used && (
+                  <section className="flex flex-col gap-3">
+                    <h2 className="label m-0 text-muted-foreground">Usage per repo</h2>
+                    {used.perRepo.length === 0 ? (
+                      <span className="text-meta text-muted-foreground">No usage recorded yet</span>
+                    ) : (
+                      <UsageList
+                        label="Usage per repo"
+                        rows={used.perRepo.map((repo) => ({
+                          key: repo.repoId,
+                          name: repoName(repo.repoId),
+                          total: repo.total,
+                        }))}
+                      />
+                    )}
+                  </section>
+                )}
               </>
             )
           )}

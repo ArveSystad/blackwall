@@ -77,6 +77,8 @@ export const serverEventSchema = z.discriminatedUnion("type", [
   envelope("task.removed", z.object({ taskId: z.string() })),
   envelope("run.upserted", z.object({ run: runSchema })),
   envelope("step.upserted", z.object({ step: stepSchema })),
+  /** Only the step's token and cost counters changed; patch, don't refetch. */
+  envelope("step.usage", z.object({ step: stepSchema })),
   /** A new entry in a step's streamed event log. */
   envelope("step.event", z.object({ event: stepEventSchema })),
   envelope("finding.upserted", z.object({ finding: findingSchema })),

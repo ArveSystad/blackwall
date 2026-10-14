@@ -33,6 +33,7 @@ import {
   type Run,
   type Step,
   type StepEvent,
+  type StepUsage,
   type Task,
   type TaskArtifact,
   type TaskDiff,
@@ -257,8 +258,8 @@ export function queueTask(
  * findings force-fixed or force-ignored (or, at review triage, deleted), its
  * diff's hunks commented on, and
  * its delivery plan shown before the user confirms the finish actions. `/active-agents` lists the running
- * agent steps across all tasks, and `/done-times` when each done task was
- * resolved. With the services, `/diffs` shows the branch's changes per fix
+ * agent steps across all tasks, `/usage` each agent step's tokens and cost, and
+ * `/done-times` when each done task was resolved. With the services, `/diffs` shows the branch's changes per fix
  * round, `/branch-diff` the whole branch's diff to comment on, and
  * `/artifacts` lists and serves the images an implementer saved.
  */
@@ -291,6 +292,8 @@ export function taskRoutes(
   if (steps) {
     /** Every running agent step with its task, oldest first. Must stay above `/:id`, which would catch it. */
     routes.get("/active-agents", (c) => c.json<ActiveAgentStep[]>(steps.listActiveAgents()));
+    /** Each agent step's tokens and cost with its task, for the task header and stats view. Must stay above `/:id`. */
+    routes.get("/usage", (c) => c.json<StepUsage[]>(steps.usage()));
   }
 
   if (runs) {

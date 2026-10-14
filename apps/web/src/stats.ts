@@ -1,4 +1,5 @@
-import type { OriginKind, Task, TaskDoneTime } from "@blackwall/shared";
+import type { OriginKind, StepUsage, Task, TaskDoneTime } from "@blackwall/shared";
+import { sumUsage, type UsageTotal } from "./usage";
 
 /** How many days the per-day chart covers, ending today. */
 export const STATS_DAYS = 10;
@@ -89,6 +90,48 @@ function perDay(
     if (i !== undefined) buckets[i]!.count += 1;
   }
   return buckets;
+}
+
+export interface UsageStats {
+  /** Usage per local day, oldest first, ending today. */
+  perDay: { date: Date; total: UsageTotal }[];
+  /** Usage per repo over all time, most tokens first. */
+  perRepo: { repoId: string; total: UsageTotal }[];
+}
+
+/**
+ * Adds up agent step usage per local day (by when the step started) and per
+ * repo (through the step's task; steps of tasks not loaded are left out).
+ */
+export function usageStats(
+  rows: readonly StepUsage[],
+  tasks: readonly Task[],
+  now: Date,
+  days = STATS_DAYS,
+): UsageStats {
+  const today = startOfDay(now);
+  const dayRows = Array.from({ length: days }, (_, i) => ({
+    date: new Date(today.getFullYear(), today.getMonth(), today.getDate() - (days - 1 - i)),
+    rows: [] as StepUsage[],
+  }));
+  const index = new Map(dayRows.map((d, i) => [d.date.getTime(), i]));
+  const repoOf = new Map(tasks.map((t) => [t.id, t.repoId]));
+  const repoRows = new Map<string, StepUsage[]>();
+  for (const row of rows) {
+    const i = index.get(startOfDay(row.at).getTime());
+    if (i !== undefined) dayRows[i]!.rows.push(row);
+    const repoId = repoOf.get(row.taskId);
+    if (repoId === undefined) continue;
+    const list = repoRows.get(repoId);
+    if (list) list.push(row);
+    else repoRows.set(repoId, [row]);
+  }
+  return {
+    perDay: dayRows.map((d) => ({ date: d.date, total: sumUsage(d.rows) })),
+    perRepo: [...repoRows]
+      .map(([repoId, list]) => ({ repoId, total: sumUsage(list) }))
+      .sort((a, b) => b.total.tokens - a.total.tokens),
+  };
 }
 
 function isSameDay(a: Date, b: Date): boolean {

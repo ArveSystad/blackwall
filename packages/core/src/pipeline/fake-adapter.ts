@@ -7,6 +7,7 @@ import {
   type AgentResult,
   type AgentRun,
   type AgentRunOptions,
+  type AgentUsage,
 } from "../agents/adapters/types.js";
 
 /** How one fake run behaves. */
@@ -27,6 +28,10 @@ export interface FakeScript {
   rateLimit?: { resetsAt?: string };
   /** The resumed session is gone: fail like Claude's `No conversation found`. */
   missingSession?: boolean;
+  /** Streamed as `usage` events after the session (also when hanging). */
+  usage?: AgentUsage[];
+  /** The result's usage; default none. */
+  resultUsage?: AgentUsage;
 }
 
 export interface FakeCall {
@@ -84,6 +89,7 @@ export function createFakeAdapter(
           return end();
         }
         emit({ type: "session", sessionId });
+        for (const usage of plan.usage ?? []) emit({ type: "usage", usage });
         if (plan.hang) {
           options.signal?.addEventListener("abort", abort, { once: true });
           return;
@@ -103,7 +109,7 @@ export function createFakeAdapter(
             const final: AgentResult = {
               sessionId,
               text,
-              usage: emptyUsage(),
+              usage: plan.resultUsage ?? emptyUsage(),
               ...(plan.structured !== undefined ? { structured: plan.structured } : {}),
             };
             emit({ type: "message", text });

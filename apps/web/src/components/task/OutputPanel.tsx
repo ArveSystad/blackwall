@@ -14,6 +14,7 @@ import {
   subagentStatus,
   type TranscriptItem,
 } from "../../task-view";
+import { formatCost, formatTokens, sumUsage, usageTitle } from "../../usage";
 import { AgentTile } from "../AgentTile";
 import { panelNote } from "../classes";
 import { CheckIcon, ChevronRightIcon, FailedIcon, PausedIcon } from "../icons";
@@ -166,6 +167,16 @@ function TranscriptEntry({ item, live }: { item: TranscriptItem; live: boolean }
   }
 }
 
+/** The step's tokens and cost; rises live as `step.usage` patches the step. */
+function StepUsageLabel({ step }: { step: Step }) {
+  const total = sumUsage([step]);
+  return (
+    <span className="mono text-[11px] text-faint" title={usageTitle(total)}>
+      {formatTokens(total.tokens)} tokens · {formatCost(total)}
+    </span>
+  );
+}
+
 function Transcript({
   taskId,
   step,
@@ -215,6 +226,7 @@ function Transcript({
           {STAGE_LABELS[step.stage]}
           {step.round > 0 && ` · round ${step.round}`}
         </span>
+        {step.agentId !== null && <StepUsageLabel step={step} />}
       </div>
       <div className="flex max-w-[860px] flex-col gap-2 pl-7">
         {events.isPending ? (

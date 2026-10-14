@@ -3,7 +3,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { originKey, relativeTime, statusLabel } from "../../inbox";
 import { useAgentLibrary } from "../../hooks";
-import { connectionsQuery, queryKeys, reposQuery } from "../../query";
+import { connectionsQuery, queryKeys, reposQuery, usageQuery } from "../../query";
+import { formatCost, formatTokens, sumUsage, usageTitle } from "../../usage";
 import {
   agentClis,
   canArchive,
@@ -48,6 +49,21 @@ function AgentSummary({ task, agents }: { task: Task; agents: ReadonlyMap<string
   );
 }
 
+/** The tokens and cost the task's agents used so far; nothing before any usage is reported. */
+function UsageChip({ taskId }: { taskId: string }) {
+  const usage = useQuery(usageQuery);
+  const rows = usage.data?.filter((row) => row.taskId === taskId) ?? [];
+  if (rows.length === 0) return null;
+  const total = sumUsage(rows);
+  return (
+    <Chip tone="neutral" title={usageTitle(total)}>
+      <span className="mono">
+        {formatTokens(total.tokens)} tokens · {formatCost(total)}
+      </span>
+    </Chip>
+  );
+}
+
 function startedLabel(date: Date): string {
   const ago = relativeTime(date);
   if (ago === "now") return "Started just now";
@@ -57,7 +73,7 @@ function startedLabel(date: Date): string {
 
 /**
  * Task header: origin, title with a breadcrumb back to the repo's backlog,
- * branch, agents and the stage stepper with the review round, plus Stop
+ * branch, agents, the tokens and cost used so far, and the stage stepper with the review round, plus Stop
  * (while queued or running), Archive (when done), Unarchive (when archived)
  * and Delete (until something was delivered).
  * While running, a cyan stream sweeps along the bottom border.
@@ -194,6 +210,7 @@ export function TaskHeader({
           </span>
         )}
         <AgentSummary task={task} agents={agentMap} />
+        <UsageChip taskId={task.id} />
       </div>
       <div className="mt-1">
         <StageStepper

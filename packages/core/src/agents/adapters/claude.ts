@@ -35,6 +35,36 @@ function usageFrom(raw: unknown, costUsd?: unknown): AgentUsage {
   return usage;
 }
 
+/**
+ * The session's usage summed over the result's per-model `modelUsage`, which,
+ * unlike its `usage`, includes sub-agents. Undefined when there is none (older
+ * CLIs).
+ */
+function modelUsageFrom(raw: unknown): AgentUsage | undefined {
+  if (!isObject(raw)) return undefined;
+  const models = Object.values(raw).filter(isObject);
+  if (models.length === 0) return undefined;
+  const usage: AgentUsage = emptyUsage();
+  for (const model of models) {
+    usage.inputTokens += num(model.inputTokens);
+    usage.outputTokens += num(model.outputTokens);
+    usage.cacheReadTokens += num(model.cacheReadInputTokens);
+    usage.cacheWriteTokens += num(model.cacheCreationInputTokens);
+    if (typeof model.costUSD === "number") usage.costUsd = (usage.costUsd ?? 0) + model.costUSD;
+  }
+  return usage;
+}
+
+/** The result line's usage: its `modelUsage` when present, else its main-thread `usage`. */
+function resultUsageFrom(parsed: Json): AgentUsage {
+  const usage = modelUsageFrom(parsed.modelUsage);
+  if (!usage) return usageFrom(parsed.usage, parsed.total_cost_usd);
+  if (usage.costUsd === undefined && typeof parsed.total_cost_usd === "number") {
+    usage.costUsd = parsed.total_cost_usd;
+  }
+  return usage;
+}
+
 /** A tool result's content: a string or a list of text blocks. */
 function toolOutput(content: unknown): string {
   if (typeof content === "string") return content;
@@ -52,9 +82,17 @@ function toolOutput(content: unknown): string {
  * becomes a `rate-limit` event, as does a usage-limit error result. A
  * sub-agent's tool call also emits `subagent-start` and `subagent-end`, and
  * the sub-agent's own messages and tool calls carry its call's id as `parentId`.
+ *
+ * `usage` events undercount: an assistant line carries the usage as it stood
+ * when its message started (output tokens barely counted), and a sub-agent's
+ * last model call is never streamed. The result's `modelUsage` is the whole
+ * session's, sub-agents included, so the result's usage comes from it.
  */
 export function createClaudeParser(now: () => Date = () => new Date()): LineParser {
-  /** Assistant messages arrive one content block per line, each repeating the usage. */
+  /**
+   * Assistant messages arrive one content block per line, each repeating the
+   * message-start usage; it is counted once per message.
+   */
   const counted = new Set<string>();
   const hidden = new Set<string>();
   const subagents = new Set<string>();
@@ -173,7 +211,7 @@ export function createClaudeParser(now: () => Date = () => new Date()): LinePars
               ...(parsed.structured_output !== undefined
                 ? { structured: parsed.structured_output }
                 : {}),
-              usage: usageFrom(parsed.usage, parsed.total_cost_usd),
+              usage: resultUsageFrom(parsed),
             },
           });
           break;

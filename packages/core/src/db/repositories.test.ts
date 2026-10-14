@@ -376,6 +376,52 @@ describe("tasks, runs and steps", () => {
     expect(active[0]).toMatchObject({ taskId: task.id, agentId: agent.id, stage: "implement" });
   });
 
+  it("saves a step's usage and lists agent steps that used something, with their task", () => {
+    const task = seedTask();
+    const run = r.runs.create(task.id);
+    const agent = r.agents.create({ name: "coder", eligibleStages: ["implement"] });
+    const used = r.steps.create({ runId: run.id, stage: "implement", agentId: agent.id });
+    const startedAt = new Date("2026-10-14T10:00:00Z");
+    const saved = r.steps.update(used.id, {
+      startedAt,
+      inputTokens: 1,
+      outputTokens: 2,
+      cacheReadTokens: 3,
+      cacheWriteTokens: 4,
+      costUsd: 0.5,
+    });
+    expect(stepSchema.parse(saved)).toEqual(saved);
+    const copilot = r.steps.create({ runId: run.id, stage: "code-review", agentId: agent.id });
+    r.steps.update(copilot.id, { outputTokens: 7 });
+    // An agent step with no usage and a harness step are left out.
+    r.steps.create({ runId: run.id, stage: "implement", agentId: agent.id });
+    const checks = r.steps.create({ runId: run.id, stage: "checks" });
+    r.steps.update(checks.id, { outputTokens: 9 });
+
+    expect(r.steps.usage()).toEqual([
+      {
+        taskId: task.id,
+        stepId: used.id,
+        at: startedAt,
+        inputTokens: 1,
+        outputTokens: 2,
+        cacheReadTokens: 3,
+        cacheWriteTokens: 4,
+        costUsd: 0.5,
+      },
+      {
+        taskId: task.id,
+        stepId: copilot.id,
+        at: copilot.createdAt,
+        inputTokens: 0,
+        outputTokens: 7,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        costUsd: null,
+      },
+    ]);
+  });
+
   describe("active sub-agents", () => {
     function runningStep(startedAt: Date | null = new Date("2026-01-01T00:00:00Z")) {
       const run = r.runs.create(seedTask().id);

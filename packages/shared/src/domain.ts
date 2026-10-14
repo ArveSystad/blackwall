@@ -1271,6 +1271,19 @@ export const runSchema = z.object({
 });
 export type Run = z.infer<typeof runSchema>;
 
+/**
+ * Tokens an agent step used and what it cost, sub-agents included, summed over
+ * all its attempts. `costUsd` is null when its CLI reported no cost (Copilot).
+ */
+export const usageSchema = z.object({
+  inputTokens: z.int().nonnegative(),
+  outputTokens: z.int().nonnegative(),
+  cacheReadTokens: z.int().nonnegative(),
+  cacheWriteTokens: z.int().nonnegative(),
+  costUsd: z.number().nonnegative().nullable(),
+});
+export type Usage = z.infer<typeof usageSchema>;
+
 /** One agent (or harness) invocation within a run. */
 export const stepSchema = z.object({
   id,
@@ -1295,6 +1308,7 @@ export const stepSchema = z.object({
   createdAt: timestamp,
   startedAt: timestamp.nullable(),
   finishedAt: timestamp.nullable(),
+  ...usageSchema.shape,
 });
 export type Step = z.infer<typeof stepSchema>;
 
@@ -1321,6 +1335,10 @@ export type ActiveAgentStep = z.infer<typeof activeAgentStepSchema>;
 /** When a done task was resolved: the time its delivery run finished, for the stats view. */
 export const taskDoneTimeSchema = z.object({ taskId: id, doneAt: timestamp });
 export type TaskDoneTime = z.infer<typeof taskDoneTimeSchema>;
+
+/** An agent step's usage with its task and when it started, for the task header and stats view. */
+export const stepUsageSchema = usageSchema.extend({ taskId: id, stepId: id, at: timestamp });
+export type StepUsage = z.infer<typeof stepUsageSchema>;
 
 /** One entry in a step's append-only event log. */
 export const stepEventSchema = z.object({

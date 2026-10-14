@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNotNull, max, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, max, or, sql } from "drizzle-orm";
 import type {
   ActiveAgentStep,
   ActiveSubagent,
@@ -17,6 +17,7 @@ import type {
   Step,
   StepEvent,
   StepStatus,
+  StepUsage,
   Tag,
   Task,
   TaskDoneTime,
@@ -501,6 +502,40 @@ export function createStepsRepository(db: Db) {
         }
         return { ...step, taskId, subagents: [...open.values()] };
       });
+    },
+    /**
+     * Usage of every agent step that used tokens or reported a cost, with its
+     * task, oldest first: the task header and stats view add these up.
+     */
+    usage(): StepUsage[] {
+      return db
+        .select({ step: steps, taskId: runs.taskId })
+        .from(steps)
+        .innerJoin(runs, eq(steps.runId, runs.id))
+        .where(
+          and(
+            isNotNull(steps.agentId),
+            or(
+              gt(steps.inputTokens, 0),
+              gt(steps.outputTokens, 0),
+              gt(steps.cacheReadTokens, 0),
+              gt(steps.cacheWriteTokens, 0),
+              isNotNull(steps.costUsd),
+            ),
+          ),
+        )
+        .orderBy(asc(steps.createdAt), asc(sql`${steps}.rowid`))
+        .all()
+        .map(({ step, taskId }) => ({
+          taskId,
+          stepId: step.id,
+          at: step.startedAt ?? step.createdAt,
+          inputTokens: step.inputTokens,
+          outputTokens: step.outputTokens,
+          cacheReadTokens: step.cacheReadTokens,
+          cacheWriteTokens: step.cacheWriteTokens,
+          costUsd: step.costUsd,
+        }));
     },
     get(id: string): Step | undefined {
       return db.select().from(steps).where(eq(steps.id, id)).get();

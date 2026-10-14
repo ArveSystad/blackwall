@@ -138,6 +138,17 @@ describe("createClaudeParser", () => {
     expect(events.at(-1)).toMatchObject({ type: "result", result: { text: "hello" } });
   });
 
+  it("takes the result's usage from modelUsage, sub-agents included", () => {
+    const result = parse("subagent.jsonl").at(-1);
+    expect(result?.type === "result" && result.result.usage).toEqual({
+      inputTokens: 35,
+      outputTokens: 542,
+      cacheReadTokens: 21397,
+      cacheWriteTokens: 22112,
+      costUsd: 0.043222699999999996,
+    });
+  });
+
   it("handles the legacy Task tool name", () => {
     const parser = createClaudeParser();
     const start = parser.push(

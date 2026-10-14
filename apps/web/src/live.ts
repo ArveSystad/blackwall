@@ -5,7 +5,9 @@ import {
   type Finding,
   type QuotaState,
   type ServerEvent,
+  type Step,
   type StepEvent,
+  type StepUsage,
   type Task,
 } from "@blackwall/shared";
 import type { QueryClient } from "@tanstack/react-query";
@@ -124,9 +126,35 @@ export function forgetTask(client: QueryClient, taskId: string): void {
 }
 
 /**
+ * Writes an agent step's usage into its row of the loaded usage list. A step
+ * with usage that has no row yet makes the list refetch once.
+ */
+function patchStepUsage(client: QueryClient, step: Step): void {
+  if (step.agentId === null) return;
+  const rows = client.getQueryData<StepUsage[]>(queryKeys.usage);
+  if (!rows) return;
+  const { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUsd } = step;
+  if (rows.some((row) => row.stepId === step.id)) {
+    client.setQueryData<StepUsage[]>(queryKeys.usage, (list) =>
+      list?.map((row) =>
+        row.stepId === step.id
+          ? { ...row, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUsd }
+          : row,
+      ),
+    );
+    return;
+  }
+  const used =
+    inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens > 0 || costUsd !== null;
+  if (used) void client.invalidateQueries({ queryKey: queryKeys.usage });
+}
+
+/**
  * Applies a server event to the Query cache: task changes are written in
  * place; everything else invalidates the queries that hold it, so open views
- * refetch. Step output is appended to an already loaded log.
+ * refetch. Step output is appended to an already loaded log, and a step's
+ * running usage (`step.usage`) is patched into the loaded steps and usage
+ * list without refetching anything.
  */
 export function applyServerEvent(client: QueryClient, event: ServerEvent): void {
   switch (event.type) {
@@ -152,6 +180,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       forgetTask(client, event.payload.taskId);
       void client.invalidateQueries({ queryKey: queryKeys.activeAgents });
       void client.invalidateQueries({ queryKey: queryKeys.doneTimes });
+      void client.invalidateQueries({ queryKey: queryKeys.usage });
       break;
     case "run.upserted":
       void client.invalidateQueries({ queryKey: queryKeys.taskRuns(event.payload.run.taskId) });
@@ -163,7 +192,16 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       void client.invalidateQueries({
         predicate: (query) => query.queryKey[0] === "tasks" && query.queryKey[2] === "artifacts",
       });
+      patchStepUsage(client, event.payload.step);
       break;
+    case "step.usage": {
+      const { step } = event.payload;
+      client.setQueryData<Step[]>(queryKeys.runSteps(step.runId), (steps) =>
+        steps?.map((s) => (s.id === step.id ? step : s)),
+      );
+      patchStepUsage(client, step);
+      break;
+    }
     case "step.event": {
       const { event: entry } = event.payload;
       client.setQueryData<StepEvent[]>(queryKeys.stepEvents(entry.stepId), (log) =>

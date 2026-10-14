@@ -2623,3 +2623,132 @@ describe("deleting findings", () => {
     expect(h.events.filter((e) => e.type === "finding.deleted")).toEqual([]);
   });
 });
+
+describe("usage", () => {
+  const call = (outputTokens: number, costUsd?: number) => ({
+    inputTokens: 1,
+    outputTokens,
+    cacheReadTokens: 100,
+    cacheWriteTokens: 10,
+    ...(costUsd !== undefined ? { costUsd } : {}),
+  });
+  const informStep = (taskId: string) => stepsOf(taskId).find((s) => s.stage === "inform")!;
+
+  it("lifts streamed usage to the result's and takes its cost (Claude)", async () => {
+    const seeded = seedTask();
+    const h = harness((stage) =>
+      stage === "inform"
+        ? {
+            usage: [call(3), call(3)],
+            resultUsage: { ...call(500), cacheReadTokens: 300, costUsd: 0.05 },
+          }
+        : {},
+    );
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+
+    const step = informStep(seeded.id);
+    expect(step).toMatchObject({
+      status: "succeeded",
+      inputTokens: 2,
+      outputTokens: 500,
+      cacheReadTokens: 300,
+      cacheWriteTokens: 20,
+      costUsd: 0.05,
+    });
+
+    // The running totals go out as step.usage; only the success save is a step.upserted.
+    const mine = (e: ServerEvent) =>
+      (e.type === "step.usage" || e.type === "step.upserted") && e.payload.step.id === step.id;
+    const published = h.events.filter(mine).map((e) => {
+      const { type } = e;
+      const s = (e as Extract<ServerEvent, { type: "step.usage" }>).payload.step;
+      return [type, s.status, s.outputTokens, s.costUsd];
+    });
+    expect(published).toEqual([
+      ["step.upserted", "running", 0, null],
+      ["step.upserted", "running", 0, null],
+      ["step.usage", "running", 3, null],
+      ["step.usage", "running", 6, null],
+      ["step.upserted", "succeeded", 500, 0.05],
+    ]);
+  });
+
+  it("does not double a cost the usage events already carried (OpenCode)", async () => {
+    const seeded = seedTask();
+    const h = harness((stage) =>
+      stage === "inform"
+        ? {
+            usage: [call(4, 0.01), call(6, 0.02)],
+            resultUsage: { ...call(10), inputTokens: 2, cacheReadTokens: 200, costUsd: 0.03 },
+          }
+        : {},
+    );
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+
+    const step = informStep(seeded.id);
+    expect(step).toMatchObject({ inputTokens: 2, outputTokens: 10, cacheReadTokens: 200 });
+    expect(step.costUsd).toBeCloseTo(0.03);
+  });
+
+  it("records no usage and no cost when the CLI reports none", async () => {
+    const seeded = seedTask();
+    const h = harness();
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(informStep(seeded.id)).toMatchObject({
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      costUsd: null,
+    });
+    expect(h.events.some((e) => e.type === "step.usage")).toBe(false);
+  });
+
+  it("keeps the streamed usage of a failed step", async () => {
+    const seeded = seedTask();
+    const h = harness((stage) =>
+      stage === "inform" ? { usage: [call(3), call(4)], fail: "boom" } : {},
+    );
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(informStep(seeded.id)).toMatchObject({
+      status: "failed",
+      outputTokens: 7,
+      costUsd: null,
+    });
+  });
+
+  it("adds a resumed step's usage to what it used before the interrupt", async () => {
+    const seeded = seedTask();
+    let hang = true;
+    const h = harness((stage) => {
+      if (stage === "inform" && hang) {
+        return { hang: true, sessionId: "inform-1", usage: [call(3)] };
+      }
+      if (stage === "inform" || stage === "implement") {
+        // A resume runs RESUME_PROMPT, which stageOf reads as implement.
+        return { usage: [call(5)], resultUsage: { ...call(50), costUsd: 0.1 } };
+      }
+      return {};
+    });
+    h.engine.enqueue(seeded.id);
+    await vi.waitFor(() => expect(lastStep(seeded.id)?.outputTokens).toBe(3));
+    await h.engine.stop(seeded.id);
+    expect(informStep(seeded.id)).toMatchObject({ status: "interrupted", outputTokens: 3 });
+
+    hang = false;
+    h.engine.resume(seeded.id);
+    await settle(h.engine);
+    expect(informStep(seeded.id)).toMatchObject({
+      status: "succeeded",
+      inputTokens: 2,
+      outputTokens: 53,
+      cacheReadTokens: 200,
+      costUsd: 0.1,
+    });
+    expect(stepsOf(seeded.id).filter((s) => s.stage === "inform")).toHaveLength(1);
+  });
+});

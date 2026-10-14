@@ -278,4 +278,71 @@ describe("openDatabase", () => {
     r.chatMessages.insert({ repoId: "r1", role: "user", text: "Hi" });
     expect(r.chatMessages.list("r1")).toHaveLength(1);
   });
+
+  it("backfills step usage from the stored usage and result events", () => {
+    // Build a database at the migration before the step usage columns.
+    const oldMigrations = join(dir, "..", "migrations-0017");
+    cpSync(MIGRATIONS_DIR, oldMigrations, { recursive: true });
+    const journalPath = join(oldMigrations, "meta", "_journal.json");
+    const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
+      entries: { tag: string }[];
+    };
+    journal.entries = journal.entries.slice(
+      0,
+      journal.entries.findIndex((e) => e.tag === "0018_step_usage"),
+    );
+    expect(journal.entries.at(-1)?.tag).toBe("0017_chat_messages");
+    writeFileSync(journalPath, JSON.stringify(journal));
+
+    mkdirSync(dir, { recursive: true });
+    const sqlite = new Database(join(dir, DB_FILENAME));
+    migrate(drizzle(sqlite), { migrationsFolder: oldMigrations });
+    const usage = (output: number, cost?: number) =>
+      JSON.stringify({
+        inputTokens: 1,
+        outputTokens: output,
+        cacheReadTokens: 10,
+        cacheWriteTokens: 0,
+        ...(cost !== undefined ? { costUsd: cost } : {}),
+      });
+    sqlite.exec(`
+      insert into repos (id, path, name, created_at, updated_at) values ('r1', '/code/a', 'a', 0, 0);
+      insert into tasks (id, title, origin, repo_id, created_at, updated_at)
+        values ('t1', 'Fix login', '{"kind":"free-text"}', 'r1', 0, 0);
+      insert into runs (id, task_id, number, created_at) values ('u1', 't1', 1, 0);
+      insert into steps (id, run_id, stage, created_at)
+        values ('claude', 'u1', 'implement', 0), ('opencode', 'u1', 'implement', 0),
+               ('none', 'u1', 'checks', 0);
+    `);
+    const insert = sqlite.prepare(
+      "insert into step_events (step_id, seq, type, payload, created_at) values (?, ?, ?, ?, 0)",
+    );
+    const usageEvent = (output: number, cost?: number) =>
+      `{"type":"usage","usage":${usage(output, cost)}}`;
+    const resultEvent = (output: number, cost?: number) =>
+      `{"type":"result","result":{"sessionId":"x","text":"ok","usage":${usage(output, cost)}}}`;
+    // Claude: streamed usage undercounts output and carries no cost; the result has both.
+    insert.run("claude", 1, "usage", usageEvent(3));
+    insert.run("claude", 2, "usage", usageEvent(3));
+    insert.run("claude", 3, "result", resultEvent(500, 0.05));
+    // OpenCode: the result is the events' sum, cost included.
+    insert.run("opencode", 1, "usage", usageEvent(4, 0.01));
+    insert.run("opencode", 2, "usage", usageEvent(6, 0.02));
+    insert.run("opencode", 3, "result", resultEvent(10, 0.03));
+    sqlite.close();
+
+    opened = openDatabase(dir);
+    const r = createRepositories(opened.db);
+    expect(r.steps.get("claude")).toMatchObject({
+      inputTokens: 2,
+      outputTokens: 500,
+      cacheReadTokens: 20,
+      cacheWriteTokens: 0,
+      costUsd: 0.05,
+    });
+    const opencode = r.steps.get("opencode");
+    expect(opencode).toMatchObject({ inputTokens: 2, outputTokens: 10, cacheReadTokens: 20 });
+    expect(opencode?.costUsd).toBeCloseTo(0.03);
+    expect(r.steps.get("none")).toMatchObject({ inputTokens: 0, outputTokens: 0, costUsd: null });
+  });
 });

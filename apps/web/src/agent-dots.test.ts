@@ -32,6 +32,11 @@ function makeStep(taskId: string, id: string, createdAt: string): ActiveAgentSte
     createdAt: new Date(createdAt),
     startedAt: null,
     finishedAt: null,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    costUsd: null,
     subagents: [],
   };
 }

@@ -36,6 +36,7 @@ import {
   listReviewRequests,
   listTags,
   listTasks,
+  listUsage,
   searchAll,
 } from "./api";
 import { SEARCH_MIN_CHARS } from "./search";
@@ -61,6 +62,8 @@ export const queryKeys = {
   activeAgents: ["active-agents"] as const,
   /** When each done task was resolved; a task reaching done or being removed invalidates it. */
   doneTimes: ["done-times"] as const,
+  /** Each agent step's usage; patched live by `step.usage`/`step.upserted`, refetched when a task is removed. */
+  usage: ["usage"] as const,
   repos: ["repos"] as const,
   connections: ["connections"] as const,
   agents: ["agents"] as const,
@@ -111,6 +114,11 @@ export const stepEventsQuery = (taskId: string, stepId: string) =>
 export const activeAgentsQuery = queryOptions({
   queryKey: queryKeys.activeAgents,
   queryFn: listActiveAgents,
+});
+
+export const usageQuery = queryOptions({
+  queryKey: queryKeys.usage,
+  queryFn: listUsage,
 });
 
 export const doneTimesQuery = queryOptions({

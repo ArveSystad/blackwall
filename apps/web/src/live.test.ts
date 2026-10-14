@@ -1,4 +1,4 @@
-import type { ServerEvent, StepEvent, Task } from "@blackwall/shared";
+import type { ServerEvent, Step, StepEvent, StepUsage, Task } from "@blackwall/shared";
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -316,6 +316,104 @@ describe("applyServerEvent", () => {
     expect(stale()).toBe(false);
     applyServerEvent(client, { type: "task.removed", payload: { taskId: "t1" } });
     expect(stale()).toBe(true);
+  });
+
+  describe("step usage", () => {
+    const step = (overrides: Partial<Step> = {}): Step => ({
+      id: "s1",
+      runId: "r1",
+      stage: "implement",
+      agentId: "a1",
+      cli: "claude",
+      round: 0,
+      visit: 0,
+      status: "running",
+      sessionId: null,
+      error: null,
+      createdAt: new Date("2026-10-14T10:00:00Z"),
+      startedAt: new Date("2026-10-14T10:00:00Z"),
+      finishedAt: null,
+      inputTokens: 1,
+      outputTokens: 2,
+      cacheReadTokens: 3,
+      cacheWriteTokens: 4,
+      costUsd: null,
+      ...overrides,
+    });
+    const row = (stepId: string, outputTokens: number): StepUsage => ({
+      taskId: "t1",
+      stepId,
+      at: new Date("2026-10-14T10:00:00Z"),
+      inputTokens: 0,
+      outputTokens,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      costUsd: null,
+    });
+    const stale = (key: readonly unknown[]) => client.getQueryState(key)?.isInvalidated;
+
+    it("patches the step and its usage row in place on step.usage, refetching nothing", () => {
+      const other = step({ id: "s2" });
+      client.setQueryData<Step[]>(queryKeys.runSteps("r1"), [step({ outputTokens: 0 }), other]);
+      client.setQueryData<StepUsage[]>(queryKeys.usage, [row("s1", 0), row("s2", 7)]);
+      client.setQueryData(queryKeys.activeAgents, []);
+      client.setQueryData(queryKeys.taskArtifacts("t1"), []);
+
+      const updated = step({ outputTokens: 50, costUsd: 0.2 });
+      applyServerEvent(client, { type: "step.usage", payload: { step: updated } });
+
+      expect(client.getQueryData(queryKeys.runSteps("r1"))).toEqual([updated, other]);
+      expect(client.getQueryData(queryKeys.usage)).toEqual([
+        {
+          ...row("s1", 50),
+          inputTokens: 1,
+          cacheReadTokens: 3,
+          cacheWriteTokens: 4,
+          costUsd: 0.2,
+        },
+        row("s2", 7),
+      ]);
+      for (const key of [
+        queryKeys.runSteps("r1"),
+        queryKeys.usage,
+        queryKeys.activeAgents,
+        queryKeys.taskArtifacts("t1"),
+      ]) {
+        expect(stale(key)).toBe(false);
+      }
+    });
+
+    it("refetches only the usage list for a step it has no row for", () => {
+      client.setQueryData<StepUsage[]>(queryKeys.usage, []);
+      client.setQueryData(queryKeys.activeAgents, []);
+      applyServerEvent(client, { type: "step.usage", payload: { step: step() } });
+      expect(stale(queryKeys.usage)).toBe(true);
+      expect(stale(queryKeys.activeAgents)).toBe(false);
+      expect(client.getQueryData(queryKeys.runSteps("r1"))).toBeUndefined();
+    });
+
+    it("patches the usage row on step.upserted and still invalidates as before", () => {
+      client.setQueryData<StepUsage[]>(queryKeys.usage, [row("s1", 0)]);
+      client.setQueryData(queryKeys.runSteps("r1"), []);
+      client.setQueryData(queryKeys.activeAgents, []);
+      applyServerEvent(client, {
+        type: "step.upserted",
+        payload: { step: step({ status: "succeeded", outputTokens: 500, costUsd: 0.05 }) },
+      });
+      expect(client.getQueryData<StepUsage[]>(queryKeys.usage)?.[0]).toMatchObject({
+        outputTokens: 500,
+        costUsd: 0.05,
+      });
+      expect(stale(queryKeys.usage)).toBe(false);
+      expect(stale(queryKeys.runSteps("r1"))).toBe(true);
+      expect(stale(queryKeys.activeAgents)).toBe(true);
+    });
+
+    it("refetches the usage list when a task is removed", () => {
+      client.setQueryData<StepUsage[]>(queryKeys.usage, [row("s1", 1)]);
+      applyServerEvent(client, { type: "task.removed", payload: { taskId: "t1" } });
+      expect(stale(queryKeys.usage)).toBe(true);
+    });
   });
 
   it("appends streamed step output to a loaded log", () => {

@@ -46,6 +46,7 @@ import {
   taskWorktreeSchema,
   taskDiffSchema,
   taskDoneTimeSchema,
+  stepUsageSchema,
   taskSchema,
   type ActiveAgentStep,
   type AssignedIssues,
@@ -103,6 +104,7 @@ import {
   type TaskArtifact,
   type TaskDiff,
   type TaskDoneTime,
+  type StepUsage,
   type TaskWorktree,
   type UpdateBacklogItemInput,
 } from "@blackwall/shared";
@@ -342,6 +344,11 @@ export function listActiveAgents(): Promise<ActiveAgentStep[]> {
 /** When each done task was resolved. */
 export function listDoneTimes(): Promise<TaskDoneTime[]> {
   return request("/api/tasks/done-times", taskDoneTimeSchema.array());
+}
+
+/** Each agent step's tokens and cost with its task. */
+export function listUsage(): Promise<StepUsage[]> {
+  return request("/api/tasks/usage", stepUsageSchema.array());
 }
 
 export function listRuns(taskId: string): Promise<Run[]> {

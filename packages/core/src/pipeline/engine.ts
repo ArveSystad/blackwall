@@ -42,6 +42,14 @@ import {
 } from "./delivery.js";
 import { blockingFindings } from "./findings.js";
 import { createScheduler } from "./scheduler.js";
+import {
+  addUsage,
+  combine,
+  emptyStepUsage,
+  reconcile,
+  usageOf,
+  type StepUsageColumns,
+} from "./usage.js";
 import { diffCommentFinding } from "./stages.js";
 import {
   FIRST_STAGE,
@@ -226,7 +234,9 @@ const errorMessage = (error: unknown) => (error instanceof Error ? error.message
  * Drives tasks through the hardcoded pipeline (see {@link afterStage}). Each
  * running task holds a scheduler slot until it reaches a gate, fails, is
  * interrupted or finishes. Steps, session ids and events are persisted as they
- * stream and broadcast through `publish`.
+ * stream and broadcast through `publish`. A step's token and cost totals rise
+ * with each streamed `usage` event (broadcast as `step.usage`) and are
+ * reconciled with the CLI's result when the step succeeds.
  */
 export function createPipelineEngine({
   repositories: r,
@@ -280,6 +290,13 @@ export function createPipelineEngine({
   function saveStep(id: string, patch: Parameters<Repositories["steps"]["update"]>[1]): Step {
     const step = r.steps.update(id, patch);
     publish({ type: "step.upserted", payload: { step } });
+    return step;
+  }
+
+  /** Saves a step's running usage totals only; avoids the refetches `step.upserted` triggers. */
+  function saveStepUsage(id: string, usage: StepUsageColumns): Step {
+    const step = r.steps.update(id, usage);
+    publish({ type: "step.usage", payload: { step } });
     return step;
   }
 
@@ -411,8 +428,15 @@ export function createPipelineEngine({
 
     /** Set when the CLI reported its usage limit; matters only if the run then fails. */
     let rateLimit: { resetsAt?: string } | undefined;
+    /** Usage of earlier attempts, this step's earlier runs included: tokens spent stay spent. */
+    let base = usageOf(step);
+    /** Usage of the current attempt: streamed, then reconciled with its result. */
+    let attemptUsage = emptyStepUsage();
 
     const attempt = async (resumeSessionId?: string): Promise<AgentResult> => {
+      base = combine(base, attemptUsage);
+      attemptUsage = emptyStepUsage();
+      let eventsHadCost = false;
       const agentRun = adapter.run({
         cwd: worktree,
         prompt: resumeSessionId ? RESUME_PROMPT : input.prompt,
@@ -434,8 +458,15 @@ export function createPipelineEngine({
           const resetsAt = rateLimit?.resetsAt ?? event.resetsAt;
           rateLimit = resetsAt ? { resetsAt } : {};
         }
+        if (event.type === "usage") {
+          attemptUsage = addUsage(attemptUsage, event.usage);
+          eventsHadCost ||= event.usage.costUsd !== undefined;
+          step = saveStepUsage(step.id, combine(base, attemptUsage));
+        }
       }
-      return agentRun.result;
+      const result = await agentRun.result;
+      attemptUsage = reconcile(attemptUsage, result.usage, eventsHadCost);
+      return result;
     };
 
     try {
@@ -453,7 +484,11 @@ export function createPipelineEngine({
         // The CLI no longer has the session: run the original prompt once, afresh.
         result = await attempt();
       }
-      saveStep(step.id, { status: "succeeded", finishedAt: new Date() });
+      saveStep(step.id, {
+        status: "succeeded",
+        finishedAt: new Date(),
+        ...combine(base, attemptUsage),
+      });
       quota?.succeeded(cli);
       return result;
     } catch (error) {

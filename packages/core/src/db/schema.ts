@@ -4,6 +4,7 @@ import {
   index,
   integer,
   primaryKey,
+  real,
   sqliteTable,
   text,
   uniqueIndex,
@@ -293,6 +294,13 @@ export const steps = sqliteTable(
     createdAt: createdAt(),
     startedAt: timestamp("started_at"),
     finishedAt: timestamp("finished_at"),
+    /** Tokens used over all attempts, sub-agents included. */
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+    cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
+    /** Cost in USD; null when the CLI reported none. */
+    costUsd: real("cost_usd"),
   },
   (t) => [index("steps_run_idx").on(t.runId), index("steps_status_idx").on(t.status)],
 );

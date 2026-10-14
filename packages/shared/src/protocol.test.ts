@@ -37,6 +37,34 @@ describe("protocol", () => {
     });
   });
 
+  it("parses a step's running usage", () => {
+    const step = {
+      id: "s1",
+      runId: "r1",
+      stage: "implement",
+      agentId: "a1",
+      cli: "claude",
+      round: 0,
+      visit: 0,
+      status: "running",
+      sessionId: null,
+      error: null,
+      createdAt: 0,
+      startedAt: 0,
+      finishedAt: null,
+      inputTokens: 1,
+      outputTokens: 2,
+      cacheReadTokens: 3,
+      cacheWriteTokens: 4,
+      costUsd: 0.01,
+    };
+    const event = parseServerEvent(JSON.stringify({ type: "step.usage", payload: { step } }));
+    expect(event?.type === "step.usage" && event.payload.step).toMatchObject({
+      outputTokens: 2,
+      costUsd: 0.01,
+    });
+  });
+
   it("parses a step event and revives its timestamp", () => {
     const raw = JSON.stringify({
       type: "step.event",

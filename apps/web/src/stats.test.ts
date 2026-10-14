@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { dayLabel, shortDayLabel, STATS_DAYS, taskStats, taskType } from "./stats";
+import { dayLabel, shortDayLabel, STATS_DAYS, taskStats, taskType, usageStats } from "./stats";
 import { makeTask } from "./test-fixtures";
 
 const pr = {
@@ -119,5 +119,47 @@ describe("day labels", () => {
     expect(dayLabel(new Date(2026, 9, 8), now, 3)).toBe("Thu 8 Oct: 3 resolved");
     expect(shortDayLabel(new Date(2026, 9, 9), now)).toBe("Today");
     expect(shortDayLabel(new Date(2026, 9, 8), now)).toBe("Thu 8");
+  });
+});
+
+describe("usageStats", () => {
+  const usage = (taskId: string, at: Date, outputTokens: number, costUsd: number | null) => ({
+    taskId,
+    stepId: `${taskId}-${at.getTime()}`,
+    at,
+    inputTokens: 0,
+    outputTokens,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    costUsd,
+  });
+
+  it("adds up usage per local day and per repo, most tokens first", () => {
+    const a = makeTask({ repoId: "r1" });
+    const b = makeTask({ repoId: "r2" });
+    const stats = usageStats(
+      [
+        usage(a.id, new Date(2026, 9, 9, 1, 0), 10, 0.1),
+        usage(b.id, new Date(2026, 9, 9, 23, 0), 30, null),
+        usage(a.id, new Date(2026, 9, 8, 12, 0), 5, 0.2),
+        // Older than the chart, still counted for its repo.
+        usage(a.id, new Date(2026, 8, 1, 12, 0), 100, 1),
+        // A task that is not loaded.
+        usage("gone", new Date(2026, 9, 9, 12, 0), 7, null),
+      ],
+      [a, b],
+      now,
+    );
+    expect(stats.perDay).toHaveLength(STATS_DAYS);
+    expect(stats.perDay.at(-1)!.date).toEqual(new Date(2026, 9, 9));
+    expect(stats.perDay.at(-1)!.total).toMatchObject({ tokens: 47, costPartial: true });
+    expect(stats.perDay.at(-1)!.total.costUsd).toBeCloseTo(0.1);
+    expect(stats.perDay.at(-2)!.total).toMatchObject({ tokens: 5, costUsd: 0.2 });
+    expect(stats.perDay[0]!.total).toMatchObject({ tokens: 0, costUsd: null });
+    expect(stats.perRepo.map((r) => [r.repoId, r.total.tokens])).toEqual([
+      ["r1", 115],
+      ["r2", 30],
+    ]);
+    expect(stats.perRepo[1]!.total.costUsd).toBeNull();
   });
 });

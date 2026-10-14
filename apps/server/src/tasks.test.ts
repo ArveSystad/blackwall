@@ -26,6 +26,7 @@ import {
   taskArtifactSchema,
   taskDiffSchema,
   taskDoneTimeSchema,
+  stepUsageSchema,
   taskSchema,
   taskWorktreeSchema,
   type BranchDiff,
@@ -157,6 +158,7 @@ describe("task routes", () => {
       .array()
       .parse(await (await request(`/api/tasks/${task.id}/runs/${run.id}/steps`)).json());
     expect(steps.map((s) => s.id)).toEqual([step.id]);
+    expect(steps[0]).toMatchObject({ inputTokens: 0, outputTokens: 0, costUsd: null });
     const events = stepEventSchema
       .array()
       .parse(await (await request(`/api/tasks/${task.id}/steps/${step.id}/events`)).json());
@@ -221,6 +223,34 @@ describe("task routes", () => {
     const body = await res.json();
     expect(body).toEqual([{ taskId: done.id, doneAt: doneAt.toISOString() }]);
     expect(taskDoneTimeSchema.array().parse(body)).toEqual([{ taskId: done.id, doneAt }]);
+  });
+
+  it("lists each agent step's usage with its task", async () => {
+    const task = seedTask();
+    const run = repositories.runs.create(task.id);
+    const agent = repositories.agents.create({ name: "coder", eligibleStages: ["implement"] });
+    const step = repositories.steps.create({
+      runId: run.id,
+      stage: "implement",
+      agentId: agent.id,
+    });
+    repositories.steps.update(step.id, { outputTokens: 42, costUsd: 0.25 });
+    repositories.steps.create({ runId: run.id, stage: "code-review", agentId: agent.id });
+
+    const res = await request("/api/tasks/usage");
+    expect(res.status).toBe(200);
+    expect(stepUsageSchema.array().parse(await res.json())).toEqual([
+      {
+        taskId: task.id,
+        stepId: step.id,
+        at: step.createdAt,
+        inputTokens: 0,
+        outputTokens: 42,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        costUsd: 0.25,
+      },
+    ]);
   });
 
   it("returns 404 for an unknown task", async () => {
