@@ -1,0 +1,15 @@
+2026-10-14T10:00:00.0000000Z ##[group]Run pnpm exec vitest run
+2026-10-14T10:00:00.0000001Z [36;1mpnpm exec vitest run[0m
+2026-10-14T10:00:01.1234567Z [36;1mshell: /usr/bin/bash -e {0}[0m
+2026-10-14T10:00:01.1234568Z ##[endgroup]
+2026-10-14T10:00:02.0000000Z 
+2026-10-14T10:00:02.5000000Z [1m[31m FAIL [39m[22m src/invoices/totals.test.ts > invoice totals > rounds the VAT once
+2026-10-14T10:00:02.6000000Z AssertionError: expected 10.01 to equal 10.02
+2026-10-14T10:00:02.7000000Z 
+2026-10-14T10:00:02.8000000Z [31m - Expected: 10.02[39m
+2026-10-14T10:00:02.9000000Z [32m + Received: 10.01[39m
+2026-10-14T10:00:03.0000000Z 
+2026-10-14T10:00:03.1000000Z  Test Files  1 failed | 4 passed (5)
+2026-10-14T10:00:03.2000000Z       Tests  1 failed | 23 passed (24)
+2026-10-14T10:00:03.3000000Z ##[error]Process completed with exit code 1.
+

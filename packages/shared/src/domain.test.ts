@@ -17,6 +17,7 @@ import {
   ROLE_STAGES,
   agentCliFor,
   backlogCapFor,
+  ciNeedsYou,
   agentPermissionOverridesSchema,
   agentUpdateSchema,
   connectionInputSchema,
@@ -46,6 +47,8 @@ import {
   settingsSchema,
   stagePermissionProfile,
   taskSchema,
+  type CiState,
+  type TaskCi,
 } from "./domain.js";
 
 const now = "2026-10-08T10:00:00.000Z";
@@ -76,15 +79,69 @@ const task = {
   squashMessage: null,
   followUps: [],
   archivedAt: null,
+  ci: null,
   createdAt: now,
   updatedAt: now,
 };
+
+describe("ciNeedsYou", () => {
+  const ci = (state: CiState): TaskCi => ({
+    state,
+    sha: "abc1234",
+    host: "github.com",
+    owner: "acme",
+    repo: "web",
+    checks: [],
+    hint: null,
+    startedAt: now,
+    updatedAt: now,
+    finishedAt: null,
+  });
+
+  it("is true for a done, listed task whose CI failed", () => {
+    expect(ciNeedsYou({ status: "done", archivedAt: null, ci: ci("failed") })).toBe(true);
+  });
+
+  it("is false once archived, while running again, or when CI did not fail", () => {
+    expect(ciNeedsYou({ status: "done", archivedAt: new Date(), ci: ci("failed") })).toBe(false);
+    expect(ciNeedsYou({ status: "running", archivedAt: null, ci: ci("failed") })).toBe(false);
+    expect(ciNeedsYou({ status: "done", archivedAt: null, ci: ci("passed") })).toBe(false);
+    expect(ciNeedsYou({ status: "done", archivedAt: null, ci: ci("pending") })).toBe(false);
+    expect(ciNeedsYou({ status: "done", archivedAt: null, ci: null })).toBe(false);
+  });
+});
 
 describe("taskSchema", () => {
   it("parses a task from JSON, reviving timestamps", () => {
     const parsed = taskSchema.parse(task);
     expect(parsed.createdAt).toEqual(new Date(now));
     expect(parsed.origin).toEqual({ kind: "jira-issue", key: "ABC-123", connectionId: "c1" });
+  });
+
+  it("parses a task's CI", () => {
+    const ci = {
+      state: "failed",
+      sha: "abc1234def",
+      host: "github.com",
+      owner: "acme",
+      repo: "web",
+      checks: [
+        {
+          name: "test",
+          kind: "check-run",
+          id: 7,
+          state: "failed",
+          conclusion: "failure",
+          url: "https://github.com/acme/web/runs/7",
+        },
+      ],
+      hint: null,
+      startedAt: now,
+      updatedAt: now,
+      finishedAt: now,
+    };
+    expect(taskSchema.parse({ ...task, ci }).ci).toEqual(ci);
+    expect(taskSchema.safeParse({ ...task, ci: { ...ci, state: "red" } }).success).toBe(false);
   });
 
   it("rejects unknown statuses and bad Jira keys", () => {
@@ -413,6 +470,7 @@ describe("settings and inputs", () => {
 
   it("accepts a repo's favourite flag", () => {
     expect(repoUpdateSchema.parse({ favorite: true })).toEqual({ favorite: true });
+    expect(repoUpdateSchema.parse({ watchCi: false })).toEqual({ watchCi: false });
     expect(repoUpdateSchema.safeParse({ favorite: "yes" }).success).toBe(false);
   });
 

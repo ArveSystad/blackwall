@@ -59,6 +59,7 @@ export type TaskPipeline = Pick<
   | "commentOnDiff"
   | "deleteFinding"
   | "deliveryPlan"
+  | "fixCi"
 >;
 
 export interface TaskRouteStores {
@@ -256,7 +257,7 @@ export function queueTask(
  * undelivered task deleted, a
  * `needs-you` task's gate answered, its grill questions answered, its
  * findings force-fixed or force-ignored (or, at review triage, deleted), its
- * diff's hunks commented on, and
+ * diff's hunks commented on, a done task's failed CI fixed, and
  * its delivery plan shown before the user confirms the finish actions. `/active-agents` lists the running
  * agent steps across all tasks, `/usage` each agent step's tokens and cost, and
  * `/done-times` when each done task was resolved. With the services, `/diffs` shows the branch's changes per fix
@@ -414,6 +415,12 @@ export function taskRoutes(
 
     /** Lists an archived task again. */
     routes.post("/:id/unarchive", (c) => c.json<Task>(pipeline.unarchive(c.req.param("id"))));
+
+    /**
+     * Fix CI: queues a fix round for a done task whose CI failed, with the
+     * failing logs as force-fixed findings (409 when it can't).
+     */
+    routes.post("/:id/ci/fix", async (c) => c.json<Task>(await pipeline.fixCi(c.req.param("id"))));
 
     /**
      * Stops a queued or running task: it ends `interrupted` ("Stopped by

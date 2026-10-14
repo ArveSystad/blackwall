@@ -1,3 +1,4 @@
+import type { TaskCi } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   canNotify,
@@ -6,6 +7,29 @@ import {
   type NotificationPermissionState,
 } from "./notifications";
 import { makeTask } from "./test-fixtures";
+
+/** CI on a pushed commit whose one check run failed. */
+const failedCi: TaskCi = {
+  state: "failed",
+  sha: "abc1234def5678",
+  host: "github.com",
+  owner: "acme",
+  repo: "web",
+  checks: [
+    {
+      name: "unit",
+      kind: "check-run",
+      id: 7,
+      state: "failed",
+      conclusion: "failure",
+      url: "https://github.com/acme/web/runs/7",
+    },
+  ],
+  hint: null,
+  startedAt: "2026-10-08T10:00:00.000Z",
+  updatedAt: "2026-10-08T10:05:00.000Z",
+  finishedAt: "2026-10-08T10:05:00.000Z",
+};
 
 /** Minimal in-memory Storage stand-in; the web tests run without a DOM. */
 function memoryStorage(initial: Record<string, string> = {}) {
@@ -62,6 +86,16 @@ describe("needsYouToNotify", () => {
     const fresh = makeTask({ status: "needs-you" });
     expect(needsYouToNotify([waiting.id], [fresh, { ...waiting, status: "running" }])).toBeNull();
   });
+
+  it("returns a done task whose CI newly failed", () => {
+    const ciFailed = makeTask({ status: "done", ci: failedCi });
+    expect(needsYouToNotify([waiting.id], [waiting, running, ciFailed])).toBe(ciFailed);
+  });
+
+  it("stays quiet about a CI failure already in previousIds", () => {
+    const ciFailed = makeTask({ status: "done", ci: failedCi });
+    expect(needsYouToNotify([waiting.id, ciFailed.id], [waiting, running, ciFailed])).toBeNull();
+  });
 });
 
 describe("needsYouIds", () => {
@@ -70,6 +104,13 @@ describe("needsYouIds", () => {
     const b = makeTask({ status: "done" });
     const c = makeTask({ status: "needs-you" });
     expect(needsYouIds([a, b, c])).toEqual([a.id, c.id]);
+  });
+
+  it("includes done tasks whose CI failed", () => {
+    const a = makeTask({ status: "needs-you" });
+    const ciFailed = makeTask({ status: "done", ci: failedCi });
+    const passed = makeTask({ status: "done" });
+    expect(needsYouIds([a, ciFailed, passed])).toEqual([a.id, ciFailed.id]);
   });
 });
 

@@ -1,4 +1,10 @@
-import type { Stage, Task, TaskOrigin, TaskStatus } from "@blackwall/shared";
+import {
+  ciNeedsYou,
+  type Stage,
+  type Task,
+  type TaskOrigin,
+  type TaskStatus,
+} from "@blackwall/shared";
 
 /** The six stages the UI shows, in order; aggregate and summarize fold into their neighbours. */
 export const UI_STAGES = [
@@ -63,7 +69,13 @@ export function stackLabel(origin: TaskOrigin): { text: string; title: string } 
   };
 }
 
+/** Whether the task needs the user: it waits at a gate, or it is done and its CI failed. */
+export function isNeedsYou(task: Pick<Task, "status" | "archivedAt" | "ci">): boolean {
+  return task.status === "needs-you" || ciNeedsYou(task);
+}
+
 export interface InboxGroups {
+  /** Waiting at a gate, or done with failed CI. */
   needsYou: Task[];
   /** Running and queued. */
   running: Task[];
@@ -80,10 +92,12 @@ export function groupTasks(tasks: readonly Task[]): InboxGroups {
     .filter((t) => t.archivedAt === null)
     .toSorted((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
   return {
-    needsYou: sorted.filter((t) => t.status === "needs-you"),
+    needsYou: sorted.filter(isNeedsYou),
     running: sorted.filter((t) => t.status === "running" || t.status === "queued"),
     recent: sorted.filter(
-      (t) => t.status === "interrupted" || t.status === "failed" || t.status === "done",
+      (t) =>
+        (t.status === "interrupted" || t.status === "failed" || t.status === "done") &&
+        !ciNeedsYou(t),
     ),
   };
 }
@@ -93,8 +107,11 @@ export function doneTasks(tasks: readonly Task[]): Task[] {
   return tasks.filter((t) => t.status === "done" && t.archivedAt === null);
 }
 
-export function needsYouCount(tasks: readonly Pick<Task, "status">[]): number {
-  return tasks.filter((t) => t.status === "needs-you").length;
+/** Tasks that need the user (see {@link isNeedsYou}), for the title and desktop badges. */
+export function needsYouCount(
+  tasks: readonly Pick<Task, "status" | "archivedAt" | "ci">[],
+): number {
+  return tasks.filter(isNeedsYou).length;
 }
 
 /** "1 active agent", "3 active agents"; null when none run. */

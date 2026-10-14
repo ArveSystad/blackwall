@@ -1,0 +1,29 @@
+{
+  "state": "failure",
+  "sha": "9f1c2d3e4b5a69788796a5b4c3d2e1f009182736",
+  "total_count": 2,
+  "repository": {
+    "name": "shop",
+    "full_name": "acme/shop"
+  },
+  "statuses": [
+    {
+      "id": 5510001,
+      "node_id": "SC_kwDOAbCdEf8AAAABRa0001",
+      "url": "https://api.acme.ghe.com/repos/acme/shop/statuses/9f1c2d3e4b5a69788796a5b4c3d2e1f009182736",
+      "context": "ci/jenkins",
+      "state": "success",
+      "description": "Build succeeded",
+      "target_url": "https://jenkins.acme.test/job/shop/214/"
+    },
+    {
+      "id": 5510002,
+      "node_id": "SC_kwDOAbCdEf8AAAABRa0002",
+      "url": "https://api.acme.ghe.com/repos/acme/shop/statuses/9f1c2d3e4b5a69788796a5b4c3d2e1f009182736",
+      "context": "codecov/patch",
+      "state": "failure",
+      "description": "60% (target 80%)",
+      "target_url": "https://codecov.acme.test/gh/acme/shop/pull/42"
+    }
+  ]
+}

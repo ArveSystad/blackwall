@@ -1,0 +1,135 @@
+{
+  "total_count": 5,
+  "check_runs": [
+    {
+      "id": 28110001,
+      "head_sha": "9f1c2d3e4b5a69788796a5b4c3d2e1f009182736",
+      "node_id": "CR_kwDOAbCdEf8AAAABpQ1234",
+      "external_id": "",
+      "url": "https://api.acme.ghe.com/repos/acme/shop/check-runs/28110001",
+      "html_url": "https://acme.ghe.com/acme/shop/runs/28110001",
+      "details_url": "https://acme.ghe.com/acme/shop/actions/runs/9911001/job/28110001",
+      "name": "build",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-14T10:00:00Z",
+      "completed_at": "2026-10-14T10:03:12Z",
+      "app": {
+        "id": 15368,
+        "slug": "github-actions",
+        "name": "GitHub Actions"
+      },
+      "output": {
+        "title": "build",
+        "summary": "All steps passed.",
+        "text": null,
+        "annotations_count": 0,
+        "annotations_url": "https://api.acme.ghe.com/repos/acme/shop/check-runs/28110001/annotations"
+      }
+    },
+    {
+      "id": 28110002,
+      "head_sha": "9f1c2d3e4b5a69788796a5b4c3d2e1f009182736",
+      "node_id": "CR_kwDOAbCdEf8AAAABpQ1235",
+      "external_id": "",
+      "url": "https://api.acme.ghe.com/repos/acme/shop/check-runs/28110002",
+      "html_url": "https://acme.ghe.com/acme/shop/runs/28110002",
+      "details_url": "https://acme.ghe.com/acme/shop/actions/runs/9911001/job/28110002",
+      "name": "test",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-10-14T10:00:00Z",
+      "completed_at": "2026-10-14T10:04:40Z",
+      "app": {
+        "id": 15368,
+        "slug": "github-actions",
+        "name": "GitHub Actions"
+      },
+      "output": {
+        "title": "1 test failed",
+        "summary": "1 failing test in src/invoices/totals.test.ts",
+        "text": "FAIL src/invoices/totals.test.ts > rounds the VAT once\nAssertionError: expected 10.01 to equal 10.02",
+        "annotations_count": 1,
+        "annotations_url": "https://api.acme.ghe.com/repos/acme/shop/check-runs/28110002/annotations"
+      }
+    },
+    {
+      "id": 28110003,
+      "head_sha": "9f1c2d3e4b5a69788796a5b4c3d2e1f009182736",
+      "node_id": "CR_kwDOAbCdEf8AAAABpQ1236",
+      "external_id": "",
+      "url": "https://api.acme.ghe.com/repos/acme/shop/check-runs/28110003",
+      "html_url": "https://acme.ghe.com/acme/shop/runs/28110003",
+      "details_url": "https://acme.ghe.com/acme/shop/actions/runs/9911001/job/28110003",
+      "name": "deploy-preview",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2026-10-14T10:04:41Z",
+      "completed_at": "2026-10-14T10:04:41Z",
+      "app": {
+        "id": 15368,
+        "slug": "github-actions",
+        "name": "GitHub Actions"
+      },
+      "output": {
+        "title": null,
+        "summary": null,
+        "text": null,
+        "annotations_count": 0,
+        "annotations_url": "https://api.acme.ghe.com/repos/acme/shop/check-runs/28110003/annotations"
+      }
+    },
+    {
+      "id": 28110004,
+      "head_sha": "9f1c2d3e4b5a69788796a5b4c3d2e1f009182736",
+      "node_id": "CR_kwDOAbCdEf8AAAABpQ1237",
+      "external_id": "",
+      "url": "https://api.acme.ghe.com/repos/acme/shop/check-runs/28110004",
+      "html_url": "https://acme.ghe.com/acme/shop/runs/28110004",
+      "details_url": "https://sonar.acme.test/dashboard?id=shop",
+      "name": "sonar-quality-gate",
+      "status": "completed",
+      "conclusion": "neutral",
+      "started_at": "2026-10-14T10:01:10Z",
+      "completed_at": "2026-10-14T10:02:55Z",
+      "app": {
+        "id": 1346,
+        "slug": "sonarqube",
+        "name": "SonarQube"
+      },
+      "output": {
+        "title": "Quality gate skipped",
+        "summary": "No coverage report was uploaded.",
+        "text": null,
+        "annotations_count": 0,
+        "annotations_url": "https://api.acme.ghe.com/repos/acme/shop/check-runs/28110004/annotations"
+      }
+    },
+    {
+      "id": 28110005,
+      "head_sha": "9f1c2d3e4b5a69788796a5b4c3d2e1f009182736",
+      "node_id": "CR_kwDOAbCdEf8AAAABpQ1238",
+      "external_id": "",
+      "url": "https://api.acme.ghe.com/repos/acme/shop/check-runs/28110005",
+      "html_url": "https://acme.ghe.com/acme/shop/runs/28110005",
+      "details_url": "https://acme.ghe.com/acme/shop/actions/runs/9911001/job/28110005",
+      "name": "lint",
+      "status": "in_progress",
+      "conclusion": null,
+      "started_at": "2026-10-14T10:04:45Z",
+      "completed_at": null,
+      "app": {
+        "id": 15368,
+        "slug": "github-actions",
+        "name": "GitHub Actions"
+      },
+      "output": {
+        "title": null,
+        "summary": null,
+        "text": null,
+        "annotations_count": 0,
+        "annotations_url": "https://api.acme.ghe.com/repos/acme/shop/check-runs/28110005/annotations"
+      }
+    }
+  ]
+}

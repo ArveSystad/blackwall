@@ -321,6 +321,14 @@ export function unarchiveTask(taskId: string): Promise<Task> {
   return request(`${taskPath(taskId)}/unarchive`, taskSchema, { method: "POST" });
 }
 
+/**
+ * Fix CI: queues a fix round for a done task whose CI failed, with the failing
+ * logs as findings; it stops at Finish so the push is confirmed again.
+ */
+export function fixCi(taskId: string): Promise<Task> {
+  return request(`${taskPath(taskId)}/ci/fix`, taskSchema, { method: "POST" });
+}
+
 /** Stops a queued or running task; it ends interrupted and Resume continues its session. */
 export function stopTask(taskId: string): Promise<Task> {
   return request(`${taskPath(taskId)}/stop`, taskSchema, { method: "POST" });

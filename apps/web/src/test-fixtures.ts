@@ -36,6 +36,7 @@ export function makeTask(overrides: Partial<Task> = {}): Task {
     squashMessage: null,
     followUps: [],
     archivedAt: null,
+    ci: null,
     createdAt: "2026-10-08T10:00:00.000Z",
     updatedAt: "2026-10-08T10:00:00.000Z",
     ...overrides,

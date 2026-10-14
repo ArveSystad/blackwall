@@ -195,6 +195,75 @@ export const MAX_TITLE_CHARS = 120;
 export const JIRA_KEY_PATTERN = /^[A-Z][A-Z0-9_]*-\d+$/;
 
 // ---------------------------------------------------------------------------
+// CI
+// ---------------------------------------------------------------------------
+
+/**
+ * Where the watch of a pushed commit's CI stands: `pending` while checks run,
+ * `none` when no checks appeared, `timed-out` past the watch's cap and
+ * `unavailable` when the token can't read them.
+ */
+export const CI_STATES = [
+  "pending",
+  "passed",
+  "failed",
+  "timed-out",
+  "none",
+  "unavailable",
+] as const;
+export const ciStateSchema = z.enum(CI_STATES);
+export type CiState = z.infer<typeof ciStateSchema>;
+
+export const CI_CHECK_STATES = ["pending", "passed", "failed", "skipped"] as const;
+
+/** One check on the pushed commit: a check run (GitHub Actions, apps) or a commit status. */
+export const ciCheckSchema = z.object({
+  name: z.string(),
+  kind: z.enum(["check-run", "status"]),
+  /** The check run's or status's id; for GitHub Actions the check run id is the job id. */
+  id: z.number(),
+  state: z.enum(CI_CHECK_STATES),
+  /** GitHub's conclusion (check runs) or state (statuses); null while running. */
+  conclusion: z.string().nullable(),
+  url: z.string().nullable(),
+});
+export type CiCheck = z.infer<typeof ciCheckSchema>;
+
+/**
+ * CI on the commit a task last pushed. Timestamps are ISO strings: the column
+ * is JSON, which does not turn them back into Dates.
+ */
+export const taskCiSchema = z.object({
+  state: ciStateSchema,
+  sha: z.string(),
+  host: z.string(),
+  owner: z.string(),
+  repo: z.string(),
+  checks: z.array(ciCheckSchema),
+  /** Why CI can't be read fully (token scope, SSO, no token); null when it can. */
+  hint: z.string().nullable(),
+  startedAt: z.string(),
+  updatedAt: z.string(),
+  finishedAt: z.string().nullable(),
+});
+export type TaskCi = z.infer<typeof taskCiSchema>;
+
+/** Hint when the token for `host` lacks the scopes to read check runs or statuses. */
+export function ciScopeHint(host: string): string {
+  return `The token for ${host} can't read check runs. Give it Checks: read and Commit statuses: read (fine-grained) or \`repo\` (classic) to see CI here.`;
+}
+
+/** Hint when the token for `host` is not authorised for the organisation's SAML SSO. */
+export function ciSsoHint(host: string): string {
+  return `The token for ${host} isn't authorised for SAML SSO. Authorise it under Settings → Tokens → Configure SSO to see CI here.`;
+}
+
+/** Hint when blackwall has no token for `host`. */
+export function ciMissingTokenHint(host: string): string {
+  return `There is no token for ${host}. Add one under Settings → Connections to see CI here.`;
+}
+
+// ---------------------------------------------------------------------------
 // Follow-ups
 // ---------------------------------------------------------------------------
 
@@ -364,6 +433,8 @@ export const repoSchema = z.object({
   favorite: z.boolean(),
   /** Manual order among repos in the same favourite group. */
   position: z.int(),
+  /** Watch CI after a task pushes its branch; matters only for GitHub/GHE remotes. */
+  watchCi: z.boolean(),
   createdAt: timestamp,
   updatedAt: timestamp,
 });
@@ -402,6 +473,7 @@ export const repoUpdateSchema = z.object({
   maxBacklogTasks: backlogCapSchema.nullable().optional(),
   defaultBranch: branchNameSchema.optional(),
   favorite: z.boolean().optional(),
+  watchCi: z.boolean().optional(),
 });
 export type RepoUpdate = z.infer<typeof repoUpdateSchema>;
 
@@ -773,11 +845,21 @@ export const taskSchema = z
     followUps: z.array(followUpSchema),
     /** Set when the user archives a done task; hidden from the Inbox and the backlog view's lists. */
     archivedAt: timestamp.nullable(),
+    /** CI on the commit the task last pushed to a GitHub/GHE remote; null when not watched. */
+    ci: taskCiSchema.nullable(),
     createdAt: timestamp,
     updatedAt: timestamp,
   })
   .superRefine(checkMode);
 export type Task = z.infer<typeof taskSchema>;
+
+/**
+ * Whether a done task's CI failed and it is still listed: it shows under
+ * Needs you with a Fix CI action until it is archived.
+ */
+export function ciNeedsYou(task: Pick<Task, "status" | "archivedAt" | "ci">): boolean {
+  return task.status === "done" && !task.archivedAt && task.ci?.state === "failed";
+}
 
 /** A comment the user wrote (or kept) for a GitHub issue task's issue. */
 export const issueCommentInputSchema = z.object({ body: z.string().trim().min(1) });

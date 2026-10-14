@@ -2,6 +2,7 @@ export * from "./artifacts.js";
 export * from "./backlog.js";
 export * from "./backlog-runner.js";
 export * from "./checks.js";
+export * from "./ci.js";
 export * from "./delivery.js";
 export * from "./diffs.js";
 export * from "./engine.js";

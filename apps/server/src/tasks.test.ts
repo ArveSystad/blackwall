@@ -274,6 +274,12 @@ describe("pipeline task routes", () => {
         return repositories.tasks.update(id, { archivedAt: new Date() });
       }),
       unarchive: vi.fn((id: string) => repositories.tasks.update(id, { archivedAt: null })),
+      fixCi: vi.fn(async (id: string) => {
+        const task = repositories.tasks.get(id);
+        if (!task) throw new TaskNotFoundError(id);
+        if (task.status !== "done") throw new TaskStateError(`Task ${id} is ${task.status}`);
+        return repositories.tasks.update(id, { status: "queued" });
+      }),
       stop: vi.fn(async (id: string) =>
         repositories.tasks.update(id, { status: "interrupted", error: "Stopped by you" }),
       ),
@@ -361,6 +367,26 @@ describe("pipeline task routes", () => {
     expect(res.status).toBe(200);
     expect(taskSchema.parse(await res.json()).archivedAt).toBeNull();
     expect(pipeline.unarchive).toHaveBeenCalledWith(task.id);
+  });
+
+  it("fixes a done task's CI: 200 with the task, 409 when the task is not done", async () => {
+    const task = seedTask();
+    repositories.tasks.update(task.id, { status: "done" });
+    const res = await request(`/api/tasks/${task.id}/ci/fix`, { method: "POST" });
+    expect(res.status).toBe(200);
+    expect(taskSchema.parse(await res.json()).status).toBe("queued");
+    expect(pipeline.fixCi).toHaveBeenCalledWith(task.id);
+
+    const running = repositories.tasks.create({
+      title: "Other",
+      origin: { kind: "free-text" },
+      repoId: task.repoId,
+      status: "running",
+    });
+    const refused = await request(`/api/tasks/${running.id}/ci/fix`, { method: "POST" });
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({ error: `Task ${running.id} is running` });
+    expect(repositories.tasks.get(running.id)?.status).toBe("running");
   });
 
   it("stops a task", async () => {
@@ -579,6 +605,7 @@ describe("new tasks", () => {
       resume: vi.fn(),
       archive: vi.fn(),
       unarchive: vi.fn(),
+      fixCi: vi.fn(),
       stop: vi.fn(),
       delete: vi.fn(),
       respond: vi.fn(),

@@ -1,6 +1,10 @@
 import {
+  CiRateLimitedError,
+  MissingCredentialError,
   branchForTask,
   connectionHost,
+  type CiReadResult,
+  type CiTarget,
   type ConnectionService,
   type OpenPullRequestAction,
   type OriginContextProvider,
@@ -12,12 +16,15 @@ import {
   createGitHubClient,
   findPullRequestStack,
   findRepoForPullRequest,
+  GitHubError,
   informFromIssue,
   informFromPullRequest,
   issueLabels,
   parseIssueUrl,
   parsePullRequestUrl,
   parseRemoteSlug,
+  readCheckLog,
+  readCommitChecks,
   renderPullRequestStack,
   signComment,
   type Fetch,
@@ -31,6 +38,7 @@ import {
   issueLookupInputSchema,
   pullRequestLookupInputSchema,
   type AssignedIssues,
+  type CiCheck,
   type Finding,
   type IssueLookup,
   type PullRequestLookup,
@@ -62,6 +70,15 @@ export function createGitHubOrigin({ connections, fetch: fetchImpl }: GitHubOrig
       ? await connections.credentialById(origin.connectionId)
       : await connections.requireCredential({ kind: "github", remote: origin.url });
     return { baseUrl: connection.baseUrl, token };
+  }
+
+  /** A client for the connection of a pushed commit's host. */
+  async function ciClient({ host, owner, repo }: CiTarget): Promise<GitHubClient> {
+    const { connection, token } = await connections.requireCredential({
+      kind: "github",
+      remote: `https://${host}/${owner}/${repo}.git`,
+    });
+    return createGitHubClient({ baseUrl: connection.baseUrl, token }, fetchImpl);
   }
 
   /** The only Jira site, for a key in the PR's branch or title; none when zero or several exist. */
@@ -196,6 +213,40 @@ export function createGitHubOrigin({ connections, fetch: fetchImpl }: GitHubOrig
       );
       return renderPullRequestStack(members, origin.number, new Map(diffs));
     }) satisfies OriginContextProvider,
+
+    /**
+     * CI checks on a pushed commit, for the CI watcher. A missing token is
+     * reported as `missingToken` (a background job never opens the token
+     * modal), and a rate limit as {@link CiRateLimitedError}.
+     */
+    async ciChecks(target: CiTarget, signal: AbortSignal): Promise<CiReadResult> {
+      let client: GitHubClient;
+      try {
+        client = await ciClient(target);
+      } catch (error) {
+        if (error instanceof MissingCredentialError) {
+          return { checks: [], unreadable: [], missingToken: true };
+        }
+        throw error;
+      }
+      try {
+        return await readCommitChecks(client, target, signal);
+      } catch (error) {
+        if (error instanceof GitHubError && error.cause === "rate-limited") {
+          throw new CiRateLimitedError(error.message);
+        }
+        throw error;
+      }
+    },
+
+    /** The end of a failing check's log or output, for a Fix CI round. */
+    async ciLogTail(
+      target: CiTarget,
+      check: CiCheck,
+      signal: AbortSignal,
+    ): Promise<string | undefined> {
+      return readCheckLog(await ciClient(target), target, check, signal);
+    },
 
     /** Opens a pull request on the host of the repo's remote. */
     async openPullRequest(action: OpenPullRequestAction): Promise<{ url: string }> {

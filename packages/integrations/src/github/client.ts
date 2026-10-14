@@ -9,12 +9,19 @@ export interface GitHubCredentials {
   token: string;
 }
 
+/**
+ * Why GitHub refused a request, when the response says: a primary or
+ * secondary rate limit, or a token not authorised for the org's SAML SSO.
+ */
+export type GitHubErrorCause = "rate-limited" | "sso";
+
 /** A failed GitHub request. The message never contains the token. */
 export class GitHubError extends Error {
   constructor(
     message: string,
     /** HTTP status; undefined when the request never got a response. */
     readonly status?: number,
+    override readonly cause?: GitHubErrorCause,
   ) {
     super(message);
     this.name = "GitHubError";
@@ -92,6 +99,46 @@ export interface GitHubReviewJson {
   body?: string | null;
   user?: GitHubUserJson | null;
   submitted_at?: string;
+}
+
+/** A check run on a commit (`GET /commits/{ref}/check-runs`), the fields CI reads. */
+export interface GitHubCheckRunJson {
+  id: number;
+  name: string;
+  /** `queued`, `in_progress`, `completed`, … */
+  status: string;
+  /** Set once completed: `success`, `failure`, `neutral`, `skipped`, `timed_out`, … */
+  conclusion?: string | null;
+  html_url?: string | null;
+  details_url?: string | null;
+  app?: { slug?: string } | null;
+  output?: { title?: string | null; summary?: string | null; text?: string | null } | null;
+}
+
+/** A commit status (`GET /commits/{ref}/status`'s `statuses`). */
+export interface GitHubCommitStatusJson {
+  id: number;
+  context: string;
+  /** `pending`, `success`, `failure` or `error`. */
+  state: string;
+  description?: string | null;
+  target_url?: string | null;
+}
+
+/** `GET /repos/{owner}/{repo}/commits/{ref}/status`. */
+export interface GitHubCombinedStatusJson {
+  /** `pending` also when there are no statuses at all; read `statuses` instead. */
+  state: string;
+  sha: string;
+  statuses: GitHubCommitStatusJson[];
+}
+
+/** A commit in a repository. */
+export interface CommitCoordinates {
+  owner: string;
+  repo: string;
+  /** Commit sha, branch or tag. */
+  ref: string;
 }
 
 export interface NewPullRequest {
@@ -265,6 +312,28 @@ function statusOf(error: unknown): number | undefined {
   return response !== undefined && typeof status === "number" ? status : undefined;
 }
 
+/** A response header from Octokit's lower-cased header object. */
+function headerOf(headers: Record<string, unknown> | undefined, name: string): string | undefined {
+  const value = headers?.[name];
+  return value === null || value === undefined ? undefined : String(value);
+}
+
+/** Whether a refusal is a rate limit or a missing SAML SSO authorisation. */
+function causeOf(
+  status: number,
+  headers: Record<string, unknown> | undefined,
+): GitHubErrorCause | undefined {
+  if (status !== 403 && status !== 429) return undefined;
+  if (
+    headerOf(headers, "x-ratelimit-remaining") === "0" ||
+    headerOf(headers, "retry-after") !== undefined
+  ) {
+    return "rate-limited";
+  }
+  if (status === 403 && headerOf(headers, "x-github-sso") !== undefined) return "sso";
+  return undefined;
+}
+
 /** The errors of a GraphQL response GitHub answered with 200; Octokit throws those without a status. */
 function graphqlErrors(error: unknown): { message?: unknown }[] | undefined {
   const { name, errors } = (error ?? {}) as { name?: unknown; errors?: unknown };
@@ -325,7 +394,7 @@ export function createGitHubClient(credentials: GitHubCredentials, fetchImpl: Fe
                   : undefined,
               token: credentials.token,
             });
-    return new GitHubError(`${host}: ${reason}`, status);
+    return new GitHubError(`${host}: ${reason}`, status, causeOf(status, response?.headers));
   }
 
   function requestOptions(signal?: AbortSignal) {
@@ -337,12 +406,13 @@ export function createGitHubClient(credentials: GitHubCredentials, fetchImpl: Fe
     try {
       return await run();
     } catch (error) {
-      if (signal?.aborted) throw error;
+      if (signal?.aborted || error instanceof GitHubError) throw error;
       throw failure(error, what);
     }
   }
 
   const prName = ({ owner, repo, number }: PullRequestCoordinates) => `${owner}/${repo}#${number}`;
+  const commitName = ({ owner, repo, ref }: CommitCoordinates) => `${owner}/${repo}@${ref}`;
 
   return {
     apiUrl,
@@ -581,6 +651,73 @@ export function createGitHubClient(credentials: GitHubCredentials, fetchImpl: Fe
           request: requestOptions(),
         });
         return { login };
+      });
+    },
+
+    /** The latest check run of each check on the commit. */
+    listCheckRuns(commit: CommitCoordinates, signal?: AbortSignal) {
+      return call(`Check runs of ${commitName(commit)}`, signal, async () => {
+        const all = await octokit.paginate(octokit.rest.checks.listForRef, {
+          owner: commit.owner,
+          repo: commit.repo,
+          ref: commit.ref,
+          filter: "latest",
+          per_page: PER_PAGE,
+          request: requestOptions(signal),
+        });
+        return all as unknown as GitHubCheckRunJson[];
+      });
+    },
+
+    /** One check run, with its app and output. */
+    getCheckRun(run: { owner: string; repo: string; id: number }, signal?: AbortSignal) {
+      return call(`Check run ${run.id} in ${run.owner}/${run.repo}`, signal, async () => {
+        const res = await octokit.rest.checks.get({
+          owner: run.owner,
+          repo: run.repo,
+          check_run_id: run.id,
+          request: requestOptions(signal),
+        });
+        return res.data as unknown as GitHubCheckRunJson;
+      });
+    },
+
+    /** The commit's statuses, the latest per context. */
+    getCombinedStatus(commit: CommitCoordinates, signal?: AbortSignal) {
+      return call(`Statuses of ${commitName(commit)}`, signal, async () => {
+        const res = await octokit.rest.repos.getCombinedStatusForRef({
+          owner: commit.owner,
+          repo: commit.repo,
+          ref: commit.ref,
+          per_page: PER_PAGE,
+          request: requestOptions(signal),
+        });
+        return res.data as unknown as GitHubCombinedStatusJson;
+      });
+    },
+
+    /**
+     * A GitHub Actions job's log. GitHub answers with a redirect to a
+     * pre-signed URL, fetched without the token so it only goes to the API host.
+     */
+    getJobLogs(job: { owner: string; repo: string; jobId: number }, signal?: AbortSignal) {
+      return call(`Log of job ${job.jobId} in ${job.owner}/${job.repo}`, signal, async () => {
+        const res = await octokit.rest.actions.downloadJobLogsForWorkflowRun({
+          owner: job.owner,
+          repo: job.repo,
+          job_id: job.jobId,
+          request: { ...requestOptions(signal), redirect: "manual" },
+        });
+        const location = headerOf(res.headers as Record<string, unknown>, "location");
+        if (!location) {
+          if (typeof res.data === "string") return res.data;
+          throw new GitHubError(`${host}: GitHub sent no link to the log`);
+        }
+        const log = await fetchImpl(location, requestOptions(signal));
+        if (!log.ok) {
+          throw new GitHubError(`${host}: log download failed (${log.status})`, log.status);
+        }
+        return log.text();
       });
     },
 

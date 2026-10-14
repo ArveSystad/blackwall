@@ -1,10 +1,11 @@
-import type { AgentCli, Task } from "@blackwall/shared";
+import { ciNeedsYou, type AgentCli, type Task } from "@blackwall/shared";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { originKey, relativeTime, statusLabel } from "../inbox";
 import { cn } from "../lib/utils";
-import { deleteBlockedReason, GATE_REASONS } from "../task-view";
+import { CI_FAILED_REASON, deleteBlockedReason, GATE_REASONS } from "../task-view";
 import { AgentTile } from "./AgentTile";
+import { CiBadge } from "./CiBadge";
 import { TrashIcon, WarnIcon } from "./icons";
 import { ORIGIN_ICONS } from "./origins";
 import { StagePips } from "./StagePips";
@@ -13,9 +14,10 @@ import { DeleteTaskDialog } from "./task/DeleteTaskDialog";
 import { Button } from "./ui/button";
 
 /**
- * Inbox card linking to the task. Needs-you tasks get the magenta rail and
- * wash, and say why they wait unless they are finishing (delivering), when
- * the pill reads "Finishing". Undelivered tasks show a delete button on
+ * Inbox card linking to the task. Needs-you tasks, and done tasks whose CI
+ * failed, get the magenta rail and wash, and say why they wait unless they
+ * are finishing (delivering), when the pill reads "Finishing". A task that
+ * pushed shows its CI as a small badge. Undelivered tasks show a delete button on
  * hover or focus, in place of the time.
  */
 export function TaskCard({
@@ -31,7 +33,8 @@ export function TaskCard({
   now: Date;
 }) {
   const OriginIcon = ORIGIN_ICONS[task.origin.kind];
-  const needsYou = task.status === "needs-you";
+  const ciFailed = ciNeedsYou(task);
+  const needsYou = task.status === "needs-you" || ciFailed;
   const deletable = deleteBlockedReason(task) === null;
   const [deleting, setDeleting] = useState(false);
   return (
@@ -76,6 +79,12 @@ export function TaskCard({
             {GATE_REASONS[task.gate]}
           </span>
         )}
+        {ciFailed && (
+          <span className="flex items-center gap-1.5 text-meta font-medium text-magenta">
+            <WarnIcon size="sm" />
+            {CI_FAILED_REASON}
+          </span>
+        )}
         <span className="mt-px flex items-center gap-2">
           {repoName && (
             <span className="mono max-w-24 truncate text-label text-faint">{repoName}</span>
@@ -89,6 +98,7 @@ export function TaskCard({
               ))}
             </span>
           )}
+          {task.ci && <CiBadge ci={task.ci} compact />}
           <StatusBadge status={task.status} label={statusLabel(task)} />
         </span>
       </Link>

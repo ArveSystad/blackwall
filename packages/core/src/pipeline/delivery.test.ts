@@ -550,6 +550,55 @@ describe("GitHub issue tasks", () => {
     expect(ports.commentOnGitHubIssue).toHaveBeenCalledWith(task, "Logins reject wrong passwords.");
   });
 
+  describe("delivered before (Fix CI)", () => {
+    /** The issue task pushed (and its targets recorded), as a first delivery leaves it. */
+    async function pushed(deliveryTargets: ("push-branch" | "open-pr" | "issue-comment")[]) {
+      const { task, run: runRow } = await seed(issue, {
+        remoteUrl: "https://github.com/acme/app.git",
+      });
+      const { deliverer: d } = deliverer();
+      await deliver(d, task, runRow, { actions: ["push-branch"] });
+      return { d, task: r.tasks.update(task.id, { deliveryTargets }) };
+    }
+
+    const kinds = (actions: { kind: string }[]) => actions.map((a) => a.kind);
+
+    it("does not offer open-pr again once a PR was opened", async () => {
+      const { d, task } = await pushed(["push-branch", "open-pr", "issue-comment"]);
+      commit(task.worktreePath!, "fix.txt", "fixed\n");
+      const plan = await d.plan(task, []);
+      expect(kinds(plan.actions)).toEqual(["push-branch", "issue-comment"]);
+    });
+
+    it("squashes only the commits after the pushed branch", async () => {
+      const { d, task } = await pushed(["push-branch", "open-pr"]);
+      commit(task.worktreePath!, "fix.txt", "fixed\n");
+      expect((await d.plan(task, [])).squash).toBeNull();
+
+      commit(task.worktreePath!, "fix2.txt", "fixed again\n");
+      const pushedHead = run(task.worktreePath!, "rev-parse", `origin/${issue.branch}`);
+      expect((await d.plan(task, [])).squash).toEqual({
+        commits: 2,
+        base: pushedHead,
+        message: "Fix login",
+      });
+    });
+
+    it("still offers the push and comment without a new commit, but no PR or squash", async () => {
+      const { d, task } = await pushed(["push-branch", "open-pr", "issue-comment"]);
+      const plan = await d.plan(task, []);
+      expect(kinds(plan.actions)).toEqual(["push-branch", "issue-comment"]);
+      expect(plan.squash).toBeNull();
+    });
+
+    it("still offers open-pr after a push that opened none", async () => {
+      const { d, task } = await pushed(["push-branch"]);
+      const plan = await d.plan(task, []);
+      expect(kinds(plan.actions)).toEqual(["push-branch", "open-pr", "issue-comment"]);
+      expect(plan.squash).toBeNull();
+    });
+  });
+
   it("comments on the issue alone when only that is confirmed", async () => {
     const { task, run: runRow } = await seed(issue);
     const { deliverer: d, ports } = deliverer();

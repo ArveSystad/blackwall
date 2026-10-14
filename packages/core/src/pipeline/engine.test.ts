@@ -11,6 +11,7 @@ import {
   type ServerEvent,
   type Stage,
   type Task,
+  type TaskCi,
 } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentRunOptions } from "../agents/adapters/types.js";
@@ -20,6 +21,7 @@ import { DB_FILENAME, openDatabase, type OpenedDatabase } from "../db/database.j
 import { createRepositories, type Repositories } from "../db/repositories.js";
 import { createGitService } from "../git/service.js";
 import { ARTIFACTS_DIR } from "./artifacts.js";
+import type { CiFailure, CiWatcher } from "./ci.js";
 import {
   FindingNotFoundError,
   GrillQuestionNotFoundError,
@@ -129,6 +131,7 @@ function harness(
     removeWorkspace,
     commentOnIssue = async () => ({ url: ISSUE_COMMENT_URL }),
     pathExists,
+    ci,
   }: {
     stages?: StageHandlers;
     maxPerRepo?: number;
@@ -137,6 +140,7 @@ function harness(
     removeWorkspace?: (task: Task) => Promise<void>;
     commentOnIssue?: (task: Task, body: string) => Promise<{ url: string }>;
     pathExists?: (path: string) => boolean;
+    ci?: Pick<CiWatcher, "watch" | "cancel" | "failureContext">;
   } = {},
 ): Harness {
   const agents = agentService();
@@ -178,6 +182,7 @@ function harness(
     ...(quota ? { quota } : {}),
     ...(removeWorkspace ? { removeWorkspace } : {}),
     ...(pathExists ? { pathExists } : {}),
+    ...(ci ? { ci } : {}),
     publish: (event) => events.push(event),
     log: () => undefined,
   });
@@ -2750,5 +2755,185 @@ describe("usage", () => {
       costUsd: 0.1,
     });
     expect(stepsOf(seeded.id).filter((s) => s.stage === "inform")).toHaveLength(1);
+  });
+});
+
+describe("CI", () => {
+  const failedCi = (): TaskCi => ({
+    state: "failed",
+    sha: "abc1234def5678",
+    host: "github.com",
+    owner: "acme",
+    repo: "app",
+    checks: [
+      {
+        name: "test",
+        kind: "check-run",
+        id: 11,
+        state: "failed",
+        conclusion: "failure",
+        url: "https://github.com/acme/app/runs/11",
+      },
+      {
+        name: "lint",
+        kind: "check-run",
+        id: 12,
+        state: "passed",
+        conclusion: "success",
+        url: null,
+      },
+    ],
+    hint: null,
+    startedAt: "2026-10-14T10:00:00.000Z",
+    updatedAt: "2026-10-14T10:05:00.000Z",
+    finishedAt: "2026-10-14T10:05:00.000Z",
+  });
+
+  function fakeCi(
+    failureContext: (task: Task) => Promise<CiFailure[]> = async (t) =>
+      t
+        .ci!.checks.filter((c) => c.state === "failed")
+        .map((check) => ({ check, log: "FAIL src/login.test.ts\nexpected 401" })),
+  ) {
+    return {
+      watch: vi.fn<CiWatcher["watch"]>(async () => undefined),
+      cancel: vi.fn<CiWatcher["cancel"]>(),
+      failureContext: vi.fn(failureContext),
+    };
+  }
+
+  const recording = async (ctx: DeliveryContext) => {
+    for (const action of ctx.confirmation.actions) ctx.record({ action, detail: action });
+  };
+
+  async function atFinish(h: Harness, patch: Parameters<typeof seedTask>[0] = {}) {
+    const seeded = seedTask(patch);
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    await h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" });
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
+    return seeded;
+  }
+
+  /** A task delivered with `actions`, whose CI then failed. */
+  async function failedAfterPush(h: Harness, actions: ("push-branch" | "open-pr")[]) {
+    const seeded = await atFinish(h);
+    await h.engine.respond(seeded.id, {
+      gate: "finish",
+      decision: "approve",
+      delivery: { actions },
+    });
+    r.tasks.update(seeded.id, { ci: failedCi() });
+    return seeded;
+  }
+
+  it("watches CI after a delivery that pushed the branch, and not otherwise", async () => {
+    const ci = fakeCi();
+    const h = harness(() => ({}), { deliver: recording, ci });
+    const pushed = await atFinish(h);
+    await h.engine.respond(pushed.id, {
+      gate: "finish",
+      decision: "approve",
+      delivery: { actions: ["push-branch"] },
+    });
+    expect(ci.watch).toHaveBeenCalledExactlyOnceWith(pushed.id);
+
+    const merged = await atFinish(h);
+    await h.engine.respond(merged.id, {
+      gate: "finish",
+      decision: "approve",
+      delivery: { actions: ["merge-main"] },
+    });
+    expect(ci.watch).toHaveBeenCalledTimes(1);
+  });
+
+  it("fixes failed CI in a full review loop that stops at finish, and merges the targets", async () => {
+    const ci = fakeCi();
+    const h = harness(() => ({}), { deliver: recording, ci });
+    const seeded = await failedAfterPush(h, ["push-branch", "open-pr"]);
+    r.tasks.update(seeded.id, { archivedAt: new Date() });
+    const runsBefore = r.runs.listByTask(seeded.id).length;
+    const eventsBefore = h.events.length;
+
+    const queued = await h.engine.fixCi(seeded.id);
+    expect(queued).toMatchObject({ status: "queued", stage: "implement", archivedAt: null });
+    expect(ci.cancel).toHaveBeenCalledWith(seeded.id);
+    expect(ci.failureContext).toHaveBeenCalledOnce();
+
+    const runs = r.runs.listByTask(seeded.id);
+    expect(runs).toHaveLength(runsBefore + 1);
+    const newRun = runs.at(-1)!.id;
+    const [finding] = r.findings.listByTask(seeded.id).filter((f) => f.runId === newRun);
+    expect(finding).toMatchObject({
+      severity: "critical",
+      status: "force-fix",
+      stepId: null,
+      reviewerAgentId: null,
+      title: "CI failed: test",
+      round: 0,
+    });
+    expect(finding!.explanation).toContain("https://github.com/acme/app/runs/11");
+    expect(finding!.explanation).toContain("expected 401");
+
+    await settle(h.engine);
+    const implement = stepsOf(seeded.id).filter(
+      (s) => s.runId === newRun && s.stage === "implement",
+    );
+    expect(implement.map((s) => s.round)).toEqual([1]);
+    const lastImplement = h.calls.filter((c) => c.stage === "implement").at(-1)!;
+    expect(lastImplement.options.prompt).toContain("CI failed: test");
+    expect(lastImplement.options.prompt).toContain("expected 401");
+    const stages = h.events
+      .slice(eventsBefore)
+      .flatMap((e) => (e.type === "task.upserted" ? [e.payload.task.stage] : []));
+    for (const stage of ["implement", "checks", "code-review", "aggregate", "summarize"]) {
+      expect(stages).toContain(stage);
+    }
+    expect(r.findings.get(finding!.id)!.status).toBe("fixed");
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
+
+    await h.engine.respond(seeded.id, {
+      gate: "finish",
+      decision: "approve",
+      delivery: { actions: ["push-branch"] },
+    });
+    expect(task(seeded.id)).toMatchObject({ status: "done" });
+    expect(task(seeded.id).deliveryTargets.toSorted()).toEqual(["open-pr", "push-branch"]);
+    expect(ci.watch).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses Fix CI unless a done work task's CI failed", async () => {
+    const h = harness(() => ({}), { deliver: recording, ci: fakeCi() });
+    const atGate = await atFinish(h);
+    r.tasks.update(atGate.id, { ci: failedCi() });
+    await expect(h.engine.fixCi(atGate.id)).rejects.toThrow(TaskStateError);
+
+    const passed = await failedAfterPush(h, ["push-branch"]);
+    r.tasks.update(passed.id, { ci: { ...failedCi(), state: "passed" } });
+    await expect(h.engine.fixCi(passed.id)).rejects.toThrow(TaskStateError);
+
+    const review = seedTask({ mode: "review", origin: prOrigin(), branch: "feature/r" });
+    r.tasks.update(review.id, { status: "done", ci: failedCi() });
+    await expect(h.engine.fixCi(review.id)).rejects.toThrow(TaskStateError);
+    expect(r.findings.listByTask(review.id)).toEqual([]);
+  });
+
+  it("refuses a second Fix CI while the first gathers its logs", async () => {
+    let release: (failures: CiFailure[]) => void = () => undefined;
+    const ci = fakeCi(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const h = harness(() => ({}), { deliver: recording, ci });
+    const seeded = await failedAfterPush(h, ["push-branch"]);
+
+    const first = h.engine.fixCi(seeded.id);
+    await expect(h.engine.fixCi(seeded.id)).rejects.toThrow(/already fixing CI/);
+    release([{ check: failedCi().checks[0]!, log: undefined }]);
+    await expect(first).resolves.toMatchObject({ status: "queued" });
+    await settle(h.engine);
   });
 });

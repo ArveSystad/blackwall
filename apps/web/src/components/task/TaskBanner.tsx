@@ -1,12 +1,18 @@
-import { IMPORT_INTERRUPTED_ERROR, type Task } from "@blackwall/shared";
+import { ciNeedsYou, IMPORT_INTERRUPTED_ERROR, type Task } from "@blackwall/shared";
 import { cn } from "../../lib/utils";
-import { deleteBlockedReason, gateBanner, isStoppedByUser, type TaskTab } from "../../task-view";
+import {
+  ciBanner,
+  deleteBlockedReason,
+  gateBanner,
+  isStoppedByUser,
+  type TaskTab,
+} from "../../task-view";
 import { FailedIcon, PausedIcon, StopIcon } from "../icons";
 import { NeedsBanner } from "../NeedsBanner";
 import { Button } from "../ui/button";
 import { ErrorText } from "../ui/field";
 import { Kbd } from "../ui/kbd";
-import { answerGate, approvePlan, resume, type PlanComment } from "./actions";
+import { answerGate, approvePlan, fixCi, resume, type PlanComment } from "./actions";
 import type { TaskAction } from "./use-task-action";
 
 export interface BannerCounts {
@@ -115,7 +121,10 @@ function NeedsActions({
   }
 }
 
-/** Needs-you banner, or the interrupted / failed card with Resume. Nothing for other states. */
+/**
+ * Needs-you banner (a gate, or failed CI on a done task with Fix CI), or the
+ * interrupted / failed card with Resume. Nothing for other states.
+ */
 export function TaskBanner({
   task,
   action,
@@ -154,6 +163,32 @@ export function TaskBanner({
               tab={tab}
               onTab={onTab}
             />
+          }
+        >
+          {copy.detail}
+        </NeedsBanner>
+        {error}
+      </div>
+    );
+  }
+
+  if (ciNeedsYou(task) && task.ci) {
+    const copy = ciBanner(task.ci);
+    return (
+      <div className="flex flex-col gap-1.5 px-5 pt-3">
+        <NeedsBanner
+          title={copy.title}
+          actions={
+            // The Finish tab has its own Fix CI next to the checks.
+            tab === "finish" ? null : (
+              <Button
+                variant="needs"
+                disabled={action.pending}
+                onClick={() => void fixCi(action, task)}
+              >
+                Fix CI
+              </Button>
+            )
           }
         >
           {copy.detail}

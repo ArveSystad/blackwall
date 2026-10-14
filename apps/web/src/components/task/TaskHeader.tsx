@@ -14,6 +14,7 @@ import {
   taskAgentIds,
 } from "../../task-view";
 import { AgentTile } from "../AgentTile";
+import { CiBadge } from "../CiBadge";
 import { BacklogIcon, BranchIcon, ChevronRightIcon, StopIcon, TrashIcon } from "../icons";
 import { ORIGIN_ICONS, PR_MODE_LABELS } from "../origins";
 import { StageStepper } from "../StageStepper";
@@ -209,6 +210,7 @@ export function TaskHeader({
             <span className="mono text-foreground">{task.branch}</span>
           </span>
         )}
+        {task.ci && <CiBadge ci={task.ci} />}
         <AgentSummary task={task} agents={agentMap} />
         <UsageChip taskId={task.id} />
       </div>

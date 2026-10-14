@@ -189,7 +189,8 @@ export function conflictResolutionPrompt(
  * (an analysis-only task) offers no push, PR or merge, and a protected head
  * branch (main, master or the repo's default branch) offers no push or PR. Only the
  * actions the user confirmed are performed, in that order, after an optional
- * squash.
+ * squash. A task delivered before (a Fix CI round) is not offered `open-pr`
+ * again, and squashes only the commits after the pushed `origin/<branch>`.
  */
 export function createDeliverer({
   git,
@@ -215,6 +216,22 @@ export function createDeliverer({
     return undefined;
   }
 
+  /**
+   * Where the commits not yet pushed start: `origin/<branch>` once an earlier
+   * delivery pushed the branch, else {@link squashBase}. Squashing from here
+   * never rewrites what was already sent, as the push does not force.
+   */
+  async function pushedBase(task: Task, worktree: string): Promise<string | undefined> {
+    if (task.branch && task.deliveryTargets.includes("push-branch")) {
+      try {
+        return await git.mergeBase(worktree, `origin/${task.branch}`);
+      } catch {
+        // The remote branch is gone or was never fetched: fall back to the fork point.
+      }
+    }
+    return squashBase(task, worktree);
+  }
+
   async function squashPlan(
     task: Task,
     completed: readonly DeliveryStep[],
@@ -222,7 +239,7 @@ export function createDeliverer({
     const worktree = task.worktreePath;
     // Squashing after the push would rewrite what was already sent.
     if (!worktree || completed.includes("push-branch")) return null;
-    const base = await squashBase(task, worktree);
+    const base = await pushedBase(task, worktree);
     if (!base) return null;
     const commits = await git.commitsSince(worktree, base);
     if (commits < 2) return null;
@@ -253,9 +270,12 @@ export function createDeliverer({
       remoteUrl && !git.isProtected(branch, main)
         ? [{ kind: "push-branch", branch, remote: remoteUrl }]
         : [];
-    /** Opening a PR from the pushed branch, when the remote is a GitHub/GHE repo. */
+    /**
+     * Opening a PR from the pushed branch, when the remote is a GitHub/GHE
+     * repo and no earlier delivery opened one.
+     */
     const openPr = (prBody: string): DeliveryAction[] => {
-      if (push.length === 0) return [];
+      if (push.length === 0 || task.deliveryTargets.includes("open-pr")) return [];
       const slug = remoteUrl ? ports.parseRemote(remoteUrl) : undefined;
       return slug
         ? [
@@ -292,7 +312,9 @@ export function createDeliverer({
 
   /**
    * Whether the branch has commits since its fork point from the default branch. Unknown
-   * (no worktree, no merge base) counts as yes, so the code actions stay.
+   * (no worktree, no merge base) counts as yes, so the code actions stay. Measured from
+   * the fork point even after a push, so a Fix CI round without a new commit still
+   * offers the push.
    */
   async function hasCommits(task: Task): Promise<boolean> {
     const worktree = task.worktreePath;

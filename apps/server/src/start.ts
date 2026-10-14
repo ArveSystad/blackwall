@@ -5,6 +5,7 @@ import {
   createBacklogRunner,
   createBranchDiff,
   createChatService,
+  createCiWatcher,
   createClaudeAdapter,
   createConnectionService,
   createConnectionTokens,
@@ -144,6 +145,15 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
         ),
       onHalt: (repoId) => publish({ type: "backlog.changed", payload: { repoId } }),
     });
+    // Watches CI on commits tasks push to GitHub/GHE; never opens the token modal.
+    const ciWatcher = createCiWatcher({
+      repositories,
+      git,
+      parseRemote: parseRemoteSlug,
+      ports: { readChecks: github.ciChecks, logTail: github.ciLogTail },
+      publish,
+    });
+    shutdown.onShutdown(() => ciWatcher.stop());
     const adapters = {
       claude: createClaudeAdapter(),
       copilot: createCopilotAdapter(),
@@ -185,6 +195,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       quota,
       publish,
       pathExists: existsSync,
+      ci: ciWatcher,
     });
     // Runs before the database closes: kills the agent CLIs and marks their steps interrupted.
     shutdown.onShutdown(() => pipeline.shutdown());
@@ -218,9 +229,13 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       // Nothing promotes or answers while the rows are replaced; chats would refer to old data.
       pause: async () => {
         chat.reset();
+        ciWatcher.stop();
         await backlogRunner.stop();
       },
-      resume: () => backlogRunner.start(),
+      resume: () => {
+        backlogRunner.start();
+        void ciWatcher.recover();
+      },
       publish,
       pathExists: existsSync,
     });
@@ -274,6 +289,8 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
     broadcast = send;
     // Steps left running by a previous process become interrupted (resumable); queued tasks start.
     pipeline.recover();
+    // CI watches a previous process left pending resume, or time out.
+    void ciWatcher.recover();
     backlogRunner.start();
     return {
       launchUrl,

@@ -1,3 +1,4 @@
+import type { TaskCi } from "@blackwall/shared";
 import { describe, expect, it } from "vitest";
 import {
   UI_STAGES,
@@ -14,7 +15,68 @@ import {
 } from "./inbox";
 import { makeTask } from "./test-fixtures";
 
+/** A valid CI watch on a pushed commit; the checks default to one passing check run. */
+function taskCi(overrides: Partial<TaskCi> = {}): TaskCi {
+  return {
+    state: "passed",
+    sha: "abc1234def5678",
+    host: "github.com",
+    owner: "acme",
+    repo: "web",
+    checks: [
+      {
+        name: "unit",
+        kind: "check-run",
+        id: 7,
+        state: "passed",
+        conclusion: "success",
+        url: "https://github.com/acme/web/runs/7",
+      },
+    ],
+    hint: null,
+    startedAt: "2026-10-08T10:00:00.000Z",
+    updatedAt: "2026-10-08T10:05:00.000Z",
+    finishedAt: "2026-10-08T10:05:00.000Z",
+    ...overrides,
+  };
+}
+
+const failedCi = taskCi({
+  state: "failed",
+  checks: [
+    {
+      name: "unit",
+      kind: "check-run",
+      id: 7,
+      state: "failed",
+      conclusion: "failure",
+      url: "https://github.com/acme/web/runs/7",
+    },
+  ],
+});
+
 describe("groupTasks", () => {
+  it("puts a done task with failed CI in needs-you, not in recent", () => {
+    const ciFailed = makeTask({ status: "done", ci: failedCi });
+    const groups = groupTasks([ciFailed]);
+    expect(groups.needsYou).toEqual([ciFailed]);
+    expect(groups.recent).toEqual([]);
+    expect(needsYouCount([ciFailed])).toBe(1);
+  });
+
+  it("keeps archived and passing-CI done tasks out of needs-you", () => {
+    const archived = makeTask({
+      status: "done",
+      ci: failedCi,
+      archivedAt: new Date("2026-10-08T12:00:00Z"),
+    });
+    const passed = makeTask({ status: "done", ci: taskCi({ state: "passed" }) });
+    const groups = groupTasks([archived, passed]);
+    expect(groups.needsYou).toEqual([]);
+    expect(groups.recent).toEqual([passed]);
+    expect(needsYouCount([archived, passed])).toBe(0);
+  });
+
   it("puts needs-you first, then running and queued, then the rest, newest first", () => {
     const old = makeTask({ status: "needs-you", updatedAt: new Date("2026-10-08T09:00:00Z") });
     const fresh = makeTask({ status: "needs-you", updatedAt: new Date("2026-10-08T11:00:00Z") });

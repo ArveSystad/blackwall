@@ -134,6 +134,13 @@
       "when": 1791972319566,
       "tag": "0018_step_usage",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1791982465733,
+      "tag": "0019_ci_watch",
+      "breakpoints": true
     }
   ]
 }

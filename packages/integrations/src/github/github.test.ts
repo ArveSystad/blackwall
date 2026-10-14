@@ -410,6 +410,137 @@ describe("GitHub client", () => {
     expect(ssoError.message).toBe(
       "acme.ghe.com: token not authorised for SAML SSO (authorise it under Settings → Tokens → Configure SSO)",
     );
+    expect(ssoError.cause).toBe("sso");
+  });
+
+  it("tells rate limits and SSO refusals apart from plain denials", async () => {
+    const refusal = (status: number, headers: Record<string, string>) =>
+      createGitHubClient(GHE, () =>
+        Promise.resolve(
+          new Response(JSON.stringify({ message: "refused" }), {
+            status,
+            headers: { "content-type": "application/json", ...headers },
+          }),
+        ),
+      )
+        .getPullRequest(PR)
+        .catch((e: unknown) => e as GitHubError);
+
+    expect((await refusal(403, { "x-ratelimit-remaining": "0" })).cause).toBe("rate-limited");
+    expect((await refusal(403, { "retry-after": "60" })).cause).toBe("rate-limited");
+    expect((await refusal(429, { "retry-after": "60" })).cause).toBe("rate-limited");
+    expect((await refusal(403, { "x-github-sso": "required; url=x" })).cause).toBe("sso");
+    expect((await refusal(403, {})).cause).toBeUndefined();
+    expect((await refusal(404, {})).cause).toBeUndefined();
+    expect((await refusal(401, {})).cause).toBeUndefined();
+  });
+});
+
+describe("CI client", () => {
+  const SHA = "9f1c2d3e4b5a69788796a5b4c3d2e1f009182736";
+  const COMMIT = { owner: "acme", repo: "shop", ref: SHA };
+  const RUN_ID = 28110002;
+  const runsFixture = JSON.parse(fixtureText("check-runs.json")) as { check_runs: unknown[] };
+
+  it("lists the latest check run of each check on the commit", async () => {
+    // Octokit's pagination reads the response URL, which fetch sets.
+    const fetchImpl = vi.fn<typeof fetch>((input) =>
+      Promise.resolve(
+        Object.defineProperty(json(fixtureText("check-runs.json")), "url", {
+          value: String(input),
+        }),
+      ),
+    );
+    const runs = await createGitHubClient(GHE, fetchImpl).listCheckRuns(COMMIT);
+    expect(runs).toEqual(runsFixture.check_runs);
+    expect(runs.map((r) => r.name)).toEqual([
+      "build",
+      "test",
+      "deploy-preview",
+      "sonar-quality-gate",
+      "lint",
+    ]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const url = new URL(String(fetchImpl.mock.calls[0]![0]));
+    expect(url.origin + url.pathname).toBe(
+      `https://api.acme.ghe.com/repos/acme/shop/commits/${SHA}/check-runs`,
+    );
+    expect(url.searchParams.get("filter")).toBe("latest");
+  });
+
+  it("reads the combined status of the commit", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(() =>
+      Promise.resolve(json(fixtureText("combined-status.json"))),
+    );
+    const combined = await createGitHubClient(GHE, fetchImpl).getCombinedStatus(COMMIT);
+    expect(combined.state).toBe("failure");
+    expect(combined.statuses.map((s) => s.context)).toEqual(["ci/jenkins", "codecov/patch"]);
+    const url = new URL(String(fetchImpl.mock.calls[0]![0]));
+    expect(url.origin + url.pathname).toBe(
+      `https://api.acme.ghe.com/repos/acme/shop/commits/${SHA}/status`,
+    );
+  });
+
+  it("reads one check run by id", async () => {
+    const run = runsFixture.check_runs[1];
+    const fetchImpl = vi.fn<typeof fetch>(() => Promise.resolve(json(JSON.stringify(run))));
+    const result = await createGitHubClient(GHE, fetchImpl).getCheckRun({
+      owner: "acme",
+      repo: "shop",
+      id: RUN_ID,
+    });
+    expect(result).toEqual(run);
+    expect(String(fetchImpl.mock.calls[0]![0])).toBe(
+      `https://api.acme.ghe.com/repos/acme/shop/check-runs/${RUN_ID}`,
+    );
+  });
+
+  it("downloads a job log through the redirect, without the token on the log host", async () => {
+    const LOG_URL = "https://logs.example.test/job/5?sig=x";
+    const fetchImpl = vi.fn<typeof fetch>((input) => {
+      const url = new URL(String(input));
+      if (url.host === "logs.example.test") {
+        return Promise.resolve(new Response(fixtureText("job-log.txt")));
+      }
+      return Promise.resolve(new Response(null, { status: 302, headers: { location: LOG_URL } }));
+    });
+    const log = await createGitHubClient(GHE, fetchImpl).getJobLogs({
+      owner: "acme",
+      repo: "shop",
+      jobId: 5,
+    });
+    expect(log).toBe(fixtureText("job-log.txt"));
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+
+    const [apiUrl, apiInit] = fetchImpl.mock.calls[0]!;
+    expect(String(apiUrl)).toBe("https://api.acme.ghe.com/repos/acme/shop/actions/jobs/5/logs");
+    expect(apiInit?.redirect).toBe("manual");
+    expect(new Headers(apiInit?.headers).get("authorization")).toBe(`token ${TOKEN}`);
+
+    const [logUrl, logInit] = fetchImpl.mock.calls[1]!;
+    expect(String(logUrl)).toBe(LOG_URL);
+    expect(new Headers(logInit?.headers).get("authorization")).toBeNull();
+  });
+
+  it("rejects when the log download fails", async () => {
+    const fetchImpl = vi.fn<typeof fetch>((input) => {
+      const url = new URL(String(input));
+      if (url.host === "logs.example.test") {
+        return Promise.resolve(new Response("expired", { status: 403 }));
+      }
+      return Promise.resolve(
+        new Response(null, {
+          status: 302,
+          headers: { location: "https://logs.example.test/job/5?sig=old" },
+        }),
+      );
+    });
+    const error = await createGitHubClient(GHE, fetchImpl)
+      .getJobLogs({ owner: "acme", repo: "shop", jobId: 5 })
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitHubError);
+    expect((error as GitHubError).status).toBe(403);
+    expect((error as GitHubError).message).toBe("acme.ghe.com: log download failed (403)");
   });
 });
 

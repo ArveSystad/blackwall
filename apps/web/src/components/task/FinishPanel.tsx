@@ -1,10 +1,13 @@
 import {
+  ciNeedsYou,
   isUserComment,
+  type CiCheck,
   type DeliveryAction,
   type DeliveryPlan,
   type DeliveryTarget,
   type Finding,
   type Task,
+  type TaskCi,
 } from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -20,14 +23,15 @@ import {
   deliveryActionCopy,
   isReviewTriage,
 } from "../../task-view";
-import { WallIcon } from "../icons";
+import { CiBadge } from "../CiBadge";
+import { CheckIcon, FailedIcon, SpinnerIcon, WallIcon } from "../icons";
 import { Markdown } from "../Markdown";
 import { OutboundAction } from "../OutboundAction";
 import { SeverityChip } from "../SeverityChip";
 import { Button } from "../ui/button";
 import { ErrorText } from "../ui/field";
 import { Kbd } from "../ui/kbd";
-import { answerGate } from "./actions";
+import { answerGate, fixCi } from "./actions";
 import type { TaskData } from "./use-task-data";
 import type { TaskAction } from "./use-task-action";
 
@@ -441,11 +445,99 @@ function Outbound({
   );
 }
 
+const CHECK_ORDER: Record<CiCheck["state"], number> = {
+  failed: 0,
+  pending: 1,
+  passed: 2,
+  skipped: 3,
+};
+
+function CheckStateIcon({ state }: { state: CiCheck["state"] }) {
+  switch (state) {
+    case "pending":
+      return <SpinnerIcon size="sm" className="animate-spin text-running" />;
+    case "failed":
+      return <FailedIcon size="sm" className="text-failed" />;
+    case "passed":
+      return <CheckIcon size="sm" className="text-done" />;
+    case "skipped":
+      return <CheckIcon size="sm" className="text-faint" />;
+  }
+}
+
+function checkStateLabel(check: CiCheck): string {
+  switch (check.state) {
+    case "pending":
+      return "running";
+    case "failed":
+      return check.conclusion?.replaceAll("_", " ") ?? "failed";
+    case "passed":
+      return "passed";
+    case "skipped":
+      return "skipped";
+  }
+}
+
+/**
+ * CI on the commit the task pushed: each check with its state and link,
+ * failing ones first, the token hint if CI can't be read fully, and Fix CI
+ * when it failed on a done task.
+ */
+function CiSection({ task, ci, action }: { task: Task; ci: TaskCi; action: TaskAction }) {
+  const checks = ci.checks.toSorted((a, b) => CHECK_ORDER[a.state] - CHECK_ORDER[b.state]);
+  return (
+    <section aria-label="CI" className="flex flex-col gap-2 border-b border-border px-[18px] py-3">
+      <span className="flex items-center gap-2">
+        <span className="label text-muted-foreground">CI</span>
+        <span className="mono text-meta text-faint">{ci.sha.slice(0, 7)}</span>
+        <span className="flex-1" />
+        <CiBadge ci={ci} />
+      </span>
+      {checks.length > 0 && (
+        <ul className="m-0 flex max-h-48 list-none flex-col gap-1 overflow-auto p-0">
+          {checks.map((check) => (
+            <li
+              key={`${check.kind}:${check.id}`}
+              className="flex min-w-0 items-center gap-2 text-meta"
+            >
+              <CheckStateIcon state={check.state} />
+              {check.url ? (
+                <a href={check.url} target="_blank" rel="noreferrer" className="truncate">
+                  {check.name}
+                </a>
+              ) : (
+                <span className="truncate text-foreground">{check.name}</span>
+              )}
+              <span className="flex-1" />
+              <span className="flex-none text-muted-foreground">{checkStateLabel(check)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {ci.hint && <p className="m-0 text-meta text-muted-foreground">{ci.hint}</p>}
+      {ciNeedsYou(task) && (
+        <Button
+          variant="needs"
+          className="h-9 justify-center text-body"
+          disabled={action.pending}
+          onClick={() => void fixCi(action, task)}
+        >
+          Fix CI
+        </Button>
+      )}
+    </section>
+  );
+}
+
 /** The pull request delivery opened, one click away once the task is done. */
-function Delivered({ url }: { url: string }) {
+function Delivered({ url, quiet }: { url: string; quiet: boolean }) {
   return (
     <div className="flex flex-col gap-2 px-4 pt-3 pb-3.5">
-      <Button variant="needs" asChild className="h-9 justify-center text-body">
+      <Button
+        variant={quiet ? "default" : "needs"}
+        asChild
+        className="h-9 justify-center text-body"
+      >
         <a href={url} target="_blank" rel="noreferrer">
           Open pull request
         </a>
@@ -461,7 +553,8 @@ function Delivered({ url }: { url: string }) {
  * Finish: the summary on the left, and on the right every outbound action
  * as a pre-ticked checkbox showing exactly what is sent. Nothing leaves the
  * machine until the user confirms here. Once done, a delivered pull request
- * stays linked from the same panel.
+ * stays linked from the same panel, and CI on the pushed commit shows there
+ * with Fix CI when it failed.
  */
 export function FinishPanel({
   task,
@@ -496,7 +589,7 @@ export function FinishPanel({
   return (
     <div className="flex min-h-0 flex-1 flex-wrap">
       <Summary task={task} data={data} />
-      {(atGate || delivered) && (
+      {(atGate || delivered || task.ci) && (
         <aside
           aria-label="Outbound actions"
           className="flex h-full max-w-[500px] min-w-0 flex-[1_1_440px] flex-col border-l border-border bg-sidebar"
@@ -511,10 +604,13 @@ export function FinishPanel({
             <span className="text-[12.5px] text-foreground">
               {atGate
                 ? "Nothing leaves this machine until you confirm. Untick anything you want to keep local."
-                : "Delivered. Your pull request is open."}
+                : delivered
+                  ? "Delivered. The pull request is linked below."
+                  : "Delivered. CI on the pushed commit is below."}
             </span>
           </div>
-          {!atGate && delivered && <Delivered url={delivered} />}
+          {task.ci && <CiSection task={task} ci={task.ci} action={action} />}
+          {!atGate && delivered && <Delivered url={delivered} quiet={ciNeedsYou(task)} />}
           {atGate && resolving && (
             <p
               role="status"

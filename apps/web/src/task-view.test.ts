@@ -22,6 +22,7 @@ import {
   isStoppedByUser,
   buildTranscript,
   checkRuns,
+  ciBanner,
   confirmLabel,
   currentActivity,
   currentRound,
@@ -613,6 +614,31 @@ describe("buildTranscript", () => {
     expect(toolTarget({ command: "git status\ngit log" })).toBe("git status");
     expect(toolTarget({})).toBe("");
     expect(toolTarget({ a: 1 })).toBe('{"a":1}');
+  });
+});
+
+describe("ciBanner", () => {
+  const run = (name: string, state: "passed" | "failed") => ({
+    name,
+    kind: "check-run" as const,
+    id: name.length,
+    state,
+    conclusion: state === "failed" ? "failure" : "success",
+    url: null,
+  });
+
+  it("titles the failure with the short sha and counts the failed checks", () => {
+    const banner = ciBanner({
+      sha: "abc1234def5678",
+      checks: [run("unit", "failed"), run("e2e", "failed"), run("lint", "passed")],
+    });
+    expect(banner.title).toBe("CI failed on abc1234");
+    expect(banner.detail).toMatch(/^2 checks failed\. /);
+  });
+
+  it("uses the singular for one failed check", () => {
+    const banner = ciBanner({ sha: "abc1234def5678", checks: [run("unit", "failed")] });
+    expect(banner.detail).toMatch(/^1 check failed\. /);
   });
 });
 

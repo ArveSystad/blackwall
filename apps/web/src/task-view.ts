@@ -17,6 +17,7 @@ import {
   type Step,
   type StepEvent,
   type Task,
+  type TaskCi,
 } from "@blackwall/shared";
 import { uiStageIndex } from "./inbox";
 
@@ -165,6 +166,15 @@ export function gateBanner(
     default:
       return { title: "Needs you", detail: "" };
   }
+}
+
+/** The needs-you banner of a done task whose CI failed. */
+export function ciBanner(ci: Pick<TaskCi, "sha" | "checks">): BannerCopy {
+  const failed = ci.checks.filter((c) => c.state === "failed").length;
+  return {
+    title: `CI failed on ${ci.sha.slice(0, 7)}`,
+    detail: `${failed} ${failed === 1 ? "check" : "checks"} failed. Fix CI runs a fix round with the failing logs, then code review, and stops at Finish so you can push again.`,
+  };
 }
 
 /** Grill questions only the user can answer that are still open. */
@@ -995,6 +1005,9 @@ export const GATE_REASONS: Record<Gate, string> = {
   escalation: "Review loop hit the round cap",
   finish: "Ready to finish",
 };
+
+/** Why a done task with failed CI needs the user, as the inbox card says it. */
+export const CI_FAILED_REASON = "CI failed";
 
 /** The agent ids a task uses, every role, without duplicates. */
 export function taskAgentIds(agents: RoleAgents): string[] {

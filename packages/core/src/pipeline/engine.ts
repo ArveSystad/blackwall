@@ -28,6 +28,7 @@ import type { AgentInvocation } from "../agents/service.js";
 import { AgentRunError, type AgentAdapter, type AgentResult } from "../agents/adapters/types.js";
 import type { QuotaTracker } from "../agents/quota.js";
 import type { Repositories } from "../db/repositories.js";
+import { MAX_CI_FAILURES, type CiWatcher } from "./ci.js";
 import {
   DELIVERY_CONFLICT_EVENT,
   DELIVERY_DONE_EVENT,
@@ -50,7 +51,7 @@ import {
   usageOf,
   type StepUsageColumns,
 } from "./usage.js";
-import { diffCommentFinding } from "./stages.js";
+import { ciFailureFinding, diffCommentFinding } from "./stages.js";
 import {
   FIRST_STAGE,
   InvalidGateResponseError,
@@ -216,6 +217,8 @@ export interface PipelineEngineOptions {
   log?: (message: string) => void;
   /** Whether a worktree or repo folder exists; a task whose worktree is gone fails instead of running. */
   pathExists?: (path: string) => boolean;
+  /** Watches CI after a delivery pushes the branch, and gathers the failing logs for Fix CI. */
+  ci?: Pick<CiWatcher, "watch" | "cancel" | "failureContext">;
 }
 
 /** In-memory hints for a task's next drive; lost on restart, which only costs a re-run. */
@@ -251,6 +254,7 @@ export function createPipelineEngine({
   publish = () => undefined,
   log = console.error,
   pathExists = () => true,
+  ci,
 }: PipelineEngineOptions) {
   const scheduler = createScheduler({ maxPerRepo: maxTasksPerRepo });
   const drives = new Map<string, Promise<void>>();
@@ -267,6 +271,8 @@ export function createPipelineEngine({
   const deliveryControllers = new Map<string, AbortController>();
   /** Tasks the user stopped; their drive ends `interrupted` with {@link TASK_STOPPED_ERROR}. */
   const stopping = new Set<string>();
+  /** Tasks gathering CI logs for a Fix CI; a second Fix CI is refused meanwhile. */
+  const fixingCi = new Set<string>();
   let stopped = false;
 
   function getTask(id: string): Task {
@@ -790,7 +796,9 @@ export function createPipelineEngine({
   /**
    * Moves a task past the gate it waits on, per an answer {@link respond}
    * accepted. While delivery runs the task carries `delivering`, cleared
-   * however delivery ends.
+   * however delivery ends. A delivery adds to the targets earlier ones
+   * reached (a Fix CI round delivers again), and one that pushed the branch
+   * starts watching CI on the pushed commit.
    */
   async function answerGate(
     task: Task,
@@ -818,12 +826,15 @@ export function createPipelineEngine({
       }
       saveRun(run.id, "succeeded", new Date());
       const delivered = [...new Set([...completedDeliveries(run), ...confirmation.actions])];
-      return saveTask(taskId, {
+      const targets = delivered.filter((d) => d !== "squash");
+      const done = saveTask(taskId, {
         status: "done",
         gate: null,
         error: null,
-        deliveryTargets: delivered.filter((d) => d !== "squash"),
+        deliveryTargets: [...new Set([...getTask(taskId).deliveryTargets, ...targets])],
       });
+      if (targets.includes("push-branch")) void ci?.watch(taskId);
+      return done;
     }
     if (next.kind !== "stage") throw new Error(`Unexpected transition ${next.kind}`);
     return queueStage(taskId, next, message);
@@ -1005,6 +1016,53 @@ export function createPipelineEngine({
     },
 
     /**
+     * Fix CI: a done work task whose CI failed gets one Critical force-fixed
+     * finding per failing check (at most {@link MAX_CI_FAILURES}) with the end
+     * of its log, in a new run, and is queued for a fix round. From there the
+     * normal loop runs (Checks, Code review, Aggregate, Summarize) and the
+     * task stops at the finish gate, where the user confirms the push again.
+     * Lists the task again if it was archived.
+     */
+    async fixCi(taskId: string): Promise<Task> {
+      const task = getTask(taskId);
+      if (pipelineKind(task.mode) !== "work") {
+        throw new TaskStateError(`Task ${taskId} only reviews; it has no CI to fix`);
+      }
+      if (task.status !== "done" || task.ci?.state !== "failed") {
+        throw new TaskStateError(`Task ${taskId} has no failed CI to fix`);
+      }
+      if (fixingCi.has(taskId)) throw new TaskStateError(`Task ${taskId} is already fixing CI`);
+      fixingCi.add(taskId);
+      try {
+        ci?.cancel(taskId);
+        const failures = ci
+          ? await ci.failureContext(task)
+          : task.ci.checks
+              .filter((c) => c.state === "failed")
+              .slice(0, MAX_CI_FAILURES)
+              .map((check) => ({ check, log: undefined }));
+        const fresh = getTask(taskId);
+        if (fresh.status !== "done") {
+          throw new TaskStateError(`Task ${taskId} changed while gathering its CI logs`);
+        }
+        const run = currentRun(taskId);
+        const round = currentRound(run);
+        const findings = r.findings.createMany(
+          failures
+            .slice(0, MAX_CI_FAILURES)
+            .map((failure) => ciFailureFinding(fresh, run.id, round, failure)),
+        );
+        for (const finding of findings) publish({ type: "finding.upserted", payload: { finding } });
+        if (fresh.archivedAt) saveTask(taskId, { archivedAt: null });
+        const next = afterGate("finish", "revise", position(fresh, round));
+        if (next.kind !== "stage") throw new Error(`Unexpected transition ${next.kind}`);
+        return queueStage(taskId, next);
+      } finally {
+        fixingCi.delete(taskId);
+      }
+    },
+
+    /**
      * Deletes a finding the user does not want posted, with the duplicates
      * merged into it, while a review task waits at triage. Work tasks only
      * force-ignore findings: theirs feed fix rounds and the summary.
@@ -1128,6 +1186,7 @@ export function createPipelineEngine({
           `Task ${taskId} was already delivered; delete its branch or PR by hand instead`,
         );
       }
+      ci?.cancel(taskId);
       await stop(taskId);
       // A gate answer may have queued it again meanwhile.
       scheduler.dequeue(taskId);

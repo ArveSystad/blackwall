@@ -208,6 +208,8 @@ describe("repo service", () => {
     expect(service.update(repo.id, { name: "App" }).maxBacklogTasks).toBe(2);
     expect(service.update(repo.id, { maxBacklogTasks: null }).maxBacklogTasks).toBeNull();
     expect(() => service.update(repo.id, { maxBacklogTasks: 0 })).toThrow(InvalidRepoError);
+    expect(service.update(repo.id, { watchCi: false }).watchCi).toBe(false);
+    expect(service.get(repo.id).watchCi).toBe(false);
     expect(service.update(repo.id, { defaultBranch: " trunk " })).toMatchObject({
       defaultBranch: "trunk",
     });

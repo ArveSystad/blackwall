@@ -1,4 +1,4 @@
-import { MissingCredentialError } from "@blackwall/core";
+import { CiRateLimitedError, MissingCredentialError } from "@blackwall/core";
 import type {
   AssignedIssues,
   Connection,
@@ -980,5 +980,129 @@ describe("GitHub delivery", () => {
     const github = createGitHubOrigin({ connections: connections([ghe]), fetch: fakeGitHub() });
     const freeText = { ...prTask(null), origin: { kind: "free-text" } } as Task;
     await expect(github.commentOnPullRequest(freeText, "x")).rejects.toThrow(/no pull request/);
+  });
+});
+
+describe("ciChecks", () => {
+  const githubCom: Connection = {
+    id: "gh",
+    name: "github.com",
+    kind: "github",
+    baseUrl: "https://github.com",
+    authMeta: {},
+    tokenSet: true,
+  } as Connection;
+  const target = { host: "github.com", owner: "acme", repo: "web", sha: "abc123" };
+  const signal = () => new AbortController().signal;
+
+  /**
+   * Answers the commit's check runs and statuses; the check runs can be rate-limited.
+   * Responses carry the request's URL, which Octokit's pagination reads.
+   */
+  function fakeCi({ rateLimited = false } = {}) {
+    const answer: typeof fetch = (input) => {
+      const path = new URL(String(input)).pathname;
+      const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "content-type": "application/json", ...headers },
+        });
+      if (path === "/repos/acme/web/commits/abc123/check-runs") {
+        if (rateLimited) {
+          return Promise.resolve(
+            json({ message: "API rate limit exceeded" }, 403, { "x-ratelimit-remaining": "0" }),
+          );
+        }
+        return Promise.resolve(
+          json({
+            total_count: 1,
+            check_runs: [
+              {
+                id: 7,
+                name: "unit",
+                status: "completed",
+                conclusion: "success",
+                html_url: "https://github.com/acme/web/runs/7",
+              },
+            ],
+          }),
+        );
+      }
+      if (path === "/repos/acme/web/commits/abc123/status") {
+        return Promise.resolve(
+          json({
+            state: "failure",
+            sha: "abc123",
+            statuses: [
+              {
+                id: 9,
+                context: "deploy",
+                state: "failure",
+                description: "Deploy failed",
+                target_url: "https://ci.example/9",
+              },
+            ],
+          }),
+        );
+      }
+      return Promise.resolve(json({ message: "Not Found" }, 404));
+    };
+    return vi.fn<typeof fetch>(async (input) => {
+      const res = await answer(input);
+      return Object.defineProperty(res, "url", { value: String(input) });
+    });
+  }
+
+  it("reports a missing token instead of failing the watch", async () => {
+    const list = connections([githubCom]);
+    list.requireCredential.mockRejectedValueOnce(
+      new MissingCredentialError("github", "github.com", null),
+    );
+    const fetchImpl = fakeCi();
+    const origin = createGitHubOrigin({ connections: list, fetch: fetchImpl });
+    expect(await origin.ciChecks(target, signal())).toEqual({
+      checks: [],
+      unreadable: [],
+      missingToken: true,
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("rejects with CiRateLimitedError when GitHub rate-limits the check runs", async () => {
+    const origin = createGitHubOrigin({
+      connections: connections([githubCom]),
+      fetch: fakeCi({ rateLimited: true }),
+    });
+    await expect(origin.ciChecks(target, signal())).rejects.toThrow(CiRateLimitedError);
+  });
+
+  it("reads the check runs and statuses of the commit", async () => {
+    const fetchImpl = fakeCi();
+    const origin = createGitHubOrigin({ connections: connections([githubCom]), fetch: fetchImpl });
+    const result = await origin.ciChecks(target, signal());
+    expect(result).toEqual({
+      checks: [
+        {
+          name: "unit",
+          kind: "check-run",
+          id: 7,
+          state: "passed",
+          conclusion: "success",
+          url: "https://github.com/acme/web/runs/7",
+        },
+        {
+          name: "deploy",
+          kind: "status",
+          id: 9,
+          state: "failed",
+          conclusion: "failure",
+          url: "https://ci.example/9",
+        },
+      ],
+      unreadable: [],
+    });
+    expect(String(fetchImpl.mock.calls[0]![0])).toContain(
+      "https://api.github.com/repos/acme/web/commits/abc123/check-runs?",
+    );
   });
 });

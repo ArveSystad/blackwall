@@ -33,6 +33,7 @@ import {
   type FollowUp,
   type RoleAgents,
   type Stage,
+  type TaskCi,
   type TaskOrigin,
 } from "@blackwall/shared";
 
@@ -95,6 +96,8 @@ export const repos = sqliteTable("repos", {
   favorite: integer("favorite", { mode: "boolean" }).notNull().default(false),
   /** Manual order among repos in the same favourite group. */
   position: integer("position").notNull().default(0),
+  /** Watch CI on GitHub/GHE remotes after a task pushes its branch. */
+  watchCi: integer("watch_ci", { mode: "boolean" }).notNull().default(true),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -184,6 +187,8 @@ export const tasks = sqliteTable(
       .default(sql`'[]'`),
     /** When the user archived the done task; null while it is listed. */
     archivedAt: timestamp("archived_at"),
+    /** CI on the commit the task last pushed; null when it was never watched. */
+    ci: text("ci", { mode: "json" }).$type<TaskCi>(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

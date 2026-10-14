@@ -13,6 +13,7 @@ import {
   stepEventSchema,
   stepSchema,
   taskSchema,
+  type TaskCi,
 } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDatabase, type OpenedDatabase } from "./database.js";
@@ -78,6 +79,13 @@ describe("connections and repos", () => {
 
     r.connections.delete(conn.id);
     expect(r.repos.get(repo.id)?.connectionId).toBeNull();
+  });
+
+  it("watches CI on new repos by default and persists turning it off", () => {
+    const repo = r.repos.create({ path: "/code/app", name: "app" });
+    expect(repo.watchCi).toBe(true);
+    expect(r.repos.update(repo.id, { watchCi: false }).watchCi).toBe(false);
+    expect(r.repos.get(repo.id)?.watchCi).toBe(false);
   });
 
   it("appends new repos to the manual order and lists favourites first", () => {
@@ -420,6 +428,37 @@ describe("tasks, runs and steps", () => {
         costUsd: null,
       },
     ]);
+  });
+
+  it("has no CI until a watch stores it, then round-trips the JSON", () => {
+    const task = seedTask();
+    expect(task.ci).toBeNull();
+    expect(r.tasks.get(task.id)?.ci).toBeNull();
+
+    const ci: TaskCi = {
+      state: "failed",
+      sha: "abc1234def5678",
+      host: "github.com",
+      owner: "acme",
+      repo: "app",
+      checks: [
+        {
+          name: "unit",
+          kind: "check-run",
+          id: 7,
+          state: "failed",
+          conclusion: "failure",
+          url: "https://github.com/acme/app/runs/7",
+        },
+        { name: "lint", kind: "status", id: 9, state: "passed", conclusion: "success", url: null },
+      ],
+      hint: null,
+      startedAt: "2026-10-08T10:00:00.000Z",
+      updatedAt: "2026-10-08T10:05:00.000Z",
+      finishedAt: "2026-10-08T10:05:00.000Z",
+    };
+    expect(r.tasks.update(task.id, { ci }).ci).toEqual(ci);
+    expect(r.tasks.get(task.id)?.ci).toEqual(ci);
   });
 
   describe("active sub-agents", () => {

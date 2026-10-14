@@ -1,5 +1,12 @@
 import type { GateDecision, GateResponseInput, Task } from "@blackwall/shared";
-import { archiveTask, respondToGate, resumeTask, stopTask, unarchiveTask } from "../../api";
+import {
+  archiveTask,
+  fixCi as fixCiRequest,
+  respondToGate,
+  resumeTask,
+  stopTask,
+  unarchiveTask,
+} from "../../api";
 import type { TaskAction } from "./use-task-action";
 
 /** Answers the task's gate; `message` rides along as instructions for the next stage. */
@@ -50,6 +57,11 @@ export function archive(action: TaskAction, task: Task) {
 /** Brings an archived task back to the inbox. */
 export function unarchive(action: TaskAction, task: Task) {
   return action.run("Unarchive", () => unarchiveTask(task.id));
+}
+
+/** Runs a fix round on the task's failed CI; the task stops at Finish to push again. */
+export function fixCi(action: TaskAction, task: Task) {
+  return action.run("Fix CI", () => fixCiRequest(task.id));
 }
 
 /** Puts the cursor in the input bar, where change requests and instructions are typed. */

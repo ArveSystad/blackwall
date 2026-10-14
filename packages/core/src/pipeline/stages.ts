@@ -24,6 +24,7 @@ import type { NewFinding } from "../db/schema.js";
 import type { GitService } from "../git/service.js";
 import { defaultBranchOf } from "../repos/service.js";
 import { ensureScratchDir } from "./artifacts.js";
+import type { CiFailure } from "./ci.js";
 import { runCheckCommand, type CheckOutcome, type CheckRunner } from "./checks.js";
 import { blockingFindings, planMerges } from "./findings.js";
 import { followUpsPromptSection } from "./follow-ups.js";
@@ -129,6 +130,42 @@ export function diffCommentFinding(
     explanation: pipeline === "review" ? body : `${body}\n\n${fence(comment.hunk, "diff")}`,
     suggestedFix: null,
     status: pipeline === "review" ? "open" : "force-fix",
+    round,
+  };
+}
+
+/**
+ * The finding for a check that failed CI on the pushed commit, force-fixed
+ * at Critical so a Fix CI round addresses it. Like a hunk comment it has
+ * neither a step nor a reviewer; its explanation carries the conclusion, the
+ * check's link and the end of its log, so it survives a restart.
+ */
+export function ciFailureFinding(
+  task: Task,
+  runId: string,
+  round: number,
+  { check, log }: CiFailure,
+): NewFinding {
+  const sha = task.ci?.sha.slice(0, 7);
+  const lines = [
+    `The \`${check.name}\` check ${check.conclusion ? `ended \`${check.conclusion}\`` : "failed"}${sha ? ` on the pushed commit ${sha}` : ""}. Make it pass.`,
+    ...(check.url ? ["", `Details: ${check.url}`] : []),
+    ...(log ? ["", "End of its log:", "", fence(log)] : ["", "Its log could not be fetched."]),
+  ];
+  return {
+    taskId: task.id,
+    runId,
+    stepId: null,
+    reviewerAgentId: null,
+    severity: "critical",
+    tags: [],
+    file: null,
+    lineStart: null,
+    lineEnd: null,
+    title: `CI failed: ${check.name}`,
+    explanation: lines.join("\n"),
+    suggestedFix: null,
+    status: "force-fix",
     round,
   };
 }

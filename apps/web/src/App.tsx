@@ -1,4 +1,4 @@
-import { documentTitle } from "@blackwall/shared";
+import { ciNeedsYou, documentTitle } from "@blackwall/shared";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
@@ -14,7 +14,7 @@ import {
 } from "./notifications";
 import { createQueryClient, tasksQuery } from "./query";
 import { router } from "./router";
-import { GATE_REASONS } from "./task-view";
+import { CI_FAILED_REASON, GATE_REASONS } from "./task-view";
 
 /** Keeps the tab title at `(N) blackwall`, N being the tasks that need the user. */
 function TabTitle() {
@@ -43,7 +43,11 @@ function NeedsYouNotifier() {
     if (!task || !canNotify(notificationsEnabled(), notificationPermission())) return;
     try {
       const notification = new Notification(task.title, {
-        body: task.gate ? GATE_REASONS[task.gate] : "Needs you",
+        body: task.gate
+          ? GATE_REASONS[task.gate]
+          : ciNeedsYou(task)
+            ? CI_FAILED_REASON
+            : "Needs you",
         tag: task.id,
       });
       notification.onclick = () => {

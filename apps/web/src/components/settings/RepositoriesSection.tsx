@@ -164,6 +164,7 @@ function RepoEditor({
   const [backlogCap, setBacklogCap] = useState(
     repo.maxBacklogTasks === null ? "" : String(repo.maxBacklogTasks),
   );
+  const [watchCi, setWatchCi] = useState(repo.watchCi);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -180,7 +181,8 @@ function RepoEditor({
     defaultOrigin !== repo.defaultOrigin ||
     defaultBranch.trim() !== repo.defaultBranch ||
     backlogCapInvalid ||
-    backlogCapValue !== repo.maxBacklogTasks;
+    backlogCapValue !== repo.maxBacklogTasks ||
+    watchCi !== repo.watchCi;
   const connection = connections.data?.find((c) => c.id === repo.connectionId);
   const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeys.repos });
 
@@ -214,6 +216,7 @@ function RepoEditor({
         defaultOrigin,
         defaultBranch: defaultBranch.trim(),
         maxBacklogTasks: backlogCapValue,
+        watchCi,
       });
       await invalidate();
       // The Backlog header's ahead/behind is cached per repo and follows the branch.
@@ -384,6 +387,22 @@ function RepoEditor({
           </Field>
         </div>
 
+        <label className="flex cursor-pointer items-start gap-2.5">
+          <input
+            type="checkbox"
+            className="mt-[3px]"
+            checked={watchCi}
+            onChange={(event) => setWatchCi(event.target.checked)}
+          />
+          <span className="flex flex-col gap-0.5">
+            <span className={fieldLabel}>Watch CI after push</span>
+            <span className="text-meta text-muted-foreground">
+              GitHub/GHE remotes only. Shows the pushed commit&apos;s checks on the task and offers
+              Fix CI when they fail.
+            </span>
+          </span>
+        </label>
+
         <label className="flex flex-col gap-1.5">
           <span className="flex items-center gap-2">
             <span className={fieldLabel}>Check commands</span>
@@ -423,6 +442,7 @@ function RepoEditor({
           setDefaultOrigin(repo.defaultOrigin);
           setDefaultBranch(repo.defaultBranch);
           setBacklogCap(repo.maxBacklogTasks === null ? "" : String(repo.maxBacklogTasks));
+          setWatchCi(repo.watchCi);
           setError(null);
           setNotice(null);
         }}

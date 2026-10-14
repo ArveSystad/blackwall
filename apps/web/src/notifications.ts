@@ -1,6 +1,6 @@
 import type { Task } from "@blackwall/shared";
 import { useSyncExternalStore } from "react";
-import { needsYouCount } from "./inbox";
+import { isNeedsYou, needsYouCount } from "./inbox";
 
 /**
  * Desktop notifications are opt-in per browser, since the permission belongs to the browser.
@@ -62,7 +62,7 @@ export function canNotify(enabled: boolean, permission: NotificationPermissionSt
 
 /** Ids of the tasks that need the user; the caller keeps them as the next `previousIds`. */
 export function needsYouIds(tasks: readonly Task[]): string[] {
-  return tasks.filter((t) => t.status === "needs-you").map((t) => t.id);
+  return tasks.filter(isNeedsYou).map((t) => t.id);
 }
 
 /**
@@ -78,7 +78,7 @@ export function needsYouToNotify(
   if (needsYouCount(tasks) <= previousIds.length) return null;
   const previous = new Set(previousIds);
   const fresh = tasks
-    .filter((t) => t.status === "needs-you" && !previous.has(t.id))
+    .filter((t) => isNeedsYou(t) && !previous.has(t.id))
     .toSorted((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
   return fresh[0] ?? null;
 }

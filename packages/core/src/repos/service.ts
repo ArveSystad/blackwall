@@ -202,6 +202,7 @@ export function createRepoService({ repos, connections }: RepoServiceOptions) {
         maxBacklogTasks,
         defaultBranch,
         favorite,
+        watchCi,
       } = parsed.data;
       return repos.update(id, {
         ...(name === undefined ? {} : { name }),
@@ -211,6 +212,7 @@ export function createRepoService({ repos, connections }: RepoServiceOptions) {
         ...(maxBacklogTasks === undefined ? {} : { maxBacklogTasks }),
         ...(defaultBranch === undefined ? {} : { defaultBranch }),
         ...(favorite === undefined ? {} : { favorite }),
+        ...(watchCi === undefined ? {} : { watchCi }),
       });
     },
 
