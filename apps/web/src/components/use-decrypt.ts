@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { decryptStart, runDecrypt } from "../decrypt";
-
-function prefersReducedMotion(): boolean {
-  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-}
+import { prefersReducedMotion } from "../reduced-motion";
 
 /**
  * The glyph-scramble decrypt of `text` (`DecryptText`, `DecryptGlyphs`).

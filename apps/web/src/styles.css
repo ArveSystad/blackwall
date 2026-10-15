@@ -629,6 +629,31 @@
   }
 }
 
+@keyframes bw-wordmark-flicker {
+  0% {
+    opacity: 1;
+  }
+  8% {
+    opacity: 0.25;
+  }
+  18% {
+    opacity: 0.9;
+  }
+  26% {
+    opacity: 0.15;
+  }
+  40% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 0.6;
+  }
+  78%,
+  100% {
+    opacity: 1;
+  }
+}
+
 @layer components {
   /* ---------- desktop title bar (router.tsx) ----------
    * The draggable strip the OS window buttons sit in. Invisible at height 0
@@ -800,6 +825,17 @@
 
   .bw-film-flicker-b {
     animation: bw-film-flicker-b 37s steps(1, end) infinite;
+  }
+
+  /* ---------- wordmark flicker (Wordmark.tsx) ----------
+   * Icon and text stutter like a failing neon tube, then settle at full
+   * opacity. The gap is JS-random (30–100s, `WORDMARK_FLICKER_*` in
+   * wordmark-flicker.ts), replayed by a `key` remount; 700ms ↔
+   * `WORDMARK_FLICKER_MS`. Opacity only, so no light override. Reduced motion:
+   * JS never schedules it, and the base rule leaves it at rest (opacity 1).
+   */
+  .bw-wordmark-flicker {
+    animation: bw-wordmark-flicker 700ms steps(1, end) both;
   }
 
   /* Glow is dark only: light keeps the static-feeling floor and drops the sweep;
