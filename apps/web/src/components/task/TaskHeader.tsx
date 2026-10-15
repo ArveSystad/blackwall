@@ -15,6 +15,7 @@ import {
 } from "../../task-view";
 import { AgentTile } from "../AgentTile";
 import { CiBadge } from "../CiBadge";
+import { DecryptText } from "../DecryptText";
 import { BacklogIcon, BranchIcon, ChevronRightIcon, StopIcon, TrashIcon } from "../icons";
 import { ORIGIN_ICONS, PR_MODE_LABELS } from "../origins";
 import { StageStepper } from "../StageStepper";
@@ -200,7 +201,7 @@ export function TaskHeader({
           </nav>
         )}
         <h1 className="m-0 min-w-0 text-title font-semibold tracking-[-0.01em] text-foreground-strong">
-          {task.title}
+          <DecryptText text={task.title} trigger={task.id} />
         </h1>
       </div>
       <div className="flex flex-wrap items-center gap-3.5 text-meta text-muted-foreground">

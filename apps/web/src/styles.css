@@ -1197,6 +1197,32 @@
     color: var(--fg-strong);
   }
 
+  /* ---------- decrypt text (DecryptText.tsx) ----------
+   * A one-shot glyph scramble that settles left to right (wordmark, running
+   * headline number, task title). The real text stays in flow and sets the
+   * width, only transparent while scrambling, so layout never jitters and
+   * screen readers read it; the glyphs are an absolute, aria-hidden overlay.
+   * The overlay inherits case, spacing, colour and glow on purpose, so the
+   * glyphs look like the text they resolve into. It ends by dropping the
+   * overlay; the duration is JS only (`DECRYPT_MS` in decrypt.ts). Reduced
+   * motion never plays it in JS; the reduced-motion block below is a fallback.
+   */
+  .bw-decrypt {
+    position: relative;
+    display: inline-block;
+  }
+
+  .bw-decrypt[data-scrambling] > .bw-decrypt-text {
+    opacity: 0;
+  }
+
+  .bw-decrypt-glyphs {
+    position: absolute;
+    inset: 0;
+    white-space: inherit;
+    pointer-events: none;
+  }
+
   /* ---------- chat panel open/close (ChatPanel.tsx) ----------
    * The panel is part of the layout, so its width slides 0 ↔ --chat-w (set
    * inline) and the main pane eases along; `@starting-style` gives the first
@@ -1246,6 +1272,15 @@
     .bw-stage-fill,
     .bw-lock-on {
       display: none;
+    }
+
+    /* useDecrypt skips under reduced motion; this keeps a stray frame from showing. */
+    .bw-decrypt-glyphs {
+      display: none;
+    }
+
+    .bw-decrypt[data-scrambling] > .bw-decrypt-text {
+      opacity: 1;
     }
 
     /* A static core flash only; useSupernovas drops it after SUPERNOVA_FLASH_MS. */

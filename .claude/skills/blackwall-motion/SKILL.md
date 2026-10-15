@@ -24,13 +24,14 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
    GridBackdrop.tsx, `.bw-stream` for TaskHeader.tsx, `.bw-laser`, `.bw-boom`,
    `.bw-revive`/`.bw-revive-failed`, `.bw-supernova` and `.bw-launch` for GridAgents.tsx, `.bw-assigned`/
    `.bw-assigned-flash` for CountPill.tsx, `.bw-running*` for RunningHeadline.tsx, `.bw-chat`/
-   `.bw-chat-content` for ChatPanel.tsx).
+   `.bw-chat-content` for ChatPanel.tsx, `.bw-decrypt*` for DecryptText.tsx).
 2. `.claude/skills/blackwall-design/SKILL.md` § Color semantics / Rules: the state-only rule and its
    two decorative exceptions (GridBackdrop, Stats).
 3. Reference code: `apps/web/src/components/GridBackdrop.tsx`, `apps/web/src/components/GridAgents.tsx`,
    `apps/web/src/components/RunningHeadline.tsx`, `apps/web/src/routes/Stats.tsx`, `apps/web/src/routes/Backlog.tsx`, `apps/web/src/agent-dots.ts`,
    `apps/web/src/components/use-archive-launches.ts`, `apps/web/src/components/use-resume-bursts.ts`,
-   `apps/web/src/components/use-supernovas.ts`,
+   `apps/web/src/components/use-supernovas.ts`, `apps/web/src/decrypt.ts`,
+   `apps/web/src/components/use-decrypt.ts`,
    `apps/web/src/components/use-count-boom.ts` (detects the rise during render and keeps its timer in
    a `[boom]` effect, so StrictMode's effect replay can't strand it).
 
@@ -58,7 +59,9 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
    (modifiers of `.bw-boom`, e.g. `.bw-revive` and `.bw-assigned`, inherit it and need no entry).
    `.bw-supernova` is the exception: it keeps a static core (`::before` at `opacity: 1`) and hides
    only its ring and sparks, and JS shortens its lifetime to a brief flash. ChatPanel needs no entry:
-   it skips its `opening`/`closing` presences in JS, so it opens and closes at once.
+   it skips its `opening`/`closing` presences in JS, so it opens and closes at once. Decrypt text
+   also skips in JS (`useDecrypt` never plays); its reduced-motion entry hides `.bw-decrypt-glyphs`
+   and shows the real text as a fallback.
 7. If a duration or delay is mirrored elsewhere (another CSS rule or a TS constant), state the
    pairing in the CSS comment and next to the constant.
 8. Run the Checks.
@@ -88,6 +91,7 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
     (300) and its 80ms stagger (`--supernova-delay`) ↔ `SUPERNOVA_STAGGER_MS`, all in `agent-dots.ts`;
     `.bw-chat` 180ms ↔ `CHAT_PANEL_MS` (180) in `chat.ts`, with the JS fallback at
     `CHAT_PANEL_FALLBACK_MS` (it settles the presence, since `transitionend` may not come).
+  - `DECRYPT_MS` (300) in `decrypt.ts` is JS only (an rAF loop); no CSS mirrors it.
 - Booms: `.bw-boom` modifiers set `--boom-color`, `--boom-size` and `--boom-strength` (bloom
   opacity, 22% by default; `.bw-assigned` uses 55%). A large boom must sit inside a
   `pointer-events-none absolute inset-0 overflow-hidden` layer, never directly in a scroll container,
@@ -102,6 +106,17 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
   playing. Prefix one-shot keys (`revive:`) when they share a container with keyed looping elements
   (`.bw-boom`, keyed by `dot.key`), so the keys never collide. Effects fired by a tasks change (lasers,
   supernovas) treat the first tasks snapshot as a seed only, so a reload never fires them.
+- Decrypt text (`DecryptText.tsx`, `use-decrypt.ts`, `decrypt.ts`): a one-shot glyph scramble that
+  settles left to right in `DECRYPT_MS`. `useDecrypt(text, trigger)` plays on mount when the trigger
+  is non-null and again on each change to a non-null value. Pass a stable trigger (an id, or a
+  counter bumped during render), never something that changes on every render. The real text stays
+  in flow at `opacity: 0` and sets the width; the glyphs are an `aria-hidden` absolute overlay that
+  inherits typography, including `text-transform`, colour and glow. No `aria-label`: it is not
+  allowed on a generic `<span>`, and the real text node already serves screen readers. Share one
+  hook's frame across stacked copies or split spans via `DecryptGlyphs`. Uses: the wordmark (once
+  per app load, one frame split across `black`/`wall`), the RunningHeadline number on count change
+  (one frame in both `.bw-running-base` and `.bw-running-hot`) and the TaskHeader title
+  (`trigger={task.id}`).
 - Mount-only animations follow `animate-bar-grow` (Stats.tsx: `origin-bottom animate-bar-grow`):
   fill mode `both`, set `transform-origin`, and don't animate later value changes.
 - GridBackdrop:

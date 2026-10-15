@@ -107,7 +107,12 @@ export function runningTaskCount(dots: readonly GridDot[]): number {
 
 /** The grid's running headline: "1 task running", "2 tasks running". */
 export function runningLabel(count: number): string {
-  return count === 1 ? "1 task running" : `${count} tasks running`;
+  return `${count}${runningLabelSuffix(count)}`;
+}
+
+/** The running headline after its number: " task running" or " tasks running". */
+export function runningLabelSuffix(count: number): string {
+  return count === 1 ? " task running" : " tasks running";
 }
 
 /** FNV-1a hash of a string, as an unsigned 32-bit integer. */

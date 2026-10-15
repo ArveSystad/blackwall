@@ -11,6 +11,7 @@ import {
   pulseDelay,
   pulsePhase,
   runningLabel,
+  runningLabelSuffix,
   runningTaskCount,
   stageChanges,
   statusMap,
@@ -244,6 +245,13 @@ describe("runningLabel", () => {
   it("is singular for one task and plural otherwise", () => {
     expect(runningLabel(1)).toBe("1 task running");
     expect(runningLabel(2)).toBe("2 tasks running");
+  });
+});
+
+describe("runningLabelSuffix", () => {
+  it("is the label after its number", () => {
+    expect(runningLabelSuffix(1)).toBe(" task running");
+    expect(runningLabelSuffix(3)).toBe(" tasks running");
   });
 });
 
