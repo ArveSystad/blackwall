@@ -109,12 +109,12 @@ describe("runDecrypt", () => {
       random: () => 0.999,
     });
     frameAt(0);
-    frameAt(100);
-    frameAt(200);
+    frameAt(DECRYPT_MS / 3);
+    frameAt((2 * DECRYPT_MS) / 3);
     expect(frames).toHaveLength(3);
     for (const f of frames) expect(f).not.toBe("blackwall");
     expect(done).toBe(0);
-    frameAt(300);
+    frameAt(DECRYPT_MS);
     expect(frames).toHaveLength(3);
     expect(done).toBe(1);
     expect(queue.size).toBe(0);
@@ -155,7 +155,7 @@ describe("runDecrypt", () => {
     frameAt(100);
     expect(Array.from(frames[1] ?? "")).toHaveLength(6);
     expect(frames[1]).toBe(decryptFrame("abcdef", 100, () => 0.999));
-    frameAt(300);
+    frameAt(DECRYPT_MS);
     expect(settled).toBe("abcdef");
   });
 });

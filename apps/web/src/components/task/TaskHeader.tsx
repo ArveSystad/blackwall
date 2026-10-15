@@ -202,7 +202,7 @@ export function TaskHeader({
           </nav>
         )}
         <h1 className="m-0 min-w-0 text-title font-semibold tracking-[-0.01em] text-foreground-strong">
-          <DecryptText text={task.title} trigger={task.id} />
+          <DecryptText text={task.title} trigger={task.id} className="bw-decrypt-clip" />
         </h1>
       </div>
       <div className="flex flex-wrap items-center gap-3.5 text-meta text-muted-foreground">

@@ -1,5 +1,5 @@
 /** How long a decrypt takes to settle, left to right. JS only: no CSS mirrors it (see `.bw-decrypt*` in styles.css). */
-export const DECRYPT_MS = 300;
+export const DECRYPT_MS = 220;
 
 /** The glyphs an unsettled character cycles through. */
 export const DECRYPT_GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789▓░/\\<>";

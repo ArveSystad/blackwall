@@ -1272,9 +1272,12 @@
    * width, only transparent while scrambling, so layout never jitters and
    * screen readers read it; the glyphs are an absolute, aria-hidden overlay.
    * The overlay inherits case, spacing, colour and glow on purpose, so the
-   * glyphs look like the text they resolve into. It ends by dropping the
-   * overlay; the duration is JS only (`DECRYPT_MS` in decrypt.ts). Reduced
-   * motion never plays it in JS; the reduced-motion block below is a fallback.
+   * glyphs look like the text they resolve into. The overlay never wraps, so
+   * it stays one line even though the glyphs are wider than the text;
+   * `.bw-decrypt-clip` clips it to the text's box, for text with no glow to
+   * lose (the task title). It ends by dropping the overlay; the duration is
+   * JS only (`DECRYPT_MS` in decrypt.ts). Reduced motion never plays it in
+   * JS; the reduced-motion block below is a fallback.
    */
   .bw-decrypt {
     position: relative;
@@ -1288,8 +1291,12 @@
   .bw-decrypt-glyphs {
     position: absolute;
     inset: 0;
-    white-space: inherit;
+    white-space: nowrap;
     pointer-events: none;
+  }
+
+  .bw-decrypt-clip > .bw-decrypt-glyphs {
+    overflow: hidden;
   }
 
   /* ---------- chat panel open/close (ChatPanel.tsx) ----------
