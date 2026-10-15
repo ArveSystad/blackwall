@@ -253,7 +253,7 @@ export function queueTask(
 /**
  * Task routes. Tasks change through the pipeline and reach clients as WS
  * events; with a pipeline, interrupted or failed tasks can be resumed, done
- * tasks archived and unarchived, a queued or running task stopped, an
+ * tasks archived and unarchived, a queued, running or waiting task stopped, an
  * undelivered task deleted, a
  * `needs-you` task's gate answered, its grill questions answered, its
  * findings force-fixed or force-ignored (or, at review triage, deleted), its
@@ -425,6 +425,7 @@ export function taskRoutes(
     /**
      * Stops a queued or running task: it ends `interrupted` ("Stopped by
      * you"), its agent CLIs killed, and Resume continues the same session.
+     * A task waiting at a gate keeps its gate, and Resume puts it back there.
      */
     routes.post("/:id/stop", async (c) => c.json<Task>(await pipeline.stop(c.req.param("id"))));
 

@@ -196,7 +196,7 @@ export function chatSystemPrompt(): string {
     "",
     `- \`create-task\` \`{ title, description }\`: add a task to the repo's backlog. A title of at most ${MAX_TITLE_CHARS} characters; a description an engineer could plan from.`,
     "- `message-task` `{ taskId, message }`: instructions for a task waiting at a gate (status `needs-you`). Running tasks only read messages at a gate, so never propose it for a task that is not at one.",
-    "- `stop-task` `{ taskId }`: stop a `queued` or `running` task.",
+    "- `stop-task` `{ taskId }`: stop a `queued`, `running` or `needs-you` task.",
     "- `resume-task` `{ taskId }`: resume an `interrupted` or `failed` task.",
     "",
     "Use only task ids from the state block and never invent tasks. Propose actions only when the user asks for them or they clearly help;",

@@ -113,7 +113,7 @@ function TabDecoration({ tab, task, data }: { tab: TaskTab; task: Task; data: Ta
 
 /**
  * Task keys: A approves the plan, R requests changes (at plan approval) or
- * resumes an interrupted or failed task, S stops a queued or running one.
+ * resumes an interrupted or failed task, S stops a queued, running or waiting one.
  * Never while typing.
  */
 function useTaskKeys(onKey: (key: "a" | "r" | "s") => void) {

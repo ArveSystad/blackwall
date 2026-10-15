@@ -44,7 +44,7 @@ export function resume(action: TaskAction, task: Task) {
   return action.run("Resume", () => resumeTask(task.id));
 }
 
-/** Stops a queued or running task; Resume continues it later. */
+/** Stops a queued, running or waiting task; Resume continues it later. */
 export function stop(action: TaskAction, task: Task) {
   return action.run("Stop", () => stopTask(task.id));
 }

@@ -330,7 +330,10 @@ export function fixCi(taskId: string): Promise<Task> {
   return request(`${taskPath(taskId)}/ci/fix`, taskSchema, { method: "POST" });
 }
 
-/** Stops a queued or running task; it ends interrupted and Resume continues its session. */
+/**
+ * Stops a queued, running or waiting task; it ends interrupted and Resume
+ * continues its session, or puts a task stopped at a gate back there.
+ */
 export function stopTask(taskId: string): Promise<Task> {
   return request(`${taskPath(taskId)}/stop`, taskSchema, { method: "POST" });
 }

@@ -880,10 +880,16 @@ export function createPipelineEngine({
    * {@link TASK_STOPPED_ERROR}: a queued one leaves the queue unstarted, a
    * running one has its agent CLIs killed like on shutdown, its step left
    * `interrupted` with the session id, so Resume continues that session.
-   * Resolves once the drive has settled. Any other status is left as it is.
+   * Resolves once the drive has settled. A task waiting at a gate keeps its
+   * gate, so Resume puts it back there; one delivering or commenting on its
+   * issue is left as it is, like any other status.
    */
   async function stop(taskId: string): Promise<Task> {
     const task = getTask(taskId);
+    if (task.status === "needs-you") {
+      if (delivering.has(taskId) || commenting.has(taskId)) return task;
+      return saveTask(taskId, { status: "interrupted", error: TASK_STOPPED_ERROR });
+    }
     if (task.status !== "queued" && task.status !== "running") return task;
     stopping.add(taskId);
     try {
@@ -1127,7 +1133,8 @@ export function createPipelineEngine({
      * Re-queues an interrupted or failed task at its current stage. Steps that
      * succeeded in that stage's visit keep their results; interrupted steps
      * continue their CLI sessions with `--resume <sessionId>`, or start afresh
-     * if the CLI lost the session.
+     * if the CLI lost the session. A task stopped while it waited at a gate
+     * goes straight back to that gate, without running anything.
      */
     resume(taskId: string): Task {
       const task = getTask(taskId);
@@ -1135,6 +1142,10 @@ export function createPipelineEngine({
         throw new TaskStateError(
           `Task ${taskId} is ${task.status}; only interrupted or failed tasks resume`,
         );
+      }
+      // Only a stop at a gate leaves an interrupted task with its gate.
+      if (task.status === "interrupted" && task.gate !== null) {
+        return saveTask(taskId, { status: "needs-you", error: null });
       }
       pending.set(taskId, { resuming: true });
       const queued = saveTask(taskId, { status: "queued", error: null });

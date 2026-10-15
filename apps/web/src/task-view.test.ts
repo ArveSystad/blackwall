@@ -1002,11 +1002,16 @@ describe("new task form", () => {
 });
 
 describe("stop and delete", () => {
-  it("offers Stop only while queued or running", () => {
+  it("offers Stop while queued, running or waiting at a gate", () => {
     expect(canStop(makeTask({ status: "queued" }))).toBe(true);
     expect(canStop(makeTask({ status: "running" }))).toBe(true);
-    expect(canStop(makeTask({ status: "needs-you", gate: "finish" }))).toBe(false);
+    expect(canStop(makeTask({ status: "needs-you", gate: "finish" }))).toBe(true);
+    expect(canStop(makeTask({ status: "needs-you", gate: "questions" }))).toBe(true);
+    expect(canStop(makeTask({ status: "needs-you", gate: "finish", delivering: true }))).toBe(
+      false,
+    );
     expect(canStop(makeTask({ status: "interrupted" }))).toBe(false);
+    expect(canStop(makeTask({ status: "done" }))).toBe(false);
   });
 
   it("offers Archive only for done, unarchived tasks", () => {

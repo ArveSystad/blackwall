@@ -884,12 +884,69 @@ describe("stop and delete", () => {
     expect(r.runs.listByTask(second.id)).toEqual([]);
   });
 
-  it("leaves a task that is neither queued nor running as it is", async () => {
+  it("leaves a task that is neither queued, running nor waiting as it is", async () => {
+    const seeded = seedTask();
+    const h = harness((stage) => (stage === "inform" ? { fail: "boom" } : {}));
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    const failed = task(seeded.id);
+    expect(failed).toMatchObject({ status: "failed", error: "boom" });
+    expect(await h.engine.stop(seeded.id)).toEqual(failed);
+  });
+
+  it("stops a task waiting at a gate and resumes it there", async () => {
     const seeded = seedTask();
     const h = harness();
     h.engine.enqueue(seeded.id);
     await settle(h.engine);
-    expect(await h.engine.stop(seeded.id)).toMatchObject({ status: "needs-you" });
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "plan-approval" });
+    const callsBefore = h.calls.length;
+
+    expect(await h.engine.stop(seeded.id)).toMatchObject({
+      status: "interrupted",
+      gate: "plan-approval",
+      error: TASK_STOPPED_ERROR,
+    });
+    await expect(
+      h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" }),
+    ).rejects.toThrow(TaskStateError);
+
+    expect(h.engine.resume(seeded.id)).toMatchObject({
+      status: "needs-you",
+      gate: "plan-approval",
+      error: null,
+    });
+    expect(h.engine.queuedTaskIds()).toEqual([]);
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "plan-approval" });
+    expect(h.calls).toHaveLength(callsBefore);
+  });
+
+  it("stops a task waiting on grill answers and keeps its questions", async () => {
+    const seeded = seedTask();
+    let grills = 0;
+    const h = harness((stage) =>
+      stage === "plan-review" && grills++ === 0
+        ? { structured: { questions: [{ question: "Lock after how many?", needsHuman: true }] } }
+        : {},
+    );
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "questions" });
+    const [question] = r.grillQuestions.listByTask(seeded.id);
+    const callsBefore = h.calls.length;
+
+    expect(await h.engine.stop(seeded.id)).toMatchObject({
+      status: "interrupted",
+      gate: "questions",
+    });
+    await expect(h.engine.answerQuestion(seeded.id, question!.id, { answer: "5" })).rejects.toThrow(
+      TaskStateError,
+    );
+
+    expect(h.engine.resume(seeded.id)).toMatchObject({ status: "needs-you", gate: "questions" });
+    expect(r.grillQuestions.listByTask(seeded.id)).toEqual([question]);
+    expect(h.calls).toHaveLength(callsBefore);
   });
 
   it("deletes a running task with its workspace and history", async () => {

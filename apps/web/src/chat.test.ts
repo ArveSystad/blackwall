@@ -207,8 +207,9 @@ describe("actionAvailability", () => {
     ).toMatchObject({ kind: "unavailable", reason: "This task's gate takes no message" });
   });
 
-  it("stops queued or running tasks and resumes interrupted or failed ones", () => {
+  it("stops queued, running or waiting tasks and resumes interrupted or failed ones", () => {
     expect(check(action({ kind: "stop-task", taskId: running.id })).kind).toBe("available");
+    expect(check(action({ kind: "stop-task", taskId: atQuestions.id })).kind).toBe("available");
     expect(check(action({ kind: "stop-task", taskId: failed.id })).kind).toBe("unavailable");
     expect(check(action({ kind: "resume-task", taskId: failed.id })).kind).toBe("available");
     expect(check(action({ kind: "resume-task", taskId: running.id })).kind).toBe("unavailable");

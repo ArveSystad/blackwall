@@ -9,6 +9,7 @@ import {
 import { useSyncExternalStore } from "react";
 import { messageRoute } from "./components/task/actions";
 import { isPlainKey, isTypingTarget, useWindowKeydown } from "./keyboard";
+import { canStop } from "./task-view";
 
 /**
  * The repo chat panel on the right. Whether it is open and its preferred width are remembered per
@@ -270,9 +271,9 @@ export function actionAvailability(
             : "A task takes messages only while it waits for you at a gate",
       };
     case "stop-task":
-      return task.status === "queued" || task.status === "running"
+      return canStop(task)
         ? { kind: "available" }
-        : { kind: "unavailable", reason: "Only a queued or running task can be stopped" };
+        : { kind: "unavailable", reason: "Only a queued, running or waiting task can be stopped" };
     case "resume-task":
       return task.status === "interrupted" || task.status === "failed"
         ? { kind: "available" }

@@ -253,9 +253,16 @@ export function carryPicks(
 // Stop, archive and delete
 // ---------------------------------------------------------------------------
 
-/** Queued and running tasks can be stopped. */
-export function canStop(task: Pick<Task, "status">): boolean {
-  return task.status === "queued" || task.status === "running";
+/**
+ * Queued and running tasks can be stopped, and so can a task waiting at a
+ * gate unless it is delivering.
+ */
+export function canStop(task: Pick<Task, "status" | "delivering">): boolean {
+  return (
+    task.status === "queued" ||
+    task.status === "running" ||
+    (task.status === "needs-you" && !task.delivering)
+  );
 }
 
 /** Done tasks not yet archived can be archived; archiving keeps them done. */
@@ -283,7 +290,10 @@ export function deleteBlockedReason(task: Pick<Task, "deliveryTargets">): string
 export function deleteTaskCopy(
   task: Pick<Task, "status" | "origin" | "branch" | "worktreePath">,
 ): string {
-  const stopFirst = canStop(task) ? "Stops the task, then removes " : "Removes ";
+  const stopFirst =
+    task.status === "queued" || task.status === "running"
+      ? "Stops the task, then removes "
+      : "Removes ";
   if (!task.worktreePath) return `${stopFirst}the task and all run history.`;
   if (task.origin.kind === "github-pr") {
     return `${stopFirst}the worktree and all run history. The PR branch${task.branch ? ` ${task.branch}` : ""} stays.`;

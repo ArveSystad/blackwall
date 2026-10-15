@@ -216,7 +216,12 @@ export function TaskBanner({
             <span className="font-semibold text-foreground-strong">
               {failed ? "The task failed" : stoppedByUser ? "Stopped" : "Stopped mid-step"}
             </span>
-            {stoppedByUser ? (
+            {stoppedByUser && task.gate !== null ? (
+              <span className="text-[12.5px]">
+                You stopped this task while it waited on you. The worktree is intact; Resume puts it
+                back where it waited, or Delete removes the task.
+              </span>
+            ) : stoppedByUser ? (
               <span className="text-[12.5px]">
                 You stopped this task. The worktree is intact; Resume continues the agent&apos;s
                 session where it stopped, or Delete removes the task.

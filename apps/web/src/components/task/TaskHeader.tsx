@@ -76,7 +76,7 @@ function startedLabel(date: Date): string {
 /**
  * Task header: origin, title with a breadcrumb back to the repo's backlog,
  * branch, agents, the tokens and cost used so far, and the stage stepper with the review round, plus Stop
- * (while queued or running), Archive (when done), Unarchive (when archived)
+ * (while queued, running or waiting on you), Archive (when done), Unarchive (when archived)
  * and Delete (until something was delivered).
  * While running, a cyan stream sweeps along the bottom border. Corner brackets frame it and turn
  * cyan while anything inside has focus.
