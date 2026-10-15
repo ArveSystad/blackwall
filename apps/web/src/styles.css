@@ -403,6 +403,33 @@
   }
 }
 
+/* Fills by ~250ms of 600ms, then fades back to the faint track. */
+@keyframes bw-stage-fill {
+  0% {
+    transform: scaleX(0);
+    opacity: 1;
+  }
+  40% {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleX(1);
+    opacity: 0;
+  }
+}
+
+@keyframes bw-lock-on {
+  from {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
 /* 56px out = 2 × DOT_SPACING (agent-dots.ts). */
 @keyframes bw-supernova-spark {
   0% {
@@ -780,6 +807,47 @@
   /* Glow is dark only. */
   :root[data-theme="light"] .bw-stream {
     filter: none;
+  }
+
+  /* ---------- stage advance (StageStepper.tsx) ----------
+   * When a task moves forward a stage, the connector into the new node fills
+   * left to right in the status color and fades back to its faint track, then
+   * the node plays a one-shot lock-on ring. Both end transparent; the 200ms
+   * delay + 600ms ring = 800ms pairs with STAGE_ADVANCE_MS (stage-advance.ts).
+   * They stay inside the stepper row and never restart or recolor .bw-stream
+   * (or any later stepper underline), which keeps running through an advance.
+   * Reduced motion would freeze them visible, so they are hidden instead.
+   */
+  .bw-stage-fill {
+    position: absolute;
+    inset: 0;
+    transform-origin: left;
+    background: var(--stage-color);
+    animation: bw-stage-fill 600ms ease-out both;
+    pointer-events: none;
+  }
+
+  .bw-lock-on {
+    position: absolute;
+    inset: -1px;
+    border-radius: 9999px;
+    border: 1.5px solid var(--stage-color);
+    box-shadow: 0 0 6px var(--stage-color);
+    animation: bw-lock-on 600ms ease-out 200ms both;
+    pointer-events: none;
+  }
+
+  .bw-stage-running {
+    --stage-color: var(--st-running);
+  }
+
+  .bw-stage-needs {
+    --stage-color: var(--st-needs);
+  }
+
+  /* Glow is dark only. */
+  :root[data-theme="light"] .bw-lock-on {
+    box-shadow: none;
   }
 
   /* ---------- stage-change laser (GridAgents.tsx) ----------
@@ -1174,7 +1242,9 @@
     .bw-laser,
     .bw-boom,
     .bw-assigned-flash,
-    .bw-launch {
+    .bw-launch,
+    .bw-stage-fill,
+    .bw-lock-on {
       display: none;
     }
 
