@@ -4,6 +4,7 @@ import { clockTime, pausedQuotas, quotaLabel } from "../backlog";
 import { cn } from "../lib/utils";
 import { quotaQuery } from "../query";
 import { PausedIcon } from "./icons";
+import { pill } from "./StatusBadge";
 
 /**
  * Header chip while an agent CLI is paused on its usage limit; hidden
@@ -30,10 +31,7 @@ export function QuotaChip({ className }: { className?: string }) {
       role="status"
       title={detail}
       aria-label={`Paused: ${detail}`}
-      className={cn(
-        "inline-flex h-5 items-center gap-1 rounded-full bg-interrupted/12 px-[7px] text-label font-semibold whitespace-nowrap text-interrupted",
-        className,
-      )}
+      className={cn(pill, "gap-1 bg-interrupted/12 text-interrupted", className)}
     >
       <PausedIcon size="sm" />
       Quota · {clockTime(first.pausedUntil!)}

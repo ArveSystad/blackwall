@@ -73,7 +73,6 @@
   --glow-text-done: 0 0 10px rgba(92, 214, 154, 0.55);
   /* Backlog "Pushed to main" note; animated once by --animate-pushed-glow. */
   --glow-text-pushed: 0 0 10px rgba(92, 214, 154, 0.55);
-  --glow-status-needs: 0 0 0 1px rgba(255, 61, 207, 0.55), 0 0 10px rgba(255, 61, 207, 0.3);
   --glow-rail: 0 0 8px var(--magenta);
   --glow-pip: 0 0 6px currentColor; /* set text color to the status color */
   --glow-tab: 0 0 8px var(--primary);
@@ -153,7 +152,6 @@
   --glow-done: 0 0 0 1px #1a7f37, 0 0 0 3px rgba(26, 127, 55, 0.16);
   --glow-text-done: none;
   --glow-text-pushed: none;
-  --glow-status-needs: none;
   --glow-rail: none;
   --glow-pip: none;
   --glow-tab: none;
@@ -236,7 +234,6 @@
   --shadow-glow-needs: var(--glow-magenta);
   --shadow-glow-primary: var(--glow-violet);
   --shadow-glow-primary-btn: var(--glow-primary-btn);
-  --shadow-glow-status-needs: var(--glow-status-needs);
   --shadow-glow-rail: var(--glow-rail);
   --shadow-glow-pip: var(--glow-pip);
   --shadow-glow-tab: var(--glow-tab);
@@ -1340,7 +1337,7 @@
     animation: bw-chat-out 180ms ease-in both;
   }
 
-  /* ---------- HUD chrome (ui/button.tsx, ui/dialog.tsx, NeedsBanner.tsx, TaskHeader.tsx) ----------
+  /* ---------- HUD chrome (ui/button.tsx, ui/dialog.tsx, NeedsBanner.tsx, TaskHeader.tsx, StatusBadge.tsx) ----------
    * Square surfaces with the top-left and bottom-right corners cut by --bw-cut. Hosts take no CSS
    * border or radius: the frame line is the ::after, drawn on top of the content.
    * clip-path drops an element's own box-shadow and filter output, so glow never sits on a clipped
@@ -1356,6 +1353,13 @@
     --bw-cut: 8px;
     --bw-chamfer-line: var(--border-strong);
     --bw-chamfer-w: 1px;
+  }
+
+  /* The compact cut for 20px status pills; no frame line unless toned (e.g. .bw-chamfer-needs),
+   * so it must come before the tone modifiers. */
+  .bw-chamfer-pill {
+    --bw-cut: 5px;
+    --bw-chamfer-line: transparent;
   }
 
   .bw-chamfer {
