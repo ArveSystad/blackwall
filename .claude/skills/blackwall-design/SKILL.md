@@ -106,6 +106,10 @@ Rules:
   `text-shadow-glow-done`) on its headline number and chart bars only. In light these become a ring
   or none, like the other glows. Chart bars grow in once on mount (`animate-bar-grow`); later height
   changes are not animated.
+- The wordmark flicker is the third sanctioned exception: decorative motion with no new glow. Every
+  30–100s the top-bar wordmark (icon and text) stutters through opacity for 700ms like a failing neon
+  tube (`.bw-wordmark-flicker`), then settles. It adds no glow or colour, never plays on first mount
+  and is skipped under reduced motion. Only the wordmark may do this. Details in `blackwall-motion`.
 - Never put glow or neon on diffs, transcripts, long text, or table rows.
 - Glow is dark only. Light replaces it with a 1px border plus a 3px tinted ring (`--glow-*` handles this).
 - Chamfered surfaces (see Density and shape) keep their glow through the `--drop-glow-*` / `--drop-pop`

@@ -2,7 +2,8 @@
 name: blackwall-motion
 description: >
   Motion and animation in apps/web: keyframes, `--animate-*` tokens, pulses, glows, transitions,
-  lasers and booms, GridBackdrop and backdrop effects, reduced motion and light-theme overrides.
+  lasers and booms, GridBackdrop and backdrop effects, the wordmark flicker, reduced motion and
+  light-theme overrides.
   Use for ANY animation work in apps/web, e.g. "make it animate", "add a pulse/glow", "fade this
   in", "animate the backdrop".
 ---
@@ -25,14 +26,15 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
    `.bw-revive`/`.bw-revive-failed`, `.bw-supernova` and `.bw-launch` for GridAgents.tsx, `.bw-assigned`/
    `.bw-assigned-flash` for CountPill.tsx, `.bw-running*` for RunningHeadline.tsx, `.bw-chat`/
    `.bw-chat-content` for ChatPanel.tsx, `.bw-decrypt*` for DecryptText.tsx,
-   `bw-scan-wipe`/`--animate-scan-wipe` for ui/dialog.tsx).
+   `.bw-wordmark-flicker` for Wordmark.tsx, `bw-scan-wipe`/`--animate-scan-wipe` for ui/dialog.tsx).
 2. `.claude/skills/blackwall-design/SKILL.md` § Color semantics / Rules: the state-only rule and its
-   two decorative exceptions (GridBackdrop, Stats).
+   three decorative exceptions (GridBackdrop, Stats, the wordmark flicker).
 3. Reference code: `apps/web/src/components/GridBackdrop.tsx`, `apps/web/src/components/GridAgents.tsx`,
    `apps/web/src/components/RunningHeadline.tsx`, `apps/web/src/routes/Stats.tsx`, `apps/web/src/routes/Backlog.tsx`, `apps/web/src/agent-dots.ts`,
    `apps/web/src/components/use-archive-launches.ts`, `apps/web/src/components/use-resume-bursts.ts`,
    `apps/web/src/components/use-supernovas.ts`, `apps/web/src/decrypt.ts`,
-   `apps/web/src/components/use-decrypt.ts`,
+   `apps/web/src/components/use-decrypt.ts`, `apps/web/src/components/Wordmark.tsx`,
+   `apps/web/src/wordmark-flicker.ts`, `apps/web/src/components/use-wordmark-flicker.ts`,
    `apps/web/src/components/use-count-boom.ts` (detects the rise during render and keeps its timer in
    a `[boom]` effect, so StrictMode's effect replay can't strand it).
 
@@ -40,8 +42,8 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
 
 ## Procedure
 
-1. Confirm the motion marks state, or falls under the GridBackdrop/Stats exception. Otherwise don't
-   animate.
+1. Confirm the motion marks state, or falls under the GridBackdrop/Stats/wordmark-flicker
+   exceptions. Otherwise don't animate.
 2. Search the existing `bw-*` keyframes and `--animate-*` tokens; reuse one if it fits.
 3. Add `@keyframes bw-<name>` next to the others.
 4. Expose it one of two ways:
@@ -62,7 +64,9 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
    only its ring and sparks, and JS shortens its lifetime to a brief flash. ChatPanel needs no entry:
    it skips its `opening`/`closing` presences in JS, so it opens and closes at once. Decrypt text
    also skips in JS (`useDecrypt` never plays); its reduced-motion entry hides `.bw-decrypt-glyphs`
-   and shows the real text as a fallback.
+   and shows the real text as a fallback. The wordmark flicker skips in JS too
+   (`useWordmarkFlicker` never schedules one), and the base rule covers it: it is opacity only and
+   rests at opacity 1, so it needs no `display: none` entry.
 7. If a duration or delay is mirrored elsewhere (another CSS rule or a TS constant), state the
    pairing in the CSS comment and next to the constant.
 8. Run the Checks.
@@ -96,6 +100,8 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
     `.bw-chat` 180ms ↔ `CHAT_PANEL_MS` (180) in `chat.ts`, with the JS fallback at
     `CHAT_PANEL_FALLBACK_MS` (it settles the presence, since `transitionend` may not come).
   - `DECRYPT_MS` (300) in `decrypt.ts` is JS only (an rAF loop); no CSS mirrors it.
+  - `.bw-wordmark-flicker` 700ms ↔ `WORDMARK_FLICKER_MS` (700) in `wordmark-flicker.ts`. No drop
+    timeout: replay is a `key` remount, and `steps(1, end) both` ends at opacity 1.
 - Booms: `.bw-boom` modifiers set `--boom-color`, `--boom-size` and `--boom-strength` (bloom
   opacity, 22% by default; `.bw-assigned` uses 55%). A large boom must sit inside a
   `pointer-events-none absolute inset-0 overflow-hidden` layer, never directly in a scroll container,
@@ -121,6 +127,14 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
   per app load, one frame split across `black`/`wall`), the RunningHeadline number on count change
   (one frame in both `.bw-running-base` and `.bw-running-hot`) and the TaskHeader title
   (`trigger={task.id}`).
+- Wordmark flicker (`Wordmark.tsx`, `use-wordmark-flicker.ts`, `wordmark-flicker.ts`): a one-shot
+  700ms opacity stutter of icon and text, like a failing neon tube. `useWordmarkFlicker` returns a
+  counter that a `setTimeout` bumps after a fresh random 30–100s gap (`flickerDelayMs`,
+  `WORDMARK_FLICKER_MIN_MS`/`WORDMARK_FLICKER_MAX_MS`); the wordmark span is keyed on it so the
+  animation replays. The counter starts at 0, so first mount never flickers. Cleanup clears the
+  pending timer, so StrictMode's effect replay is safe. Opacity only, so no light override.
+  Reduced motion is read on mount and never schedules one. It is decoration, not state: keep it
+  rare, subtle and confined to the wordmark.
 - Mount-only animations follow `animate-bar-grow` (Stats.tsx: `origin-bottom animate-bar-grow`):
   fill mode `both`, set `transform-origin`, and don't animate later value changes.
 - GridBackdrop:
@@ -131,8 +145,8 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
   - Never put it behind a task view, Settings or modals.
   - The only JS is the pointer spotlight's `--mx`/`--my`, and RunningHeadline's own `--mx`/`--my`
     and `data-hover` for its local hover glow.
-- Neon and motion mark state only (`blackwall-design` § Color semantics / Rules). GridBackdrop and
-  Stats are the only sanctioned decorative exceptions.
+- Neon and motion mark state only (`blackwall-design` § Color semantics / Rules). GridBackdrop, Stats
+  and the wordmark flicker are the only sanctioned decorative exceptions.
 - When a motion pattern, token or pairing changes, update this skill in the same commit.
 
 ## Checks
