@@ -78,7 +78,8 @@ function startedLabel(date: Date): string {
  * branch, agents, the tokens and cost used so far, and the stage stepper with the review round, plus Stop
  * (while queued or running), Archive (when done), Unarchive (when archived)
  * and Delete (until something was delivered).
- * While running, a cyan stream sweeps along the bottom border.
+ * While running, a cyan stream sweeps along the bottom border. Corner brackets frame it and turn
+ * cyan while anything inside has focus.
  */
 export function TaskHeader({
   task,
@@ -121,7 +122,7 @@ export function TaskHeader({
   }
 
   return (
-    <header className="relative flex flex-col gap-2 border-b border-border bg-sidebar px-5 pt-3.5 pb-3">
+    <header className="bw-brackets relative flex flex-col gap-2 border-b border-border bg-sidebar px-5 pt-3.5 pb-3">
       <div className="flex items-center gap-2 text-meta">
         <OriginIcon size="sm" className="text-muted-foreground" />
         {url ? (

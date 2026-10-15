@@ -77,6 +77,12 @@
   --glow-rail: 0 0 8px var(--magenta);
   --glow-pip: 0 0 6px currentColor; /* set text color to the status color */
   --glow-tab: 0 0 8px var(--primary);
+  /* drop-shadow() arguments for chamfered (clipped) surfaces: clip-path drops box-shadow.
+   * The chamfer frame line stands in for the 1px ring part of the --glow-* tokens. */
+  --drop-glow-primary-btn: 0 0 9px rgba(167, 123, 255, 0.35);
+  --drop-glow-needs: 0 0 9px rgba(255, 61, 207, 0.3);
+  --drop-glow-status-needs: 0 0 5px rgba(255, 61, 207, 0.3);
+  --drop-pop: 0 16px 24px rgba(0, 0, 0, 0.6);
   --ring: var(--glow-cyan);
   --wordmark-accent: var(--cyan);
   /* Empty-pane and Stats backdrop only: the decorative use of glow (see GridBackdrop). */
@@ -151,6 +157,11 @@
   --glow-rail: none;
   --glow-pip: none;
   --glow-tab: none;
+  /* `none` is not a valid drop-shadow() argument and would void the whole filter. */
+  --drop-glow-primary-btn: 0 0 0 transparent;
+  --drop-glow-needs: 0 0 2px rgba(196, 22, 124, 0.35);
+  --drop-glow-status-needs: 0 0 0 transparent;
+  --drop-pop: 0 16px 24px rgba(20, 20, 40, 0.18);
   --ring: var(--glow-violet);
   --wordmark-accent: var(--primary);
   --grid-line: color-mix(in oklab, var(--border-strong) 80%, transparent);
@@ -234,6 +245,9 @@
   --text-shadow-glow-needs: var(--glow-text-magenta);
   --text-shadow-glow-cyan: var(--glow-text-cyan);
   --text-shadow-glow-done: var(--glow-text-done);
+  --drop-shadow-glow-primary-btn: var(--drop-glow-primary-btn);
+  --drop-shadow-glow-needs: var(--drop-glow-needs);
+  --drop-shadow-pop: var(--drop-pop);
 
   --radius: 6px;
   --radius-xs: 3px; /* tag */
@@ -272,6 +286,8 @@
   --animate-stream: bw-sweep 1.4s linear infinite;
   /* Chat messages appended while the panel is open fade in once. */
   --animate-fade-in: bw-fade-in 150ms ease-out both;
+  /* Dialogs scan open once, left to right, keeping the chamfer; closing is instant. */
+  --animate-scan-wipe: bw-scan-wipe 150ms ease-out;
 }
 
 @keyframes bw-fade-in {
@@ -294,6 +310,23 @@
   to {
     opacity: 0;
     transform: translateX(12px);
+  }
+}
+
+/* The .bw-chamfer polygon with every x at 0, so it interpolates point for point. */
+@keyframes bw-scan-wipe {
+  from {
+    clip-path: polygon(0 0, 0 0, 0 calc(100% - var(--bw-cut)), 0 100%, 0 100%, 0 var(--bw-cut));
+  }
+  to {
+    clip-path: polygon(
+      var(--bw-cut) 0,
+      100% 0,
+      100% calc(100% - var(--bw-cut)),
+      calc(100% - var(--bw-cut)) 100%,
+      0 100%,
+      0 var(--bw-cut)
+    );
   }
 }
 
@@ -1262,6 +1295,166 @@
 
   .bw-chat[data-motion="closing"] .bw-chat-content {
     animation: bw-chat-out 180ms ease-in both;
+  }
+
+  /* ---------- HUD chrome (ui/button.tsx, ui/dialog.tsx, NeedsBanner.tsx, TaskHeader.tsx) ----------
+   * Square surfaces with the top-left and bottom-right corners cut by --bw-cut. Hosts take no CSS
+   * border or radius: the frame line is the ::after, drawn on top of the content.
+   * clip-path drops an element's own box-shadow and filter output, so glow never sits on a clipped
+   * element: buttons stay unclipped and fill via ::before (a drop-shadow on the button follows it),
+   * dialogs glow from the unclipped Radix Content around a clipped panel, and the banner, whose
+   * wash is translucent, glows from a .bw-chamfer-halo sibling.
+   * Button focus is a 2px inset line in the button's own foreground colour (currentColor), at 5:1
+   * or better on the fill in both themes.
+   */
+  .bw-chamfer,
+  .bw-chamfer-fill,
+  .bw-chamfer-halo {
+    --bw-cut: 8px;
+    --bw-chamfer-line: var(--border-strong);
+    --bw-chamfer-w: 1px;
+  }
+
+  .bw-chamfer {
+    position: relative;
+    clip-path: polygon(
+      var(--bw-cut) 0,
+      100% 0,
+      100% calc(100% - var(--bw-cut)),
+      calc(100% - var(--bw-cut)) 100%,
+      0 100%,
+      0 var(--bw-cut)
+    );
+  }
+
+  .bw-chamfer-needs {
+    --bw-chamfer-line: color-mix(in oklab, var(--magenta) 45%, transparent);
+  }
+
+  .bw-chamfer-fill {
+    --bw-chamfer-line: transparent;
+    position: relative;
+    isolation: isolate;
+    background: transparent;
+  }
+
+  .bw-chamfer-fill::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: var(--bw-chamfer-bg);
+    clip-path: polygon(
+      var(--bw-cut) 0,
+      100% 0,
+      100% calc(100% - var(--bw-cut)),
+      calc(100% - var(--bw-cut)) 100%,
+      0 100%,
+      0 var(--bw-cut)
+    );
+  }
+
+  .bw-chamfer-fill:focus-visible {
+    --bw-chamfer-line: currentColor;
+    --bw-chamfer-w: 2px;
+  }
+
+  /* The frame: the outer chamfer minus the same shape inset by --bw-chamfer-w. The inner diagonal
+   * points sit at cut + 0.414 × w (w·(√2 − 1)), so the diagonals stay as thick as the sides. */
+  .bw-chamfer::after,
+  .bw-chamfer-fill::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: var(--bw-chamfer-line);
+    clip-path: polygon(
+      evenodd,
+      var(--bw-cut) 0,
+      100% 0,
+      100% calc(100% - var(--bw-cut)),
+      calc(100% - var(--bw-cut)) 100%,
+      0 100%,
+      0 var(--bw-cut),
+      var(--bw-cut) 0,
+      calc(var(--bw-cut) + 0.414 * var(--bw-chamfer-w)) var(--bw-chamfer-w),
+      calc(100% - var(--bw-chamfer-w)) var(--bw-chamfer-w),
+      calc(100% - var(--bw-chamfer-w)) calc(100% - var(--bw-cut) - 0.414 * var(--bw-chamfer-w)),
+      calc(100% - var(--bw-cut) - 0.414 * var(--bw-chamfer-w)) calc(100% - var(--bw-chamfer-w)),
+      var(--bw-chamfer-w) calc(100% - var(--bw-chamfer-w)),
+      var(--bw-chamfer-w) calc(var(--bw-cut) + 0.414 * var(--bw-chamfer-w)),
+      calc(var(--bw-cut) + 0.414 * var(--bw-chamfer-w)) var(--bw-chamfer-w)
+    );
+  }
+
+  /* An outer-only glow tracing the chamfer of its .bw-chamfer sibling. The ::before is the opaque
+   * source; the filter runs before the halo's own clip, which keeps only what lies outside the
+   * chamfer, so nothing tints a translucent fill or the text on it. The wrapper needs `isolate`. */
+  .bw-chamfer-halo {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    filter: drop-shadow(var(--bw-halo));
+    clip-path: polygon(
+      evenodd,
+      -40px -40px,
+      calc(100% + 40px) -40px,
+      calc(100% + 40px) calc(100% + 40px),
+      -40px calc(100% + 40px),
+      -40px -40px,
+      var(--bw-cut) 0,
+      100% 0,
+      100% calc(100% - var(--bw-cut)),
+      calc(100% - var(--bw-cut)) 100%,
+      0 100%,
+      0 var(--bw-cut),
+      var(--bw-cut) 0
+    );
+  }
+
+  .bw-chamfer-halo::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: #000;
+    clip-path: polygon(
+      var(--bw-cut) 0,
+      100% 0,
+      100% calc(100% - var(--bw-cut)),
+      calc(100% - var(--bw-cut)) 100%,
+      0 100%,
+      0 var(--bw-cut)
+    );
+  }
+
+  .bw-chamfer-halo-needs {
+    --bw-halo: var(--drop-glow-status-needs);
+  }
+
+  /* Four L-shaped corner brackets, 10px arms, 1px thick; cyan while anything inside has focus. */
+  .bw-brackets {
+    --bw-bracket: var(--border-strong);
+  }
+
+  .bw-brackets:focus-within {
+    --bw-bracket: var(--cyan);
+  }
+
+  .bw-brackets::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      linear-gradient(var(--bw-bracket), var(--bw-bracket)) top left / 10px 1px no-repeat,
+      linear-gradient(var(--bw-bracket), var(--bw-bracket)) top left / 1px 10px no-repeat,
+      linear-gradient(var(--bw-bracket), var(--bw-bracket)) top right / 10px 1px no-repeat,
+      linear-gradient(var(--bw-bracket), var(--bw-bracket)) top right / 1px 10px no-repeat,
+      linear-gradient(var(--bw-bracket), var(--bw-bracket)) bottom left / 10px 1px no-repeat,
+      linear-gradient(var(--bw-bracket), var(--bw-bracket)) bottom left / 1px 10px no-repeat,
+      linear-gradient(var(--bw-bracket), var(--bw-bracket)) bottom right / 10px 1px no-repeat,
+      linear-gradient(var(--bw-bracket), var(--bw-bracket)) bottom right / 1px 10px no-repeat;
   }
 
   @media (prefers-reduced-motion: reduce) {

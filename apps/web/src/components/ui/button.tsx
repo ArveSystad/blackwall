@@ -9,12 +9,18 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default: "border-input bg-card hover:bg-muted",
-        /** Primary CTA; at most one per view. */
+        /**
+         * Primary CTA; at most one per view. Chamfered; glow follows the cut corners; focus is an
+         * inset line in the text colour.
+         */
         primary:
-          "border-transparent bg-primary font-semibold text-primary-foreground shadow-glow-primary-btn hover:brightness-108",
-        /** The CTA that resolves a needs-you state; at most one per view. */
+          "bw-chamfer-fill rounded-none border-0 bg-transparent font-semibold text-primary-foreground drop-shadow-glow-primary-btn [--bw-chamfer-bg:var(--primary)] hover:brightness-108 focus-visible:shadow-none disabled:drop-shadow-none",
+        /**
+         * The CTA that resolves a needs-you state; at most one per view. Chamfered; glow follows the
+         * cut corners; focus is an inset line in the text colour.
+         */
         needs:
-          "border-transparent bg-magenta font-semibold text-needs-foreground shadow-glow-needs hover:brightness-108",
+          "bw-chamfer-fill rounded-none border-0 bg-transparent font-semibold text-needs-foreground drop-shadow-glow-needs [--bw-chamfer-bg:var(--magenta)] hover:brightness-108 focus-visible:shadow-none disabled:drop-shadow-none",
         ghost:
           "border-transparent bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground-strong",
         /** Confirms an irreversible action, such as a delete. */

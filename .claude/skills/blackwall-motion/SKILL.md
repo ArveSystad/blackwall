@@ -24,7 +24,8 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
    GridBackdrop.tsx, `.bw-stream` for TaskHeader.tsx, `.bw-laser`, `.bw-boom`,
    `.bw-revive`/`.bw-revive-failed`, `.bw-supernova` and `.bw-launch` for GridAgents.tsx, `.bw-assigned`/
    `.bw-assigned-flash` for CountPill.tsx, `.bw-running*` for RunningHeadline.tsx, `.bw-chat`/
-   `.bw-chat-content` for ChatPanel.tsx, `.bw-decrypt*` for DecryptText.tsx).
+   `.bw-chat-content` for ChatPanel.tsx, `.bw-decrypt*` for DecryptText.tsx,
+   `bw-scan-wipe`/`--animate-scan-wipe` for ui/dialog.tsx).
 2. `.claude/skills/blackwall-design/SKILL.md` § Color semantics / Rules: the state-only rule and its
    two decorative exceptions (GridBackdrop, Stats).
 3. Reference code: `apps/web/src/components/GridBackdrop.tsx`, `apps/web/src/components/GridAgents.tsx`,
@@ -75,6 +76,9 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
   exception: `.bw-chat` transitions `width` on open/close only (the panel is part of the layout and
   never overlays); content inside is clipped and fixed-width, animating only `transform`/`opacity`;
   no transition while resizing.
+- Another exception: the dialog open wipe (`animate-scan-wipe`) animates the inner panel's
+  `clip-path`, polygon to polygon with the same 6 points, for 150ms on mount. Closing is instant
+  (Radix unmounts), and the base rule covers reduced motion (the resting state is the full chamfer).
 - Colors come from tokens only: `var(--cyan)`, `--st-*`, `--grid-*`, `color-mix(...)`. No raw hex in
   keyframes or effect classes.
 - Glow is dark only. Every glowing effect needs a light override.

@@ -108,6 +108,11 @@ Rules:
   changes are not animated.
 - Never put glow or neon on diffs, transcripts, long text, or table rows.
 - Glow is dark only. Light replaces it with a 1px border plus a 3px tinted ring (`--glow-*` handles this).
+- Chamfered surfaces (see Density and shape) keep their glow through the `--drop-glow-*` / `--drop-pop`
+  tokens, never through `box-shadow`, because `clip-path` drops an element's own shadow. Three
+  mechanisms: buttons use the `drop-shadow-glow-*` utility on the unclipped button (the fill is a
+  clipped `::before`); dialogs put `drop-shadow-pop` on the unclipped Radix `Content` around the
+  clipped panel; `NeedsBanner` uses a `.bw-chamfer-halo` sibling, since its wash is translucent.
 - Severity colors never mean status, and status colors never mean severity.
 - Anything that needs the user uses magenta: magenta rail and wash on inbox cards, the banner in the
   main view, and the magenta button for the action that resolves it. Only needs-you uses magenta.
@@ -127,7 +132,14 @@ Rules:
 ## Density and shape
 
 - Spacing uses a 4px base. Heights: table row 40, tab 36, button 28 (sm 24), input 30, chip 20.
-- Radii: tag 3, chip/kbd 4, button/input 6 (`--radius`), card 8, dialog 12.
+- Radii: tag 3, chip/kbd 4, button/input 6 (`--radius`), card 8, dialog 12 (but see the radii
+  exceptions below).
+- Radii exceptions (HUD chrome, `.bw-chamfer*` in `styles.css`): `btn-primary`, `btn-needs`,
+  `NeedsBanner` and every dialog panel are square, with the top-left and bottom-right corners cut by
+  8px. They have no radius and no CSS border: the frame line is an `::after`. Button focus is a 2px
+  inset line in the button's own foreground colour (`currentColor`: `--primary-fg` / `--needs-fg`),
+  never `--fg-strong` or cyan, which fall under 3:1 on the fills. The task header carries
+  `.bw-brackets`, four corner brackets that turn cyan on focus-within.
 - Compact rows, little chrome. Use whitespace instead of a border wherever one would do. Never use
   left-border accent cards (the needs-you rail is the one sanctioned exception).
 
