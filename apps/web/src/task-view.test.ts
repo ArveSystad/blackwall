@@ -2,6 +2,7 @@ import {
   findingSchema,
   type DeliveryAction,
   type Finding,
+  type PullRequestThread,
   type StepEvent,
 } from "@blackwall/shared";
 import { describe, expect, it } from "vitest";
@@ -14,6 +15,7 @@ import {
   canCommentOnDiff,
   canDeleteFinding,
   canOverrideFinding,
+  canStepThroughDiff,
   carryPicks,
   canStop,
   deleteBlockedReason,
@@ -35,6 +37,8 @@ import {
   effectiveModel,
   findingLocation,
   gateBanner,
+  hunkFindings,
+  hunkThreads,
   isBlocking,
   isOutbound,
   isTabEnabled,
@@ -56,7 +60,9 @@ import {
   subagentStatus,
   TASK_TABS,
   toolTarget,
+  unplacedThreads,
   visibleFindings,
+  type DiffLine,
 } from "./task-view";
 import { makeTask } from "./test-fixtures";
 
@@ -277,6 +283,142 @@ describe("diff comments", () => {
     expect(canDeleteFinding(makeTask({ status: "needs-you", gate: "triage" }), finding())).toBe(
       false,
     );
+  });
+
+  it("lets the user step through a Review PR task's diff at any time", () => {
+    expect(canStepThroughDiff(review())).toBe(true);
+    expect(canStepThroughDiff(review({ status: "running", gate: null }))).toBe(true);
+    expect(canStepThroughDiff(review({ status: "queued", gate: null }))).toBe(true);
+    expect(canStepThroughDiff(review({ status: "done", gate: null }))).toBe(true);
+  });
+
+  it("lets the user step through a work task's diff only when they can comment", () => {
+    for (const task of [
+      makeTask({ status: "needs-you", gate: "finish" }),
+      makeTask({ status: "needs-you", gate: "plan-approval" }),
+      makeTask({ status: "running", stage: "code-review" }),
+      makeTask({ status: "needs-you", gate: "finish", delivering: true }),
+    ]) {
+      expect(canStepThroughDiff(task)).toBe(canCommentOnDiff(task));
+    }
+  });
+});
+
+describe("hunkFindings", () => {
+  const hunk = { path: "src/a.ts", index: 1, lineStart: 20, lineEnd: 25 };
+
+  it("keeps findings whose range overlaps the hunk's", () => {
+    const inside = finding({ file: "src/a.ts", lineStart: 22, lineEnd: 23 });
+    const across = finding({ file: "src/a.ts", lineStart: 18, lineEnd: 20 });
+    const single = finding({ file: "src/a.ts", lineStart: 25 });
+    const before = finding({ file: "src/a.ts", lineStart: 10, lineEnd: 19 });
+    const after = finding({ file: "src/a.ts", lineStart: 26 });
+    expect(hunkFindings(hunk, [inside, across, single, before, after]).map((f) => f.id)).toEqual([
+      inside.id,
+      across.id,
+      single.id,
+    ]);
+  });
+
+  it("puts a finding with no line on the file's first hunk only", () => {
+    const noLine = finding({ file: "src/a.ts" });
+    expect(hunkFindings({ ...hunk, index: 0 }, [noLine])).toEqual([noLine]);
+    expect(hunkFindings(hunk, [noLine])).toEqual([]);
+  });
+
+  it("leaves out findings in other files and findings with no file", () => {
+    expect(
+      hunkFindings({ ...hunk, index: 0 }, [
+        finding({ file: "src/b.ts", lineStart: 21 }),
+        finding({ file: null }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("matches a deletion-only hunk on the line it points at", () => {
+    const at = finding({ file: "src/a.ts", lineStart: 4 });
+    expect(hunkFindings({ path: "src/a.ts", index: 0, lineStart: 4, lineEnd: 4 }, [at])).toEqual([
+      at,
+    ]);
+    const deleted = { path: "src/a.ts", index: 1, lineStart: null, lineEnd: null };
+    expect(hunkFindings(deleted, [at])).toEqual([]);
+  });
+
+  it("sorts the most severe first", () => {
+    const low = finding({ file: "src/a.ts", lineStart: 21, severity: "low" });
+    const critical = finding({ file: "src/a.ts", lineStart: 21, severity: "critical" });
+    expect(hunkFindings(hunk, [low, critical]).map((f) => f.id)).toEqual([critical.id, low.id]);
+  });
+
+  it("normalizes the finding's path", () => {
+    for (const file of ["./src/a.ts", "/src/a.ts", "src\\a.ts", " src/a.ts "]) {
+      expect(hunkFindings(hunk, [finding({ file, lineStart: 21 })])).toHaveLength(1);
+    }
+  });
+});
+
+describe("hunkThreads", () => {
+  let threadSeq = 0;
+  function thread(overrides: Partial<PullRequestThread> = {}): PullRequestThread {
+    threadSeq += 1;
+    return {
+      id: threadSeq,
+      path: "src/a.ts",
+      line: null,
+      startLine: null,
+      side: "RIGHT",
+      outdated: false,
+      url: null,
+      comments: [],
+      ...overrides,
+    };
+  }
+  const lines = (...spec: [DiffLine["kind"], number | null][]): DiffLine[] =>
+    spec.map(([kind, line]) => ({ kind, line, text: "" }));
+  // @@ -10,3 +10,3 @@: ctx 10, del 11 (old), add 11 (new), ctx 12
+  const hunk = {
+    path: "src/a.ts",
+    index: 1,
+    lines: lines(["hunk", null], ["ctx", 10], ["del", 11], ["add", 11], ["ctx", 12]),
+  };
+
+  it("places a RIGHT thread on an added or context line", () => {
+    const onAdd = thread({ line: 11 });
+    const onCtx = thread({ line: 12 });
+    const elsewhere = thread({ line: 30 });
+    expect(hunkThreads(hunk, [onAdd, onCtx, elsewhere])).toEqual([onAdd, onCtx]);
+  });
+
+  it("places a LEFT thread on a deleted line only", () => {
+    const left = thread({ line: 11, side: "LEFT" });
+    const leftOnCtx = thread({ line: 10, side: "LEFT" });
+    expect(hunkThreads(hunk, [left, leftOnCtx])).toEqual([left]);
+    const addOnly = { ...hunk, lines: lines(["hunk", null], ["add", 11]) };
+    expect(hunkThreads(addOnly, [left])).toEqual([]);
+  });
+
+  it("places a multi-line thread when any of its lines is on the hunk", () => {
+    const range = thread({ startLine: 5, line: 10 });
+    expect(hunkThreads(hunk, [range])).toEqual([range]);
+    expect(hunkThreads(hunk, [thread({ startLine: 2, line: 9 })])).toEqual([]);
+  });
+
+  it("puts an outdated thread on its file's first hunk only", () => {
+    const outdated = thread({ outdated: true });
+    expect(hunkThreads({ ...hunk, index: 0 }, [outdated])).toEqual([outdated]);
+    expect(hunkThreads(hunk, [outdated])).toEqual([]);
+  });
+
+  it("leaves out threads on other files", () => {
+    expect(hunkThreads(hunk, [thread({ path: "src/b.ts", line: 11 })])).toEqual([]);
+  });
+
+  it("counts the threads that land on no hunk", () => {
+    const placed = thread({ line: 11 });
+    const outside = thread({ line: 40 });
+    const otherFile = thread({ path: "src/b.ts", line: 11 });
+    expect(unplacedThreads([hunk], [placed, outside, otherFile])).toBe(2);
+    expect(unplacedThreads([hunk], [placed])).toBe(0);
   });
 });
 

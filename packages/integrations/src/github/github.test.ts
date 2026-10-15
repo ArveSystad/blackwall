@@ -11,7 +11,12 @@ import {
   parseRemoteSlug,
   type PullRequestRef,
 } from "./pr-ref.js";
-import { assemblePullRequest, findJiraKey } from "./pull-request.js";
+import {
+  assemblePullRequest,
+  findJiraKey,
+  groupReviewThreads,
+  renderPullRequestComments,
+} from "./pull-request.js";
 import { buildReviewPayload, commentableLines } from "./review.js";
 import { COMMENT_SIGNATURE, signComment } from "./signature.js";
 
@@ -214,6 +219,110 @@ describe("assemblePullRequest", () => {
       ["ada", null],
       ["grace", "CHANGES_REQUESTED"],
     ]);
+  });
+});
+
+describe("groupReviewThreads", () => {
+  it("groups replies under their root with its position, side and link", () => {
+    const threads = groupReviewThreads([
+      {
+        id: 2,
+        path: "src/a.ts",
+        body: " Agreed. ",
+        user: { login: "ada" },
+        created_at: "2026-10-02T10:00:00Z",
+        in_reply_to_id: 1,
+      },
+      {
+        id: 1,
+        path: "src/a.ts",
+        line: 12,
+        original_line: 10,
+        start_line: 9,
+        side: "LEFT",
+        body: "Off by one?",
+        user: { login: "grace" },
+        created_at: "2026-10-01T10:00:00Z",
+        diff_hunk: "@@ -1 +1 @@",
+        html_url: "https://github.com/acme/shop/pull/42#discussion_r1",
+      },
+      {
+        id: 3,
+        path: "src/b.ts",
+        line: null,
+        original_line: 5,
+        body: "Old remark",
+        created_at: "2026-10-03T10:00:00Z",
+      },
+    ]);
+    expect(threads).toEqual([
+      {
+        id: 1,
+        path: "src/a.ts",
+        line: 12,
+        originalLine: 10,
+        startLine: 9,
+        side: "LEFT",
+        outdated: false,
+        url: "https://github.com/acme/shop/pull/42#discussion_r1",
+        diffHunk: "@@ -1 +1 @@",
+        comments: [
+          { id: 1, author: "grace", body: "Off by one?", created: "2026-10-01T10:00:00Z" },
+          { id: 2, author: "ada", body: "Agreed.", created: "2026-10-02T10:00:00Z" },
+        ],
+      },
+      {
+        id: 3,
+        path: "src/b.ts",
+        line: null,
+        originalLine: 5,
+        startLine: null,
+        side: "RIGHT",
+        outdated: true,
+        url: null,
+        diffHunk: null,
+        comments: [
+          { id: 3, author: "unknown", body: "Old remark", created: "2026-10-03T10:00:00Z" },
+        ],
+      },
+    ]);
+  });
+});
+
+describe("renderPullRequestComments", () => {
+  it("is empty without comments", () => {
+    expect(renderPullRequestComments({ threads: [], conversation: [] })).toBe("");
+  });
+
+  it("renders the conversation, then the review comments", () => {
+    const markdown = renderPullRequestComments({
+      threads: [
+        {
+          path: "src/a.ts",
+          line: 3,
+          diffHunk: null,
+          comments: [{ author: "grace", body: "Rename this", created: "2026-10-01T10:00:00Z" }],
+        },
+      ],
+      conversation: [{ author: "ada", body: "Ready for review", created: "2026-10-01T09:00:00Z" }],
+    });
+    expect(markdown).toBe(
+      [
+        "### Conversation",
+        "",
+        "**ada** (2026-10-01):",
+        "",
+        "Ready for review",
+        "",
+        "### Review comments",
+        "",
+        "#### `src/a.ts:3`",
+        "",
+        "**grace** (2026-10-01):",
+        "",
+        "Rename this",
+      ].join("\n"),
+    );
   });
 });
 

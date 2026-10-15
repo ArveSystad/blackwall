@@ -11,6 +11,7 @@ import {
   type Finding,
   type Gate,
   type GrillQuestion,
+  type PullRequestThread,
   type RoleAgents,
   type Severity,
   type Stage,
@@ -197,6 +198,18 @@ export function canCommentOnDiff(
   if (task.status !== "needs-you" || task.delivering) return false;
   if (task.mode === "review") return task.gate === "triage";
   return task.gate === "finish" || task.gate === "triage" || task.gate === "escalation";
+}
+
+/**
+ * Whether the user can step through the diff's hunks: a review task at any
+ * time (its findings and the PR's comments show up as they arrive, though
+ * sending waits for {@link canCommentOnDiff}), a work task only when it can
+ * comment.
+ */
+export function canStepThroughDiff(
+  task: Pick<Task, "status" | "mode" | "gate" | "delivering">,
+): boolean {
+  return task.mode === "review" || canCommentOnDiff(task);
 }
 
 /**
@@ -846,6 +859,70 @@ export function splitHunks(files: readonly DiffFile[]): DiffHunk[] {
     close();
   }
   return hunks;
+}
+
+/** A repo-relative path as core and the GitHub integration compare them. */
+function normalizeFindingPath(path: string): string {
+  return path
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^\.?\//, "");
+}
+
+/**
+ * The findings that point at a hunk, most severe first: same file and an
+ * overlapping line range, or no line at all on the file's first hunk. Pass
+ * visible findings, so merged duplicates stay out.
+ */
+export function hunkFindings(
+  hunk: Pick<DiffHunk, "path" | "index" | "lineStart" | "lineEnd">,
+  findings: readonly Finding[],
+): Finding[] {
+  const path = normalizeFindingPath(hunk.path);
+  const matches = findings.filter((f) => {
+    if (f.file === null || normalizeFindingPath(f.file) !== path) return false;
+    if (f.lineStart === null) return hunk.index === 0;
+    if (hunk.lineStart === null) return false;
+    const end = f.lineEnd ?? f.lineStart;
+    const hunkEnd = hunk.lineEnd ?? hunk.lineStart;
+    return f.lineStart <= hunkEnd && end >= hunk.lineStart;
+  });
+  return sortFindings(matches);
+}
+
+/**
+ * The PR's review threads on a hunk, oldest first: a current thread when one
+ * of its lines is on the hunk's side (added and context lines for `RIGHT`,
+ * deleted lines for `LEFT`); an outdated one, which has no current line, on
+ * its file's first hunk.
+ */
+export function hunkThreads(
+  hunk: Pick<DiffHunk, "path" | "index" | "lines">,
+  threads: readonly PullRequestThread[],
+): PullRequestThread[] {
+  const path = normalizeFindingPath(hunk.path);
+  return threads.filter((t) => {
+    if (normalizeFindingPath(t.path) !== path) return false;
+    if (t.outdated || t.line === null) return hunk.index === 0;
+    const end = t.line;
+    const start = Math.min(t.startLine ?? end, end);
+    return hunk.lines.some(
+      (l) =>
+        l.line !== null &&
+        (t.side === "LEFT" ? l.kind === "del" : l.kind === "add" || l.kind === "ctx") &&
+        l.line >= start &&
+        l.line <= end,
+    );
+  });
+}
+
+/** How many of the PR's review threads land on none of the hunks. */
+export function unplacedThreads(
+  hunks: readonly Pick<DiffHunk, "path" | "index" | "lines">[],
+  threads: readonly PullRequestThread[],
+): number {
+  const placed = new Set(hunks.flatMap((h) => hunkThreads(h, threads).map((t) => t.id)));
+  return threads.filter((t) => !placed.has(t.id)).length;
 }
 
 /** Whether a suggested fix is a diff (rendered as one) rather than prose. */

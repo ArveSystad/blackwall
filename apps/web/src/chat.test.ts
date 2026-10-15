@@ -12,7 +12,7 @@ import {
   chatWidthBounds,
   clampChatWidth,
   clearNeedsConfirm,
-  freshMessageIds,
+  freshIds,
   isClearCommand,
   needsCardId,
   nextChatPresence,
@@ -297,11 +297,16 @@ describe("needsCardId", () => {
   });
 });
 
-describe("freshMessageIds", () => {
+describe("freshIds", () => {
   it("returns only the ids not seen yet", () => {
     const messages = [assistant("m1", []), assistant("m2", []), assistant("m3", [])];
-    expect(freshMessageIds(messages, new Set(["m1", "m3"]))).toEqual(["m2"]);
-    expect(freshMessageIds(messages, new Set(["m1", "m2", "m3"]))).toEqual([]);
+    expect(freshIds(messages, new Set(["m1", "m3"]))).toEqual(["m2"]);
+    expect(freshIds(messages, new Set(["m1", "m2", "m3"]))).toEqual([]);
+  });
+
+  it("works on any items with an id", () => {
+    const items = [{ id: "f1" }, { id: "gh:7" }, { id: "gh:8" }];
+    expect(freshIds(items, new Set(["f1", "gh:7"]))).toEqual(["gh:8"]);
   });
 });
 

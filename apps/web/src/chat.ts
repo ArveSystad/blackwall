@@ -326,12 +326,12 @@ export function needsCardId(
   return card?.id ?? null;
 }
 
-/** The ids of messages not seen yet: those fade in. */
-export function freshMessageIds(
-  messages: readonly ChatMessage[],
+/** The ids of items (chat messages, step-through comments) not seen yet: those fade in. */
+export function freshIds<T extends { id: string }>(
+  items: readonly T[],
   seen: ReadonlySet<string>,
 ): string[] {
-  return messages.filter((m) => !seen.has(m.id)).map((m) => m.id);
+  return items.filter((item) => !seen.has(item.id)).map((item) => item.id);
 }
 
 /**

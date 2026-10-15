@@ -36,7 +36,7 @@ import {
   chatWidthBounds,
   clampChatWidth,
   clearNeedsConfirm,
-  freshMessageIds,
+  freshIds,
   isClearCommand,
   needsCardId,
   nextChatPresence,
@@ -329,7 +329,7 @@ function ChatBody({
     if (fade === null) {
       setFade({ seen: new Set(messages.map((m) => m.id)), fading: new Set() });
     } else {
-      const fresh = freshMessageIds(messages, fade.seen);
+      const fresh = freshIds(messages, fade.seen);
       if (fresh.length > 0) {
         setFade({
           seen: new Set([...fade.seen, ...fresh]),

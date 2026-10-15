@@ -26,6 +26,7 @@ import {
   healthResponseSchema,
   missingCredentialSchema,
   issueLookupSchema,
+  pullRequestCommentsSchema,
   pullRequestLookupSchema,
   quotaStateSchema,
   repoBacklogRunnerSchema,
@@ -56,6 +57,7 @@ import {
   type BacklogItem,
   type BacklogItemView,
   type BranchDiff,
+  type PullRequestComments,
   type ChatActionProposal,
   type ChatState,
   type CliStatus,
@@ -386,6 +388,11 @@ export function listDiffs(taskId: string): Promise<TaskDiff[]> {
 /** The task branch's whole diff from its fork point to HEAD; null before it has commits. */
 export function getBranchDiff(taskId: string): Promise<BranchDiff | null> {
   return request(`${taskPath(taskId)}/branch-diff`, branchDiffSchema.nullable());
+}
+
+/** The inline review threads already on a PR task's pull request, or why they couldn't be read. */
+export function getPullRequestComments(taskId: string): Promise<PullRequestComments> {
+  return request(`${taskPath(taskId)}/pr-comments`, pullRequestCommentsSchema);
 }
 
 /** The images an implementer saved to `.blackwall/artifacts/`, newest first. */

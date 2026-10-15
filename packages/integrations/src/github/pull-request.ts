@@ -63,32 +63,79 @@ export interface PullRequestPayloads {
   reviews: readonly GitHubReviewJson[];
 }
 
-/** Builds the context from the recorded REST payloads (pure, so it is fixture-testable). */
-export function assemblePullRequest(
-  pr: PullRequestCoordinates,
-  { pullRequest, diff, reviewComments, issueComments, reviews }: PullRequestPayloads,
-): PullRequestContext {
-  const threads = new Map<number, PullRequestReviewThread>();
+/** One comment in a {@link ReviewThread}. */
+export interface ReviewThreadComment {
+  id: number;
+  author: string;
+  body: string;
+  created: string | null;
+}
+
+/** An inline review thread as GitHub stores it: the root comment's position and every reply. */
+export interface ReviewThread {
+  /** The root comment's id. */
+  id: number;
+  path: string;
+  /** Line on the PR's current head; null once GitHub marks the thread outdated. */
+  line: number | null;
+  /** Line on the commit the thread was first written against. */
+  originalLine: number | null;
+  /** First line of a multi-line comment. */
+  startLine: number | null;
+  side: "LEFT" | "RIGHT";
+  outdated: boolean;
+  /** The root comment's page on GitHub. */
+  url: string | null;
+  /** Diff context GitHub stores with the first comment. */
+  diffHunk: string | null;
+  /** Oldest first. */
+  comments: ReviewThreadComment[];
+}
+
+/** Groups inline review comments into threads: replies under their root, oldest first. */
+export function groupReviewThreads(
+  reviewComments: readonly GitHubReviewCommentJson[],
+): ReviewThread[] {
+  const threads = new Map<number, ReviewThread>();
   const sorted = [...reviewComments].sort((a, b) =>
     (a.created_at ?? "").localeCompare(b.created_at ?? ""),
   );
   for (const c of sorted) {
-    const comment = { author: author(c.user), body: c.body.trim(), created: c.created_at ?? null };
+    const comment = {
+      id: c.id,
+      author: author(c.user),
+      body: c.body.trim(),
+      created: c.created_at ?? null,
+    };
     const parent = c.in_reply_to_id !== undefined ? threads.get(c.in_reply_to_id) : undefined;
     if (parent) {
       parent.comments.push(comment);
       threads.set(c.id, parent);
       continue;
     }
+    const line = c.line ?? null;
     threads.set(c.id, {
+      id: c.id,
       path: c.path,
-      line: c.line ?? c.original_line ?? null,
+      line,
+      originalLine: c.original_line ?? null,
+      startLine: c.start_line ?? null,
+      side: c.side === "LEFT" ? "LEFT" : "RIGHT",
+      outdated: line === null,
+      url: c.html_url ?? null,
       diffHunk: c.diff_hunk ?? null,
       comments: [comment],
     });
   }
+  return [...new Set(threads.values())];
+}
 
-  const conversation: PullRequestConversationItem[] = [
+/** A PR's conversation comments and review summaries, oldest first. */
+export function conversationOf(
+  issueComments: readonly GitHubIssueCommentJson[],
+  reviews: readonly GitHubReviewJson[],
+): PullRequestConversationItem[] {
+  return [
     ...issueComments.map((c) => ({
       author: author(c.user),
       body: (c.body ?? "").trim(),
@@ -106,6 +153,20 @@ export function assemblePullRequest(
   ]
     .filter((item) => item.body !== "")
     .sort(byCreated);
+}
+
+/** Builds the context from the recorded REST payloads (pure, so it is fixture-testable). */
+export function assemblePullRequest(
+  pr: PullRequestCoordinates,
+  { pullRequest, diff, reviewComments, issueComments, reviews }: PullRequestPayloads,
+): PullRequestContext {
+  const threads = groupReviewThreads(reviewComments).map((t): PullRequestReviewThread => ({
+    path: t.path,
+    line: t.line ?? t.originalLine,
+    diffHunk: t.diffHunk,
+    comments: t.comments.map(({ author, body, created }) => ({ author, body, created })),
+  }));
+  const conversation = conversationOf(issueComments, reviews);
 
   return {
     owner: pr.owner,
@@ -131,7 +192,7 @@ export function assemblePullRequest(
           }
         : null,
     diff,
-    threads: [...new Set(threads.values())],
+    threads,
     conversation,
   };
 }
@@ -196,23 +257,6 @@ export function renderPullRequest(
       : "",
   ].filter(Boolean);
 
-  const threads = pr.threads
-    .map((t) => {
-      const where = `\`${t.path}${t.line ? `:${t.line}` : ""}\``;
-      const comments = t.comments
-        .map((c) => `**${c.author}**${day(c.created)}:\n\n${demote(c.body, 4)}`)
-        .join("\n\n");
-      return `#### ${where}\n\n${t.diffHunk ? `${fence(t.diffHunk, "diff")}\n\n` : ""}${comments}`;
-    })
-    .join("\n\n---\n\n");
-
-  const conversation = pr.conversation
-    .map((c) => {
-      const verdict = c.reviewState ? ` [review: ${c.reviewState.toLowerCase()}]` : "";
-      return `**${c.author}**${day(c.created)}${verdict}:\n\n${demote(c.body, 4)}`;
-    })
-    .join("\n\n---\n\n");
-
   const truncated = pr.diff.length > maxDiffChars;
   const diff = pr.diff.trim()
     ? `${fence(truncated ? pr.diff.slice(0, maxDiffChars) : pr.diff, "diff")}${
@@ -226,9 +270,45 @@ export function renderPullRequest(
     `## Pull request ${pr.owner}/${pr.repo}#${pr.number}: ${pr.title}`,
     `${facts.join(" · ")}\n${pr.url}`,
     sectionOf("Description", demote(pr.description, 4)),
-    sectionOf("Conversation", conversation),
-    sectionOf("Review comments", threads),
+    sectionOf("Conversation", renderConversation(pr.conversation)),
+    sectionOf("Review comments", renderThreads(pr.threads)),
     sectionOf("Diff", diff),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function renderThreads(threads: readonly PullRequestReviewThread[]): string {
+  return threads
+    .map((t) => {
+      const where = `\`${t.path}${t.line ? `:${t.line}` : ""}\``;
+      const comments = t.comments
+        .map((c) => `**${c.author}**${day(c.created)}:\n\n${demote(c.body, 4)}`)
+        .join("\n\n");
+      return `#### ${where}\n\n${t.diffHunk ? `${fence(t.diffHunk, "diff")}\n\n` : ""}${comments}`;
+    })
+    .join("\n\n---\n\n");
+}
+
+function renderConversation(conversation: readonly PullRequestConversationItem[]): string {
+  return conversation
+    .map((c) => {
+      const verdict = c.reviewState ? ` [review: ${c.reviewState.toLowerCase()}]` : "";
+      return `**${c.author}**${day(c.created)}${verdict}:\n\n${demote(c.body, 4)}`;
+    })
+    .join("\n\n---\n\n");
+}
+
+/**
+ * The PR's conversation and inline review comments as markdown, without the
+ * description or diff; `""` when there are none.
+ */
+export function renderPullRequestComments(
+  pr: Pick<PullRequestContext, "threads" | "conversation">,
+): string {
+  return [
+    sectionOf("Conversation", renderConversation(pr.conversation)),
+    sectionOf("Review comments", renderThreads(pr.threads)),
   ]
     .filter(Boolean)
     .join("\n\n");

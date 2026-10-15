@@ -82,6 +82,7 @@ export interface GitHubReviewCommentJson {
   created_at?: string;
   in_reply_to_id?: number;
   diff_hunk?: string;
+  html_url?: string;
 }
 
 /** A conversation comment on a PR or issue (`GET /issues/{n}/comments`). */

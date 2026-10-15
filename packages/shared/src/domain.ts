@@ -1184,6 +1184,43 @@ export type TaskDiff = z.infer<typeof taskDiffSchema>;
 export const branchDiffSchema = taskDiffSchema.pick({ from: true, to: true, diff: true });
 export type BranchDiff = z.infer<typeof branchDiffSchema>;
 
+/**
+ * An inline review thread already on a task's GitHub pull request: where the
+ * root comment sits on the PR's current head, and every reply, oldest first.
+ */
+export const pullRequestThreadSchema = z.object({
+  /** The root comment's id. */
+  id: z.int(),
+  path: z.string(),
+  /** Line on the PR's current head; null once GitHub marks the thread outdated. */
+  line: z.int().nullable(),
+  /** First line of a multi-line comment. */
+  startLine: z.int().nullable(),
+  /** `LEFT` for the old side of the diff (deleted lines), `RIGHT` for the new. */
+  side: z.enum(["LEFT", "RIGHT"]),
+  outdated: z.boolean(),
+  url: z.string().nullable(),
+  comments: z
+    .object({
+      id: z.int(),
+      author: z.string(),
+      body: z.string(),
+      createdAt: timestamp.nullable(),
+    })
+    .array(),
+});
+export type PullRequestThread = z.infer<typeof pullRequestThreadSchema>;
+
+/**
+ * `GET /api/tasks/:id/pr-comments`: the PR's inline review threads, or why
+ * they couldn't be read (reported, not thrown, so polling stays quiet).
+ */
+export const pullRequestCommentsSchema = z.object({
+  threads: pullRequestThreadSchema.array(),
+  error: z.string().nullable(),
+});
+export type PullRequestComments = z.infer<typeof pullRequestCommentsSchema>;
+
 /** Scratch folder in a task's worktree; ignored by its own `.gitignore`. */
 export const SCRATCH_DIR = ".blackwall";
 

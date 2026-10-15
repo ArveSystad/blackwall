@@ -17,6 +17,8 @@ import {
   findPullRequestStack,
   findRepoForPullRequest,
   GitHubError,
+  conversationOf,
+  groupReviewThreads,
   informFromIssue,
   informFromPullRequest,
   issueLabels,
@@ -25,6 +27,7 @@ import {
   parseRemoteSlug,
   readCheckLog,
   readCommitChecks,
+  renderPullRequestComments,
   renderPullRequestStack,
   signComment,
   type Fetch,
@@ -41,6 +44,7 @@ import {
   type CiCheck,
   type Finding,
   type IssueLookup,
+  type PullRequestComments,
   type PullRequestLookup,
   type RepoIssues,
   type ReviewRequests,
@@ -212,6 +216,70 @@ export function createGitHubOrigin({ connections, fetch: fetchImpl }: GitHubOrig
         ),
       );
       return renderPullRequestStack(members, origin.number, new Map(diffs));
+    }) satisfies OriginContextProvider,
+
+    /**
+     * The inline review threads on a PR task's pull request, for the Diff
+     * step-through; none for other tasks. A missing token or a GitHub failure
+     * comes back as `error` instead of being thrown, so polling never opens
+     * the token modal.
+     */
+    async pullRequestComments(task: Task): Promise<PullRequestComments> {
+      const origin = prOrigin(task);
+      if (!origin) return { threads: [], error: null };
+      try {
+        const reviewComments = await (await prClient(origin)).listReviewComments(origin);
+        const threads = groupReviewThreads(reviewComments).map((t) => ({
+          id: t.id,
+          path: t.path,
+          line: t.line,
+          startLine: t.startLine,
+          side: t.side,
+          outdated: t.outdated,
+          url: t.url,
+          comments: t.comments.map((c) => ({
+            id: c.id,
+            author: c.author,
+            body: c.body,
+            createdAt: c.created ? new Date(c.created) : null,
+          })),
+        }));
+        return { threads, error: null };
+      } catch (error) {
+        if (error instanceof MissingCredentialError) {
+          return {
+            threads: [],
+            error: `No GitHub token for ${error.host}, so the PR's comments can't be shown.`,
+          };
+        }
+        return { threads: [], error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+
+    /**
+     * The comments already on a PR task's pull request (conversation, review
+     * summaries and inline threads), for Code review, read again on each
+     * visit. Undefined for other tasks and PRs without comments.
+     */
+    prCommentsContext: (async (task, signal) => {
+      const origin = prOrigin(task);
+      if (!origin) return undefined;
+      const client = await prClient(origin);
+      const [reviewComments, issueComments, reviews] = await Promise.all([
+        client.listReviewComments(origin, signal),
+        client.listIssueComments(origin, signal),
+        client.listReviews(origin, signal),
+      ]);
+      const markdown = renderPullRequestComments({
+        threads: groupReviewThreads(reviewComments).map((t) => ({
+          path: t.path,
+          line: t.line ?? t.originalLine,
+          diffHunk: t.diffHunk,
+          comments: t.comments,
+        })),
+        conversation: conversationOf(issueComments, reviews),
+      });
+      return markdown || undefined;
     }) satisfies OriginContextProvider,
 
     /**

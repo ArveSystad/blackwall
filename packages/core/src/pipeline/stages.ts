@@ -663,11 +663,14 @@ async function reviewRange(
  * instructions, and for a stacked PR the other PRs' changes as context only
  * (from `stackContext`, whose failures never fail the review); a Review PR
  * re-review reviews the whole PR again and lists the findings already reported.
+ * A PR task's existing comments (from `prCommentsContext`, a snapshot taken
+ * once per visit whose failures are ignored too) keep reviewers from repeating them.
  */
 async function codeReview(
   ctx: StageContext,
   git: ReviewGit | undefined,
   stackContext: OriginContextProvider | undefined,
+  prCommentsContext: OriginContextProvider | undefined,
 ): Promise<void> {
   const { task, run, round, repositories } = ctx;
   const reviewers = panel(task, "codeReviewers");
@@ -703,6 +706,13 @@ async function codeReview(
     if (ctx.signal.aborted) throw error;
     // The review runs without the stack's context.
   }
+  let prComments: string | undefined;
+  try {
+    prComments = await prCommentsContext?.(task, ctx.signal);
+  } catch (error) {
+    if (ctx.signal.aborted) throw error;
+    // The review runs without the PR's existing comments.
+  }
 
   const findings = repositories.findings.listByTask(task.id);
   const ignored = findings.filter((f) => f.status === "force-ignore");
@@ -719,6 +729,12 @@ async function codeReview(
         section("Plan", task.plan),
         section("Instructions from the user", ctx.instructions),
         section("Other pull requests in the stack", stack),
+        section(
+          "Comments already on the pull request",
+          prComments
+            ? `${prComments}\n\nDo not report what these comments already raise; mention one only if you add something new.`
+            : "",
+        ),
         section("Changes to review", changes),
         section(
           "Findings already reported",
@@ -894,6 +910,12 @@ export interface DefaultStagesOptions {
    * only; undefined for other tasks. Fetched once per visit; errors are ignored.
    */
   stackContext?: OriginContextProvider;
+  /**
+   * The comments already on a PR task's pull request, for Code review so
+   * reviewers don't repeat them; undefined for other tasks. Fetched once per
+   * visit; errors are ignored.
+   */
+  prCommentsContext?: OriginContextProvider;
   /** Commits each round in Checks; without it nothing is committed (tests). */
   git?: Pick<GitService, "stagedDiff" | "commitAll">;
   /** Runs one check command; defaults to the platform shell in the worktree. */
@@ -912,6 +934,7 @@ export interface DefaultStagesOptions {
 export function createDefaultStages({
   originContext,
   stackContext,
+  prCommentsContext,
   git,
   runCheck = runCheckCommand,
   reviewGit,
@@ -974,7 +997,7 @@ export function createDefaultStages({
 
     checks: (ctx) => runChecks(ctx, git, runCheck),
 
-    "code-review": (ctx) => codeReview(ctx, reviewGit, stackContext),
+    "code-review": (ctx) => codeReview(ctx, reviewGit, stackContext, prCommentsContext),
 
     aggregate,
 

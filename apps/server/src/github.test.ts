@@ -188,6 +188,233 @@ function fakeStack() {
   });
 }
 
+/** Stubs the PR's comment endpoints on the GHE host; `status` fails the review comments call. */
+function fakeComments({
+  reviewComments = [],
+  issueComments = [],
+  reviews = [],
+  status = 200,
+}: {
+  reviewComments?: unknown[];
+  issueComments?: unknown[];
+  reviews?: unknown[];
+  status?: number;
+} = {}) {
+  return vi.fn<typeof fetch>((input) => {
+    const path = new URL(String(input)).pathname;
+    const isReviewComments = path === "/repos/acme/shop/pulls/42/comments";
+    const body = isReviewComments
+      ? status === 200
+        ? reviewComments
+        : { message: "Resource not accessible by integration" }
+      : path === "/repos/acme/shop/issues/42/comments"
+        ? issueComments
+        : path === "/repos/acme/shop/pulls/42/reviews"
+          ? reviews
+          : [];
+    return Promise.resolve(
+      new Response(JSON.stringify(body), {
+        status: isReviewComments ? status : 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+  });
+}
+
+describe("pullRequestComments", () => {
+  const rootComment = {
+    id: 101,
+    path: "src/money.ts",
+    line: 12,
+    original_line: 12,
+    start_line: 10,
+    side: "RIGHT",
+    body: " Round before summing? ",
+    user: { login: "kari" },
+    created_at: "2026-10-01T09:00:00Z",
+    diff_hunk: "@@ -10,3 +10,3 @@",
+    html_url: "https://acme.ghe.com/acme/shop/pull/42#discussion_r101",
+  };
+  const reply = {
+    id: 102,
+    path: "src/money.ts",
+    line: 12,
+    original_line: 12,
+    start_line: 10,
+    side: "RIGHT",
+    body: "Done.",
+    user: { login: "ola" },
+    created_at: "2026-10-01T10:00:00Z",
+    in_reply_to_id: 101,
+    html_url: "https://acme.ghe.com/acme/shop/pull/42#discussion_r102",
+  };
+  const outdatedRoot = {
+    id: 201,
+    path: "src/tax.ts",
+    line: null,
+    original_line: 5,
+    start_line: null,
+    side: "LEFT",
+    body: "Old note",
+    user: { login: "kari" },
+    created_at: "2026-09-30T08:00:00Z",
+    diff_hunk: "@@ -5 +5 @@",
+    html_url: "https://acme.ghe.com/acme/shop/pull/42#discussion_r201",
+  };
+
+  it("maps the PR's review threads, replies under their root, outdated threads included", async () => {
+    const fetchImpl = fakeComments({ reviewComments: [reply, rootComment, outdatedRoot] });
+    const github = createGitHubOrigin({ connections: connections([ghe]), fetch: fetchImpl });
+    const result = await github.pullRequestComments(prTask("g1"));
+
+    expect(result).toEqual({
+      error: null,
+      threads: [
+        {
+          id: 201,
+          path: "src/tax.ts",
+          line: null,
+          startLine: null,
+          side: "LEFT",
+          outdated: true,
+          url: "https://acme.ghe.com/acme/shop/pull/42#discussion_r201",
+          comments: [
+            {
+              id: 201,
+              author: "kari",
+              body: "Old note",
+              createdAt: new Date("2026-09-30T08:00:00Z"),
+            },
+          ],
+        },
+        {
+          id: 101,
+          path: "src/money.ts",
+          line: 12,
+          startLine: 10,
+          side: "RIGHT",
+          outdated: false,
+          url: "https://acme.ghe.com/acme/shop/pull/42#discussion_r101",
+          comments: [
+            {
+              id: 101,
+              author: "kari",
+              body: "Round before summing?",
+              createdAt: new Date("2026-10-01T09:00:00Z"),
+            },
+            {
+              id: 102,
+              author: "ola",
+              body: "Done.",
+              createdAt: new Date("2026-10-01T10:00:00Z"),
+            },
+          ],
+        },
+      ],
+    });
+    const [url] = fetchImpl.mock.calls[0]!;
+    expect(new URL(String(url)).host).toBe("api.acme.ghe.com");
+    expect(new URL(String(url)).pathname).toBe("/repos/acme/shop/pulls/42/comments");
+  });
+
+  it("gives no threads for a task that is not a PR", async () => {
+    const fetchImpl = fakeComments({ reviewComments: [rootComment] });
+    const github = createGitHubOrigin({ connections: connections([ghe]), fetch: fetchImpl });
+    const freeText = { ...prTask(null), origin: { kind: "free-text" } } as Task;
+    expect(await github.pullRequestComments(freeText)).toEqual({ threads: [], error: null });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("reports a missing token as an error instead of throwing", async () => {
+    const list = connections([ghe]);
+    list.requireCredential.mockRejectedValueOnce(
+      new MissingCredentialError("github", "acme.ghe.com", null),
+    );
+    const fetchImpl = fakeComments({ reviewComments: [rootComment] });
+    const github = createGitHubOrigin({ connections: list, fetch: fetchImpl });
+    const result = await github.pullRequestComments(prTask(null));
+    expect(result.threads).toEqual([]);
+    expect(result.error).toContain("No GitHub token for acme.ghe.com");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("reports a GitHub failure as an error instead of throwing", async () => {
+    const fetchImpl = fakeComments({ status: 403 });
+    const github = createGitHubOrigin({ connections: connections([ghe]), fetch: fetchImpl });
+    const result = await github.pullRequestComments(prTask("g1"));
+    expect(result.threads).toEqual([]);
+    expect(typeof result.error).toBe("string");
+    expect(result.error).not.toBeNull();
+    expect(result.error).not.toContain(TOKEN);
+  });
+});
+
+describe("prCommentsContext", () => {
+  const signal = new AbortController().signal;
+
+  it("renders the conversation, review summaries and inline threads as Code review context", async () => {
+    const fetchImpl = fakeComments({
+      reviewComments: [
+        {
+          id: 101,
+          path: "src/money.ts",
+          line: 12,
+          side: "RIGHT",
+          body: "Round before summing?",
+          user: { login: "kari" },
+          created_at: "2026-10-01T09:00:00Z",
+          diff_hunk: "@@ -10,3 +10,3 @@",
+        },
+      ],
+      issueComments: [
+        {
+          id: 301,
+          body: "Can we also cover refunds?",
+          user: { login: "dev" },
+          created_at: "2026-10-02T00:00:00Z",
+        },
+      ],
+      reviews: [
+        {
+          id: 401,
+          state: "CHANGES_REQUESTED",
+          body: "Please fix the rounding.",
+          user: { login: "kari" },
+          submitted_at: "2026-10-02T12:00:00Z",
+        },
+      ],
+    });
+    const github = createGitHubOrigin({ connections: connections([ghe]), fetch: fetchImpl });
+    const context = await github.prCommentsContext(prTask("g1"), signal);
+    expect(context).toContain("### Conversation");
+    expect(context).toContain("### Review comments");
+    expect(context).toContain("Can we also cover refunds?");
+    expect(context).toContain("Please fix the rounding.");
+    expect(context).toContain("[review: changes_requested]");
+    expect(context).toContain("src/money.ts:12");
+    expect(context).toContain("Round before summing?");
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it("gives no context when the PR has no comments", async () => {
+    const github = createGitHubOrigin({
+      connections: connections([ghe]),
+      fetch: fakeComments(),
+    });
+    expect(await github.prCommentsContext(prTask("g1"), signal)).toBeUndefined();
+  });
+
+  it("gives no context for other tasks", async () => {
+    const fetchImpl = fakeComments({
+      issueComments: [{ id: 1, body: "hi", user: { login: "a" } }],
+    });
+    const github = createGitHubOrigin({ connections: connections([ghe]), fetch: fetchImpl });
+    const freeText = { ...prTask(null), origin: { kind: "free-text" } } as Task;
+    expect(await github.prCommentsContext(freeText, signal)).toBeUndefined();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
 describe("stacked pull requests", () => {
   const signal = new AbortController().signal;
 

@@ -15,6 +15,7 @@ import {
   getSystemInfo,
   getBranchDiff,
   getDeliveryPlan,
+  getPullRequestComments,
   getTask,
   listActiveAgents,
   listClis,
@@ -53,6 +54,7 @@ export const queryKeys = {
   taskGrill: (taskId: string) => ["tasks", taskId, "grill"] as const,
   taskDiffs: (taskId: string) => ["tasks", taskId, "diffs"] as const,
   taskBranchDiff: (taskId: string) => ["tasks", taskId, "branch-diff"] as const,
+  taskPrComments: (taskId: string) => ["tasks", taskId, "pr-comments"] as const,
   taskArtifacts: (taskId: string) => ["tasks", taskId, "artifacts"] as const,
   taskWorktree: (taskId: string) => ["tasks", taskId, "worktree"] as const,
   taskDelivery: (taskId: string) => ["tasks", taskId, "delivery"] as const,
@@ -139,6 +141,23 @@ export const taskBranchDiffQuery = (taskId: string) =>
   queryOptions({
     queryKey: queryKeys.taskBranchDiff(taskId),
     queryFn: () => getBranchDiff(taskId),
+  });
+
+/** How often the Diff step-through re-reads a PR's GitHub review threads. */
+export const PR_COMMENTS_REFRESH_MS = 20_000;
+
+/**
+ * The review threads already on a PR task's pull request, for the Diff
+ * step-through. GitHub sends no live events, so it polls while enabled, and
+ * re-reads on window focus.
+ */
+export const taskPrCommentsQuery = (taskId: string) =>
+  queryOptions({
+    queryKey: queryKeys.taskPrComments(taskId),
+    queryFn: () => getPullRequestComments(taskId),
+    staleTime: 10_000,
+    refetchInterval: PR_COMMENTS_REFRESH_MS,
+    refetchOnWindowFocus: "always",
   });
 
 export const taskArtifactsQuery = (taskId: string) =>

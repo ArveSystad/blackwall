@@ -160,12 +160,13 @@ function TaskScreen({ task }: { task: Task }) {
   const freshPlanComment = (): PlanComment => ({ enabled: false, body: planApprovalComment(task) });
   const [planComment, setPlanComment] = useState<PlanComment>(freshPlanComment);
 
-  // A new gate or status opens the tab where the user is needed (or the work is).
+  // A new gate or status opens the tab where the user is needed (or the work is),
+  // except that a review task stepping through its diff stays there.
   const signal = `${task.status}:${task.gate}`;
   const [seenSignal, setSeenSignal] = useState(signal);
   if (seenSignal !== signal) {
     setSeenSignal(signal);
-    setTab(defaultTab(task));
+    if (!(task.mode === "review" && tab === "diff")) setTab(defaultTab(task));
     setPlanComment(freshPlanComment());
   }
   const current = isTabEnabled(task, tab) ? tab : defaultTab(task);
@@ -261,6 +262,7 @@ function TaskScreen({ task }: { task: Task }) {
             diffs={data.diffs.data ?? []}
             loading={data.diffs.isPending}
             branchDiff={data.branchDiff.data}
+            findings={data.visibleFindings}
             drafts={diffDrafts}
             onDraftsChange={setDiffDrafts}
             onSend={sendDiffComments}

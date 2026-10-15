@@ -1878,6 +1878,31 @@ describe("code review panel and triage", () => {
     expect(stackContext).toHaveBeenCalled();
   });
 
+  it("gives the code reviewers the comments already on the pull request", async () => {
+    const prCommentsContext = vi.fn(async () => "### Review comments\n\n**grace**: Off by one?");
+    const h = harness(() => ({}), { stages: createDefaultStages({ prCommentsContext }) });
+    await approved(h, { origin: prOrigin(), mode: "work" });
+    const review = h.calls.find((c) => c.stage === "code-review")!.options.prompt;
+    expect(review).toContain(
+      "## Comments already on the pull request\n\n### Review comments\n\n**grace**: Off by one?",
+    );
+    expect(review).toContain(
+      "Do not report what these comments already raise; mention one only if you add something new.",
+    );
+    expect(prCommentsContext).toHaveBeenCalledTimes(1);
+  });
+
+  it("still reviews when the pull request's comments fail to load", async () => {
+    const prCommentsContext = vi.fn(async (): Promise<string | undefined> => {
+      throw new Error("github.com: rate limited");
+    });
+    const h = harness(() => ({}), { stages: createDefaultStages({ prCommentsContext }) });
+    await approved(h, { origin: prOrigin(), mode: "work" });
+    const review = h.calls.find((c) => c.stage === "code-review")!.options.prompt;
+    expect(review).not.toContain("Comments already on the pull request");
+    expect(prCommentsContext).toHaveBeenCalled();
+  });
+
   it("reviews a PR again at triage with the user's instruction", async () => {
     let reviews = 0;
     const h = harness((stage) => {

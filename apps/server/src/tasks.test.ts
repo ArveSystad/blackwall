@@ -20,6 +20,7 @@ import {
   findingSchema,
   grillAnswerResultSchema,
   grillQuestionSchema,
+  pullRequestCommentsSchema,
   runSchema,
   stepEventSchema,
   stepSchema,
@@ -32,6 +33,7 @@ import {
   type BranchDiff,
   type DiffCommentsResult,
   type GateResponseInput,
+  type PullRequestComments,
 } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.js";
@@ -973,6 +975,92 @@ describe("new tasks", () => {
     expect([...new Uint8Array(await res.arrayBuffer())]).toEqual([1, 2, 3]);
     expect((await request(`/api/tasks/${task.id}/artifacts/ui/other.png`)).status).toBe(404);
     expect((await request("/api/tasks/nope/artifacts/ui/home.png")).status).toBe(404);
+  });
+});
+
+describe("PR comments route", () => {
+  const thread = {
+    id: 7,
+    path: "src/money.ts",
+    line: 12,
+    startLine: 10,
+    side: "RIGHT" as const,
+    outdated: false,
+    url: "https://github.com/acme/web/pull/914#discussion_r7",
+    comments: [
+      {
+        id: 7,
+        author: "kari",
+        body: "Round before summing?",
+        createdAt: new Date("2026-10-01T09:00:00Z"),
+      },
+      { id: 8, author: "ola", body: "Done.", createdAt: null },
+    ],
+  };
+  let prComments: ReturnType<typeof vi.fn<(task: { id: string }) => Promise<PullRequestComments>>>;
+
+  beforeEach(() => {
+    prComments = vi.fn(async (): Promise<PullRequestComments> => ({
+      threads: [thread],
+      error: null,
+    }));
+    app = createApp({
+      token: launchToken,
+      getPort: () => port,
+      tasks: stores(),
+      taskServices: { prComments },
+    }).app;
+  });
+
+  it("returns the PR's review threads as JSON, with dates as ISO strings", async () => {
+    const task = seedTask();
+    const res = await request(`/api/tasks/${task.id}/pr-comments`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({
+      threads: [
+        {
+          ...thread,
+          comments: [
+            { ...thread.comments[0], createdAt: "2026-10-01T09:00:00.000Z" },
+            { ...thread.comments[1] },
+          ],
+        },
+      ],
+      error: null,
+    });
+    expect(pullRequestCommentsSchema.parse(body)).toEqual({ threads: [thread], error: null });
+    expect(prComments).toHaveBeenCalledWith(expect.objectContaining({ id: task.id }));
+  });
+
+  it("passes the service's error through with no threads", async () => {
+    const task = seedTask();
+    prComments.mockResolvedValueOnce({
+      threads: [],
+      error: "No GitHub token for github.com, so the PR's comments can't be shown.",
+    });
+    const res = await request(`/api/tasks/${task.id}/pr-comments`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      threads: [],
+      error: "No GitHub token for github.com, so the PR's comments can't be shown.",
+    });
+  });
+
+  it("answers 404 for an unknown task without asking the service", async () => {
+    const res = await request("/api/tasks/nope/pr-comments");
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "Task nope not found" });
+    expect(prComments).not.toHaveBeenCalled();
+  });
+
+  it("has no route when the service isn't passed", async () => {
+    app = createApp({ token: launchToken, getPort: () => port, tasks: stores() }).app;
+    const task = seedTask();
+    const res = await request(`/api/tasks/${task.id}/pr-comments`);
+    expect(res.status).toBe(404);
+    // Not the task-not-found answer: the route itself is missing.
+    expect(await res.text()).not.toContain(`Task ${task.id} not found`);
   });
 });
 

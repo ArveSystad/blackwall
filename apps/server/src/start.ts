@@ -166,6 +166,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       stages: createDefaultStages({
         originContext: firstOriginContext(jira.originContext, github.originContext),
         stackContext: github.stackContext,
+        prCommentsContext: github.prCommentsContext,
         git,
         reviewGit: git,
       }),
@@ -265,6 +266,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
         newTask,
         diffs: createTaskDiffs({ repositories, git }),
         branchDiff: createBranchDiff({ git, repositories }),
+        prComments: github.pullRequestComments,
         artifacts: createTaskArtifacts(),
       },
       backlog: {

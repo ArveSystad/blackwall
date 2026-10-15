@@ -29,6 +29,7 @@ import {
   type FindingDeleteResult,
   type GrillAnswerResult,
   type GrillQuestion,
+  type PullRequestComments,
   type RoleAgents,
   type Run,
   type Step,
@@ -101,6 +102,8 @@ export interface TaskRouteServices {
   diffs?: TaskDiffs;
   /** The whole diff of a task's branch, for commenting on its hunks. */
   branchDiff?: TaskBranchDiff;
+  /** The inline review threads already on a PR task's pull request; failures come back as `error`. */
+  prComments?: (task: Task) => Promise<PullRequestComments>;
   /** Images implementers saved to a task's worktree. */
   artifacts?: TaskArtifacts;
 }
@@ -261,13 +264,14 @@ export function queueTask(
  * its delivery plan shown before the user confirms the finish actions. `/active-agents` lists the running
  * agent steps across all tasks, `/usage` each agent step's tokens and cost, and
  * `/done-times` when each done task was resolved. With the services, `/diffs` shows the branch's changes per fix
- * round, `/branch-diff` the whole branch's diff to comment on, and
+ * round, `/branch-diff` the whole branch's diff to comment on,
+ * `/pr-comments` the review threads already on a PR task's pull request, and
  * `/artifacts` lists and serves the images an implementer saved.
  */
 export function taskRoutes(
   { tasks, grillQuestions, findings, runs, steps, stepEvents }: TaskRouteStores,
   pipeline?: TaskPipeline,
-  { newTask, diffs, branchDiff, artifacts }: TaskRouteServices = {},
+  { newTask, diffs, branchDiff, prComments, artifacts }: TaskRouteServices = {},
 ): Hono {
   const routes = new Hono();
 
@@ -378,6 +382,16 @@ export function taskRoutes(
       if (!task) return c.json({ error: `Task ${id} not found` }, 404);
       if (worktreeMissing(task)) return c.json<BranchDiff | null>(null);
       return c.json<BranchDiff | null>(await branchDiff(task));
+    });
+  }
+
+  if (prComments) {
+    /** The PR's inline review threads, for the Diff step-through; empty for tasks that are not PRs. */
+    routes.get("/:id/pr-comments", async (c) => {
+      const id = c.req.param("id");
+      const task = tasks.get(id);
+      if (!task) return c.json({ error: `Task ${id} not found` }, 404);
+      return c.json<PullRequestComments>(await prComments(task));
     });
   }
 
