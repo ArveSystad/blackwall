@@ -95,6 +95,14 @@ function describeFinding(f: Finding): string {
 /** Longest finding title a hunk comment gets; the whole comment is in the explanation. */
 const MAX_COMMENT_TITLE_CHARS = 80;
 
+/** A comment's first line as a finding title, cut to {@link MAX_COMMENT_TITLE_CHARS}. */
+export function firstLineTitle(body: string): string {
+  const firstLine = body.trim().split("\n", 1)[0]!.trim();
+  return firstLine.length > MAX_COMMENT_TITLE_CHARS
+    ? `${firstLine.slice(0, MAX_COMMENT_TITLE_CHARS - 1).trimEnd()}…`
+    : firstLine;
+}
+
 /**
  * The finding for the user's comment on a hunk, titled with the comment's
  * first line. It has neither a step nor a reviewer (see `isUserComment`). In
@@ -111,11 +119,7 @@ export function diffCommentFinding(
   pipeline: PipelineKind,
 ): NewFinding {
   const body = comment.body.trim();
-  const firstLine = body.split("\n", 1)[0]!.trim();
-  const title =
-    firstLine.length > MAX_COMMENT_TITLE_CHARS
-      ? `${firstLine.slice(0, MAX_COMMENT_TITLE_CHARS - 1).trimEnd()}…`
-      : firstLine;
+  const title = firstLineTitle(body);
   return {
     taskId: task.id,
     runId,
@@ -375,7 +379,7 @@ export function commitMessage(text: string, key: string | undefined): string {
 }
 
 /** A fenced block that survives backtick fences inside `text`. */
-function fence(text: string, lang = ""): string {
+export function fence(text: string, lang = ""): string {
   return `~~~~${lang}\n${text.trimEnd()}\n~~~~`;
 }
 

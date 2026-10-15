@@ -61,6 +61,7 @@ export type TaskPipeline = Pick<
   | "deleteFinding"
   | "deliveryPlan"
   | "fixCi"
+  | "fixPrComments"
 >;
 
 export interface TaskRouteStores {
@@ -435,6 +436,15 @@ export function taskRoutes(
      * failing logs as force-fixed findings (409 when it can't).
      */
     routes.post("/:id/ci/fix", async (c) => c.json<Task>(await pipeline.fixCi(c.req.param("id"))));
+
+    /**
+     * Fetch comments and fix: queues a fix round for a done task whose
+     * delivery opened a pull request, with the PR's new review comments as
+     * force-fixed findings (409 when it can't, or there are none).
+     */
+    routes.post("/:id/pr-comments/fix", async (c) =>
+      c.json<Task>(await pipeline.fixPrComments(c.req.param("id"))),
+    );
 
     /**
      * Stops a queued or running task: it ends `interrupted` ("Stopped by

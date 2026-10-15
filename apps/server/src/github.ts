@@ -8,11 +8,13 @@ import {
   type ConnectionService,
   type OpenPullRequestAction,
   type OriginContextProvider,
+  type PullRequestFeedback,
   type RepoService,
 } from "@blackwall/core";
 import {
   assertNotPullRequest,
   buildReviewPayload,
+  COMMENT_SIGNATURE,
   createGitHubClient,
   findPullRequestStack,
   findRepoForPullRequest,
@@ -281,6 +283,57 @@ export function createGitHubOrigin({ connections, fetch: fetchImpl }: GitHubOrig
       });
       return markdown || undefined;
     }) satisfies OriginContextProvider,
+
+    /**
+     * The review threads (outdated ones too) and conversation on the pull
+     * request at `url`, for Fetch comments and fix, each comment with a
+     * permalink built from the PR link. Comments blackwall signed are left
+     * out. A missing token throws {@link MissingCredentialError}: the user
+     * asked for this, so the token modal may open.
+     */
+    async pullRequestFeedback(url: string, signal?: AbortSignal): Promise<PullRequestFeedback> {
+      const ref = parsePullRequestUrl(url);
+      if (!ref) throw new Error(`Not a pull request link: ${url}`);
+      const { connection, token } = await connections.requireCredential({
+        kind: "github",
+        remote: url,
+      });
+      const client = createGitHubClient({ baseUrl: connection.baseUrl, token }, fetchImpl);
+      const [reviewComments, issueComments, reviews] = await Promise.all([
+        client.listReviewComments(ref, signal),
+        client.listIssueComments(ref, signal),
+        client.listReviews(ref, signal),
+      ]);
+      const signed = (body: string) => body.trimEnd().endsWith(COMMENT_SIGNATURE);
+      const threads = groupReviewThreads(reviewComments)
+        .map((t) => ({
+          path: t.path,
+          line: t.line,
+          startLine: t.startLine,
+          originalLine: t.originalLine,
+          side: t.side,
+          outdated: t.outdated,
+          url: `${ref.url}#discussion_r${t.id}`,
+          diffHunk: t.diffHunk,
+          comments: t.comments
+            .filter((c) => !signed(c.body))
+            .map((c) => ({
+              url: `${ref.url}#discussion_r${c.id}`,
+              author: c.author,
+              body: c.body,
+            })),
+        }))
+        .filter((t) => t.comments.length > 0);
+      const conversation = conversationOf(issueComments, reviews)
+        .filter((c) => !signed(c.body))
+        .map((c) => ({
+          url: `${ref.url}#${c.kind === "review" ? "pullrequestreview-" : "issuecomment-"}${c.id}`,
+          author: c.author,
+          body: c.body,
+          ...(c.reviewState ? { reviewState: c.reviewState } : {}),
+        }));
+      return { threads, conversation };
+    },
 
     /**
      * CI checks on a pushed commit, for the CI watcher. A missing token is

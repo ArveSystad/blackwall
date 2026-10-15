@@ -333,6 +333,15 @@ export function fixCi(taskId: string): Promise<Task> {
 }
 
 /**
+ * Fetch comments and fix: queues a fix round for a done task whose delivery
+ * opened a pull request, with the PR's new review comments as findings; it
+ * stops at Finish so the push is confirmed again.
+ */
+export function fixPrComments(taskId: string): Promise<Task> {
+  return request(`${taskPath(taskId)}/pr-comments/fix`, taskSchema, { method: "POST" });
+}
+
+/**
  * Stops a queued, running or waiting task; it ends interrupted and Resume
  * continues its session, or puts a task stopped at a gate back there.
  */

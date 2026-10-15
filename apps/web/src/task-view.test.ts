@@ -14,6 +14,7 @@ import {
   canArchive,
   canCommentOnDiff,
   canDeleteFinding,
+  canFixPrComments,
   canOverrideFinding,
   canStepThroughDiff,
   carryPicks,
@@ -429,6 +430,20 @@ describe("canOverrideFinding", () => {
 
   it("leaves a review task's findings to the picks at the end", () => {
     expect(canOverrideFinding({ mode: "review" })).toBe(false);
+  });
+});
+
+describe("canFixPrComments", () => {
+  const opened = makeTask({ status: "done", deliveryTargets: ["push-branch", "open-pr"] });
+
+  it("offers a done work task whose delivery opened a PR", () => {
+    expect(canFixPrComments(opened)).toBe(true);
+  });
+
+  it("refuses a task not done, a review task and one without an opened PR", () => {
+    expect(canFixPrComments({ ...opened, status: "needs-you" })).toBe(false);
+    expect(canFixPrComments({ ...opened, mode: "review" })).toBe(false);
+    expect(canFixPrComments({ ...opened, deliveryTargets: ["push-branch"] })).toBe(false);
   });
 });
 

@@ -197,6 +197,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       publish,
       pathExists: existsSync,
       ci: ciWatcher,
+      prFeedback: github.pullRequestFeedback,
     });
     // Runs before the database closes: kills the agent CLIs and marks their steps interrupted.
     shutdown.onShutdown(() => pipeline.shutdown());

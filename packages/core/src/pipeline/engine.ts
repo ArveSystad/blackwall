@@ -42,6 +42,13 @@ import {
   type MergeConflict,
 } from "./delivery.js";
 import { blockingFindings } from "./findings.js";
+import {
+  MAX_PR_COMMENT_FINDINGS,
+  prConversationFinding,
+  prThreadFinding,
+  seenPrCommentUrls,
+  type PullRequestFeedback,
+} from "./pr-feedback.js";
 import { createScheduler } from "./scheduler.js";
 import {
   addUsage,
@@ -219,6 +226,11 @@ export interface PipelineEngineOptions {
   pathExists?: (path: string) => boolean;
   /** Watches CI after a delivery pushes the branch, and gathers the failing logs for Fix CI. */
   ci?: Pick<CiWatcher, "watch" | "cancel" | "failureContext">;
+  /**
+   * Reads the review threads and conversation on the pull request a delivery
+   * opened, minus blackwall's own comments, for Fetch comments and fix.
+   */
+  prFeedback?: (url: string, signal?: AbortSignal) => Promise<PullRequestFeedback>;
 }
 
 /** In-memory hints for a task's next drive; lost on restart, which only costs a re-run. */
@@ -255,6 +267,7 @@ export function createPipelineEngine({
   log = console.error,
   pathExists = () => true,
   ci,
+  prFeedback,
 }: PipelineEngineOptions) {
   const scheduler = createScheduler({ maxPerRepo: maxTasksPerRepo });
   const drives = new Map<string, Promise<void>>();
@@ -273,6 +286,8 @@ export function createPipelineEngine({
   const stopping = new Set<string>();
   /** Tasks gathering CI logs for a Fix CI; a second Fix CI is refused meanwhile. */
   const fixingCi = new Set<string>();
+  /** Tasks fetching their PR's comments for a fix round; Fix CI and a second fetch are refused meanwhile. */
+  const fixingPrComments = new Set<string>();
   let stopped = false;
 
   function getTask(id: string): Task {
@@ -875,6 +890,24 @@ export function createPipelineEngine({
     );
   }
 
+  /** The link of the last pull request a delivery of the task opened, if any. */
+  function openedPullRequestUrl(taskId: string): string | undefined {
+    let url: string | undefined;
+    for (const run of r.runs.listByTask(taskId)) {
+      for (const step of r.steps.listByRun(run.id)) {
+        if (step.agentId !== null) continue;
+        for (const e of r.stepEvents.list(step.id)) {
+          if (e.type !== DELIVERY_DONE_EVENT) continue;
+          const outcome = e.payload as DeliveryOutcome;
+          if (outcome.action === "open-pr" && /^https?:\/\//.test(outcome.detail)) {
+            url = outcome.detail;
+          }
+        }
+      }
+    }
+    return url;
+  }
+
   /**
    * Halts a queued or running task as `interrupted` with
    * {@link TASK_STOPPED_ERROR}: a queued one leaves the queue unstarted, a
@@ -1038,6 +1071,9 @@ export function createPipelineEngine({
         throw new TaskStateError(`Task ${taskId} has no failed CI to fix`);
       }
       if (fixingCi.has(taskId)) throw new TaskStateError(`Task ${taskId} is already fixing CI`);
+      if (fixingPrComments.has(taskId)) {
+        throw new TaskStateError(`Task ${taskId} is already fetching its PR comments`);
+      }
       fixingCi.add(taskId);
       try {
         ci?.cancel(taskId);
@@ -1065,6 +1101,60 @@ export function createPipelineEngine({
         return queueStage(taskId, next);
       } finally {
         fixingCi.delete(taskId);
+      }
+    },
+
+    /**
+     * Fetch comments and fix: a done work task whose delivery opened a pull
+     * request gets one High force-fixed finding per review thread with
+     * comments no finding of the task has carried yet (outdated threads
+     * included), plus one for new conversation comments and review summaries,
+     * at most {@link MAX_PR_COMMENT_FINDINGS}; the rest come on the next call.
+     * Each finding records its comments' permalinks (`Comment: <url>`), so a
+     * comment is fixed only once. The CI watch is cancelled, the task queued
+     * for a fix round and, like Fix CI, stops at the finish gate for the user
+     * to push again. Lists the task again if it was archived.
+     */
+    async fixPrComments(taskId: string): Promise<Task> {
+      const task = getTask(taskId);
+      if (pipelineKind(task.mode) !== "work") {
+        throw new TaskStateError(`Task ${taskId} only reviews; it has no pull request to fix`);
+      }
+      if (task.status !== "done") throw new TaskStateError(`Task ${taskId} is not done`);
+      const url = openedPullRequestUrl(taskId);
+      if (!url) throw new TaskStateError(`Task ${taskId} has not opened a pull request`);
+      if (!prFeedback) throw new TaskStateError("Fetching PR comments is not available");
+      if (fixingPrComments.has(taskId)) {
+        throw new TaskStateError(`Task ${taskId} is already fetching its PR comments`);
+      }
+      if (fixingCi.has(taskId)) throw new TaskStateError(`Task ${taskId} is already fixing CI`);
+      fixingPrComments.add(taskId);
+      try {
+        const feedback = await prFeedback(url);
+        const fresh = getTask(taskId);
+        if (fresh.status !== "done") {
+          throw new TaskStateError(`Task ${taskId} changed while fetching its PR comments`);
+        }
+        const run = currentRun(taskId);
+        const round = currentRound(run);
+        const seen = seenPrCommentUrls(r.findings.listByTask(taskId));
+        const prNumber = Number(/\/pulls?\/(\d+)/.exec(url)?.[1] ?? 0);
+        const candidates = [
+          ...feedback.threads.map((t) => prThreadFinding(fresh, run.id, round, t, seen)),
+          prConversationFinding(fresh, run.id, round, prNumber, feedback.conversation, seen),
+        ].filter((f) => f !== undefined);
+        if (candidates.length === 0) {
+          throw new TaskStateError("No new comments on the pull request to fix");
+        }
+        ci?.cancel(taskId);
+        const findings = r.findings.createMany(candidates.slice(0, MAX_PR_COMMENT_FINDINGS));
+        for (const finding of findings) publish({ type: "finding.upserted", payload: { finding } });
+        if (fresh.archivedAt) saveTask(taskId, { archivedAt: null });
+        const next = afterGate("finish", "revise", position(fresh, round));
+        if (next.kind !== "stage") throw new Error(`Unexpected transition ${next.kind}`);
+        return queueStage(taskId, next);
+      } finally {
+        fixingPrComments.delete(taskId);
       }
     },
 

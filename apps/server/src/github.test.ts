@@ -415,6 +415,126 @@ describe("prCommentsContext", () => {
   });
 });
 
+describe("pullRequestFeedback", () => {
+  const PR = "https://acme.ghe.com/acme/shop/pull/42";
+  const signed = "Fixed in abc.\n\n---\n_Posted from blackwall_";
+
+  it("reads every thread and the conversation with permalinks, minus blackwall's comments", async () => {
+    const list = connections([ghe]);
+    const fetchImpl = fakeComments({
+      reviewComments: [
+        {
+          id: 101,
+          path: "src/money.ts",
+          line: 12,
+          original_line: 12,
+          start_line: 10,
+          side: "RIGHT",
+          body: "Round before summing?",
+          user: { login: "kari" },
+          created_at: "2026-10-01T09:00:00Z",
+          diff_hunk: "@@ -10,3 +10,3 @@",
+        },
+        {
+          id: 102,
+          path: "src/money.ts",
+          line: 12,
+          side: "RIGHT",
+          body: signed,
+          user: { login: "ola" },
+          created_at: "2026-10-01T10:00:00Z",
+          in_reply_to_id: 101,
+        },
+        {
+          id: 201,
+          path: "src/tax.ts",
+          line: null,
+          original_line: 5,
+          start_line: null,
+          side: "LEFT",
+          body: "Old note",
+          user: { login: "kari" },
+          created_at: "2026-09-30T08:00:00Z",
+          diff_hunk: "@@ -5 +5 @@",
+        },
+        {
+          id: 301,
+          path: "src/x.ts",
+          line: 1,
+          side: "RIGHT",
+          body: signed,
+          user: { login: "ola" },
+          created_at: "2026-10-01T11:00:00Z",
+        },
+      ],
+      issueComments: [
+        { id: 501, body: "Cover refunds?", user: { login: "dev" }, created_at: "2026-10-02" },
+        { id: 502, body: signed, user: { login: "ola" }, created_at: "2026-10-03" },
+      ],
+      reviews: [
+        {
+          id: 601,
+          state: "CHANGES_REQUESTED",
+          body: "Please fix the rounding.",
+          user: { login: "kari" },
+          submitted_at: "2026-10-04T00:00:00Z",
+        },
+      ],
+    });
+    const github = createGitHubOrigin({ connections: list, fetch: fetchImpl });
+
+    expect(await github.pullRequestFeedback(`${PR}/files`)).toEqual({
+      threads: [
+        {
+          path: "src/tax.ts",
+          line: null,
+          startLine: null,
+          originalLine: 5,
+          side: "LEFT",
+          outdated: true,
+          url: `${PR}#discussion_r201`,
+          diffHunk: "@@ -5 +5 @@",
+          comments: [{ url: `${PR}#discussion_r201`, author: "kari", body: "Old note" }],
+        },
+        {
+          path: "src/money.ts",
+          line: 12,
+          startLine: 10,
+          originalLine: 12,
+          side: "RIGHT",
+          outdated: false,
+          url: `${PR}#discussion_r101`,
+          diffHunk: "@@ -10,3 +10,3 @@",
+          comments: [
+            { url: `${PR}#discussion_r101`, author: "kari", body: "Round before summing?" },
+          ],
+        },
+      ],
+      conversation: [
+        { url: `${PR}#issuecomment-501`, author: "dev", body: "Cover refunds?" },
+        {
+          url: `${PR}#pullrequestreview-601`,
+          author: "kari",
+          body: "Please fix the rounding.",
+          reviewState: "CHANGES_REQUESTED",
+        },
+      ],
+    });
+    expect(list.requireCredential).toHaveBeenCalledWith({ kind: "github", remote: `${PR}/files` });
+    const [url] = fetchImpl.mock.calls[0]!;
+    expect(new URL(String(url)).host).toBe("api.acme.ghe.com");
+  });
+
+  it("throws a missing token, so the token modal can ask for one", async () => {
+    const list = connections([ghe]);
+    list.requireCredential.mockRejectedValueOnce(
+      new MissingCredentialError("github", "acme.ghe.com", null),
+    );
+    const github = createGitHubOrigin({ connections: list, fetch: fakeComments() });
+    await expect(github.pullRequestFeedback(PR)).rejects.toThrow(MissingCredentialError);
+  });
+});
+
 describe("stacked pull requests", () => {
   const signal = new AbortController().signal;
 

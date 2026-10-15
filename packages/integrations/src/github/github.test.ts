@@ -220,6 +220,13 @@ describe("assemblePullRequest", () => {
       ["grace", "CHANGES_REQUESTED"],
     ]);
   });
+
+  it("keeps each conversation item's id and whether it is a comment or a review", () => {
+    expect(context.conversation.map((c) => [c.kind, typeof c.id])).toEqual([
+      ["comment", "number"],
+      ["review", "number"],
+    ]);
+  });
 });
 
 describe("groupReviewThreads", () => {

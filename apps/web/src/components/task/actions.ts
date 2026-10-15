@@ -2,6 +2,7 @@ import type { GateDecision, GateResponseInput, Task } from "@blackwall/shared";
 import {
   archiveTask,
   fixCi as fixCiRequest,
+  fixPrComments as fixPrCommentsRequest,
   respondToGate,
   resumeTask,
   stopTask,
@@ -62,6 +63,11 @@ export function unarchive(action: TaskAction, task: Task) {
 /** Runs a fix round on the task's failed CI; the task stops at Finish to push again. */
 export function fixCi(action: TaskAction, task: Task) {
   return action.run("Fix CI", () => fixCiRequest(task.id));
+}
+
+/** Runs a fix round on the new comments on the task's pull request; it stops at Finish to push again. */
+export function fixPrComments(action: TaskAction, task: Task) {
+  return action.run("Fetch comments and fix", () => fixPrCommentsRequest(task.id));
 }
 
 /** Puts the cursor in the input bar, where change requests and instructions are typed. */

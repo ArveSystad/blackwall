@@ -25,6 +25,10 @@ export interface PullRequestReviewThread {
 }
 
 export interface PullRequestConversationItem {
+  /** The issue comment's or review's id. */
+  id: number;
+  /** A conversation comment, or a review's summary. */
+  kind: "comment" | "review";
   author: string;
   body: string;
   created: string | null;
@@ -136,7 +140,9 @@ export function conversationOf(
   reviews: readonly GitHubReviewJson[],
 ): PullRequestConversationItem[] {
   return [
-    ...issueComments.map((c) => ({
+    ...issueComments.map((c): PullRequestConversationItem => ({
+      id: c.id,
+      kind: "comment",
       author: author(c.user),
       body: (c.body ?? "").trim(),
       created: c.created_at ?? null,
@@ -144,7 +150,9 @@ export function conversationOf(
     // Reviews without a summary (just inline comments) and pending reviews add nothing here.
     ...reviews
       .filter((r) => r.state !== "PENDING" && (r.body ?? "").trim() !== "")
-      .map((r) => ({
+      .map((r): PullRequestConversationItem => ({
+        id: r.id,
+        kind: "review",
         author: author(r.user),
         body: (r.body ?? "").trim(),
         created: r.submitted_at ?? null,

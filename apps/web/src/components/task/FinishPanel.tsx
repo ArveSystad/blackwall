@@ -17,6 +17,7 @@ import { queryKeys, taskDeliveryQuery } from "../../query";
 import { errorMessage } from "../../settings-forms";
 import {
   canDeleteFinding,
+  canFixPrComments,
   carryPicks,
   checkPassed,
   confirmLabel,
@@ -32,7 +33,7 @@ import { SeverityChip } from "../SeverityChip";
 import { Button } from "../ui/button";
 import { ErrorText } from "../ui/field";
 import { Kbd } from "../ui/kbd";
-import { answerGate, fixCi } from "./actions";
+import { answerGate, fixCi, fixPrComments } from "./actions";
 import type { TaskData } from "./use-task-data";
 import type { TaskAction } from "./use-task-action";
 
@@ -552,15 +553,36 @@ function CiSection({ task, ci, action }: { task: Task; ci: TaskCi; action: TaskA
   );
 }
 
-/** The pull request delivery opened, one click away once the task is done. */
-function Delivered({ url, quiet }: { url: string; quiet: boolean }) {
+/**
+ * The pull request delivery opened, one click away once the task is done,
+ * with Fetch comments and fix to run a fix round on its new review comments.
+ * That button gives up the magenta to Fix CI when CI failed.
+ */
+function Delivered({ url, task, action }: { url: string; task: Task; action: TaskAction }) {
+  const [fetching, setFetching] = useState(false);
+
+  async function fetchAndFix() {
+    setFetching(true);
+    try {
+      await fixPrComments(action, task);
+    } finally {
+      setFetching(false);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-2 px-4 pt-3 pb-3.5">
-      <Button
-        variant={quiet ? "default" : "needs"}
-        asChild
-        className="h-9 justify-center text-body"
-      >
+      {canFixPrComments(task) && (
+        <Button
+          variant={ciNeedsYou(task) ? "default" : "needs"}
+          className="h-9 justify-center text-body"
+          disabled={action.pending}
+          onClick={() => void fetchAndFix()}
+        >
+          {fetching ? "Fetching comments…" : "Fetch comments and fix"}
+        </Button>
+      )}
+      <Button variant="default" asChild className="h-9 justify-center text-body">
         <a href={url} target="_blank" rel="noreferrer">
           Open pull request
         </a>
@@ -576,8 +598,9 @@ function Delivered({ url, quiet }: { url: string; quiet: boolean }) {
  * Finish: the summary on the left, and on the right every outbound action
  * as a pre-ticked checkbox showing exactly what is sent. Nothing leaves the
  * machine until the user confirms here. Once done, a delivered pull request
- * stays linked from the same panel, and CI on the pushed commit shows there
- * with Fix CI when it failed.
+ * stays linked from the same panel, with Fetch comments and fix for its
+ * review comments, and CI on the pushed commit shows there with Fix CI when
+ * it failed.
  */
 export function FinishPanel({
   task,
@@ -633,7 +656,7 @@ export function FinishPanel({
             </span>
           </div>
           {task.ci && <CiSection task={task} ci={task.ci} action={action} />}
-          {!atGate && delivered && <Delivered url={delivered} quiet={ciNeedsYou(task)} />}
+          {!atGate && delivered && <Delivered url={delivered} task={task} action={action} />}
           {atGate && resolving && (
             <p
               role="status"

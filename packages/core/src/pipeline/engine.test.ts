@@ -42,6 +42,7 @@ import {
   type DeliveryContext,
 } from "./delivery.js";
 import type { CheckOutcome, CheckRunner } from "./checks.js";
+import type { PullRequestFeedback, PullRequestFeedbackThread } from "./pr-feedback.js";
 import { InvalidGateResponseError } from "./transitions.js";
 import { commitKey, commitMessage, createDefaultStages, diffCommentFinding } from "./stages.js";
 
@@ -132,6 +133,7 @@ function harness(
     commentOnIssue = async () => ({ url: ISSUE_COMMENT_URL }),
     pathExists,
     ci,
+    prFeedback,
   }: {
     stages?: StageHandlers;
     maxPerRepo?: number;
@@ -141,6 +143,7 @@ function harness(
     commentOnIssue?: (task: Task, body: string) => Promise<{ url: string }>;
     pathExists?: (path: string) => boolean;
     ci?: Pick<CiWatcher, "watch" | "cancel" | "failureContext">;
+    prFeedback?: (url: string) => Promise<PullRequestFeedback>;
   } = {},
 ): Harness {
   const agents = agentService();
@@ -183,6 +186,7 @@ function harness(
     ...(removeWorkspace ? { removeWorkspace } : {}),
     ...(pathExists ? { pathExists } : {}),
     ...(ci ? { ci } : {}),
+    ...(prFeedback ? { prFeedback } : {}),
     publish: (event) => events.push(event),
     log: () => undefined,
   });
@@ -3017,5 +3021,214 @@ describe("CI", () => {
     release([{ check: failedCi().checks[0]!, log: undefined }]);
     await expect(first).resolves.toMatchObject({ status: "queued" });
     await settle(h.engine);
+  });
+
+  describe("fetch comments and fix", () => {
+    const PR = "https://github.com/o/r/pull/7";
+
+    const prRecording = async (ctx: DeliveryContext) => {
+      for (const action of ctx.confirmation.actions) {
+        ctx.record({ action, detail: action === "open-pr" ? PR : action });
+      }
+    };
+
+    const comment = (id: number, body: string, author = "reviewer") => ({
+      url: `${PR}#discussion_r${id}`,
+      author,
+      body,
+    });
+
+    const thread = (patch: Partial<PullRequestFeedbackThread> = {}): PullRequestFeedbackThread => ({
+      path: "src/login.ts",
+      line: 4,
+      startLine: 3,
+      originalLine: 4,
+      side: "RIGHT",
+      outdated: false,
+      url: `${PR}#discussion_r1`,
+      diffHunk: "@@ -3,2 +3,2 @@\n-a == b\n+a === b",
+      comments: [comment(1, "Use a constant-time compare")],
+      ...patch,
+    });
+
+    /** A task delivered with `actions`, done. */
+    async function deliveredWith(
+      h: Harness,
+      actions: ("push-branch" | "open-pr")[] = ["push-branch", "open-pr"],
+    ) {
+      const seeded = await atFinish(h);
+      await h.engine.respond(seeded.id, {
+        gate: "finish",
+        decision: "approve",
+        delivery: { actions },
+      });
+      expect(task(seeded.id).status).toBe("done");
+      return seeded;
+    }
+
+    /** Runs the queued fix round to the finish gate and pushes again. */
+    async function pushAgain(h: Harness, taskId: string) {
+      await settle(h.engine);
+      expect(task(taskId)).toMatchObject({ status: "needs-you", gate: "finish" });
+      await h.engine.respond(taskId, {
+        gate: "finish",
+        decision: "approve",
+        delivery: { actions: ["push-branch"] },
+      });
+      expect(task(taskId).status).toBe("done");
+    }
+
+    it("turns new PR comments into force-fixed findings and runs a fix round to finish", async () => {
+      const ci = fakeCi();
+      const feedback: PullRequestFeedback = {
+        threads: [thread()],
+        conversation: [
+          {
+            url: `${PR}#pullrequestreview-9`,
+            author: "lead",
+            body: "Needs a test",
+            reviewState: "CHANGES_REQUESTED",
+          },
+        ],
+      };
+      const prFeedback = vi.fn<(url: string) => Promise<PullRequestFeedback>>(async () => feedback);
+      const h = harness(() => ({}), { deliver: prRecording, ci, prFeedback });
+      const seeded = await deliveredWith(h);
+      r.tasks.update(seeded.id, { archivedAt: new Date() });
+
+      const queued = await h.engine.fixPrComments(seeded.id);
+      expect(queued).toMatchObject({ status: "queued", stage: "implement", archivedAt: null });
+      expect(prFeedback).toHaveBeenCalledExactlyOnceWith(PR);
+      expect(ci.cancel).toHaveBeenCalledExactlyOnceWith(seeded.id);
+
+      const runId = r.runs.listByTask(seeded.id).at(-1)!.id;
+      const findings = r.findings.listByTask(seeded.id).filter((f) => f.runId === runId);
+      expect(findings.map((f) => f.title)).toEqual([
+        "PR comment: Use a constant-time compare",
+        "PR conversation on #7",
+      ]);
+      expect(findings[0]).toMatchObject({
+        severity: "high",
+        status: "force-fix",
+        file: "src/login.ts",
+        lineStart: 3,
+        lineEnd: 4,
+      });
+
+      await settle(h.engine);
+      expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
+      const lastImplement = h.calls.filter((c) => c.stage === "implement").at(-1)!;
+      expect(lastImplement.options.prompt).toContain("Use a constant-time compare");
+      expect(lastImplement.options.prompt).toContain("Needs a test");
+    });
+
+    it("fixes each comment once, and a reply on an outdated thread on its own", async () => {
+      const ci = fakeCi();
+      let feedback: PullRequestFeedback = { threads: [thread()], conversation: [] };
+      const h = harness(() => ({}), { deliver: prRecording, ci, prFeedback: async () => feedback });
+      const seeded = await deliveredWith(h);
+      await h.engine.fixPrComments(seeded.id);
+      await pushAgain(h, seeded.id);
+
+      await expect(h.engine.fixPrComments(seeded.id)).rejects.toThrow(
+        "No new comments on the pull request to fix",
+      );
+      expect(ci.cancel).toHaveBeenCalledTimes(1);
+
+      feedback = {
+        threads: [
+          thread({
+            line: null,
+            startLine: null,
+            outdated: true,
+            comments: [comment(1, "Use a constant-time compare"), comment(2, "Still unsafe")],
+          }),
+        ],
+        conversation: [],
+      };
+      await h.engine.fixPrComments(seeded.id);
+      const runId = r.runs.listByTask(seeded.id).at(-1)!.id;
+      const [reply, ...rest] = r.findings.listByTask(seeded.id).filter((f) => f.runId === runId);
+      expect(rest).toEqual([]);
+      expect(reply).toMatchObject({
+        title: "PR comment: Still unsafe",
+        file: "src/login.ts",
+        lineStart: null,
+        lineEnd: null,
+      });
+      expect(reply!.explanation).toContain(`Comment: ${PR}#discussion_r2`);
+      expect(reply!.explanation).not.toContain(`Comment: ${PR}#discussion_r1`);
+      expect(reply!.explanation).toContain("Outdated thread (originally line 4)");
+      await settle(h.engine);
+    });
+
+    it("refuses unless a done work task opened a PR and a port can read it", async () => {
+      const feedback: PullRequestFeedback = { threads: [thread()], conversation: [] };
+      const h = harness(() => ({}), { deliver: prRecording, prFeedback: async () => feedback });
+
+      const atGate = await atFinish(h);
+      await expect(h.engine.fixPrComments(atGate.id)).rejects.toThrow(TaskStateError);
+
+      const pushedOnly = await deliveredWith(h, ["push-branch"]);
+      await expect(h.engine.fixPrComments(pushedOnly.id)).rejects.toThrow(
+        /has not opened a pull request/,
+      );
+
+      const review = seedTask({ mode: "review", origin: prOrigin(), branch: "feature/r" });
+      r.tasks.update(review.id, { status: "done" });
+      await expect(h.engine.fixPrComments(review.id)).rejects.toThrow(TaskStateError);
+
+      const noPort = harness(() => ({}), { deliver: prRecording });
+      const opened = await deliveredWith(noPort);
+      await expect(noPort.engine.fixPrComments(opened.id)).rejects.toThrow(
+        "Fetching PR comments is not available",
+      );
+      for (const t of [atGate, pushedOnly, review, opened]) {
+        expect(r.findings.listByTask(t.id).filter((f) => f.title.startsWith("PR "))).toEqual([]);
+      }
+    });
+
+    it("refuses a second fetch and Fix CI while the first fetch runs", async () => {
+      let release: (feedback: PullRequestFeedback) => void = () => undefined;
+      const prFeedback = () =>
+        new Promise<PullRequestFeedback>((resolve) => {
+          release = resolve;
+        });
+      const h = harness(() => ({}), { deliver: prRecording, ci: fakeCi(), prFeedback });
+      const seeded = await deliveredWith(h);
+      r.tasks.update(seeded.id, { ci: failedCi() });
+
+      const first = h.engine.fixPrComments(seeded.id);
+      await expect(h.engine.fixPrComments(seeded.id)).rejects.toThrow(/already fetching/);
+      await expect(h.engine.fixCi(seeded.id)).rejects.toThrow(/already fetching/);
+      release({ threads: [thread()], conversation: [] });
+      await expect(first).resolves.toMatchObject({ status: "queued" });
+      await settle(h.engine);
+    });
+
+    it("caps the findings at 20 and picks up the rest on the next call", async () => {
+      const feedback: PullRequestFeedback = {
+        threads: Array.from({ length: 25 }, (_, i) =>
+          thread({ url: `${PR}#discussion_r${i + 1}`, comments: [comment(i + 1, `Comment ${i}`)] }),
+        ),
+        conversation: [],
+      };
+      const h = harness(() => ({}), { deliver: prRecording, prFeedback: async () => feedback });
+      const seeded = await deliveredWith(h);
+      const prFindings = () =>
+        r.findings.listByTask(seeded.id).filter((f) => f.title.startsWith("PR comment:"));
+
+      await h.engine.fixPrComments(seeded.id);
+      expect(prFindings()).toHaveLength(20);
+      await pushAgain(h, seeded.id);
+
+      await h.engine.fixPrComments(seeded.id);
+      expect(
+        prFindings()
+          .slice(20)
+          .map((f) => f.title),
+      ).toEqual([20, 21, 22, 23, 24].map((i) => `PR comment: Comment ${i}`));
+      await settle(h.engine);
+    });
   });
 });

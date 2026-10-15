@@ -251,6 +251,16 @@ export function canOverrideFinding(task: Pick<Task, "mode">): boolean {
 }
 
 /**
+ * Whether a done work task can fetch its pull request's comments for a fix
+ * round: its delivery opened the PR.
+ */
+export function canFixPrComments(task: Pick<Task, "status" | "mode" | "deliveryTargets">): boolean {
+  return (
+    task.status === "done" && task.mode !== "review" && task.deliveryTargets.includes("open-pr")
+  );
+}
+
+/**
  * Picks survive a delivery-plan refetch: earlier picks still offered stay,
  * newly offered findings start picked.
  */

@@ -9,6 +9,7 @@ export * from "./engine.js";
 export * from "./fake-adapter.js";
 export * from "./findings.js";
 export * from "./follow-ups.js";
+export * from "./pr-feedback.js";
 export * from "./scheduler.js";
 export * from "./stages.js";
 export * from "./transitions.js";
