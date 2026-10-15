@@ -72,12 +72,12 @@ export function ArtifactsPanel({ task }: { task: Task }) {
     refetchInterval: task.status === "running" ? 5_000 : false,
   });
   const now = useNow();
-  if (artifacts.isPending) return <p className={panelNote}>Loading artifacts…</p>;
+  if (artifacts.isPending) return <p className={panelNote}>Collecting artifacts…</p>;
   const list = artifacts.data ?? [];
   if (list.length === 0) {
     return (
       <p className={panelNote}>
-        No artifacts yet. Implementers can save screenshots to{" "}
+        Nothing captured yet. Implementers can save screenshots to{" "}
         <code className="mono">.blackwall/artifacts/</code> in the worktree. They appear here while
         the implementer works and are never committed.
       </p>

@@ -342,12 +342,12 @@ export function ConnectionsSection() {
         </p>
       )}
       {connections.isPending ? (
-        <Empty>Loading connections…</Empty>
+        <Empty>Reading connections…</Empty>
       ) : connections.isError ? (
         <Empty>{connections.error.message}</Empty>
       ) : connections.data.length === 0 ? (
         <Empty>
-          No connections yet. Add one, or start a task against a new host and you&apos;ll be asked
+          No links up. Add a connection, or start a task against a new host and you&apos;ll be asked
           for a token.
         </Empty>
       ) : (

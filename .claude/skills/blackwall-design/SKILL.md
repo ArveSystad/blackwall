@@ -94,7 +94,7 @@ Rules:
   horizon, and the pointer brightens it locally. Each dot is a 24px link to its task, centres are at least 28px apart, and
   needs-you dots stack above running and queued ones; hover or focus shows a card with the task,
   stage and current work. "Nothing on deck. Awaiting orders." and Create task show only when nothing is
-  active, with View backlog for the selected repo beside it, or "Backlog is empty." when nothing waits there; if the
+  active, with View backlog for the selected repo beside it, or "Backlog clear. Nothing queued." when nothing waits there; if the
   tasks or agents cannot load, the pane says so with Retry instead. The home grid also has a
   review-requests pill at the bottom, under the floor: magenta (count and blinking dot) while pull
   requests need the user, muted otherwise; it is a solid popover pill, not a glow. When a pill's count
@@ -154,7 +154,7 @@ Rules:
   actions start unticked. One confirm button states the count, e.g. "Confirm and send 3 actions".
   Nothing outward happens anywhere else in the UI.
 - **Chat:** a right-hand panel beside every page (shell, Settings, Stats), toggled by the top bar's
-  chat button or `C`. It follows the repo picked in the top bar ("Pick a repo to chat about it"
+  chat button or `C`. It follows the repo picked in the top bar ("No channel. Pick a repo to chat about it."
   otherwise). Its preferred width is 250–900px (default 380px), remembered per browser with the open
   state; the rendered width re-clamps live so the main area keeps at least 360px beside the 352px
   sidebar. It never overlays the page and never closes itself; below ~960px it stays at 250px and
@@ -203,6 +203,20 @@ bind a plain-key global shortcut while focus is in a text field; ⌘/Ctrl shortc
 - No exclamation marks or emoji, and nothing cute in error messages.
 - Name things exactly: "Push `feature/x` to github.com/acme/web", not "Sync changes".
 - Tab title: `(N) blackwall`, where N is the needs-you count, or plain `blackwall` when zero.
+- Control-room voice:
+  - Pattern: a short operator status, then the plain fact or next step. A loading line is a
+    present-tense verb, then the named object, then "…".
+  - Examples: "Nothing on deck. Awaiting orders.", "Pulling the task list…", "Clean sweep. No
+    findings.", "Wall secure. Nothing leaves.", "Restore complete. Imported the export from …".
+  - Applies to empty states, loading lines, success confirmations, and the subtitle and body lines
+    of empty panes.
+  - Never applies (keep these plain and exact): errors and load failures, destructive
+    confirmations, Finish outbound descriptions and action text, button pending labels, status
+    chips, and count-pill labels (they are also accessible names).
+  - Rules: sentence case, short, no emoji, no exclamation marks. Every line names what is loading,
+    missing or done, and a metaphor never replaces the object ("Tapping the output stream…", not
+    "Tapping the stream…"). Keep a second sentence that tells the user what happens next, and keep
+    the facts in success lines (dates, paths).
 
 ## Accessibility
 

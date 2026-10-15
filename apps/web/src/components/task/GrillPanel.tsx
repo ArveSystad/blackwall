@@ -213,8 +213,8 @@ export function GrillPanel({
         {questions.length === 0 ? (
           <p className="m-0 text-muted-foreground">
             {task.stage === "plan-review" && task.status === "running"
-              ? "The plan reviewers are reading the plan."
-              : "No questions yet. Plan reviewers grill the plan in the Plan review stage."}
+              ? "Reviewers on the plan. Questions land here."
+              : "Standing by. Plan reviewers grill the plan in the Plan review stage."}
           </p>
         ) : (
           questions.map((question, i) => (

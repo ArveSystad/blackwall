@@ -107,7 +107,9 @@ function SubagentCall({
           )}
           {item.items.length === 0 ? (
             <p className="m-0 text-muted-foreground">
-              {status === "running" ? "No output yet." : "The sub-agent produced no output."}
+              {status === "running"
+                ? "Standing by. No output yet."
+                : "The sub-agent produced no output."}
             </p>
           ) : (
             item.items.map((child) => <TranscriptEntry key={child.key} item={child} live={live} />)
@@ -230,12 +232,12 @@ function Transcript({
       </div>
       <div className="flex max-w-[860px] flex-col gap-2 pl-7">
         {events.isPending ? (
-          <p className="m-0 text-muted-foreground">Loading output…</p>
+          <p className="m-0 text-muted-foreground">Tapping the output stream…</p>
         ) : events.isError ? (
           <ErrorText className="text-body">{events.error.message}</ErrorText>
         ) : items.length === 0 ? (
           <p className="m-0 text-muted-foreground">
-            {live ? "Waiting for the agent's first output…" : "This step produced no output."}
+            {live ? "Channel open. Waiting for first output…" : "This step produced no output."}
           </p>
         ) : (
           items.map((item) => <TranscriptEntry key={item.key} item={item} live={live} />)
@@ -267,11 +269,9 @@ export function OutputPanel({
   const current = follow ? defaultStepId(steps) : (selected ?? defaultStepId(steps));
   const step = steps.find((s) => s.id === current);
 
-  if (loading) return <p className={panelNote}>Loading steps…</p>;
+  if (loading) return <p className={panelNote}>Reading the step log…</p>;
   if (steps.length === 0 || !step) {
-    return (
-      <p className={panelNote}>No agent has run yet. Output streams here once the task starts.</p>
-    );
+    return <p className={panelNote}>Standing by. Output streams here once the task starts.</p>;
   }
 
   return (

@@ -279,7 +279,7 @@ export function runnerStatus({
     };
   }
   if (pendingCount(items) === 0) {
-    return { tone: "idle", label: "Idle", detail: "The backlog is empty." };
+    return { tone: "idle", label: "Idle", detail: "Queue empty. Nothing to run." };
   }
 
   const queued = tasks.filter((t) => t.status === "queued").length;

@@ -386,11 +386,11 @@ export function AgentLibrary() {
           </div>
         </div>
         {agents.isPending ? (
-          <Empty>Loading agents…</Empty>
+          <Empty>Reading the agent roster…</Empty>
         ) : agents.isError ? (
           <Empty>{agents.error.message}</Empty>
         ) : list.length === 0 ? (
-          <Empty>No agents. Add one to plan, implement or review tasks.</Empty>
+          <Empty>Roster empty. Add an agent to plan, implement or review tasks.</Empty>
         ) : shown.length === 0 ? (
           <Empty>No agents match “{filter.trim()}”.</Empty>
         ) : (

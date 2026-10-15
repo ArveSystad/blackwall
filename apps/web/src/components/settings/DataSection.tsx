@@ -79,10 +79,11 @@ function ImportReport({
   return (
     <section aria-label="Import result" className="flex max-w-[720px] flex-col gap-4">
       <p className="m-0 text-meta text-muted-foreground">
-        Imported the export from {result.manifest.exportedAt.slice(0, 10)}. The previous data was
-        backed up to <span className="mono break-all text-foreground">{result.backupPath}</span>.
+        Restore complete. Imported the export from {result.manifest.exportedAt.slice(0, 10)}. The
+        previous data was backed up to{" "}
+        <span className="mono break-all text-foreground">{result.backupPath}</span>.
       </p>
-      {clean && <Empty>Nothing needs attention.</Empty>}
+      {clean && <Empty>All systems nominal. Nothing needs attention.</Empty>}
       {connectionsMissingToken.length > 0 && (
         <div className="flex flex-col gap-1">
           <span className={fieldLabel}>Connections without a token</span>

@@ -226,12 +226,10 @@ export function DiffPanel({
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [stepping, setStepping] = useState(false);
-  if (loading) return <p className={panelNote}>Loading the diff…</p>;
+  if (loading) return <p className={panelNote}>Reading the diff…</p>;
   if (diffs.length === 0) {
     return (
-      <p className={panelNote}>
-        No changes on the branch yet. The implementer commits in the Implement stage.
-      </p>
+      <p className={panelNote}>Branch untouched. The implementer commits in the Implement stage.</p>
     );
   }
 

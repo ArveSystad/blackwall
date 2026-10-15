@@ -112,7 +112,7 @@ export function ActiveAgents() {
 
       <div className={paneBody}>
         {active.isPending ? (
-          <EmptyState key="loading" role="status" title="Loading agents…" />
+          <EmptyState key="loading" role="status" title="Polling agents…" />
         ) : active.isError ? (
           <EmptyState
             key="error"
@@ -123,7 +123,7 @@ export function ActiveAgents() {
             {active.error.message}
           </EmptyState>
         ) : active.data.length === 0 ? (
-          <EmptyState key="empty" title="No agents running">
+          <EmptyState key="empty" title="All agents idle.">
             Agents show up here while a task is in a stage they work on.
           </EmptyState>
         ) : (

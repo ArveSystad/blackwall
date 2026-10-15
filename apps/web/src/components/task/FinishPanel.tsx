@@ -85,7 +85,7 @@ function Summary({ task, data }: { task: Task; data: TaskData }) {
           <p className="m-0 text-muted-foreground">
             {task.mode === "review"
               ? "Review PR tasks post their findings; there is no summary."
-              : "No summary yet. The summarizer writes it before finish."}
+              : "Summary pending. The summarizer writes it before finish."}
           </p>
         )}
       </div>
@@ -336,7 +336,7 @@ export function Outbound({
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto px-3.5 py-3">
         {plan.actions.length === 0 && (
           <p className="m-0 px-1 text-muted-foreground">
-            Nothing to send for this task. Confirming marks it done.
+            Wall secure. Nothing leaves. Confirming marks it done.
           </p>
         )}
         {plan.squash && (

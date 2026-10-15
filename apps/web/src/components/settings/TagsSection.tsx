@@ -75,7 +75,7 @@ function TagEditor({ saved }: { saved: string[] }) {
         </form>
         {tags.length === 0 ? (
           <p className="m-0 text-muted-foreground">
-            No tags. Reviewers then report findings without tags.{" "}
+            Tag list empty. Reviewers report findings without tags.{" "}
             <button
               type="button"
               className="cursor-pointer border-none bg-transparent p-0 text-primary hover:underline"
@@ -151,7 +151,7 @@ export function TagsSection() {
         {tags.data && <span className="mono text-label text-faint">{tags.data.length}</span>}
       </SectionHeader>
       {tags.isPending ? (
-        <Empty>Loading tags…</Empty>
+        <Empty>Reading tags…</Empty>
       ) : tags.isError ? (
         <Empty>{tags.error.message}</Empty>
       ) : (

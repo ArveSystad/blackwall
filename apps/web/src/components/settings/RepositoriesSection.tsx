@@ -634,11 +634,11 @@ export function RepositoriesSection() {
           </p>
         )}
         {repos.isPending ? (
-          <Empty>Loading repositories…</Empty>
+          <Empty>Reading registered repos…</Empty>
         ) : repos.isError ? (
           <Empty>{repos.error.message}</Empty>
         ) : list.length === 0 ? (
-          <Empty>No repositories registered yet. Add one, or scan a folder of repos.</Empty>
+          <Empty>No repos on the board. Add one, or scan a folder of repos.</Empty>
         ) : (
           <ul className={sideList}>
             {list.map((repo) => (

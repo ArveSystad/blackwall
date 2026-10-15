@@ -247,7 +247,7 @@ export function SystemSection() {
       {system.error ? (
         <Empty>{system.error.message}</Empty>
       ) : !system.data ? (
-        <Empty>Loading system info…</Empty>
+        <Empty>Reading system status…</Empty>
       ) : (
         <div className={cn(editorBody, "gap-6")}>
           <DataDirectory path={system.data.dataDir} />

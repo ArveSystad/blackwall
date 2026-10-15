@@ -131,8 +131,8 @@ export function FindingsPanel({
     return (
       <p className={panelNote}>
         {task.stage === "code-review" && task.status === "running"
-          ? "The code reviewers are reading the diff."
-          : "No findings. The code reviewers found nothing to report."}
+          ? "Reviewers sweeping the diff."
+          : "Clean sweep. No findings."}
       </p>
     );
   }

@@ -186,7 +186,7 @@ export function BacklogSection() {
       {settings.error ? (
         <Empty>{settings.error.message}</Empty>
       ) : !settings.data ? (
-        <Empty>Loading backlog settings…</Empty>
+        <Empty>Reading backlog settings…</Empty>
       ) : (
         <BacklogEditor key={JSON.stringify(settings.data)} saved={settings.data} />
       )}

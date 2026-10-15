@@ -368,7 +368,7 @@ export function TaskView({ taskId }: { taskId: string }) {
   useEscapeToBacklog();
 
   if (task.isPending) {
-    return <EmptyState key="loading" role="status" className="h-full" title="Loading task…" />;
+    return <EmptyState key="loading" role="status" className="h-full" title="Pulling the task…" />;
   }
   if (task.isError) {
     return task.error instanceof ApiError && task.error.status === 404 ? (

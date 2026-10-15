@@ -58,13 +58,9 @@ export function ChecksPanel({
   loading: boolean;
 }) {
   if (!step) {
-    return (
-      <p className={panelNote}>
-        Checks have not run yet. They run after each implementation round.
-      </p>
-    );
+    return <p className={panelNote}>Standing by. Checks run after each implementation round.</p>;
   }
-  if (loading) return <p className={panelNote}>Loading checks…</p>;
+  if (loading) return <p className={panelNote}>Reading check results…</p>;
   const passed = checks.filter(checkPassed).length;
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto px-5 py-4">
@@ -79,7 +75,7 @@ export function ChecksPanel({
       {checks.length === 0 ? (
         <p className="m-0 text-muted-foreground">
           {step.status === "running"
-            ? "Starting the check commands."
+            ? "Check commands spinning up."
             : "No check commands are configured for this repo, so Checks were skipped. Add them in Settings → Repositories."}
         </p>
       ) : (

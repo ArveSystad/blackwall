@@ -868,7 +868,7 @@ export function Backlog({
         {error && <ErrorText>{error}</ErrorText>}
 
         {backlog.isPending || tasks.isPending ? (
-          <EmptyState key="loading" role="status" title="Loading backlog…" />
+          <EmptyState key="loading" role="status" title="Reading the backlog…" />
         ) : backlog.isError ? (
           <EmptyState
             key="error"
@@ -894,7 +894,7 @@ export function Backlog({
               sections.earlier.length === 0 &&
               issues.length === 0 &&
               !(showArchive && sections.archived.length > 0) && (
-                <EmptyState title="Nothing waiting">
+                <EmptyState title="Queue empty. Nothing waiting.">
                   Park work here and the runner starts it when the repo is idle. Quick add a line
                   above, or use New task for a Jira issue or PR.
                 </EmptyState>

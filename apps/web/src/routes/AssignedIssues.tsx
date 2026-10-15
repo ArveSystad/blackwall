@@ -72,7 +72,7 @@ export function AssignedIssues() {
 
       <div className={paneBody}>
         {issues.isPending ? (
-          <EmptyState key="loading" role="status" title="Loading issues…" />
+          <EmptyState key="loading" role="status" title="Fetching assigned issues…" />
         ) : issues.isError ? (
           <EmptyState
             key="error"
@@ -97,7 +97,7 @@ export function AssignedIssues() {
             ))}
             {groups.length === 0
               ? issues.data.errors.length === 0 && (
-                  <EmptyState key="empty" title="No issues assigned to you">
+                  <EmptyState key="empty" title="All clear. No issues assigned to you.">
                     Open issues assigned to you on every GitHub host.
                   </EmptyState>
                 )

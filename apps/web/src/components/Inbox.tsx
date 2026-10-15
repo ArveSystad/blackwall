@@ -164,7 +164,7 @@ export function Inbox() {
       </div>
 
       {tasks.isPending ? (
-        <EmptyState key="loading" role="status" title="Loading tasks…" />
+        <EmptyState key="loading" role="status" title="Pulling the task list…" />
       ) : tasks.isError ? (
         <EmptyState
           key="error"

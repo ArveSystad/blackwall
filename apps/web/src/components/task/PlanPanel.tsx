@@ -40,8 +40,8 @@ export function PlanPanel({
         ) : (
           <p className="m-0 text-muted-foreground">
             {task.status === "running" && task.stage === "inform"
-              ? "The planner is writing the plan."
-              : "No plan yet. The planner writes it in the Inform stage."}
+              ? "Planner at work. Writing the plan."
+              : "Standing by. The planner writes the plan in the Inform stage."}
           </p>
         )}
       </div>

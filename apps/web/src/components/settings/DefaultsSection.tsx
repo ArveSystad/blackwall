@@ -195,7 +195,7 @@ export function DefaultsSection() {
       {error ? (
         <Empty>{error.message}</Empty>
       ) : !agents.data || !roles.data || !settings.data ? (
-        <Empty>Loading defaults…</Empty>
+        <Empty>Reading defaults…</Empty>
       ) : (
         <DefaultsEditor
           // Re-keyed when the stored values change (after a save, or an agent edit elsewhere).

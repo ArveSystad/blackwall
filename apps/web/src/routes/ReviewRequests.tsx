@@ -115,7 +115,7 @@ export function ReviewRequests() {
 
       <div className={paneBody}>
         {reviews.isPending ? (
-          <EmptyState key="loading" role="status" title="Loading pull requests…" />
+          <EmptyState key="loading" role="status" title="Fetching review requests…" />
         ) : reviews.isError ? (
           <EmptyState
             key="error"
@@ -140,7 +140,7 @@ export function ReviewRequests() {
             ))}
             {groups.length === 0
               ? reviews.data.errors.length === 0 && (
-                  <EmptyState key="empty" title="No pull requests need your review">
+                  <EmptyState key="empty" title="All clear. No reviews requested.">
                     Open PRs where you or one of your teams is a requested reviewer, and nobody has
                     approved yet.
                   </EmptyState>

@@ -173,7 +173,7 @@ export function Stats() {
         <div className="mx-auto flex w-full max-w-[520px] flex-col gap-6">
           <h1 className="m-0 text-title font-semibold text-foreground-strong">Stats</h1>
           {tasks.isPending ? (
-            <Message title="Loading stats…" />
+            <Message title="Tallying stats…" />
           ) : tasks.isError ? (
             <Message title="Could not load stats">
               {tasks.error.message}{" "}
@@ -190,7 +190,9 @@ export function Stats() {
                     {stats.resolved}
                   </span>
                   {stats.resolved === 0 && (
-                    <span className="text-meta text-muted-foreground">No tasks resolved yet</span>
+                    <span className="text-meta text-muted-foreground">
+                      Log empty. No tasks resolved yet
+                    </span>
                   )}
                 </section>
 
@@ -220,7 +222,7 @@ export function Stats() {
                     Resolved per day · last {STATS_DAYS} days
                   </h2>
                   {doneTimes.isPending ? (
-                    <Message title="Loading the timeline…" />
+                    <Message title="Plotting the timeline…" />
                   ) : doneTimes.isError ? (
                     <Message title="Could not load resolve times">
                       {doneTimes.error.message}{" "}
@@ -238,7 +240,7 @@ export function Stats() {
                     Usage per day · last {STATS_DAYS} days
                   </h2>
                   {usage.isPending ? (
-                    <Message title="Loading usage…" />
+                    <Message title="Reading usage meters…" />
                   ) : usage.isError ? (
                     <Message title="Could not load usage">
                       {usage.error.message}{" "}
@@ -264,7 +266,9 @@ export function Stats() {
                   <section className="flex flex-col gap-3">
                     <h2 className="label m-0 text-muted-foreground">Usage per repo</h2>
                     {used.perRepo.length === 0 ? (
-                      <span className="text-meta text-muted-foreground">No usage recorded yet</span>
+                      <span className="text-meta text-muted-foreground">
+                        Meters at zero. No usage recorded yet
+                      </span>
                     ) : (
                       <UsageList
                         label="Usage per repo"

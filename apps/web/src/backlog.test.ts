@@ -326,7 +326,7 @@ describe("runnerStatus", () => {
   });
 
   it("explains an empty or stuck backlog", () => {
-    expect(status({ items: [] }).detail).toBe("The backlog is empty.");
+    expect(status({ items: [] }).detail).toBe("Queue empty. Nothing to run.");
     expect(status({ items: [makeBacklogItem({ status: "paused" })] }).detail).toMatch(
       /paused or blocked/,
     );

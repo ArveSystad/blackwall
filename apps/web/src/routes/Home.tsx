@@ -258,7 +258,9 @@ export function Home() {
                   </Link>
                 </Button>
               ) : (
-                <span className="text-body text-muted-foreground">Backlog is empty.</span>
+                <span className="text-body text-muted-foreground">
+                  Backlog clear. Nothing queued.
+                </span>
               )
             ) : null
           }

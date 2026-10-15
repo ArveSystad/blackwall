@@ -34,7 +34,7 @@ function CliRow({ status }: { status: CliStatus }) {
 export function CliStatusRows() {
   const clis = useQuery(clisQuery);
   return clis.isPending ? (
-    <p className="m-0 py-1 text-meta text-muted-foreground">Checking installed CLIs…</p>
+    <p className="m-0 py-1 text-meta text-muted-foreground">Scanning for installed CLIs…</p>
   ) : clis.isError ? (
     <ErrorText className="py-1">{clis.error.message}</ErrorText>
   ) : (

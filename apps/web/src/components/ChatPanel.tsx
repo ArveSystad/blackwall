@@ -177,7 +177,7 @@ function OpenChatPanel({
           ) : (
             <>
               <ChatHeader title="Chat" closeButton={closeButton} />
-              <EmptyState title="Pick a repo to chat about it">
+              <EmptyState title="No channel. Pick a repo to chat about it.">
                 The chat answers about the repo selected in the top bar.
               </EmptyState>
             </>
@@ -411,7 +411,7 @@ function ChatBody({
         </Button>
       </ChatHeader>
       {chat.isPending ? (
-        <EmptyState key="loading" role="status" title="Loading chat…" />
+        <EmptyState key="loading" role="status" title="Opening channel…" />
       ) : chat.isError ? (
         <EmptyState
           key="error"
@@ -438,8 +438,7 @@ function ChatBody({
         >
           {count === 0 && !busy && (
             <p className="m-0 text-meta text-muted-foreground">
-              Ask about this repo's code, backlog or tasks. Proposed actions wait for you to apply
-              them.
+              Channel open. Ask about this repo. Proposed actions wait for you to apply them.
             </p>
           )}
           {messages?.map((message) => (
