@@ -21,7 +21,8 @@ import {
 } from "@blackwall/shared";
 import type { AgentResult } from "../agents/adapters/types.js";
 import type { NewFinding } from "../db/schema.js";
-import type { GitService } from "../git/service.js";
+import { describeGitError, hookOutput } from "../git/errors.js";
+import { isHookRejection, type GitService } from "../git/service.js";
 import { defaultBranchOf } from "../repos/service.js";
 import { ensureScratchDir } from "./artifacts.js";
 import type { CiFailure } from "./ci.js";
@@ -430,6 +431,51 @@ export function commitMessage(text: string, key: string | undefined): string {
   return `${prefix}${keyed}${body}`;
 }
 
+/** Times the summarizer rewrites a commit message the repo's commit-msg hook rejected. */
+export const MAX_COMMIT_MESSAGE_REWRITES = 3;
+
+/**
+ * Runs `commit(message)`; when the repo's commit-msg hook rejects it, has
+ * `rewrite` write a new message from the rejected one and the hook's output,
+ * and tries again, up to {@link MAX_COMMIT_MESSAGE_REWRITES} times. Any other
+ * failure, or a rejection without `rewrite` or past the limit, is rethrown.
+ * Returns the commit's result and the message it landed with.
+ */
+export async function commitWithRewrites<T>(
+  commit: (message: string) => Promise<T>,
+  message: string,
+  rewrite: ((rejected: string, output: string) => Promise<string>) | undefined,
+): Promise<{ result: T; message: string }> {
+  let current = message;
+  for (let rewrites = 0; ; rewrites++) {
+    try {
+      return { result: await commit(current), message: current };
+    } catch (error) {
+      if (!isHookRejection(error, "commit-msg") || !rewrite) throw error;
+      if (rewrites >= MAX_COMMIT_MESSAGE_REWRITES) throw error;
+      current = await rewrite(current, hookOutput(error));
+    }
+  }
+}
+
+/** The prompt that has the summarizer rewrite a commit message the commit-msg hook rejected. */
+export function commitMessageRewritePrompt(task: Task, rejected: string, output: string): string {
+  const key = commitKey(task);
+  return prompt(
+    `# Task\n\n${describeOrigin(task)}`,
+    section("Rejected commit message", fence(rejected)),
+    section("Hook output", fence(output)),
+    [
+      "The repo's commit-msg hook rejected this commit message. Write a corrected message that satisfies it.",
+      "Keep the meaning.",
+      "Reply with the commit message only.",
+      key ? `Keep ${key} right after the type prefix (e.g. \`feat: ${key} …\`).` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  );
+}
+
 /** A fenced block that survives backtick fences inside `text`. */
 export function fence(text: string, lang = ""): string {
   return `~~~~${lang}\n${text.trimEnd()}\n~~~~`;
@@ -443,9 +489,12 @@ function describeCheckFailure(check: CheckFinished): string {
 /**
  * The harness commits the round's work: the summarizer writes the message from
  * the staged diff as a Conventional Commits message, with the Jira key after
- * the type prefix when there is one. Nothing
- * happens when the worktree has no changes (including a resumed visit that
- * already committed).
+ * the type prefix when there is one. A message the repo's commit-msg hook
+ * rejects is rewritten by the summarizer in fresh steps (see
+ * {@link commitWithRewrites}); the original summarizer step stays the visit's
+ * first, so a resumed visit starts from its message again. Nothing happens
+ * when the worktree has no changes (including a resumed visit that already
+ * committed).
  */
 async function commitRound(
   ctx: StageContext,
@@ -464,13 +513,14 @@ async function commitRound(
     round === 0
       ? "chore: implement the approved plan"
       : `fix: address review findings (round ${round})`;
-  if (task.agents.summarizer) {
+  const summarizer = task.agents.summarizer;
+  if (summarizer) {
     const cut =
       diff.length > MAX_COMMIT_DIFF_CHARS
         ? `${diff.slice(0, MAX_COMMIT_DIFF_CHARS)}\n[… diff cut; run \`git diff --cached\` for the rest]`
         : diff;
     const result = await ctx.runAgent({
-      agentId: task.agents.summarizer,
+      agentId: summarizer,
       asStage: "summarize",
       prompt: prompt(
         `# Task\n\n${describeOrigin(task)}`,
@@ -487,7 +537,22 @@ async function commitRound(
     });
     if (result.text.trim()) text = result.text;
   }
-  await git.commitAll(worktree, commitMessage(text, key));
+  const rewrite = summarizer
+    ? async (rejected: string, output: string) => {
+        const result = await ctx.runAgent({
+          agentId: summarizer,
+          asStage: "summarize",
+          fresh: true,
+          prompt: commitMessageRewritePrompt(task, rejected, output),
+        });
+        return commitMessage(result.text, key);
+      }
+    : undefined;
+  await commitWithRewrites(
+    (message) => git.commitAll(worktree, message),
+    commitMessage(text, key),
+    rewrite,
+  );
 }
 
 /** The harness step of this stage visit, (re)started: one per visit, without an agent. */
@@ -542,21 +607,64 @@ function checkToFix(ctx: StageContext): CheckFinished | undefined {
   return failedCheck(ctx, previous);
 }
 
+/** Failed Checks harness steps of earlier visits in this fix round: the implementer retries so far. */
+function checkRetries(ctx: StageContext): number {
+  const { run, round, visit, repositories: r } = ctx;
+  return r.steps
+    .listByRun(run.id)
+    .filter(
+      (s) =>
+        s.stage === "checks" &&
+        s.agentId === null &&
+        s.round === round &&
+        s.visit < visit &&
+        s.status === "failed",
+    ).length;
+}
+
 /**
  * Checks: the harness commits the round's work, then runs the repo's check
  * commands in order as one harness step, stopping at the first failure. A
  * failure goes back to the implementer (up to {@link MAX_CHECK_RETRIES} times
  * per fix round); one that persists becomes a Critical `correctness` finding,
- * which gates the code review loop like any reviewer's.
+ * which gates the code review loop like any reviewer's. A commit the repo's
+ * pre-commit hook rejects is a failed check too, and the check commands are
+ * skipped; one that persists past the retries fails the task with the hook's
+ * output, as nothing could be committed to review. A commit-msg rejection the
+ * summarizer's rewrites could not fix fails the task too, with the visit left
+ * failed so a resume continues it.
  */
 async function runChecks(
   ctx: StageContext,
   git: Pick<GitService, "stagedDiff" | "commitAll"> | undefined,
   runCheck: CheckRunner,
 ): Promise<StageResults["checks"]> {
-  if (git) await commitRound(ctx, git);
+  if (git) {
+    try {
+      await commitRound(ctx, git);
+    } catch (error) {
+      if (isHookRejection(error, "commit-msg")) {
+        // Leaves the visit unfinished, so a resume continues it from the original summarizer step.
+        const step = startHarnessStep(ctx);
+        finishStep(ctx, step.id, { status: "failed", error: describeGitError(error) });
+        throw error;
+      }
+      if (!isHookRejection(error, "pre-commit")) throw error;
+      const step = startHarnessStep(ctx);
+      const finished: CheckFinished = {
+        command: "git commit (pre-commit hook)",
+        exitCode: error.exitCode,
+        output: hookOutput(error),
+        timedOut: false,
+      };
+      logEvent(ctx, step.id, CHECK_FINISHED_EVENT, finished);
+      finishStep(ctx, step.id, { status: "failed", error: describeGitError(error) });
+      if (checkRetries(ctx) < MAX_CHECK_RETRIES) return { retryImplement: true };
+      throw error;
+    }
+  }
 
-  const { task, run, round, visit, signal, repositories: r } = ctx;
+  const { task, run, round, signal, repositories: r } = ctx;
   const commands = r.repos.get(task.repoId)?.checkCommands ?? [];
   if (commands.length === 0) return { retryImplement: false };
   const worktree = task.worktreePath;
@@ -590,16 +698,7 @@ async function runChecks(
   }
   finishStep(ctx, step.id, { status: "failed", error: describeCheckFailure(failure) });
 
-  const retries = r.steps
-    .listByRun(run.id)
-    .filter(
-      (s) =>
-        s.stage === "checks" &&
-        s.agentId === null &&
-        s.round === round &&
-        s.visit < visit &&
-        s.status === "failed",
-    ).length;
+  const retries = checkRetries(ctx);
   if (retries < MAX_CHECK_RETRIES) return { retryImplement: true };
 
   // The implementer could not fix it: the review panel and the fix loop take over.

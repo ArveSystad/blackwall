@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyGitError, describeGitError, lockPath, refName } from "./errors.js";
+import { classifyGitError, describeGitError, hookOutput, lockPath, refName } from "./errors.js";
 import { GitError } from "./service.js";
 
 const INDEX_LOCK = `fatal: Unable to create '/repo/.git/index.lock': File exists.
@@ -132,5 +132,62 @@ describe("describeGitError", () => {
     expect(describeGitError(leaky)).toContain("https://github.com/acme/app.git/");
     const unknown = error("fatal: 'https://x:tok@host/r' bad", ["fetch"]);
     expect(describeGitError(unknown)).not.toContain("tok@");
+  });
+});
+
+describe("hook rejections", () => {
+  const COMMITLINT = `⧗   input: Add login
+✖   subject may not be empty [subject-empty]
+✖   type may not be empty [type-empty]
+
+✖   found 2 problems, 0 warnings
+husky - commit-msg script failed (code 1)`;
+  const ESLINT = `/repo/src/a.ts
+  1:7  error  'x' is assigned a value but never used  no-unused-vars
+
+✖ 1 problem (1 error, 0 warnings)
+husky - pre-commit script failed (code 1)`;
+
+  it.each([
+    ["commitlint", COMMITLINT],
+    ["eslint", ESLINT],
+    ["husky", "husky - pre-commit script failed (code 1)"],
+  ])("classifies %s output as unknown", (_, stderr) => {
+    expect(classifyGitError(stderr)).toBe("unknown");
+  });
+
+  it("is hook-rejected when a hook is named", () => {
+    const error = new GitError(["commit"], COMMITLINT, 1, { hook: "commit-msg" });
+    expect(error.kind).toBe("hook-rejected");
+    expect(error.hook).toBe("commit-msg");
+    expect(new GitError(["commit"], COMMITLINT, 1).kind).toBe("unknown");
+  });
+
+  it("gives each hook its advice, followed by the output", () => {
+    const commitMsg = new GitError(["commit"], COMMITLINT, 1, { hook: "commit-msg" });
+    expect(describeGitError(commitMsg)).toBe(
+      `The repo's commit-msg hook rejected the commit message. Retry to have the summarizer rewrite it, or adjust the hook; blackwall never bypasses hooks.\n\n${COMMITLINT}`,
+    );
+    const preCommit = new GitError(["commit"], "", 1, { stdout: ESLINT, hook: "pre-commit" });
+    expect(describeGitError(preCommit)).toMatch(
+      /^The repo's pre-commit hook rejected the commit\. Fix what it reports in the worktree, then retry; blackwall never bypasses hooks\.\n\n\/repo\/src\/a\.ts/,
+    );
+  });
+
+  it("strips credentials and keeps only the end of long output", () => {
+    const long = `${"x".repeat(5_000)}\nfailed at https://user:tok@host/r`;
+    const error = new GitError(["commit"], long, 1, { hook: "pre-commit" });
+    const described = describeGitError(error);
+    expect(described).not.toContain("tok@");
+    expect(described).toContain("https://host/r");
+    expect(described).toContain("earlier characters cut]");
+    expect(described.length).toBeLessThan(2_400);
+  });
+
+  it("joins stdout and stderr and cuts long output", () => {
+    const error = new GitError(["commit"], "  on stderr\n", 1, { stdout: "on stdout\n" });
+    expect(hookOutput(error)).toBe("on stdout\non stderr");
+    const long = new GitError(["commit"], "y".repeat(25_000), 1);
+    expect(hookOutput(long)).toBe(`[… 5000 earlier characters cut]\n${"y".repeat(20_000)}`);
   });
 });

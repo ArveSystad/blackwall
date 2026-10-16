@@ -60,7 +60,13 @@ import {
   usageOf,
   type StepUsageColumns,
 } from "./usage.js";
-import { ciFailureFinding, diffCommentFinding } from "./stages.js";
+import {
+  ciFailureFinding,
+  commitKey,
+  commitMessage,
+  commitMessageRewritePrompt,
+  diffCommentFinding,
+} from "./stages.js";
 import {
   FIRST_STAGE,
   InvalidGateResponseError,
@@ -161,7 +167,9 @@ export interface RunAgentInput {
   asStage?: Stage;
   /**
    * Always start a new step and session, even when this agent already has a
-   * step in the visit (e.g. one per conflict the implementer resolves).
+   * step in the visit (e.g. one per conflict the implementer resolves). A
+   * non-fresh call finds the visit's first step for its agent, so it must come
+   * before any fresh calls of that agent in the visit.
    */
   fresh?: boolean;
 }
@@ -421,12 +429,12 @@ export function createPipelineEngine({
   async function runAgent(ctx: StageContext, input: RunAgentInput): Promise<AgentResult> {
     const { run, stage, round, visit, signal } = ctx;
     if (signal.aborted) throw new InterruptedError();
+    // The first step: fresh steps of the same agent (e.g. commit-message rewrites) come after it.
     const earlier = input.fresh
       ? undefined
       : r.steps
           .listByRun(run.id)
-          .filter((s) => s.stage === stage && s.visit === visit && s.agentId === input.agentId)
-          .at(-1);
+          .find((s) => s.stage === stage && s.visit === visit && s.agentId === input.agentId);
 
     if (earlier?.status === "succeeded") {
       const stored = storedResult(earlier);
@@ -587,7 +595,9 @@ export function createPipelineEngine({
   /**
    * Performs the confirmed delivery actions as a harness step of the task's
    * current stage, logging each one as it completes. Rebase conflicts go to
-   * the task's implementer, each as a fresh agent step of the same visit. A
+   * the task's implementer, each as a fresh agent step of the same visit, and
+   * a squash message the commit-msg hook rejects to its summarizer, likewise;
+   * the message that lands is saved on the task. A
    * failure leaves the task at its gate with the error, and a retry skips what
    * was done.
    */
@@ -618,6 +628,20 @@ export function createPipelineEngine({
       const event = r.stepEvents.append(ensureStep().id, type, payload);
       publish({ type: "step.event", payload: { event } });
     };
+    const summarizer = task.agents.summarizer;
+    const rewriteCommitMessage = summarizer
+      ? async (rejected: string, output: string): Promise<string> => {
+          const { round, visit } = ensureStep();
+          const ctx = stageContext(task, run, stage, round, visit, undefined, controller.signal);
+          const result = await ctx.runAgent({
+            agentId: summarizer,
+            prompt: commitMessageRewritePrompt(task, rejected, output),
+            asStage: "summarize",
+            fresh: true,
+          });
+          return commitMessage(result.text, commitKey(task));
+        }
+      : undefined;
     const resolveConflicts = async (conflict: MergeConflict): Promise<void> => {
       // Logged before the agent step exists: completedDeliveries relies on it.
       log(DELIVERY_CONFLICT_EVENT, conflict);
@@ -641,6 +665,8 @@ export function createPipelineEngine({
         completed: completedDeliveries(run),
         record: (outcome) => log(DELIVERY_DONE_EVENT, outcome),
         resolveConflicts,
+        ...(rewriteCommitMessage ? { rewriteCommitMessage } : {}),
+        saveSquashMessage: (squashMessage) => saveTask(task.id, { squashMessage }),
       });
       if (step) saveStep(step.id, { status: "succeeded", finishedAt: new Date() });
     } catch (error) {

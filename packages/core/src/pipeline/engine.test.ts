@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  MAX_CHECK_RETRIES,
   MAX_FIX_ROUNDS,
   MAX_GRILL_ROUNDS,
   TASK_STOPPED_ERROR,
@@ -41,6 +42,8 @@ import {
   createDeliverer,
   postableFindings,
   type DeliveryContext,
+  type DeliveryGit,
+  type DeliveryPorts,
 } from "./delivery.js";
 import type { CheckOutcome, CheckRunner } from "./checks.js";
 import type { PullRequestFeedback, PullRequestFeedbackThread } from "./pr-feedback.js";
@@ -81,13 +84,18 @@ const highFinding: ReviewFinding = {
  * Which stage an agent call belongs to, from its prompt. Plan review runs the
  * reviewers (`plan-review`), the planner's answers (`plan-answers`) and the
  * planner folding the user's answers into the plan (`plan-fold`); Checks runs
- * the summarizer's commit message (`commit`).
+ * the summarizer's commit message (`commit`) and its rewrites after a
+ * commit-msg hook rejected one (`commit-rewrite`).
  */
-type Call = Stage | "plan-answers" | "plan-fold" | "commit" | "resolve-conflicts";
+type Call =
+  Stage | "plan-answers" | "plan-fold" | "commit" | "commit-rewrite" | "resolve-conflicts";
 
 function stageOf(options: AgentRunOptions): Call {
   if (options.prompt === RESUME_PROMPT) return "implement";
   if (options.prompt.includes("the rebase stopped on conflicts")) return "resolve-conflicts";
+  if (options.prompt.includes("commit-msg hook rejected this commit message")) {
+    return "commit-rewrite";
+  }
   if (options.prompt.includes("Write the git commit message")) return "commit";
   if (options.prompt.includes("Grill this plan")) return "plan-review";
   if (options.prompt.includes("Reviewers' questions")) return "plan-answers";
@@ -1648,6 +1656,293 @@ describe("implement and checks", () => {
     const committed = run("show", "--name-only", "--format=", "HEAD").trim().split("\n");
     expect(committed).toEqual(["login.ts"]);
     expect(run("ls-files")).not.toContain(".blackwall");
+  });
+
+  describe("commit hooks", () => {
+    const DIFF = "diff --git a/a.ts b/a.ts\n+x";
+    const commitMsgRejection = (message: string) =>
+      new GitError(["commit", "--quiet", "-m", message], "✖ subject must be conventional", 1, {
+        hook: "commit-msg",
+      });
+    const preCommitRejection = () =>
+      new GitError(["commit"], "husky - pre-commit script failed (code 1)", 1, {
+        stdout: "eslint: 'x' is assigned a value but never used",
+        hook: "pre-commit",
+      });
+
+    /** Commit stand-ins whose hooks reject a message when `reject` returns an error. */
+    function hookedGit(reject: (message: string) => GitError | undefined) {
+      let committed = false;
+      return {
+        stagedDiff: vi.fn(async () => (committed ? "" : DIFF)),
+        commitAll: vi.fn<(worktree: string, message: string) => Promise<string>>(
+          async (_worktree, message) => {
+            const error = reject(message);
+            if (error) throw error;
+            committed = true;
+            return "abc123";
+          },
+        ),
+      };
+    }
+
+    const conventional = (message: string) =>
+      /^feat: /.test(message) ? undefined : commitMsgRejection(message);
+
+    const prompts = (h: Harness, stage: Call, from = 0) =>
+      h.calls
+        .slice(from)
+        .filter((c) => c.stage === stage)
+        .map((c) => c.options.prompt);
+
+    const summarizerSteps = (seeded: Task) =>
+      stepsOf(seeded.id).filter(
+        (s) => s.stage === "checks" && s.agentId === seeded.agents.summarizer,
+      );
+
+    it("has the summarizer rewrite a message a real commit-msg hook rejects", async () => {
+      const run = (...args: string[]) =>
+        execFileSync("git", args, {
+          cwd: dir,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        });
+      run("init", "--quiet", "-b", "main");
+      run("config", "user.name", "Test");
+      run("config", "user.email", "test@example.com");
+      run("config", "commit.gpgsign", "false");
+      writeFileSync(join(dir, ".gitignore"), `${DB_FILENAME}*\n`);
+      run("add", "-A");
+      run("commit", "--quiet", "-m", "initial");
+      const hooks = join(dir, run("rev-parse", "--git-path", "hooks").trim());
+      mkdirSync(hooks, { recursive: true });
+      writeFileSync(
+        join(hooks, "commit-msg"),
+        `#!/bin/sh\ngrep -qE '^feat: ' "$1" || { echo "subject must start with feat:" >&2; exit 1; }\n`,
+        { mode: 0o755 },
+      );
+
+      const h = harness(
+        (stage) => {
+          if (stage === "implement") writeFileSync(join(dir, "login.ts"), "export {};\n");
+          if (stage === "commit") return { text: "Add login" };
+          if (stage === "commit-rewrite") return { text: "feat: add login" };
+          return noFindings(stage);
+        },
+        { stages: createDefaultStages({ git: createGitService() }) },
+      );
+      const seeded = await approved(h, []);
+
+      expect(afterApproval(h)).toEqual([
+        "implement",
+        "commit",
+        "commit-rewrite",
+        "code-review",
+        "code-review",
+        "summarize",
+      ]);
+      const [rewrite] = prompts(h, "commit-rewrite");
+      expect(rewrite).toContain("Add login");
+      expect(rewrite).toContain("subject must start with feat:");
+      expect(run("log", "-1", "--format=%s").trim()).toBe("feat: add login");
+      expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
+    });
+
+    it("fails after 3 rewrites, then resumes from the original message", async () => {
+      let accept = false;
+      let rewrites = 0;
+      const git = hookedGit(conventional);
+      const h = harness(
+        (stage) => {
+          if (stage === "commit") return { text: "Add login" };
+          if (stage === "commit-rewrite") {
+            return { text: accept ? "feat: add login" : `Still wrong ${++rewrites}` };
+          }
+          return noFindings(stage);
+        },
+        { stages: createDefaultStages({ git }) },
+      );
+      const seeded = await approved(h, []);
+
+      const failed = task(seeded.id);
+      expect(failed.status).toBe("failed");
+      expect(afterApproval(h)).toEqual([
+        "implement",
+        "commit",
+        "commit-rewrite",
+        "commit-rewrite",
+        "commit-rewrite",
+      ]);
+      expect(failed.error).toContain("The repo's commit-msg hook rejected the commit message.");
+      expect(failed.error).toContain("subject must be conventional");
+      const rejected = prompts(h, "commit-rewrite");
+      expect(rejected[0]).toContain("Add login");
+      expect(rejected[1]).toContain("Still wrong 1");
+      expect(rejected[2]).toContain("Still wrong 2");
+      expect(git.commitAll.mock.calls.map(([, message]) => message)).toEqual([
+        "chore: Add login",
+        "chore: Still wrong 1",
+        "chore: Still wrong 2",
+        "chore: Still wrong 3",
+      ]);
+
+      accept = true;
+      const before = h.calls.length;
+      h.engine.resume(seeded.id);
+      await settle(h.engine);
+
+      // The original summarizer step's message is reused, not asked for again.
+      expect(h.calls.slice(before).map((c) => c.stage)).toEqual([
+        "commit-rewrite",
+        "code-review",
+        "code-review",
+        "summarize",
+      ]);
+      const [again] = prompts(h, "commit-rewrite", before);
+      expect(again).toContain("Add login");
+      expect(again).not.toContain("Still wrong 3");
+      expect(git.commitAll).toHaveBeenLastCalledWith(dir, "feat: add login");
+      expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
+    });
+
+    it("starts a new rewrite after one was interrupted", async () => {
+      let hang = true;
+      const git = hookedGit(conventional);
+      const h = harness(
+        (stage) => {
+          if (stage === "commit") return { text: "Add login" };
+          if (stage === "commit-rewrite") {
+            return hang ? { hang: true, sessionId: "rewrite-1" } : { text: "feat: add login" };
+          }
+          return noFindings(stage);
+        },
+        { stages: createDefaultStages({ git }) },
+      );
+      const seeded = seedTask();
+      r.repos.update(seeded.repoId, { checkCommands: [] });
+      h.engine.enqueue(seeded.id);
+      await settle(h.engine);
+      await h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" });
+      await vi.waitFor(() => expect(lastStep(seeded.id)?.sessionId).toBe("rewrite-1"));
+
+      await h.engine.stop(seeded.id);
+      hang = false;
+      const before = h.calls.length;
+      h.engine.resume(seeded.id);
+      await settle(h.engine);
+
+      const resumed = h.calls.slice(before);
+      expect(resumed.some((c) => c.options.resumeSessionId === "rewrite-1")).toBe(false);
+      expect(resumed.map((c) => c.stage)).toEqual([
+        "commit-rewrite",
+        "code-review",
+        "code-review",
+        "summarize",
+      ]);
+      expect(resumed[0]!.options.prompt).toContain("Add login");
+      expect(summarizerSteps(seeded).map((s) => s.status)).toEqual([
+        "succeeded",
+        "interrupted",
+        "succeeded",
+      ]);
+      expect(git.commitAll).toHaveBeenLastCalledWith(dir, "feat: add login");
+      expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
+    });
+
+    it("sends a pre-commit rejection back to the implementer as a failed check", async () => {
+      let rejections = 1;
+      const git = hookedGit(() => (rejections-- > 0 ? preCommitRejection() : undefined));
+      const h = harness(noFindings, { stages: createDefaultStages({ git }) });
+      const seeded = await approved(h, []);
+
+      expect(afterApproval(h)).toEqual([
+        "implement",
+        "commit",
+        "implement",
+        "commit",
+        "code-review",
+        "code-review",
+        "summarize",
+      ]);
+      const retry = prompts(h, "implement")[1]!;
+      expect(retry).toContain("## Failed check");
+      expect(retry).toContain("`git commit (pre-commit hook)` exited with code 1");
+      expect(retry).toContain("eslint: 'x' is assigned a value but never used");
+      const [hookStep, ...rest] = checkSteps(seeded.id);
+      expect(rest).toEqual([]);
+      expect(hookStep).toMatchObject({ status: "failed", round: 0 });
+      expect(hookStep!.error).toMatch(/^The repo's pre-commit hook rejected the commit\./);
+      expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
+    });
+
+    it("fails the task when the pre-commit hook still rejects after the retries", async () => {
+      const git = hookedGit(preCommitRejection);
+      const h = harness(noFindings, { stages: createDefaultStages({ git }) });
+      const seeded = await approved(h, ["pnpm run test"]);
+
+      expect(prompts(h, "implement")).toHaveLength(MAX_CHECK_RETRIES + 1);
+      const failed = task(seeded.id);
+      expect(failed.status).toBe("failed");
+      expect(failed.error).toContain("The repo's pre-commit hook rejected the commit.");
+      expect(failed.error).toContain("eslint: 'x' is assigned a value but never used");
+      expect(r.findings.listByTask(seeded.id)).toEqual([]);
+      expect(h.calls.some((c) => c.stage === "code-review")).toBe(false);
+      expect(checkSteps(seeded.id).every((s) => s.status === "failed")).toBe(true);
+    });
+
+    it("commits with a conventional fallback without a summarizer", async () => {
+      const git = hookedGit(() => undefined);
+      const h = harness(noFindings, { stages: createDefaultStages({ git }) });
+      const agents = agentService();
+      agents.seed();
+      const roles = { ...agents.resolveRoles() };
+      delete roles.summarizer;
+      await approved(h, [], { agents: roles });
+      expect(git.commitAll).toHaveBeenCalledWith(dir, "chore: implement the approved plan");
+      expect(h.calls.some((c) => c.stage === "commit")).toBe(false);
+    });
+
+    it("saves the squash message the summarizer rewrote at delivery", async () => {
+      const squash = vi.fn(async (_worktree: string, _since: string, message: string) => {
+        if (!message.startsWith("fix: ")) {
+          throw new GitError(["commit"], "type must be fix", 1, { hook: "commit-msg" });
+        }
+        return "def456";
+      });
+      const deliveryGit = {
+        isProtected: () => false,
+        mergeBase: async () => "base",
+        commitsSince: async () => 2,
+        squash,
+        remoteUrl: async () => null,
+      } as unknown as DeliveryGit;
+      const deliverer = createDeliverer({
+        git: deliveryGit,
+        repositories: r,
+        ports: {} as DeliveryPorts,
+      });
+      const h = harness(
+        (stage) => (stage === "commit-rewrite" ? { text: "fix: login" } : noFindings(stage)),
+        { deliver: (ctx) => deliverer.deliver(ctx) },
+      );
+      const seeded = await approved(h, []);
+      expect(task(seeded.id).squashMessage).toBe("chore: Fix login");
+
+      await h.engine.respond(seeded.id, {
+        gate: "finish",
+        decision: "approve",
+        delivery: { actions: [], squash: true },
+      });
+
+      expect(squash.mock.calls.map(([, , message]) => message)).toEqual([
+        "chore: Fix login",
+        "fix: login",
+      ]);
+      const [rewrite] = prompts(h, "commit-rewrite");
+      expect(rewrite).toContain("chore: Fix login");
+      expect(rewrite).toContain("type must be fix");
+      expect(task(seeded.id).squashMessage).toBe("fix: login");
+    });
   });
 });
 

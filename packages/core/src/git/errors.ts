@@ -18,7 +18,18 @@ export type GitErrorKind =
   | "path-exists"
   /** `worktree add`: the path is registered as a worktree whose folder is gone. */
   | "stale-worktree"
+  /** `commit`: one of the repo's hooks ({@link GitError.hook}) rejected the commit. Never read from stderr. */
+  | "hook-rejected"
   | "unknown";
+
+/** The commit hooks the harness tells apart when a commit is rejected. */
+export type GitHook = "pre-commit" | "commit-msg";
+
+/** Hook output kept by {@link hookOutput}. */
+const MAX_HOOK_OUTPUT = 20_000;
+
+/** Hook output shown by {@link describeGitError}. */
+const MAX_DESCRIBED_HOOK_OUTPUT = 2_000;
 
 /** First match wins; `lock` before `ref-conflict`, `auth` before `network`. */
 const KINDS: readonly [GitErrorKind, RegExp][] = [
@@ -68,20 +79,46 @@ function firstLine(stderr: string): string {
   );
 }
 
+/** The last `max` characters of `text`, with a marker saying how much was cut. */
+function tail(text: string, max: number): string {
+  if (text.length <= max) return text;
+  return `[… ${text.length - max} earlier characters cut]\n${text.slice(-max)}`;
+}
+
+/**
+ * What a failed command printed, stdout then stderr, trimmed and cut to the
+ * last {@link MAX_HOOK_OUTPUT} characters. Hooks (eslint, commitlint) often
+ * print to stdout only.
+ */
+export function hookOutput(error: GitError): string {
+  const text = [error.stdout.trim(), error.stderr.trim()].filter(Boolean).join("\n");
+  return tail(text, MAX_HOOK_OUTPUT);
+}
+
 /**
  * What a failed git command means for the user and what to do about it, with
  * git's first line in parentheses and credentials stripped. Kinds without
- * advice keep the error's own message.
+ * advice keep the error's own message. A hook rejection carries the tail of
+ * the hook's output instead.
  */
 export function describeGitError(error: GitError): string {
   const advice = adviceFor(error);
   if (!advice) return withoutCredentials(error.message);
+  if (error.kind === "hook-rejected") {
+    const output = hookOutput(error);
+    if (!output) return advice;
+    return `${advice}\n\n${withoutCredentials(tail(output, MAX_DESCRIBED_HOOK_OUTPUT))}`;
+  }
   const line = withoutCredentials(firstLine(error.stderr));
   return line ? `${advice} (${line})` : advice;
 }
 
-function adviceFor({ kind, stderr, staleLockRemoved }: GitError): string | undefined {
+function adviceFor({ kind, stderr, staleLockRemoved, hook }: GitError): string | undefined {
   switch (kind) {
+    case "hook-rejected":
+      return hook === "commit-msg"
+        ? "The repo's commit-msg hook rejected the commit message. Retry to have the summarizer rewrite it, or adjust the hook; blackwall never bypasses hooks."
+        : "The repo's pre-commit hook rejected the commit. Fix what it reports in the worktree, then retry; blackwall never bypasses hooks.";
     case "auth":
       return "Git could not authenticate to the remote. Set up git credentials (credential manager or SSH key) for it; this is not the blackwall token.";
     case "lock": {

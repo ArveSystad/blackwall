@@ -1094,3 +1094,123 @@ describe("follow-up tasks", () => {
     expect(r.backlogItems.list(repo.id)).toMatchObject([{ title: "B", status: "waiting" }]);
   });
 });
+
+describe("squash rejected by a commit hook", () => {
+  const rejection = (hook: "commit-msg" | "pre-commit", output = "subject must be conventional") =>
+    new GitError(["commit"], output, 1, { hook });
+
+  /** A deliverer whose squash runs `squash` instead of git's. */
+  function withSquash(squash: (message: string) => Promise<string | null>) {
+    const spy = vi.fn((_worktree: string, _since: string, message: string) => squash(message));
+    const d = createDeliverer({
+      git: { ...git, squash: spy },
+      repositories: r,
+      ports: fakePorts(),
+    });
+    return { d, spy };
+  }
+
+  async function squashOnly(
+    d: ReturnType<typeof createDeliverer>,
+    task: Task,
+    runRow: Run,
+    extra: Pick<DeliveryContext, "rewriteCommitMessage" | "saveSquashMessage">,
+  ) {
+    await d.deliver({
+      task,
+      run: runRow,
+      confirmation: deliveryConfirmationSchema.parse({ squash: true }),
+      completed: [],
+      record: () => undefined,
+      resolveConflicts: () => Promise.reject(new Error("no resolver")),
+      ...extra,
+    });
+  }
+
+  it("has the message rewritten, retries and saves what landed", async () => {
+    const { task, run: runRow } = await seed({ branch: "agent/t1" });
+    let calls = 0;
+    const { d, spy } = withSquash(async () => {
+      calls += 1;
+      if (calls === 1) throw rejection("commit-msg");
+      return "abc";
+    });
+    const rewriteCommitMessage = vi.fn(async () => "fix: login");
+    const saveSquashMessage = vi.fn();
+    await squashOnly(d, task, runRow, { rewriteCommitMessage, saveSquashMessage });
+    expect(rewriteCommitMessage).toHaveBeenCalledWith(
+      "chore: Fix login",
+      "subject must be conventional",
+    );
+    expect(spy.mock.calls.map((c) => c[2])).toEqual(["chore: Fix login", "fix: login"]);
+    expect(saveSquashMessage).toHaveBeenCalledWith("fix: login");
+  });
+
+  it("saves nothing when the planned message lands", async () => {
+    const { task, run: runRow } = await seed({ branch: "agent/t1" });
+    const { d } = withSquash(async () => "abc");
+    const saveSquashMessage = vi.fn();
+    await squashOnly(d, task, runRow, { rewriteCommitMessage: vi.fn(), saveSquashMessage });
+    expect(saveSquashMessage).not.toHaveBeenCalled();
+  });
+
+  it("gives up after 3 rewrites with the hook's output", async () => {
+    const { task, run: runRow } = await seed({ branch: "agent/t1" });
+    const { d, spy } = withSquash(async () => {
+      throw rejection("commit-msg", "still not conventional");
+    });
+    const rewriteCommitMessage = vi.fn(async () => "Still wrong");
+    const saveSquashMessage = vi.fn();
+    const error = await squashOnly(d, task, runRow, {
+      rewriteCommitMessage,
+      saveSquashMessage,
+    }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(DeliveryError);
+    expect((error as Error).message).toContain("still not conventional");
+    expect(rewriteCommitMessage).toHaveBeenCalledTimes(3);
+    expect(spy).toHaveBeenCalledTimes(4);
+    expect(saveSquashMessage).not.toHaveBeenCalled();
+  });
+
+  it("fails at once without a rewriter", async () => {
+    const { task, run: runRow } = await seed({ branch: "agent/t1" });
+    const { d, spy } = withSquash(async () => {
+      throw rejection("commit-msg");
+    });
+    await expect(squashOnly(d, task, runRow, {})).rejects.toThrow(DeliveryError);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not rewrite after a pre-commit rejection", async () => {
+    const { task, run: runRow } = await seed({ branch: "agent/t1" });
+    const { d, spy } = withSquash(async () => {
+      throw rejection("pre-commit", "lint failed");
+    });
+    const rewriteCommitMessage = vi.fn(async () => "feat: x");
+    await expect(squashOnly(d, task, runRow, { rewriteCommitMessage })).rejects.toThrow(
+      "lint failed",
+    );
+    expect(rewriteCommitMessage).not.toHaveBeenCalled();
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to a conventional message, leaving the PR title alone", async () => {
+    const { task } = await seed({ branch: "agent/t1", squashMessage: null });
+    expect((await deliverer().deliverer.plan(task, [])).squash).toMatchObject({
+      message: "chore: Fix login",
+    });
+    const jira = await seed(
+      {
+        branch: "feature/abc-1-fix-login",
+        origin: { kind: "jira-issue", key: "ABC-1", connectionId: null },
+        squashMessage: null,
+      },
+      { remoteUrl: "https://github.com/acme/app.git" },
+    );
+    const plan = await deliverer().deliverer.plan(jira.task, []);
+    expect(plan.squash).toMatchObject({ message: "chore: ABC-1 Fix login" });
+    expect(plan.actions).toContainEqual(
+      expect.objectContaining({ kind: "open-pr", title: "ABC-1 Fix login" }),
+    );
+  });
+});

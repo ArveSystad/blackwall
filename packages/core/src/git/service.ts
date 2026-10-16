@@ -1,19 +1,37 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir, rmdir, stat, unlink } from "node:fs/promises";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  rmdir,
+  stat,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
-import { classifyGitError, lockPath, type GitErrorKind } from "./errors.js";
+import { classifyGitError, lockPath, type GitErrorKind, type GitHook } from "./errors.js";
 
 const execFileAsync = promisify(execFile);
 
 /** Branches the harness never pushes or deletes, besides the repo's default branch. */
 const ALWAYS_PROTECTED = ["main", "master"];
 
-/** A git command that failed. `stderr` is git's own message; `kind` classifies it. */
+/**
+ * A git command that failed. `stderr` is git's own message; `kind` classifies
+ * it, or is `hook-rejected` when `hook` names the commit hook that rejected it.
+ */
 export class GitError extends Error {
   readonly kind: GitErrorKind;
+  /** What the command printed to stdout; hooks often report there. */
+  readonly stdout: string;
+  /** The commit hook that rejected the commit, found by {@link rejectingHook}. */
+  readonly hook: GitHook | undefined;
   /** A `lock` failure whose stale lock file {@link runGit} removed; a retry can succeed. */
   staleLockRemoved = false;
 
@@ -21,11 +39,23 @@ export class GitError extends Error {
     readonly args: readonly string[],
     readonly stderr: string,
     readonly exitCode: number | null,
+    { stdout = "", hook }: { stdout?: string; hook?: GitHook } = {},
   ) {
     super(`git ${args.join(" ")} failed: ${stderr.trim() || `exit code ${exitCode}`}`);
     this.name = "GitError";
-    this.kind = classifyGitError(stderr);
+    this.stdout = stdout;
+    this.hook = hook;
+    this.kind = hook ? "hook-rejected" : classifyGitError(stderr);
   }
+}
+
+/** Whether `error` is a commit rejected by a repo hook (by `hook`, when given). */
+export function isHookRejection(error: unknown, hook?: GitHook): error is GitError {
+  return (
+    error instanceof GitError &&
+    error.kind === "hook-rejected" &&
+    (hook === undefined || error.hook === hook)
+  );
 }
 
 /** The harness refused a git action (pushing main, deleting a protected branch, …). */
@@ -184,11 +214,12 @@ async function execGit(
     });
     return stdout.trimEnd();
   } catch (error) {
-    const failure = error as { stderr?: string; code?: number | string };
+    const failure = error as { stdout?: string; stderr?: string; code?: number | string };
     throw new GitError(
       args,
       failure.stderr ?? String(error),
       typeof failure.code === "number" ? failure.code : null,
+      { stdout: failure.stdout ?? "" },
     );
   }
 }
@@ -363,6 +394,57 @@ async function resolveRebase(
       files: current,
       unresolved: error instanceof Error ? error.message : String(error),
     };
+  }
+}
+
+/** `git hook` does not exist: git older than 2.36. */
+const NO_GIT_HOOK = /is not a git command|unknown subcommand/;
+
+/**
+ * Which hook rejected a failed commit of `message`, found by running the
+ * hooks again on their own in git's order: `pre-commit`, then `commit-msg` on
+ * a temp copy of the message. `undefined` when neither fails or this git has
+ * no `git hook`. Git prints nothing of its own when a hook rejects a commit,
+ * so its output cannot tell.
+ */
+async function rejectingHook(worktree: string, message: string): Promise<GitHook | undefined> {
+  /** Whether the hook fails; `undefined` when this git has no `git hook`. */
+  const fails = async (args: readonly string[]): Promise<boolean | undefined> => {
+    try {
+      await runGit(worktree, ["hook", "run", "--ignore-missing", ...args]);
+      return false;
+    } catch (error) {
+      if (!(error instanceof GitError)) throw error;
+      return NO_GIT_HOOK.test(error.stderr) ? undefined : true;
+    }
+  };
+  const preCommit = await fails(["pre-commit"]);
+  if (preCommit === undefined) return undefined;
+  if (preCommit) return "pre-commit";
+  const dir = await mkdtemp(join(tmpdir(), "blackwall-msg-"));
+  try {
+    const file = join(dir, "COMMIT_EDITMSG");
+    await writeFile(file, message.endsWith("\n") ? message : `${message}\n`);
+    return (await fails(["commit-msg", "--", file])) ? "commit-msg" : undefined;
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+/**
+ * `git commit --quiet <flags> -m <message>`, with the repo's hooks; never
+ * `--no-verify`. A failure git cannot explain is checked for a hook
+ * rejection ({@link rejectingHook}); one is thrown as a `hook-rejected`
+ * {@link GitError} with git's args and both git's and the hook's output.
+ */
+async function commit(worktree: string, flags: readonly string[], message: string): Promise<void> {
+  try {
+    await runGit(worktree, ["commit", "--quiet", ...flags, "-m", message]);
+  } catch (error) {
+    if (!(error instanceof GitError) || error.kind !== "unknown") throw error;
+    const hook = await rejectingHook(worktree, message);
+    if (!hook) throw error;
+    throw new GitError(error.args, error.stderr, error.exitCode, { stdout: error.stdout, hook });
   }
 }
 
@@ -591,11 +673,12 @@ export function createGitService({
     /**
      * Stages everything (`git add -A`) and commits with the caller's message.
      * Returns the new commit's sha, or `null` when there was nothing to commit.
+     * The repo's hooks run; a rejection throws a `hook-rejected` {@link GitError}.
      */
     async commitAll(worktreePath: string, message: string): Promise<string | null> {
       await runGit(worktreePath, ["add", "-A"]);
       if (await succeeds(worktreePath, ["diff", "--cached", "--quiet"])) return null;
-      await runGit(worktreePath, ["commit", "--quiet", "-m", message]);
+      await commit(worktreePath, [], message);
       return headSha(worktreePath);
     },
 
@@ -612,14 +695,20 @@ export function createGitService({
     /**
      * Squashes every commit since `sinceSha` (usually the worktree's `baseSha`)
      * into one with `message`. Returns the new sha, or `null` when there was
-     * nothing after `sinceSha`.
+     * nothing after `sinceSha`. The repo's hooks run; when the commit fails
+     * (a rejection throws a `hook-rejected` {@link GitError}), the branch is
+     * reset to its old HEAD, so it is never left collapsed to `sinceSha`.
      */
     async squash(worktreePath: string, sinceSha: string, message: string): Promise<string | null> {
-      if ((await headSha(worktreePath)) === (await runGit(worktreePath, ["rev-parse", sinceSha]))) {
-        return null;
-      }
+      const oldHead = await headSha(worktreePath);
+      if (oldHead === (await runGit(worktreePath, ["rev-parse", sinceSha]))) return null;
       await runGit(worktreePath, ["reset", "--soft", sinceSha]);
-      await runGit(worktreePath, ["commit", "--quiet", "--allow-empty", "-m", message]);
+      try {
+        await commit(worktreePath, ["--allow-empty"], message);
+      } catch (error) {
+        await runGit(worktreePath, ["reset", "--soft", oldHead]);
+        throw error;
+      }
       return headSha(worktreePath);
     },
 

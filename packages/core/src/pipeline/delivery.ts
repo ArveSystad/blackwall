@@ -15,7 +15,7 @@ import { describeGitError } from "../git/errors.js";
 import { GitError, type GitService } from "../git/service.js";
 import { defaultBranchOf } from "../repos/service.js";
 import { createFollowUpTasks, resolveFollowUps } from "./follow-ups.js";
-import { commitKey, commitMessage, withoutLeftovers } from "./stages.js";
+import { commitKey, commitMessage, commitWithRewrites, withoutLeftovers } from "./stages.js";
 import { InvalidGateResponseError, pipelineKind } from "./transitions.js";
 
 /** A confirmed delivery action failed. The message is safe to show the user. */
@@ -118,6 +118,14 @@ export interface DeliveryContext {
    * the worktree. Rejects when it could not.
    */
   resolveConflicts(conflict: MergeConflict): Promise<void>;
+  /**
+   * Has the summarizer rewrite a squash message the repo's commit-msg hook
+   * rejected, from the rejected message and the hook's output. Without it, a
+   * rejected squash fails at once.
+   */
+  rewriteCommitMessage?(rejected: string, output: string): Promise<string>;
+  /** Saves the squash message that landed, when it differs from the planned one. */
+  saveSquashMessage?(message: string): void;
 }
 
 /** Plans and performs the finish actions; the engine calls it at the delivery gate. */
@@ -195,7 +203,8 @@ export function conflictResolutionPrompt(
  * (an analysis-only task) offers no push, PR or merge, and a protected head
  * branch (main, master or the repo's default branch) offers no push or PR. Only the
  * actions the user confirmed are performed, in that order, after an optional
- * squash. A task delivered before (a Fix CI round) is not offered `open-pr`
+ * squash, whose message the summarizer rewrites (and the task saves) when the
+ * repo's commit-msg hook rejects it. A task delivered before (a Fix CI round) is not offered `open-pr`
  * again, and squashes only the commits after the pushed `origin/<branch>`.
  */
 export function createDeliverer({
@@ -414,8 +423,14 @@ export function createDeliverer({
       planned.actions.find((a): a is Extract<DeliveryAction, { kind: K }> => a.kind === kind)!;
 
     if (confirmation.squash && planned.squash && worktree && !completed.includes("squash")) {
-      const sha = await git.squash(worktree, planned.squash.base, planned.squash.message);
-      record({ action: "squash", detail: sha ?? planned.squash.base });
+      const { base, message: plannedMessage } = planned.squash;
+      const { result: sha, message } = await commitWithRewrites(
+        (message) => git.squash(worktree, base, message),
+        plannedMessage,
+        ctx.rewriteCommitMessage,
+      );
+      if (message !== plannedMessage) ctx.saveSquashMessage?.(message);
+      record({ action: "squash", detail: sha ?? base });
     }
 
     for (const action of DELIVERY_TARGETS) {

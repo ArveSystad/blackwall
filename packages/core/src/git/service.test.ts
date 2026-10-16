@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { branchForTask, worktreePathFor } from "./branches.js";
+import { hookOutput } from "./errors.js";
 import {
   GitError,
   ProtectedBranchError,
@@ -387,6 +388,71 @@ describe("commits, squash and diff", () => {
     expect(log(path)).toEqual(["ABC-1 everything", "initial"]);
     expect(readFileSync(join(path, "a.txt"), "utf8")).toBe("two\n");
     expect(await service.squash(path, squashed!, "noop")).toBeNull();
+  });
+});
+
+describe("commit hooks", () => {
+  /** Installs a hook in the repo's hooks folder, shared by its worktrees. */
+  function hook(name: string, script: string): void {
+    const dir = resolve(repo, git(repo, "rev-parse", "--git-path", "hooks"));
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, name), `#!/bin/sh\n${script}\n`, { mode: 0o755 });
+  }
+
+  const CONVENTIONAL_ONLY = `grep -qE '^[a-z]+(\\([^)]*\\))?: ' "$1" || { echo "subject must be conventional" >&2; exit 1; }`;
+
+  async function worktree(): Promise<string> {
+    const path = worktreePathFor(repo, "t1");
+    await service.createWorktree({
+      repoPath: repo,
+      worktreePath: path,
+      branch: "agent/t1",
+      checkout: { kind: "new" },
+    });
+    return path;
+  }
+
+  it("names the commit-msg hook that rejected a message", async () => {
+    hook("commit-msg", CONVENTIONAL_ONLY);
+    write(repo, "a.txt", "one\n");
+    const error = await service.commitAll(repo, "Add login").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitError);
+    expect(error).toMatchObject({ kind: "hook-rejected", hook: "commit-msg" });
+    expect(hookOutput(error as GitError)).toContain("subject must be conventional");
+    expect(log(repo)).toEqual(["initial"]);
+
+    expect(await service.commitAll(repo, "feat: add login")).toBe(git(repo, "rev-parse", "HEAD"));
+    expect(log(repo)).toEqual(["feat: add login", "initial"]);
+  });
+
+  it("names the pre-commit hook, with what it printed to stdout", async () => {
+    hook("pre-commit", 'echo "lint: 1 problem in a.txt"\nexit 1');
+    write(repo, "a.txt", "one\n");
+    const error = await service.commitAll(repo, "feat: a").catch((e: unknown) => e);
+    expect(error).toMatchObject({ kind: "hook-rejected", hook: "pre-commit" });
+    expect(hookOutput(error as GitError)).toContain("lint: 1 problem in a.txt");
+  });
+
+  it("restores the branch when a squash is rejected", async () => {
+    const path = await worktree();
+    const base = git(path, "rev-parse", "HEAD");
+    commit(path, "a.txt", "one\n", "feat: one");
+    const head = commit(path, "b.txt", "two\n", "feat: two");
+    hook("commit-msg", CONVENTIONAL_ONLY);
+
+    const error = await service.squash(path, base, "Everything").catch((e: unknown) => e);
+    expect(error).toMatchObject({ kind: "hook-rejected", hook: "commit-msg" });
+    expect(git(path, "rev-parse", "HEAD")).toBe(head);
+    expect(git(path, "status", "--porcelain")).toBe("");
+
+    await service.squash(path, base, "feat: everything");
+    expect(log(path)).toEqual(["feat: everything", "initial"]);
+  });
+
+  it("leaves commits without hooks alone", async () => {
+    write(repo, "a.txt", "one\n");
+    expect(await service.commitAll(repo, "Anything goes")).toBe(git(repo, "rev-parse", "HEAD"));
+    expect(log(repo)).toEqual(["Anything goes", "initial"]);
   });
 });
 
