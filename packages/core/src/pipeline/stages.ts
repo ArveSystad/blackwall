@@ -28,6 +28,7 @@ import type { CiFailure } from "./ci.js";
 import { runCheckCommand, type CheckOutcome, type CheckRunner } from "./checks.js";
 import { blockingFindings, planMerges } from "./findings.js";
 import { followUpsPromptSection } from "./follow-ups.js";
+import { installSecurePlaybook } from "./playbook.js";
 import type { RunAgentInput, StageContext, StageHandlers } from "./engine.js";
 import type { PipelineKind, StageResults } from "./transitions.js";
 
@@ -669,6 +670,8 @@ async function reviewRange(
  * re-review reviews the whole PR again and lists the findings already reported.
  * A PR task's existing comments (from `prCommentsContext`, a snapshot taken
  * once per visit whose failures are ignored too) keep reviewers from repeating them.
+ * Each visit copies the OWASP Secure Agent Playbook into the worktree's scratch
+ * folder, fresh, for the Security reviewer (or any reviewer) to follow.
  */
 async function codeReview(
   ctx: StageContext,
@@ -702,6 +705,8 @@ async function codeReview(
       ].join("\n");
     }
   }
+
+  if (worktree) await installSecurePlaybook(worktree);
 
   let stack: string | undefined;
   try {

@@ -32,6 +32,7 @@ Inform ──► Plan review / grill ──► [human plan approval] ──► I
 - The harness commits after each implement or fix round. Agents never push. A repo's default branch (set per repo in Settings → Repositories, default `main`) is pushed only when you click Push on its Backlog and confirm it; the pipeline never pushes it. New task branches fork from it, free-text tasks merge into it and PRs target it.
 - Critical and High findings loop back to the implementer, for at most 3 fix rounds before escalating to you.
 - Reviewers are read-only. Implementers can edit and use the shell but cannot reach remotes.
+- The Security reviewer follows the [OWASP Secure Agent Playbook](https://github.com/OWASP/secure-agent-playbook). Blackwall ships a pinned copy and puts it in each task's `.blackwall/playbooks/` before code review, so nothing needs installing on any CLI.
 - Claude Code, Copilot CLI and OpenCode implementers can hand narrow jobs to a cheaper `blackwall-worker` sub-agent (Haiku on Claude Code, `claude-haiku-5.5` on Copilot, and on OpenCode Haiku for `anthropic/` and `github-copilot/` models, otherwise the run's own model) that gets only a short brief. Running sub-agents show as small dots beside their task's dot on the home grid, and their work shows nested, collapsed, under the call that started them in Agent output.
 - A per-repo backlog with an auto-runner that respects concurrency caps and CLI usage limits. When the repo's local default branch has commits its origin counterpart doesn't (for example after free-text tasks merge into it), the Backlog header offers a confirmed "Push N commits to <branch>". It never fetches or forces.
 - A task can propose follow-up tasks, in its own repo or another registered one. You pick which to create at finish; they land in the backlog as waiting items. An analysis-only task can deliver just these follow-ups.
@@ -40,6 +41,8 @@ Inform ──► Plan review / grill ──► [human plan approval] ──► I
 - Once a task has opened a pull request, **Fetch comments and fix** reads the reviewers' new comments on it and runs a fix round on them, then stops at Finish so you push again; comments already fixed are not picked up twice.
 
 Implementers may save screenshots (PNG, JPEG, GIF or WebP) to `.blackwall/artifacts/` in the worktree. They show in the task's Artifacts tab, updating while the task runs. The `.blackwall/` scratch folder, also used for Jira attachments, is ignored by its own `.gitignore` and never committed.
+
+Third-party content: the OWASP Secure Agent Playbook in `packages/core/playbooks/owasp-secure-agent-playbook/` is licensed CC BY 4.0 by its authors; see its [`SOURCE.md`](packages/core/playbooks/owasp-secure-agent-playbook/SOURCE.md).
 
 ## Features
 

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -32,6 +32,7 @@ import {
   type StageHandlers,
 } from "./engine.js";
 import { createFakeAdapter, type FakeScript } from "./fake-adapter.js";
+import { SECURE_PLAYBOOK_DIR, SECURE_PLAYBOOK_ENTRY } from "./playbook.js";
 import {
   DELIVERY_CONFLICT_EVENT,
   DELIVERY_DONE_EVENT,
@@ -395,6 +396,8 @@ describe("pipeline engine", () => {
     ]);
     const fix = second.calls[3]!.options.prompt;
     expect(fix).toContain("Password compared with ==");
+    // Code review put the playbook in the worktree for the Security reviewer.
+    expect(existsSync(join(dir, SECURE_PLAYBOOK_DIR, SECURE_PLAYBOOK_ENTRY))).toBe(true);
     expect(task(seeded.id)).toMatchObject({
       status: "needs-you",
       stage: "summarize",
@@ -448,11 +451,15 @@ describe("pipeline engine", () => {
       return { hang: true, sessionId: options.resumeSessionId ?? "rev-2" };
     });
     first.engine.enqueue(seeded.id);
-    await vi.waitFor(() => {
-      const steps = stepsOf(seeded.id).filter((s) => s.stage === "code-review");
-      expect(steps.map((s) => s.status).sort()).toEqual(["running", "succeeded"]);
-      expect(steps.find((s) => s.status === "running")?.sessionId).toBe("rev-2");
-    });
+    // The review first copies the security playbook into the worktree.
+    await vi.waitFor(
+      () => {
+        const steps = stepsOf(seeded.id).filter((s) => s.stage === "code-review");
+        expect(steps.map((s) => s.status).sort()).toEqual(["running", "succeeded"]);
+        expect(steps.find((s) => s.status === "running")?.sessionId).toBe("rev-2");
+      },
+      { timeout: 10_000 },
+    );
     await first.engine.shutdown();
 
     const second = harness(() => ({ structured: { findings: [] } }));

@@ -2,6 +2,7 @@ import { DEFAULT_TAGS, type Agent, type Task } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDatabase, type OpenedDatabase } from "../db/database.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
+import { SECURE_PLAYBOOK_DIR, SECURE_PLAYBOOK_ENTRY } from "../pipeline/playbook.js";
 import { LEGACY_SEED_PROMPTS, SEED_AGENTS } from "./seeds.js";
 import {
   AGENTS_SEEDED_KEY,
@@ -75,6 +76,18 @@ describe("seeding", () => {
     service.seed();
     expect(byName("Planner").prompt).toBe(SEED_AGENTS[0].prompt);
     expect(byName("Security reviewer").prompt).toBe("My own security persona.");
+  });
+
+  it("upgrades the previous Security reviewer seed to the playbook prompt", () => {
+    service.seed();
+    const security = byName("Security reviewer");
+    const previous = LEGACY_SEED_PROMPTS["Security reviewer"]!.at(-1)!;
+    service.update(security.id, { prompt: previous });
+    service.seed();
+    const upgraded = byName("Security reviewer").prompt;
+    expect(upgraded).toBe(SEED_AGENTS.find((a) => a.name === "Security reviewer")!.prompt);
+    expect(upgraded).not.toBe(previous);
+    expect(upgraded).toContain(`${SECURE_PLAYBOOK_DIR}/${SECURE_PLAYBOOK_ENTRY}`);
   });
 
   it("gives every seed a persona that names its output contract", () => {

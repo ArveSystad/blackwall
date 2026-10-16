@@ -4,3 +4,4 @@ pnpm-lock.yaml
 tasks
 *.md
 packages/core/drizzle/
+packages/core/playbooks/
