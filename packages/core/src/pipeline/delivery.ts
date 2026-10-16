@@ -15,7 +15,7 @@ import { describeGitError } from "../git/errors.js";
 import { GitError, type GitService } from "../git/service.js";
 import { defaultBranchOf } from "../repos/service.js";
 import { createFollowUpTasks, resolveFollowUps } from "./follow-ups.js";
-import { commitKey, withoutLeftovers } from "./stages.js";
+import { commitKey, commitMessage, withoutLeftovers } from "./stages.js";
 import { InvalidGateResponseError, pipelineKind } from "./transitions.js";
 
 /** A confirmed delivery action failed. The message is safe to show the user. */
@@ -249,7 +249,11 @@ export function createDeliverer({
     if (!base) return null;
     const commits = await git.commitsSince(worktree, base);
     if (commits < 2) return null;
-    return { commits, base, message: task.squashMessage ?? prTitle(task) };
+    return {
+      commits,
+      base,
+      message: commitMessage(task.squashMessage ?? task.title, commitKey(task)),
+    };
   }
 
   /** The origin git reports now, so a remote added or changed after registration counts. */

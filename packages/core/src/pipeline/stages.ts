@@ -369,14 +369,65 @@ export function commitKey(task: Task): string | undefined {
     ?.toUpperCase();
 }
 
-/** The summarizer's reply as a commit message: unfenced, trimmed and prefixed with `key`. */
+/** The Conventional Commits types a commit message may start with. */
+const CONVENTIONAL_TYPES = [
+  "feat",
+  "fix",
+  "perf",
+  "refactor",
+  "test",
+  "docs",
+  "build",
+  "ci",
+  "style",
+  "chore",
+  "revert",
+];
+
+/** A Conventional Commits summary line: type, optional scope, optional `!`, description. */
+const CONVENTIONAL_HEADER = /^([a-z]+)(\([^)]*\))?(!)?: (.+)$/i;
+
+/** Whether `text` starts with `key` as a whole word, ignoring case. */
+function startsWithKey(text: string, key: string): boolean {
+  return keyAtStart(key).test(text);
+}
+
+function keyAtStart(key: string): RegExp {
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${escaped}(?![A-Za-z0-9])`, "i");
+}
+
+/** The summary line split into a Conventional Commits prefix and description, or undefined. */
+function conventionalHeader(line: string): { prefix: string; description: string } | undefined {
+  const match = CONVENTIONAL_HEADER.exec(line);
+  if (!match) return undefined;
+  const [, type = "", scope = "", bang = "", description = ""] = match;
+  if (!CONVENTIONAL_TYPES.includes(type.toLowerCase())) return undefined;
+  return { prefix: `${type.toLowerCase()}${scope}${bang}: `, description };
+}
+
+/**
+ * The summarizer's reply as a Conventional Commits message: unfenced and
+ * trimmed, `chore: ` prefixed when the summary line has no valid type, and
+ * `key` placed right after the type prefix (`feat(login): ABC-1 add login`).
+ * Idempotent, so an already normalised message comes back unchanged.
+ */
 export function commitMessage(text: string, key: string | undefined): string {
   const message = text
     .trim()
     .replace(/^```[\w-]*\r?\n([\s\S]*?)\r?\n```$/, "$1")
     .trim();
-  if (!key || message.toUpperCase().startsWith(key)) return message;
-  return `${key} ${message}`;
+  const newline = message.indexOf("\n");
+  let line = newline === -1 ? message : message.slice(0, newline);
+  const body = newline === -1 ? "" : message.slice(newline);
+  let header = conventionalHeader(line);
+  if (!header && key && startsWithKey(line, key)) {
+    line = line.replace(new RegExp(`${keyAtStart(key).source}\\s+`, "i"), "");
+    header = conventionalHeader(line);
+  }
+  const { prefix, description } = header ?? { prefix: "chore: ", description: line };
+  const keyed = key && !startsWithKey(description, key) ? `${key} ${description}` : description;
+  return `${prefix}${keyed}${body}`;
 }
 
 /** A fenced block that survives backtick fences inside `text`. */
@@ -391,7 +442,8 @@ function describeCheckFailure(check: CheckFinished): string {
 
 /**
  * The harness commits the round's work: the summarizer writes the message from
- * the staged diff, prefixed with the Jira key when there is one. Nothing
+ * the staged diff as a Conventional Commits message, with the Jira key after
+ * the type prefix when there is one. Nothing
  * happens when the worktree has no changes (including a resumed visit that
  * already committed).
  */
@@ -408,7 +460,10 @@ async function commitRound(
   if (diff.trim() === "") return;
 
   const key = commitKey(task);
-  let text = round === 0 ? "Implement the approved plan" : `Fix review findings (round ${round})`;
+  let text =
+    round === 0
+      ? "chore: implement the approved plan"
+      : `fix: address review findings (round ${round})`;
   if (task.agents.summarizer) {
     const cut =
       diff.length > MAX_COMMIT_DIFF_CHARS
@@ -422,9 +477,9 @@ async function commitRound(
         section("Plan", task.plan),
         section("Changes to commit", fence(cut)),
         [
-          "Write the git commit message for the changes above: a summary line of at most 72 characters in the imperative mood, a blank line, then a short body on what changed and why.",
+          "Write the git commit message for the changes above in the Conventional Commits format, whatever style the repository's history uses: a summary line `<type>(<optional scope>): <description>` of at most 72 characters, type one of feat, fix, perf, refactor, test, docs, build, ci, style, chore, revert, description in the imperative mood; a blank line; then a short body on what changed and why.",
           "Reply with the commit message only, without code fences.",
-          key ? `Do not mention ${key} in the summary line; the harness prefixes it.` : "",
+          key ? `Do not mention ${key}; the harness adds it after the type prefix.` : "",
         ]
           .filter(Boolean)
           .join("\n"),
@@ -879,8 +934,10 @@ async function summarize(ctx: StageContext): Promise<void> {
         "Read the branch's commits (`git log`, `git diff`) as needed. Do not list the findings left open; the harness appends them.",
         "If the branch has no changes (the task asked for analysis or a task breakdown), summarize the analysis instead and put the work it found into `followUps`.",
         "Propose follow-up tasks only for work the plan or the analysis calls for, following the rules above; otherwise leave `followUps` empty.",
-        "Also write one commit message for squashing the branch into a single commit: a summary line of at most 72 characters in the imperative mood, a blank line, then a short body.",
-        key ? `Do not mention ${key} in the commit summary line; the harness prefixes it.` : "",
+        "Also write one commit message for squashing the branch into a single commit, in the Conventional Commits format whatever style the repository's history uses: a summary line `<type>(<optional scope>): <description>` of at most 72 characters, type one of feat, fix, perf, refactor, test, docs, build, ci, style, chore, revert, description in the imperative mood; a blank line; then a short body.",
+        key
+          ? `Do not mention ${key} in the commit message; the harness adds it after the type prefix.`
+          : "",
         "Also write `shortSummary`: a brief description for the pull request and the issue comments, in 1–3 sentences or a few bullets, of the behavioural or visual change as users or reviewers see it. Leave out implementation details (files, functions, findings, design decisions) unless the task asks for them. No headings.",
         'Reply with a JSON object `{ "summary": "<markdown>", "commitMessage": "<message>", "shortSummary": "<markdown>", "followUps": [{ "title": "<short title>", "description": "<what to do and why>", "repoId": null }] }`.',
       ]

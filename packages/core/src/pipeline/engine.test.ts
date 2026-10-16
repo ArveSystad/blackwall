@@ -1408,7 +1408,7 @@ describe("implement and checks", () => {
     expect(failed.error).not.toContain("git add -A failed");
   });
 
-  it("commits each round with the summarizer's message, prefixed with the Jira key", async () => {
+  it("commits each round with the summarizer's message, the Jira key after the type", async () => {
     const diffs = ["diff --git a/src/login.ts b/src/login.ts\n+if (a === b)"];
     const git = {
       stagedDiff: vi.fn<(worktree: string) => Promise<string>>(async () => diffs.shift() ?? ""),
@@ -1419,7 +1419,7 @@ describe("implement and checks", () => {
     const h = harness(
       (stage) =>
         stage === "commit"
-          ? { text: "```\nCompare passwords strictly\n\nUse ===.\n```" }
+          ? { text: "```\nfix(auth): compare passwords strictly\n\nUse ===.\n```" }
           : noFindings(stage),
       { stages: createDefaultStages({ git }) },
     );
@@ -1438,17 +1438,33 @@ describe("implement and checks", () => {
     const commitCall = h.calls.find((c) => c.stage === "commit")!;
     expect(commitCall.options.prompt).toContain("+if (a === b)");
     expect(commitCall.options.prompt).toContain("Do not mention ABC-123");
+    expect(commitCall.options.prompt).toContain("Conventional Commits");
     expect(git.stagedDiff).toHaveBeenCalledWith(dir);
     expect(git.commitAll).toHaveBeenCalledTimes(1);
     expect(git.commitAll).toHaveBeenCalledWith(
       dir,
-      "ABC-123 Compare passwords strictly\n\nUse ===.",
+      "fix(auth): ABC-123 compare passwords strictly\n\nUse ===.",
     );
     // The summarizer's step belongs to Checks.
     const commitStep = stepsOf(seeded.id).find(
       (s) => s.stage === "checks" && s.agentId === seeded.agents.summarizer,
     );
     expect(commitStep).toMatchObject({ status: "succeeded", round: 0 });
+  });
+
+  it("commits with a conventional fallback message when the summarizer replies with nothing", async () => {
+    const diffs = ["diff --git a/src/login.ts b/src/login.ts\n+if (a === b)"];
+    const git = {
+      stagedDiff: async () => diffs.shift() ?? "",
+      commitAll: vi.fn<(worktree: string, message: string) => Promise<string>>(
+        async () => "abc123",
+      ),
+    };
+    const h = harness((stage) => (stage === "commit" ? { text: "" } : noFindings(stage)), {
+      stages: createDefaultStages({ git }),
+    });
+    await approved(h, []);
+    expect(git.commitAll).toHaveBeenCalledWith(dir, "chore: implement the approved plan");
   });
 
   it("never commits artifacts, even when the scratch .gitignore was deleted", async () => {
@@ -1497,10 +1513,32 @@ describe("commit messages", () => {
     expect(commitKey(withOrigin({ kind: "free-text" }, "agent/abcdef12-3456"))).toBeUndefined();
   });
 
-  it("unfences the message and prefixes the key once", () => {
-    expect(commitMessage("```text\nAdd login\n```", "ABC-1")).toBe("ABC-1 Add login");
-    expect(commitMessage("ABC-1 Add login", "ABC-1")).toBe("ABC-1 Add login");
-    expect(commitMessage("  Add login \n", undefined)).toBe("Add login");
+  const cases: [string, string | undefined, string][] = [
+    ["```text\nfeat: add login\n```", "ABC-1", "feat: ABC-1 add login"],
+    ["feat(auth)!: drop md5\n\nBody", "ABC-1", "feat(auth)!: ABC-1 drop md5\n\nBody"],
+    ["feat: ABC-1 add login", "ABC-1", "feat: ABC-1 add login"],
+    ["ABC-1 feat: add login", "ABC-1", "feat: ABC-1 add login"],
+    ["abc-1 feat: add login", "ABC-1", "feat: ABC-1 add login"],
+    ["PROJ-9 feat: x", undefined, "chore: PROJ-9 feat: x"],
+    ["XYZ-2 feat: x", "ABC-1", "chore: ABC-1 XYZ-2 feat: x"],
+    ["feat: ABC-10 x", "ABC-1", "feat: ABC-1 ABC-10 x"],
+    ["Add login", undefined, "chore: Add login"],
+    ["  Add login \n", "ABC-1", "chore: ABC-1 Add login"],
+    ["ABC-1 Fix login", "ABC-1", "chore: ABC-1 Fix login"],
+    ["Feat: x", undefined, "feat: x"],
+    ["docs: y", undefined, "docs: y"],
+    ["wip: y", undefined, "chore: wip: y"],
+  ];
+
+  it("normalises the message to Conventional Commits with the key after the type", () => {
+    for (const [text, key, expected] of cases) expect(commitMessage(text, key)).toBe(expected);
+  });
+
+  it("leaves a normalised message unchanged", () => {
+    for (const [text, key] of cases) {
+      const once = commitMessage(text, key);
+      expect(commitMessage(once, key)).toBe(once);
+    }
   });
 });
 
@@ -2103,7 +2141,7 @@ describe("summarize and finish", () => {
       "Compared passwords strictly.\n\n### Left open\n\n- **[medium] Error message leaks the user name** (`src/login.ts:12`): Type coercion lets an empty password through.",
     );
     expect(shortSummary).toBe("Logins now reject wrong passwords.");
-    expect(squashMessage).toBe("ABC-1 Fix login");
+    expect(squashMessage).toBe("chore: ABC-1 Fix login");
   });
 
   it("stores no short summary when it is missing, without losing the summary", async () => {
@@ -2116,7 +2154,7 @@ describe("summarize and finish", () => {
     expect(task(seeded.id)).toMatchObject({
       summary: "Compared passwords strictly.",
       shortSummary: null,
-      squashMessage: "Fix login",
+      squashMessage: "chore: Fix login",
     });
   });
 
@@ -2152,7 +2190,7 @@ describe("summarize and finish", () => {
       const seeded = await atFinish(h);
       expect(task(seeded.id)).toMatchObject({
         summary: "Analysed it.",
-        squashMessage: "Plan the work",
+        squashMessage: "chore: Plan the work",
         followUps: [1, 3, 4, 5, 6].map(followUp),
       });
     });
@@ -2230,7 +2268,10 @@ describe("summarize and finish", () => {
   it("takes the summarizer's text when it misses the output contract", async () => {
     const h = harness((stage) => (stage === "summarize" ? { text: "Plain summary" } : {}));
     const seeded = await atFinish(h);
-    expect(task(seeded.id)).toMatchObject({ summary: "Plain summary", squashMessage: "Fix login" });
+    expect(task(seeded.id)).toMatchObject({
+      summary: "Plain summary",
+      squashMessage: "chore: Fix login",
+    });
   });
 
   it("delivers only the confirmed actions and records them", async () => {

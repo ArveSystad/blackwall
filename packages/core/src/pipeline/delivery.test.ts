@@ -174,7 +174,7 @@ describe("free-text tasks", () => {
     const { deliverer: d } = deliverer();
     const plan = await d.plan(task, []);
     expect(plan.actions).toEqual([{ kind: "merge-main", branch: "agent/t1", into: "main" }]);
-    expect(plan.squash).toMatchObject({ commits: 2, message: "Fix login" });
+    expect(plan.squash).toMatchObject({ commits: 2, message: "chore: Fix login" });
     expect(plan.completed).toEqual([]);
   });
 
@@ -186,7 +186,7 @@ describe("free-text tasks", () => {
     const outcomes = await deliver(d, task, runRow, { actions: ["merge-main"], squash: true });
 
     expect(outcomes.map((o) => o.action)).toEqual(["squash", "merge-main"]);
-    expect(subjects(repoPath, "main")).toEqual(["Fix login", "main moved", "initial"]);
+    expect(subjects(repoPath, "main")).toEqual(["chore: Fix login", "main moved", "initial"]);
     expect(run(repoPath, "rev-parse", "main")).toBe(outcomes[1]!.detail);
     // Nothing left the machine.
     expect(subjects(originPath, "main")).toEqual(["initial"]);
@@ -248,6 +248,12 @@ describe("free-text tasks", () => {
     expect(run(task.worktreePath!, "rev-parse", "HEAD")).toBe(head);
   });
 
+  it("squashes with the task title as a chore when there is no squash message", async () => {
+    const { task } = await seed({ branch: "agent/t1", squashMessage: null });
+    const { deliverer: d } = deliverer();
+    expect((await d.plan(task, [])).squash?.message).toBe("chore: Fix login");
+  });
+
   it("offers no squash for a single commit", async () => {
     const { task, run: runRow } = await seed({ branch: "agent/t1" }, { commits: 1 });
     const { deliverer: d } = deliverer();
@@ -290,6 +296,19 @@ describe("Jira tasks", () => {
     expect((await d.plan(task, [])).actions).toContainEqual(
       expect.objectContaining({ kind: "open-pr", base: "develop" }),
     );
+  });
+
+  it("squashes with a Conventional Commits message, the key after the type", async () => {
+    const { deliverer: d } = deliverer();
+    let n = 0;
+    const planned = async (squashMessage: string | null) => {
+      n += 1;
+      const { task } = await seed({ ...jira, branch: `${jira.branch}-${n}`, squashMessage });
+      return (await d.plan(task, [])).squash?.message;
+    };
+    expect(await planned(null)).toBe("chore: ABC-1 Fix login");
+    expect(await planned("ABC-1 Fix login")).toBe("chore: ABC-1 Fix login");
+    expect(await planned("feat: ABC-1 add login")).toBe("feat: ABC-1 add login");
   });
 
   it("offers push, PR and Jira comment with their exact targets", async () => {
@@ -580,7 +599,7 @@ describe("GitHub issue tasks", () => {
       expect((await d.plan(task, [])).squash).toEqual({
         commits: 2,
         base: pushedHead,
-        message: "Fix login",
+        message: "chore: Fix login",
       });
     });
 
@@ -736,7 +755,11 @@ describe("pull request tasks", () => {
     expect(plan.squash).toMatchObject({ commits: 2 });
 
     await deliver(d, task, runRow, { actions: ["push-branch", "pr-comment"], squash: true });
-    expect(subjects(originPath, "feature/pr")).toEqual(["Fix login", "author's work", "initial"]);
+    expect(subjects(originPath, "feature/pr")).toEqual([
+      "chore: Fix login",
+      "author's work",
+      "initial",
+    ]);
     expect(ports.commentOnPullRequest).toHaveBeenCalledWith(task, "Logins reject wrong passwords.");
   });
 

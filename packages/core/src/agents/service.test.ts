@@ -90,6 +90,18 @@ describe("seeding", () => {
     expect(upgraded).toContain(`${SECURE_PLAYBOOK_DIR}/${SECURE_PLAYBOOK_ENTRY}`);
   });
 
+  it("upgrades the previous Summarizer seed to the Conventional Commits prompt", () => {
+    service.seed();
+    const summarizer = byName("Summarizer");
+    const previous = LEGACY_SEED_PROMPTS.Summarizer!.at(-1)!;
+    service.update(summarizer.id, { prompt: previous });
+    service.seed();
+    const upgraded = byName("Summarizer").prompt;
+    expect(upgraded).toBe(SEED_AGENTS.find((a) => a.name === "Summarizer")!.prompt);
+    expect(upgraded).not.toBe(previous);
+    expect(upgraded).toContain("Conventional Commits");
+  });
+
   it("gives every seed a persona that names its output contract", () => {
     for (const seed of SEED_AGENTS) {
       if (seed.eligibleStages.some((s) => s === "code-review")) {
@@ -102,6 +114,7 @@ describe("seeding", () => {
     expect(prompt("Plan reviewer")).toContain("needsHuman");
     expect(prompt("Implementer")).toMatch(/Do not commit and do not push/);
     expect(prompt("Summarizer")).toMatch(/commit message/i);
+    expect(prompt("Summarizer")).toContain("Conventional Commits");
   });
 
   it("keeps an existing agent with a seed name", () => {
