@@ -271,5 +271,25 @@ describe("chat prompts", () => {
     });
     expect(failed).toContain("### Error\n\npnpm install failed:\n  ENOTFOUND registry");
     expect(failed).not.toContain("### Plan");
+    expect(failed).not.toContain("- worktree");
+  });
+
+  it("names the focused task's worktree, branch and fork point", () => {
+    const prompt = chatStatePrompt({
+      tasks: [failedTask],
+      backlog: [],
+      focus: {
+        task: { ...failedTask, plan: null },
+        questions: [],
+        worktree: { path: "/wt/t2", branch: "agent/t2", base: "develop" },
+      },
+      text: "Why?",
+    });
+    expect(prompt).toContain(
+      "- status failed · stage implement · gate none\n- worktree `/wt/t2` (the current directory) · branch `agent/t2` · forked from `develop`",
+    );
+    expect(chatSystemPrompt()).toContain(
+      "When the focused task lists a worktree, the current directory is that worktree",
+    );
   });
 });

@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ChatState, ServerEvent } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDatabase, type OpenedDatabase } from "../db/database.js";
@@ -20,6 +23,7 @@ let events: ServerEvent[];
 let adapter: FakeAdapter;
 let chat: ChatService;
 let script: (call: number) => FakeScript;
+let worktree: string;
 
 beforeEach(() => {
   opened = openDatabase(":memory:");
@@ -30,6 +34,7 @@ beforeEach(() => {
   script = () => ({ structured: { reply: "Hello", actions: [] } });
   adapter = createFakeAdapter("claude", (_options, call) => script(call));
   chat = createService();
+  worktree = mkdtempSync(join(tmpdir(), "blackwall-chat-test-"));
 });
 
 /** A chat service on the shared database; a second one stands in for a server restart. */
@@ -56,6 +61,7 @@ function restart(options: { historyLimit?: number } = {}): void {
 afterEach(() => {
   chat.shutdown();
   opened.close();
+  rmSync(worktree, { recursive: true, force: true });
 });
 
 /** Resolves once the repo's chat is idle again. */
@@ -155,7 +161,60 @@ describe("chat service", () => {
     }
     for (const call of adapter.calls) {
       expect(call.options.prompt).not.toContain("## Focused task");
+      expect(call.options.cwd).toBe("/code/app");
     }
+  });
+
+  it("runs read-only in the focused task's worktree", async () => {
+    const task = addTask("Fix login", repoId);
+    r.tasks.update(task.id, { worktreePath: worktree, branch: "agent/fix-login" });
+
+    chat.send(repoId, "Why did the checks fail?", task.id);
+    await idle();
+    const call = adapter.calls[0]!.options;
+    expect(call.cwd).toBe(worktree);
+    expect(call.permissions.profile).toBe("read-only");
+    expect(call.prompt).toContain(
+      `- worktree \`${worktree}\` (the current directory) · branch \`agent/fix-login\` · forked from \`main\``,
+    );
+  });
+
+  it("runs in the checkout when the focused task has no worktree on disk", async () => {
+    const none = addTask("No worktree", repoId);
+    const gone = addTask("Removed worktree", repoId);
+    r.tasks.update(gone.id, { worktreePath: join(worktree, "missing"), branch: "agent/gone" });
+    for (const id of [none.id, gone.id]) {
+      chat.send(repoId, "Why?", id);
+      await idle();
+    }
+    for (const call of adapter.calls) {
+      expect(call.options.cwd).toBe("/code/app");
+      expect(call.options.prompt).toContain("## Focused task");
+      expect(call.options.prompt).not.toContain("- worktree");
+    }
+  });
+
+  it("resumes a session only in the directory it ran in", async () => {
+    const task = addTask("Fix login", repoId);
+    r.tasks.update(task.id, { worktreePath: worktree, branch: "agent/fix-login" });
+
+    chat.send(repoId, "Hi");
+    await idle();
+    chat.send(repoId, "Look at the task", task.id);
+    await idle();
+    chat.send(repoId, "And the diff?", task.id);
+    await idle();
+    chat.send(repoId, "/clear");
+    chat.send(repoId, "Again", task.id);
+    await idle();
+
+    const [, moved, same, cleared] = adapter.calls.map((c) => c.options);
+    expect(moved?.cwd).toBe(worktree);
+    expect(moved?.resumeSessionId).toBeUndefined();
+    expect(moved?.prompt).toContain("**User:** Hi");
+    expect(same?.resumeSessionId).toBe("fake-2");
+    expect(same?.prompt).not.toContain("## Earlier conversation");
+    expect(cleared?.resumeSessionId).toBeUndefined();
   });
 
   it("lists the open questions of a task at the questions gate", async () => {

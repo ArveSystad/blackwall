@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import {
   CHAT_CLEAR_COMMAND,
   chatReplyJsonSchema,
@@ -75,6 +76,11 @@ interface ChatEntry {
   sessionId: string | null;
   /** The CLI `sessionId` belongs to; a turn on another CLI starts a new session. */
   sessionCli: AgentCli | null;
+  /**
+   * The directory `sessionId` ran in; a turn elsewhere starts a new session.
+   * Null when unknown (a session loaded from the database), which is tried.
+   */
+  sessionCwd: string | null;
   /** Bumped by `/clear` and shutdown, so a turn that started before drops its result. */
   generation: number;
   controller: AbortController | null;
@@ -107,8 +113,9 @@ function message(role: ChatMessage["role"], text: string, actions: ChatAction[] 
 /**
  * The repo chat: one conversation per repo, stored in SQLite and loaded on
  * first use. Each message runs the repo's default CLI once, headless and
- * read-only in the repo's checkout, continuing the chat's CLI session; when
- * that session cannot be resumed, the prompt carries the last
+ * read-only in the repo's checkout, or in the focused task's worktree when it
+ * has one on disk, continuing the chat's CLI session; when that session cannot
+ * be resumed or ran in another directory, the prompt carries the last
  * `historyLimit` messages instead. The agent answers with a markdown reply
  * and proposed actions; the user applies those through the existing endpoints
  * and marks them applied here. The user can also add an action to an
@@ -142,6 +149,7 @@ export function createChatService({
         state: { repoId, busy: false, activity: null, messages: messages.list(repoId) },
         sessionId: session?.sessionId ?? null,
         sessionCli: session?.cli ?? null,
+        sessionCwd: null,
         generation: 0,
         controller: null,
       };
@@ -210,8 +218,26 @@ export function createChatService({
       const repoTasks = tasks.list().filter((t) => t.repoId === repo.id && t.archivedAt === null);
       const open = Object.fromEntries(repoTasks.map((t) => [t.id, openQuestions(t)]));
       const focusTask = repoTasks.find((t) => t.id === focusId);
+      // The focused task's worktree, when it is still on disk, so the agent can read it.
+      const worktreePath =
+        focusTask?.worktreePath && existsSync(focusTask.worktreePath)
+          ? focusTask.worktreePath
+          : null;
+      const cwd = worktreePath ?? repo.path;
       const focus: ChatFocus | undefined = focusTask
-        ? { task: focusTask, questions: open[focusTask.id] ?? [] }
+        ? {
+            task: focusTask,
+            questions: open[focusTask.id] ?? [],
+            ...(worktreePath
+              ? {
+                  worktree: {
+                    path: worktreePath,
+                    branch: focusTask.branch,
+                    base: focusTask.baseBranch ?? repo.defaultBranch,
+                  },
+                }
+              : {}),
+          }
         : undefined;
       const state = {
         tasks: repoTasks,
@@ -229,7 +255,7 @@ export function createChatService({
 
       const attempt = async (resumeSessionId?: string): Promise<AgentResult> => {
         const run = adapter.run({
-          cwd: repo.path,
+          cwd,
           // A resumed session already holds the conversation.
           prompt: chatStatePrompt(resumeSessionId ? state : { ...state, history }),
           systemPrompt: chatSystemPrompt(),
@@ -244,6 +270,7 @@ export function createChatService({
           if (event.type === "session") {
             entry.sessionId = event.sessionId;
             entry.sessionCli = cli;
+            entry.sessionCwd = cwd;
           }
           if (event.type === "rate-limit") {
             const resetsAt = rateLimit?.resetsAt ?? event.resetsAt;
@@ -256,8 +283,13 @@ export function createChatService({
         return run.result;
       };
 
+      // CLI sessions belong to a directory: Claude cannot resume one from elsewhere.
       const resumeSessionId =
-        entry.sessionId && entry.sessionCli === cli ? entry.sessionId : undefined;
+        entry.sessionId &&
+        entry.sessionCli === cli &&
+        (entry.sessionCwd === null || entry.sessionCwd === cwd)
+          ? entry.sessionId
+          : undefined;
       let result: AgentResult;
       try {
         result = await attempt(resumeSessionId);
@@ -276,6 +308,7 @@ export function createChatService({
       if (!current()) return;
       entry.sessionId = result.sessionId;
       entry.sessionCli = cli;
+      entry.sessionCwd = cwd;
       const parsed = chatReplySchema.safeParse(result.structured);
       const reply = parsed.success
         ? message(
@@ -313,7 +346,8 @@ export function createChatService({
      * `/clear` aborts any running answer and starts over; anything else is
      * refused with {@link ChatBusyError} while the chat answers. `taskId` is
      * the task the user is looking at; the prompt gives it in full when it is
-     * an unarchived task of the repo, and ignores it otherwise.
+     * an unarchived task of the repo, and ignores it otherwise. When that task
+     * has a worktree on disk, the answer runs read-only in it.
      */
     send(repoId: string, text: string, taskId?: string): ChatState {
       const repo = repoOf(repoId);
@@ -325,6 +359,7 @@ export function createChatService({
         entry.generation += 1;
         entry.sessionId = null;
         entry.sessionCli = null;
+        entry.sessionCwd = null;
         messages.deleteForRepo(repoId);
         return update(entry, { busy: false, activity: null, messages: [] });
       }

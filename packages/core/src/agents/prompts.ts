@@ -208,6 +208,8 @@ export function chatSystemPrompt(): string {
     "",
     'When the message comes with a `Focused task` section, the user is looking at that task: "this task" means it.',
     "When a task failed or was interrupted, explain its error first, then propose `resume-task` with guidance that addresses it, or `message-task` when it waits at a gate.",
+    "When the focused task lists a worktree, the current directory is that worktree: read its files and use `git status`, `git diff <base>...HEAD` and `git log` there to diagnose failed checks, errors and conflicts.",
+    "Otherwise the current directory is the repo's checkout.",
   ].join("\n");
 }
 
@@ -224,6 +226,8 @@ export type ChatStateQuestion = Pick<GrillQuestion, "id" | "question">;
 export interface ChatFocus {
   task: ChatStateTask & Pick<Task, "plan">;
   questions: readonly ChatStateQuestion[];
+  /** The task's worktree, set when the chat turn runs in it. */
+  worktree?: { path: string; branch: string | null; base: string };
 }
 
 /** A backlog item as the chat's state block lists it. */
@@ -245,7 +249,7 @@ function capped(text: string): string {
   return trimmed.length > CHAT_FOCUS_CHARS ? `${trimmed.slice(0, CHAT_FOCUS_CHARS - 1)}…` : trimmed;
 }
 
-function focusSection({ task, questions }: ChatFocus): string[] {
+function focusSection({ task, questions, worktree }: ChatFocus): string[] {
   return [
     "## Focused task",
     "",
@@ -254,6 +258,11 @@ function focusSection({ task, questions }: ChatFocus): string[] {
     `- id \`${task.id}\``,
     `- title ${task.title}`,
     `- status ${task.status} · stage ${task.stage ?? "none"} · gate ${task.gate ?? "none"}`,
+    ...(worktree
+      ? [
+          `- worktree \`${worktree.path}\` (the current directory) · branch \`${worktree.branch ?? "none"}\` · forked from \`${worktree.base}\``,
+        ]
+      : []),
     "",
     ...(task.error ? ["### Error", "", capped(task.error), ""] : []),
     ...(task.plan ? ["### Plan", "", capped(task.plan), ""] : []),
