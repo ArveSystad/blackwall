@@ -63,7 +63,7 @@ export function MissingTokenModal({ missing, action, onSaved, onCancel }: Missin
         <form onSubmit={(event) => void submit(event)} onKeyDown={onKeyDown}>
           <div className="flex flex-col gap-2.5 px-5 pt-[18px] pb-1">
             <div className="flex items-center gap-2.5">
-              <span className="inline-flex size-8 flex-none items-center justify-center rounded-lg border border-magenta/40 bg-needs-wash text-magenta">
+              <span className="bw-chamfer inline-flex size-8 flex-none items-center justify-center bg-needs-wash text-magenta [--bw-chamfer-line:color-mix(in_oklab,var(--magenta)_40%,transparent)]">
                 <KeyIcon size="lg" />
               </span>
               <DialogTitle>{copy.title}</DialogTitle>
@@ -83,7 +83,7 @@ export function MissingTokenModal({ missing, action, onSaved, onCancel }: Missin
           </div>
 
           <div className="flex flex-col gap-3.5 px-5 pt-3.5 pb-[18px]">
-            <dl className="m-0 grid grid-cols-[96px_minmax(0,1fr)] gap-y-2 rounded-lg border border-border bg-card px-3 py-2.5 text-[12.5px]">
+            <dl className="bw-chamfer m-0 grid grid-cols-[96px_minmax(0,1fr)] gap-y-2 bg-card px-3 py-2.5 text-[12.5px] [--bw-chamfer-line:var(--border)]">
               <dt className="text-muted-foreground">Host</dt>
               <dd className="mono m-0 min-w-0 [overflow-wrap:anywhere] text-foreground-strong">
                 {missing.host}

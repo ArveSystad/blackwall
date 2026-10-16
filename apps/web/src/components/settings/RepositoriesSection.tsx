@@ -286,7 +286,7 @@ function RepoEditor({
         {!repo.exists && (
           <div
             role="alert"
-            className="flex items-start gap-2 rounded-lg border border-sev-medium/45 bg-sev-medium/8 px-3 py-2.5 text-sev-medium"
+            className="bw-chamfer flex items-start gap-2 bg-sev-medium/8 px-3 py-2.5 text-sev-medium [--bw-chamfer-line:color-mix(in_oklab,var(--sev-medium)_45%,transparent)]"
           >
             <WarnIcon size="lg" className="mt-0.5" />
             <span className="text-foreground">
@@ -512,7 +512,7 @@ function RepoRow({
         rowSelectable,
         selected && rowSelected,
         dragging?.id === repo.id && "opacity-50",
-        dropTarget && "border-dashed border-border-strong",
+        dropTarget && "[--bw-chamfer-line:var(--border-strong)]",
       )}
     >
       <GripIcon className="cursor-grab text-faint" />
@@ -539,7 +539,7 @@ function RepoRow({
           event.preventDefault();
           onMove(event.key === "ArrowUp" ? -1 : 1);
         }}
-        className="flex min-w-0 flex-1 cursor-pointer flex-col gap-0.5 rounded-md border-0 bg-transparent px-1.5 py-1 text-left text-foreground focus-visible:shadow-ring focus-visible:outline-none"
+        className="bw-chamfer bw-chamfer-focus flex min-w-0 flex-1 cursor-pointer flex-col gap-0.5 bg-transparent px-1.5 py-1 text-left text-foreground [--bw-chamfer-line:transparent] focus-visible:outline-none"
       >
         <span className="flex items-center gap-2">
           <span className="truncate font-medium text-foreground-strong">{repo.name}</span>

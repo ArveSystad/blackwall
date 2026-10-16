@@ -8,7 +8,7 @@ export function Input({ className, ...props }: ComponentProps<"input">) {
     <input
       {...control}
       className={cn(
-        "h-[30px] w-full rounded-md border border-input bg-card px-2.5 text-body text-foreground-strong focus:border-cyan focus:shadow-ring focus:outline-none",
+        "bw-chamfer-box h-[30px] w-full bg-card px-2.5 text-body text-foreground-strong",
         className,
       )}
       {...props}

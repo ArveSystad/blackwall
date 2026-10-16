@@ -48,12 +48,12 @@ function PullRequestAction({ pr, work }: { pr: ReviewRequest; work: IssueWork })
 /** One PR waiting on the user's review; the row opens it on GitHub, except for its trailing `action`. */
 function ReviewRow({ pr, now, action }: { pr: ReviewRequest; now: Date; action: ReactNode }) {
   return (
-    <li className="flex items-center gap-1 rounded-lg hover:bg-card">
+    <li className="bw-chamfer flex items-center gap-1 [--bw-chamfer-line:transparent] hover:bg-card">
       <a
         href={pr.url}
         target="_blank"
         rel="noreferrer"
-        className="flex min-h-10 min-w-0 flex-1 items-center gap-2.5 rounded-lg border border-transparent py-1.5 pr-2 pl-1.5 text-foreground no-underline hover:no-underline focus-visible:border-cyan focus-visible:shadow-ring focus-visible:outline-none"
+        className="bw-chamfer bw-chamfer-focus flex min-h-10 min-w-0 flex-1 items-center gap-2.5 py-1.5 pr-2 pl-1.5 text-foreground no-underline [--bw-chamfer-line:transparent] hover:no-underline focus-visible:outline-none"
       >
         <PullRequestIcon size="sm" className="text-muted-foreground" />
         <span className="flex min-w-0 flex-1 flex-col">

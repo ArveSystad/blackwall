@@ -177,7 +177,7 @@ function AgentsField({
           Reset to defaults
         </Button>
       </div>
-      <div className="flex flex-col rounded-lg border border-border bg-card">
+      <div className="bw-chamfer flex flex-col bg-card [--bw-chamfer-line:var(--border)]">
         {AGENT_ROLES.map((role, i) => {
           const eligible = agentsForRole(agents, role);
           const chosenIds = roleIds(roles, role);
@@ -267,7 +267,7 @@ function AgentsField({
       <div
         id="new-task-advanced"
         hidden={!advanced}
-        className="flex flex-col gap-2 rounded-lg border border-border bg-card px-3 py-2.5"
+        className="bw-chamfer flex flex-col gap-2 bg-card px-3 py-2.5 [--bw-chamfer-line:var(--border)]"
       >
         <span className="inline-flex items-center gap-1.5 text-meta text-muted-foreground">
           Runs on <CliName cli={cli} installed={cliStatus?.get(cli)} /> by default (repo setting).
@@ -949,25 +949,30 @@ function NewTaskForm({
             <legend className={cn(fieldLabel, "mb-2 p-0")}>Triage</legend>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {TRIAGE_OPTIONS.map((option) => (
-                <label
+                // The glow sits on an unclipped wrapper: clip-path drops the card's own shadow.
+                <div
                   key={option.value}
-                  className={cn(
-                    "flex cursor-pointer gap-2.5 rounded-lg border border-border bg-card px-3 py-2.5 has-focus-visible:shadow-ring",
-                    triageMode === option.value && "border-primary shadow-glow-primary",
-                  )}
+                  className={cn(triageMode === option.value && "drop-shadow-glow-primary")}
                 >
-                  <input
-                    type="radio"
-                    name="triage"
-                    className="mt-0.5 focus:outline-none"
-                    checked={triageMode === option.value}
-                    onChange={() => setTriageMode(option.value)}
-                  />
-                  <span className="flex flex-col gap-0.5">
-                    <span className="font-medium text-foreground-strong">{option.title}</span>
-                    <span className="text-meta text-muted-foreground">{option.detail}</span>
-                  </span>
-                </label>
+                  <label
+                    className={cn(
+                      "bw-chamfer bw-chamfer-has-focus flex h-full cursor-pointer gap-2.5 bg-card px-3 py-2.5 [--bw-chamfer-line:var(--border)]",
+                      triageMode === option.value && "[--bw-chamfer-line:var(--primary)]",
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="triage"
+                      className="mt-0.5 focus:outline-none"
+                      checked={triageMode === option.value}
+                      onChange={() => setTriageMode(option.value)}
+                    />
+                    <span className="flex flex-col gap-0.5">
+                      <span className="font-medium text-foreground-strong">{option.title}</span>
+                      <span className="text-meta text-muted-foreground">{option.detail}</span>
+                    </span>
+                  </label>
+                </div>
               ))}
             </div>
           </fieldset>

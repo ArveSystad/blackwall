@@ -19,7 +19,7 @@ export function SelectMenuTrigger({
   return (
     <SelectPrimitive.Trigger
       className={cn(
-        "inline-flex h-[30px] w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-input bg-card px-2 text-body text-foreground-strong outline-none focus:border-cyan focus:shadow-ring disabled:cursor-not-allowed disabled:opacity-45 data-[placeholder]:text-muted-foreground [&>span]:flex [&>span]:min-w-0 [&>span]:items-center [&>span]:gap-1.5",
+        "bw-chamfer bw-chamfer-focus inline-flex h-[30px] w-full cursor-pointer items-center justify-between gap-2 bg-card px-2 text-body text-foreground-strong outline-none [--bw-chamfer-line:var(--border-strong)] disabled:cursor-not-allowed disabled:opacity-45 data-[placeholder]:text-muted-foreground [&>span]:flex [&>span]:min-w-0 [&>span]:items-center [&>span]:gap-1.5",
         className,
       )}
       {...props}
@@ -44,12 +44,15 @@ export function SelectMenuContent({
         position="popper"
         sideOffset={4}
         className={cn(
-          "bw-no-drag z-50 max-h-[var(--radix-select-content-available-height)] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg bg-popover p-1 shadow-pop",
+          "bw-no-drag z-50 max-h-[var(--radix-select-content-available-height)] min-w-[var(--radix-select-trigger-width)] drop-shadow-pop",
           className,
         )}
         {...props}
       >
-        <SelectPrimitive.Viewport>{children}</SelectPrimitive.Viewport>
+        {/* clip-path drops box-shadow, so the unclipped Content casts the pop around this panel. */}
+        <div className="bw-chamfer flex max-h-[inherit] flex-col overflow-hidden bg-popover p-1">
+          <SelectPrimitive.Viewport>{children}</SelectPrimitive.Viewport>
+        </div>
       </SelectPrimitive.Content>
     </SelectPrimitive.Portal>
   );
@@ -65,7 +68,7 @@ export function SelectMenuItem({
   return (
     <SelectPrimitive.Item
       className={cn(
-        "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-body outline-none select-none data-[disabled]:cursor-not-allowed data-[disabled]:opacity-45 data-[highlighted]:bg-muted data-[state=checked]:text-foreground-strong",
+        "bw-chamfer flex cursor-pointer items-center gap-2 px-2 py-1.5 text-body outline-none select-none [--bw-chamfer-line:transparent] data-[disabled]:cursor-not-allowed data-[disabled]:opacity-45 data-[highlighted]:bg-muted data-[state=checked]:text-foreground-strong",
         className,
       )}
       {...props}

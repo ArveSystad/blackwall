@@ -468,7 +468,7 @@ function ChatBody({
       </div>
       <div className="flex flex-none flex-col gap-1.5 border-t border-border px-4 pt-2.5 pb-3">
         <form
-          className="flex flex-col gap-1.5 rounded-lg border border-input bg-card p-1.5 focus-within:border-cyan focus-within:shadow-ring"
+          className="bw-chamfer bw-chamfer-focus-within flex flex-col gap-1.5 bg-card p-1.5 [--bw-chamfer-line:var(--border-strong)]"
           onSubmit={(event) => {
             event.preventDefault();
             void sendDraft();
@@ -551,7 +551,7 @@ function MessageItem({
       return (
         <div
           className={cn(
-            "max-w-[85%] self-end rounded-lg bg-muted px-3 py-2 text-body break-words whitespace-pre-wrap text-foreground-strong",
+            "bw-chamfer max-w-[85%] self-end bg-muted px-3 py-2 text-body break-words whitespace-pre-wrap text-foreground-strong [--bw-chamfer-line:transparent]",
             fade,
           )}
         >
@@ -877,7 +877,7 @@ function CardShell({
   const error = markError ?? (ran ? null : apply.error);
 
   return (
-    <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-card p-3">
+    <div className="bw-chamfer flex flex-col gap-2.5 bg-card p-3 [--bw-chamfer-line:var(--border)]">
       <div className="flex min-w-0 flex-col gap-1">
         <span className="text-meta text-muted-foreground">{summary.label}</span>
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">

@@ -29,7 +29,7 @@ import { Wordmark } from "./Wordmark";
 const NO_REPO = "none";
 
 const ACTIVE_ICON =
-  "shrink-0 data-[status=active]:border-border-strong data-[status=active]:bg-muted data-[status=active]:text-foreground-strong";
+  "shrink-0 data-[status=active]:bg-muted data-[status=active]:text-foreground-strong data-[status=active]:[--bw-chamfer-line:var(--border-strong)]";
 
 /**
  * Global top bar: wordmark, the repo to work in with its backlog status, and app-wide buttons.

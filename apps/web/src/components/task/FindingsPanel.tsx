@@ -165,7 +165,7 @@ export function FindingsPanel({
               aria-pressed={severities.has(severity)}
               onClick={() => toggleSeverity(severity)}
               className={cn(
-                "cursor-pointer rounded-sm bg-transparent focus-visible:shadow-ring",
+                "bw-chamfer bw-chamfer-pill bw-chamfer-focus cursor-pointer bg-transparent",
                 severities.size > 0 && !severities.has(severity) && "opacity-45",
               )}
             >

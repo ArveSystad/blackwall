@@ -37,7 +37,7 @@ function AgentRow({
   const { model, source } = effectiveModel(events.data, agent, step.cli);
   const since = step.startedAt ?? step.createdAt;
   return (
-    <li className="flex flex-col gap-1.5 rounded-lg border border-border bg-card px-3.5 py-2.5">
+    <li className="bw-chamfer flex flex-col gap-1.5 bg-card px-3.5 py-2.5 [--bw-chamfer-line:var(--border)]">
       <span className="flex h-5 items-center gap-2">
         <span
           aria-hidden="true"

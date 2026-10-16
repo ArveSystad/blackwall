@@ -113,47 +113,53 @@ function QuestionCard({
   });
   const cli = asker ? agentCliFor(task, asker.id) : null;
   const model = effectiveModel(events.data, asker, cli);
+  // The glow sits on an unclipped wrapper: clip-path drops the card's own shadow.
   return (
-    <article
-      aria-label={`Question ${number}`}
-      className={cn(
-        "flex flex-col gap-2 rounded-lg border border-border bg-card px-3.5 py-3",
-        needsAnswer && "border-magenta/45 bg-needs-wash",
-        canAnswer && "border-magenta bg-sidebar shadow-glow-needs",
-      )}
-    >
-      <div className="flex items-center gap-2 text-meta">
-        <span className="mono text-faint">Q{number}</span>
-        <QuestionStatus question={question} />
-        <span className="flex-1" />
-        {asker ? (
-          <>
-            <AgentTile cli={agentCliFor(task, asker.id)} />
-            <span className="text-muted-foreground">{asker.name}</span>
-            <span
-              className="mono max-w-40 truncate text-[11px] text-faint"
-              title={modelTitle(model)}
-            >
-              {model.model ?? AUTO_MODEL_LABEL}
-            </span>
-          </>
-        ) : (
-          <span className="text-faint">Plan reviewer</span>
+    <div className={cn(canAnswer && "drop-shadow-glow-needs")}>
+      <article
+        aria-label={`Question ${number}`}
+        className={cn(
+          "bw-chamfer flex flex-col gap-2 bg-card px-3.5 py-3 [--bw-chamfer-line:var(--border)]",
+          needsAnswer &&
+            "bg-needs-wash [--bw-chamfer-line:color-mix(in_oklab,var(--magenta)_45%,transparent)]",
+          canAnswer && "bg-sidebar [--bw-chamfer-line:var(--magenta)]",
         )}
-      </div>
-      <p className="m-0 font-medium whitespace-pre-wrap text-foreground-strong">
-        {question.question}
-      </p>
-      {question.answer !== null && (
-        <div className="flex gap-2.5 pl-0.5">
-          <span className="label mt-0.5 w-12 flex-none text-muted-foreground">
-            {question.answeredBy === "user" ? "You" : "Planner"}
-          </span>
-          <p className="m-0 text-[12.5px] whitespace-pre-wrap text-foreground">{question.answer}</p>
+      >
+        <div className="flex items-center gap-2 text-meta">
+          <span className="mono text-faint">Q{number}</span>
+          <QuestionStatus question={question} />
+          <span className="flex-1" />
+          {asker ? (
+            <>
+              <AgentTile cli={agentCliFor(task, asker.id)} />
+              <span className="text-muted-foreground">{asker.name}</span>
+              <span
+                className="mono max-w-40 truncate text-[11px] text-faint"
+                title={modelTitle(model)}
+              >
+                {model.model ?? AUTO_MODEL_LABEL}
+              </span>
+            </>
+          ) : (
+            <span className="text-faint">Plan reviewer</span>
+          )}
         </div>
-      )}
-      {canAnswer && <AnswerForm task={task} question={question} />}
-    </article>
+        <p className="m-0 font-medium whitespace-pre-wrap text-foreground-strong">
+          {question.question}
+        </p>
+        {question.answer !== null && (
+          <div className="flex gap-2.5 pl-0.5">
+            <span className="label mt-0.5 w-12 flex-none text-muted-foreground">
+              {question.answeredBy === "user" ? "You" : "Planner"}
+            </span>
+            <p className="m-0 text-[12.5px] whitespace-pre-wrap text-foreground">
+              {question.answer}
+            </p>
+          </div>
+        )}
+        {canAnswer && <AnswerForm task={task} question={question} />}
+      </article>
+    </div>
   );
 }
 

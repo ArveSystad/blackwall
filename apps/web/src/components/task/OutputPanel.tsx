@@ -66,66 +66,75 @@ function SubagentCall({
   const [open, setOpen] = useState(false);
   const status = subagentStatus(item, live);
   const brief = (item.input as { prompt?: unknown } | null | undefined)?.prompt;
+  // The glow sits on an unclipped wrapper: clip-path drops the card's own shadow.
   return (
-    <div
-      className={cn(
-        "flex flex-col overflow-hidden rounded-md border border-border bg-card",
-        status === "running" && "border-cyan/50 shadow-glow-cyan",
-      )}
-    >
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        className="flex h-7 min-w-0 cursor-pointer items-center gap-2 bg-transparent px-2.5 text-left text-meta"
+    <div className={cn(status === "running" && "drop-shadow-glow-cyan")}>
+      <div
+        className={cn(
+          "bw-chamfer flex flex-col overflow-hidden bg-card [--bw-chamfer-line:var(--border)]",
+          status === "running" &&
+            "[--bw-chamfer-line:color-mix(in_oklab,var(--cyan)_50%,transparent)]",
+        )}
       >
-        <ChevronRightIcon size="sm" className={cn("text-muted-foreground", open && "rotate-90")} />
-        <span className="text-muted-foreground">Sub-agent</span>
-        <span className="min-w-0 truncate text-foreground-strong">
-          {item.description ?? item.agentType}
-        </span>
-        {item.description !== null && (
-          <span className="mono text-[11px] text-faint">{item.agentType}</span>
-        )}
-        <span className="flex-1" />
-        {status === "running" ? (
-          <span className="mono text-[11px] text-cyan">running…</span>
-        ) : status === "done" ? (
-          <CheckIcon size="sm" className="text-done" aria-label="Done" role="img" />
-        ) : status === "failed" ? (
-          <FailedIcon size="sm" className="text-failed" aria-label="Failed" role="img" />
-        ) : (
-          <PausedIcon size="sm" className="text-interrupted" aria-label="Stopped" role="img" />
-        )}
-      </button>
-      {open && (
-        <div className="flex flex-col gap-2 border-t border-border px-3 py-2">
-          {typeof brief === "string" && (
-            <pre className="m-0 max-h-60 overflow-auto font-mono text-code whitespace-pre-wrap text-muted-foreground">
-              {brief}
-            </pre>
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+          className="flex h-7 min-w-0 cursor-pointer items-center gap-2 bg-transparent px-2.5 text-left text-meta"
+        >
+          <ChevronRightIcon
+            size="sm"
+            className={cn("text-muted-foreground", open && "rotate-90")}
+          />
+          <span className="text-muted-foreground">Sub-agent</span>
+          <span className="min-w-0 truncate text-foreground-strong">
+            {item.description ?? item.agentType}
+          </span>
+          {item.description !== null && (
+            <span className="mono text-[11px] text-faint">{item.agentType}</span>
           )}
-          {item.items.length === 0 ? (
-            <p className="m-0 text-muted-foreground">
-              {status === "running"
-                ? "Standing by. No output yet."
-                : "The sub-agent produced no output."}
-            </p>
+          <span className="flex-1" />
+          {status === "running" ? (
+            <span className="mono text-[11px] text-cyan">running…</span>
+          ) : status === "done" ? (
+            <CheckIcon size="sm" className="text-done" aria-label="Done" role="img" />
+          ) : status === "failed" ? (
+            <FailedIcon size="sm" className="text-failed" aria-label="Failed" role="img" />
           ) : (
-            item.items.map((child) => <TranscriptEntry key={child.key} item={child} live={live} />)
+            <PausedIcon size="sm" className="text-interrupted" aria-label="Stopped" role="img" />
           )}
-          {item.output !== null && (
-            <pre
-              className={cn(
-                "m-0 max-h-80 overflow-auto rounded-md bg-code px-3 py-2 font-mono text-code whitespace-pre-wrap",
-                item.isError ? "text-failed" : "text-foreground",
-              )}
-            >
-              {item.output || "(no output)"}
-            </pre>
-          )}
-        </div>
-      )}
+        </button>
+        {open && (
+          <div className="flex flex-col gap-2 border-t border-border px-3 py-2">
+            {typeof brief === "string" && (
+              <pre className="m-0 max-h-60 overflow-auto font-mono text-code whitespace-pre-wrap text-muted-foreground">
+                {brief}
+              </pre>
+            )}
+            {item.items.length === 0 ? (
+              <p className="m-0 text-muted-foreground">
+                {status === "running"
+                  ? "Standing by. No output yet."
+                  : "The sub-agent produced no output."}
+              </p>
+            ) : (
+              item.items.map((child) => (
+                <TranscriptEntry key={child.key} item={child} live={live} />
+              ))
+            )}
+            {item.output !== null && (
+              <pre
+                className={cn(
+                  "bw-chamfer-box m-0 max-h-80 overflow-auto bg-code px-3 py-2 font-mono text-code whitespace-pre-wrap [--bw-chamfer-line:transparent]",
+                  item.isError ? "text-failed" : "text-foreground",
+                )}
+              >
+                {item.output || "(no output)"}
+              </pre>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -149,7 +158,7 @@ function TranscriptEntry({ item, live }: { item: TranscriptItem; live: boolean }
       );
     case "error":
       return (
-        <p className="m-0 rounded-md border border-failed/45 px-3 py-2 font-mono text-code whitespace-pre-wrap text-failed">
+        <p className="bw-chamfer-box m-0 px-3 py-2 font-mono text-code whitespace-pre-wrap text-failed [--bw-chamfer-line:color-mix(in_oklab,var(--st-failed)_45%,transparent)]">
           {item.message}
         </p>
       );
@@ -293,7 +302,7 @@ export function OutputPanel({
                 setFollow(false);
               }}
               className={cn(
-                "flex min-w-0 cursor-pointer items-center gap-2 rounded-sm bg-transparent px-1.5 py-1 text-left text-muted-foreground hover:bg-card",
+                "bw-chamfer bw-chamfer-focus flex min-w-0 cursor-pointer items-center gap-2 bg-transparent px-1.5 py-1 text-left text-muted-foreground [--bw-chamfer-line:transparent] hover:bg-card",
                 on && "bg-muted text-foreground-strong hover:bg-muted",
               )}
             >

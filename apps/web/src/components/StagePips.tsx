@@ -26,7 +26,7 @@ export function StagePips({ task }: { task: Pick<Task, "stage" | "status"> }) {
         <span
           key={stage.label}
           className={cn(
-            "h-1 w-3 rounded-[1px]",
+            "h-1 w-3",
             i < current ? "bg-faint" : i === current ? CURRENT[task.status] : "bg-border-strong",
           )}
         />

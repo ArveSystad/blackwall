@@ -42,7 +42,7 @@ function Tile({
   children?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-1.5 rounded-lg border border-border bg-card px-4 py-3">
+    <div className="bw-chamfer flex flex-col gap-1.5 bg-card px-4 py-3 [--bw-chamfer-line:var(--border)]">
       <span className="flex items-center gap-1.5 text-meta text-muted-foreground">
         {icon}
         {label}
@@ -79,7 +79,7 @@ function PerDayChart({ perDay, now }: { perDay: NonNullable<TaskStats["perDay"]>
             <div className="flex h-40 w-full items-end">
               <div
                 className={cn(
-                  "w-full origin-bottom animate-bar-grow rounded-sm",
+                  "w-full origin-bottom animate-bar-grow",
                   day.count > 0 ? "bg-done shadow-glow-done" : "bg-border-strong",
                 )}
                 style={{ height: `max(${(day.count / most) * 100}%, 2px)` }}
@@ -109,7 +109,7 @@ function UsageList({
         <li
           key={row.key}
           title={usageTitle(row.total)}
-          className="flex items-baseline gap-3 rounded-md border border-border bg-card px-3 py-1.5"
+          className="bw-chamfer flex items-baseline gap-3 bg-card px-3 py-1.5 [--bw-chamfer-line:var(--border)]"
         >
           <span className="min-w-0 flex-1 truncate text-meta text-foreground">{row.name}</span>
           <span

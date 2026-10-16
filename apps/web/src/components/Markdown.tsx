@@ -46,7 +46,7 @@ const components: Components = {
       <code
         {...domProps(props)}
         className={cn(
-          !inPre && "rounded-sm bg-code-inline px-1 font-mono text-code text-foreground-strong",
+          !inPre && "bg-code-inline px-1 font-mono text-code text-foreground-strong",
           props.className,
         )}
       />

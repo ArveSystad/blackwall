@@ -19,7 +19,7 @@ function ArtifactCard({
   const [failed, setFailed] = useState(false);
   const { path, modifiedAt } = artifact;
   return (
-    <div className="flex min-w-0 flex-col overflow-hidden rounded-md border border-border bg-card">
+    <div className="bw-chamfer flex min-w-0 flex-col overflow-hidden bg-card [--bw-chamfer-line:var(--border)]">
       <a
         href={artifactUrl(taskId, artifact)}
         target="_blank"

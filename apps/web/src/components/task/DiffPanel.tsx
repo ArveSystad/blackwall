@@ -112,7 +112,7 @@ function PrThread({ thread, fading }: { thread: PullRequestThread; fading: Reado
       ? `${thread.path}:${thread.startLine}-${thread.line}`
       : `${thread.path}:${thread.line}`;
   return (
-    <li className="flex flex-col gap-2 rounded-md border border-dashed border-border px-3 py-2.5">
+    <li className="bw-chamfer-box flex flex-col gap-2 border-dashed px-3 py-2.5 [--bw-chamfer-line:var(--border)]">
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <span className="label text-muted-foreground">GitHub</span>
         {where && <span className="mono truncate text-[11px] text-muted-foreground">{where}</span>}
@@ -171,7 +171,7 @@ function HunkFinding({
   return (
     <li
       className={cn(
-        "flex flex-col gap-1.5 rounded-md border border-border bg-card px-3 py-2.5",
+        "bw-chamfer flex flex-col gap-1.5 bg-card px-3 py-2.5 [--bw-chamfer-line:var(--border)]",
         fadeIn && "animate-fade-in",
       )}
     >

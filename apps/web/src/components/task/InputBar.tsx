@@ -47,7 +47,7 @@ export function InputBar({
   return (
     <div className="border-t border-border bg-sidebar px-5 pt-2.5 pb-3.5">
       <form
-        className="flex items-center gap-2 rounded-lg border border-input bg-card py-1 pr-1 pl-2.5 focus-within:border-cyan focus-within:shadow-ring"
+        className="bw-chamfer bw-chamfer-focus-within flex items-center gap-2 bg-card py-1 pr-1 pl-2.5 [--bw-chamfer-line:var(--border-strong)]"
         onSubmit={(event) => {
           event.preventDefault();
           void send();

@@ -81,6 +81,8 @@
   --drop-glow-primary-btn: 0 0 9px rgba(167, 123, 255, 0.35);
   --drop-glow-needs: 0 0 9px rgba(255, 61, 207, 0.3);
   --drop-glow-status-needs: 0 0 5px rgba(255, 61, 207, 0.3);
+  --drop-glow-cyan: 0 0 9px rgba(46, 230, 255, 0.28);
+  --drop-glow-primary: 0 0 9px rgba(167, 123, 255, 0.32);
   --drop-pop: 0 16px 24px rgba(0, 0, 0, 0.6);
   --ring: var(--glow-cyan);
   --wordmark-accent: var(--cyan);
@@ -159,6 +161,8 @@
   --drop-glow-primary-btn: 0 0 0 transparent;
   --drop-glow-needs: 0 0 2px rgba(196, 22, 124, 0.35);
   --drop-glow-status-needs: 0 0 0 transparent;
+  --drop-glow-cyan: 0 0 2px rgba(29, 111, 224, 0.35);
+  --drop-glow-primary: 0 0 2px rgba(90, 69, 224, 0.35);
   --drop-pop: 0 16px 24px rgba(20, 20, 40, 0.18);
   --ring: var(--glow-violet);
   --wordmark-accent: var(--primary);
@@ -244,14 +248,17 @@
   --text-shadow-glow-done: var(--glow-text-done);
   --drop-shadow-glow-primary-btn: var(--drop-glow-primary-btn);
   --drop-shadow-glow-needs: var(--drop-glow-needs);
+  --drop-shadow-glow-cyan: var(--drop-glow-cyan);
+  --drop-shadow-glow-primary: var(--drop-glow-primary);
   --drop-shadow-pop: var(--drop-pop);
 
-  --radius: 6px;
-  --radius-xs: 3px; /* tag */
-  --radius-sm: 4px; /* chip, kbd */
-  --radius-md: 6px; /* button, input */
-  --radius-lg: 8px; /* card, task row */
-  --radius-xl: 12px; /* dialog */
+  /* Corners are chamfered (.bw-chamfer*), never rounded. */
+  --radius: 0;
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
 
   --font-sans: "Geist Variable", "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
@@ -896,7 +903,7 @@
   .bw-lock-on {
     position: absolute;
     inset: -1px;
-    border-radius: 9999px;
+    border-radius: 50%;
     border: 1.5px solid var(--stage-color);
     box-shadow: 0 0 6px var(--stage-color);
     animation: bw-lock-on 600ms ease-out 200ms both;
@@ -1159,24 +1166,63 @@
       inset 0 0 12px color-mix(in oklab, var(--boom-color) 50%, transparent);
   }
 
+  /* Traces its chamfered host (CountPill): the element stays unclipped so its drop-shadow glows,
+   * the ::before holds the tint and the ::after is a 2px frame in the host's cut. */
   .bw-assigned-flash {
+    --flash-tl: var(--bw-cut-tl, 8px);
+    --flash-br: var(--bw-cut-br, 8px);
     position: absolute;
     inset: 0;
-    border-radius: 9999px;
-    border: 1px solid var(--st-assigned);
-    background: color-mix(in oklab, var(--st-assigned) 18%, transparent);
-    box-shadow:
-      0 0 0 2px color-mix(in oklab, var(--st-assigned) 70%, transparent),
-      0 0 28px color-mix(in oklab, var(--st-assigned) 70%, transparent),
-      0 0 80px color-mix(in oklab, var(--st-assigned) 45%, transparent);
+    filter: drop-shadow(0 0 28px color-mix(in oklab, var(--st-assigned) 70%, transparent))
+      drop-shadow(0 0 80px color-mix(in oklab, var(--st-assigned) 45%, transparent));
     pointer-events: none;
     opacity: 0;
     animation: bw-assigned-flash 2.4s ease-in forwards;
   }
 
+  .bw-assigned-flash::before,
+  .bw-assigned-flash::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+  }
+
+  .bw-assigned-flash::before {
+    background: color-mix(in oklab, var(--st-assigned) 18%, transparent);
+    clip-path: polygon(
+      var(--flash-tl) 0,
+      100% 0,
+      100% calc(100% - var(--flash-br)),
+      calc(100% - var(--flash-br)) 100%,
+      0 100%,
+      0 var(--flash-tl)
+    );
+  }
+
+  .bw-assigned-flash::after {
+    background: var(--st-assigned);
+    clip-path: polygon(
+      evenodd,
+      var(--flash-tl) 0,
+      100% 0,
+      100% calc(100% - var(--flash-br)),
+      calc(100% - var(--flash-br)) 100%,
+      0 100%,
+      0 var(--flash-tl),
+      var(--flash-tl) 0,
+      calc(var(--flash-tl) + 0.828px) 2px,
+      calc(100% - 2px) 2px,
+      calc(100% - 2px) calc(100% - var(--flash-br) - 0.828px),
+      calc(100% - var(--flash-br) - 0.828px) calc(100% - 2px),
+      2px calc(100% - 2px),
+      2px calc(var(--flash-tl) + 0.828px),
+      calc(var(--flash-tl) + 0.828px) 2px
+    );
+  }
+
   /* Glow is dark only. */
   :root[data-theme="light"] .bw-assigned-flash {
-    box-shadow: none;
+    filter: none;
   }
 
   /* Glow is dark only: light keeps the ring and drops the bloom. */
@@ -1337,40 +1383,81 @@
     animation: bw-chat-out 180ms ease-in both;
   }
 
-  /* ---------- HUD chrome (ui/button.tsx, ui/dialog.tsx, NeedsBanner.tsx, TaskHeader.tsx, StatusBadge.tsx) ----------
-   * Square surfaces with the top-left and bottom-right corners cut by --bw-cut. Hosts take no CSS
-   * border or radius: the frame line is the ::after, drawn on top of the content.
+  /* ---------- HUD chrome (every rectangle: buttons, fields, chips, cards, rows, popovers, code) ----------
+   * Square surfaces with the top-left and bottom-right corners cut by --bw-cut (per corner:
+   * --bw-cut-tl, --bw-cut-br). Nothing in the app is rounded except true circles.
+   * Two mechanisms:
+   * - .bw-chamfer / .bw-chamfer-fill: the host takes no CSS border or radius; the frame line is the
+   *   ::after, drawn on top of the content. Tone it per element with [--bw-chamfer-line:…].
+   * - .bw-chamfer-box: a real CSS border plus two gradient diagonals, for hosts where ::after can't
+   *   work: replaced elements (input, textarea, select, which have no pseudo-elements) and
+   *   self-scrolling blocks (pre, the diff), where an absolute ::after would scroll away.
    * clip-path drops an element's own box-shadow and filter output, so glow never sits on a clipped
-   * element: buttons stay unclipped and fill via ::before (a drop-shadow on the button follows it),
-   * dialogs glow from the unclipped Radix Content around a clipped panel, and the banner, whose
-   * wash is translucent, glows from a .bw-chamfer-halo sibling.
-   * Button focus is a 2px inset line in the button's own foreground colour (currentColor), at 5:1
-   * or better on the fill in both themes.
+   * element: buttons and CountPill stay unclipped and fill via ::before (a drop-shadow on the host
+   * follows it); dialogs, popovers and glowing cards glow from an unclipped parent around a clipped
+   * panel; the banner and the Inbox TaskCard, whose washes are translucent, glow from a
+   * .bw-chamfer-halo sibling.
+   * Focus can't be a box-shadow ring either, so it is the frame line: 2px cyan via .bw-chamfer-focus
+   * (and the -within variants) on its own variable, which the per-element line tones never set.
+   * Primary and needs button focus is a 2px line in the button's own foreground colour
+   * (currentColor), at 5:1 or better on the fill in both themes.
    */
   .bw-chamfer,
   .bw-chamfer-fill,
-  .bw-chamfer-halo {
+  .bw-chamfer-halo,
+  .bw-chamfer-box {
     --bw-cut: 8px;
+    --bw-cut-tl: var(--bw-cut);
+    --bw-cut-br: var(--bw-cut);
     --bw-chamfer-line: var(--border-strong);
     --bw-chamfer-w: 1px;
   }
 
-  /* The compact cut for 20px status pills; no frame line unless toned (e.g. .bw-chamfer-needs),
-   * so it must come before the tone modifiers. */
+  /* Focus never leaks into a nested chamfer. */
+  .bw-chamfer,
+  .bw-chamfer-fill,
+  .bw-chamfer-box {
+    --bw-chamfer-focus-line: initial;
+  }
+
+  /* The compact cut for 20px status pills, chips and tags; no frame line unless toned (e.g.
+   * .bw-chamfer-needs), so it must come before the tone modifiers. */
   .bw-chamfer-pill {
     --bw-cut: 5px;
     --bw-chamfer-line: transparent;
   }
 
+  /* A segment in a group: only the group's outer ends are cut, the first segment's top-left and the
+   * last segment's bottom-right. Zero is 0px: calc(100% - 0) is invalid. */
+  .bw-chamfer-seg {
+    --bw-cut-tl: 0px;
+    --bw-cut-br: 0px;
+  }
+
+  .bw-chamfer-seg:first-child {
+    --bw-cut-tl: var(--bw-cut);
+  }
+
+  .bw-chamfer-seg:last-child {
+    --bw-cut-br: var(--bw-cut);
+  }
+
+  .bw-chamfer-focus:focus-visible,
+  .bw-chamfer-focus-within:focus-within,
+  .bw-chamfer-has-focus:has(:focus-visible) {
+    --bw-chamfer-focus-line: var(--cyan);
+    --bw-chamfer-w: 2px;
+  }
+
   .bw-chamfer {
     position: relative;
     clip-path: polygon(
-      var(--bw-cut) 0,
+      var(--bw-cut-tl) 0,
       100% 0,
-      100% calc(100% - var(--bw-cut)),
-      calc(100% - var(--bw-cut)) 100%,
+      100% calc(100% - var(--bw-cut-br)),
+      calc(100% - var(--bw-cut-br)) 100%,
       0 100%,
-      0 var(--bw-cut)
+      0 var(--bw-cut-tl)
     );
   }
 
@@ -1392,12 +1479,12 @@
     z-index: -1;
     background: var(--bw-chamfer-bg);
     clip-path: polygon(
-      var(--bw-cut) 0,
+      var(--bw-cut-tl) 0,
       100% 0,
-      100% calc(100% - var(--bw-cut)),
-      calc(100% - var(--bw-cut)) 100%,
+      100% calc(100% - var(--bw-cut-br)),
+      calc(100% - var(--bw-cut-br)) 100%,
       0 100%,
-      0 var(--bw-cut)
+      0 var(--bw-cut-tl)
     );
   }
 
@@ -1407,31 +1494,83 @@
   }
 
   /* The frame: the outer chamfer minus the same shape inset by --bw-chamfer-w. The inner diagonal
-   * points sit at cut + 0.414 × w (w·(√2 − 1)), so the diagonals stay as thick as the sides. */
+   * points sit at cut + 0.414 × w (w·(√2 − 1)), so the diagonals stay as thick as the sides; the
+   * max() keeps a cut of 0 a clean square corner. */
   .bw-chamfer::after,
   .bw-chamfer-fill::after {
     content: "";
     position: absolute;
     inset: 0;
     pointer-events: none;
-    background: var(--bw-chamfer-line);
+    background: var(--bw-chamfer-focus-line, var(--bw-chamfer-line));
     clip-path: polygon(
       evenodd,
-      var(--bw-cut) 0,
+      var(--bw-cut-tl) 0,
       100% 0,
-      100% calc(100% - var(--bw-cut)),
-      calc(100% - var(--bw-cut)) 100%,
+      100% calc(100% - var(--bw-cut-br)),
+      calc(100% - var(--bw-cut-br)) 100%,
       0 100%,
-      0 var(--bw-cut),
-      var(--bw-cut) 0,
-      calc(var(--bw-cut) + 0.414 * var(--bw-chamfer-w)) var(--bw-chamfer-w),
+      0 var(--bw-cut-tl),
+      var(--bw-cut-tl) 0,
+      max(var(--bw-chamfer-w), calc(var(--bw-cut-tl) + 0.414 * var(--bw-chamfer-w)))
+        var(--bw-chamfer-w),
       calc(100% - var(--bw-chamfer-w)) var(--bw-chamfer-w),
-      calc(100% - var(--bw-chamfer-w)) calc(100% - var(--bw-cut) - 0.414 * var(--bw-chamfer-w)),
-      calc(100% - var(--bw-cut) - 0.414 * var(--bw-chamfer-w)) calc(100% - var(--bw-chamfer-w)),
+      calc(100% - var(--bw-chamfer-w))
+        calc(100% - max(var(--bw-chamfer-w), calc(var(--bw-cut-br) + 0.414 * var(--bw-chamfer-w)))),
+      calc(100% - max(var(--bw-chamfer-w), calc(var(--bw-cut-br) + 0.414 * var(--bw-chamfer-w))))
+        calc(100% - var(--bw-chamfer-w)),
       var(--bw-chamfer-w) calc(100% - var(--bw-chamfer-w)),
-      var(--bw-chamfer-w) calc(var(--bw-cut) + 0.414 * var(--bw-chamfer-w)),
-      calc(var(--bw-cut) + 0.414 * var(--bw-chamfer-w)) var(--bw-chamfer-w)
+      var(--bw-chamfer-w)
+        max(var(--bw-chamfer-w), calc(var(--bw-cut-tl) + 0.414 * var(--bw-chamfer-w))),
+      max(var(--bw-chamfer-w), calc(var(--bw-cut-tl) + 0.414 * var(--bw-chamfer-w)))
+        var(--bw-chamfer-w)
     );
+  }
+
+  /* The second mechanism (see the block comment): a real border for the sides, and for each
+   * diagonal a cut × cut gradient square that is transparent up to its centre line, where the clip
+   * falls, then the line for --bw-chamfer-w. Background colour utilities leave the gradients be. */
+  .bw-chamfer-box {
+    border: 1px solid var(--bw-chamfer-focus-line, var(--bw-chamfer-line));
+    background-image:
+      linear-gradient(
+        to bottom right,
+        transparent 50%,
+        var(--bw-chamfer-focus-line, var(--bw-chamfer-line)) 50%,
+        var(--bw-chamfer-focus-line, var(--bw-chamfer-line)) calc(50% + var(--bw-chamfer-w)),
+        transparent calc(50% + var(--bw-chamfer-w))
+      ),
+      linear-gradient(
+        to top left,
+        transparent 50%,
+        var(--bw-chamfer-focus-line, var(--bw-chamfer-line)) 50%,
+        var(--bw-chamfer-focus-line, var(--bw-chamfer-line)) calc(50% + var(--bw-chamfer-w)),
+        transparent calc(50% + var(--bw-chamfer-w))
+      );
+    background-position:
+      left top,
+      right bottom;
+    background-size:
+      var(--bw-cut-tl) var(--bw-cut-tl),
+      var(--bw-cut-br) var(--bw-cut-br);
+    background-repeat: no-repeat;
+    background-origin: border-box;
+    clip-path: polygon(
+      var(--bw-cut-tl) 0,
+      100% 0,
+      100% calc(100% - var(--bw-cut-br)),
+      calc(100% - var(--bw-cut-br)) 100%,
+      0 100%,
+      0 var(--bw-cut-tl)
+    );
+  }
+
+  /* Fields: the line turns cyan and an inset ring makes the sides 2px without moving the text. */
+  .bw-chamfer-box:focus {
+    --bw-chamfer-focus-line: var(--cyan);
+    --bw-chamfer-w: 2px;
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--cyan);
   }
 
   /* An outer-only glow tracing the chamfer of its .bw-chamfer sibling. The ::before is the opaque
@@ -1450,13 +1589,13 @@
       calc(100% + 40px) calc(100% + 40px),
       -40px calc(100% + 40px),
       -40px -40px,
-      var(--bw-cut) 0,
+      var(--bw-cut-tl) 0,
       100% 0,
-      100% calc(100% - var(--bw-cut)),
-      calc(100% - var(--bw-cut)) 100%,
+      100% calc(100% - var(--bw-cut-br)),
+      calc(100% - var(--bw-cut-br)) 100%,
       0 100%,
-      0 var(--bw-cut),
-      var(--bw-cut) 0
+      0 var(--bw-cut-tl),
+      var(--bw-cut-tl) 0
     );
   }
 
@@ -1466,17 +1605,22 @@
     inset: 0;
     background: #000;
     clip-path: polygon(
-      var(--bw-cut) 0,
+      var(--bw-cut-tl) 0,
       100% 0,
-      100% calc(100% - var(--bw-cut)),
-      calc(100% - var(--bw-cut)) 100%,
+      100% calc(100% - var(--bw-cut-br)),
+      calc(100% - var(--bw-cut-br)) 100%,
       0 100%,
-      0 var(--bw-cut)
+      0 var(--bw-cut-tl)
     );
   }
 
   .bw-chamfer-halo-needs {
     --bw-halo: var(--drop-glow-status-needs);
+  }
+
+  /* The card-sized needs glow (TaskCard). */
+  .bw-chamfer-halo-glow-needs {
+    --bw-halo: var(--drop-glow-needs);
   }
 
   /* Four L-shaped corner brackets, 10px arms, 1px thick; cyan while anything inside has focus. */

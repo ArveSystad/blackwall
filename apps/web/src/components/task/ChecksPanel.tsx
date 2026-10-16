@@ -9,40 +9,48 @@ import { ErrorText } from "../ui/field";
 function CheckRow({ check }: { check: CheckRun }) {
   const passed = checkPassed(check);
   const [open, setOpen] = useState(!passed && !check.running);
+  // The glow sits on an unclipped wrapper: clip-path drops the card's own shadow.
   return (
-    <div
-      className={cn(
-        "flex flex-col overflow-hidden rounded-md border border-border bg-card",
-        check.running && "border-cyan/50 shadow-glow-cyan",
-      )}
-    >
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        className="flex h-8 min-w-0 cursor-pointer items-center gap-2 bg-transparent px-3 text-left"
-      >
-        <ChevronRightIcon size="sm" className={cn("text-muted-foreground", open && "rotate-90")} />
-        <span className="mono min-w-0 flex-1 truncate text-foreground-strong">{check.command}</span>
-        {check.running ? (
-          <span className="mono text-[11px] text-cyan">running…</span>
-        ) : passed ? (
-          <span className="inline-flex items-center gap-1 text-meta text-done">
-            <CheckIcon size="sm" />
-            Passed
-          </span>
-        ) : (
-          <span className="inline-flex items-center gap-1 text-meta text-failed">
-            <FailedIcon size="sm" />
-            {check.timedOut ? "Timed out" : `Exit ${check.exitCode ?? "?"}`}
-          </span>
+    <div className={cn(check.running && "drop-shadow-glow-cyan")}>
+      <div
+        className={cn(
+          "bw-chamfer flex flex-col overflow-hidden bg-card [--bw-chamfer-line:var(--border)]",
+          check.running && "[--bw-chamfer-line:color-mix(in_oklab,var(--cyan)_50%,transparent)]",
         )}
-      </button>
-      {open && (
-        <pre className="m-0 max-h-96 overflow-auto border-t border-border bg-code px-3 py-2 font-mono text-code whitespace-pre-wrap text-foreground">
-          {check.output.trim() || "(no output)"}
-        </pre>
-      )}
+      >
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+          className="flex h-8 min-w-0 cursor-pointer items-center gap-2 bg-transparent px-3 text-left"
+        >
+          <ChevronRightIcon
+            size="sm"
+            className={cn("text-muted-foreground", open && "rotate-90")}
+          />
+          <span className="mono min-w-0 flex-1 truncate text-foreground-strong">
+            {check.command}
+          </span>
+          {check.running ? (
+            <span className="mono text-[11px] text-cyan">running…</span>
+          ) : passed ? (
+            <span className="inline-flex items-center gap-1 text-meta text-done">
+              <CheckIcon size="sm" />
+              Passed
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-meta text-failed">
+              <FailedIcon size="sm" />
+              {check.timedOut ? "Timed out" : `Exit ${check.exitCode ?? "?"}`}
+            </span>
+          )}
+        </button>
+        {open && (
+          <pre className="m-0 max-h-96 overflow-auto border-t border-border bg-code px-3 py-2 font-mono text-code whitespace-pre-wrap text-foreground">
+            {check.output.trim() || "(no output)"}
+          </pre>
+        )}
+      </div>
     </div>
   );
 }

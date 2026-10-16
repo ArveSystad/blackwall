@@ -135,7 +135,7 @@ function MissingWorktreeNotice({ taskId }: { taskId: string }) {
     <div className="px-5 pt-3">
       <div
         role="status"
-        className="flex items-start gap-3.5 rounded-lg border border-interrupted/40 bg-sidebar px-4 py-3.5"
+        className="bw-chamfer flex items-start gap-3.5 bg-sidebar px-4 py-3.5 [--bw-chamfer-line:color-mix(in_oklab,var(--st-interrupted)_40%,transparent)]"
       >
         <WarnIcon size="lg" className="mt-0.5 text-interrupted" />
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
@@ -319,7 +319,7 @@ function TaskScreen({ task }: { task: Task }) {
               disabled={!isTabEnabled(task, name)}
               className={cn(
                 "relative inline-flex h-9 cursor-pointer items-center gap-1.5 bg-transparent px-2.5 text-[12.5px] font-medium whitespace-nowrap text-muted-foreground hover:text-foreground-strong focus-visible:shadow-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
-                "data-[state=active]:text-foreground-strong data-[state=active]:after:absolute data-[state=active]:after:right-2 data-[state=active]:after:-bottom-px data-[state=active]:after:left-2 data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-[2px] data-[state=active]:after:bg-primary data-[state=active]:after:shadow-glow-tab data-[state=active]:after:content-['']",
+                "data-[state=active]:text-foreground-strong data-[state=active]:after:absolute data-[state=active]:after:right-2 data-[state=active]:after:-bottom-px data-[state=active]:after:left-2 data-[state=active]:after:h-0.5 data-[state=active]:after:bg-primary data-[state=active]:after:shadow-glow-tab data-[state=active]:after:content-['']",
               )}
             >
               {TAB_LABELS[name]}

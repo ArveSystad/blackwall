@@ -9,7 +9,7 @@ export function Select({ className, ...props }: ComponentProps<"select">) {
     <select
       {...control}
       className={cn(
-        "h-[30px] w-full cursor-pointer rounded-md border border-input bg-card px-2 text-body text-foreground-strong focus:border-cyan focus:shadow-ring focus:outline-none disabled:cursor-not-allowed disabled:opacity-45",
+        "bw-chamfer-box h-[30px] w-full cursor-pointer bg-card px-2 text-body text-foreground-strong disabled:cursor-not-allowed disabled:opacity-45",
         className,
       )}
       {...props}

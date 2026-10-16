@@ -184,7 +184,7 @@ function RunnerBar({
       {enabled !== undefined && (
         <label
           className={cn(
-            "inline-flex h-6 cursor-pointer items-center gap-1.5 rounded-sm px-1.5 text-body text-foreground has-focus-visible:shadow-ring",
+            "bw-chamfer bw-chamfer-pill bw-chamfer-has-focus inline-flex h-6 cursor-pointer items-center gap-1.5 px-1.5 text-body text-foreground",
             !globalOn && "opacity-60",
           )}
           title={globalOn ? undefined : "The runner is off for every repo in Settings"}
@@ -402,10 +402,10 @@ function BacklogRow({
         }
       }}
       className={cn(
-        "group flex min-h-10 items-center gap-2.5 rounded-lg border border-transparent py-1.5 pr-2 pl-1.5 hover:bg-card focus-visible:border-cyan focus-visible:shadow-ring focus-visible:outline-none",
+        "group bw-chamfer bw-chamfer-focus flex min-h-10 items-center gap-2.5 py-1.5 pr-2 pl-1.5 [--bw-chamfer-line:transparent] hover:bg-card focus-visible:outline-none",
         onOpen && "cursor-pointer",
         dragging?.id === item.id && "opacity-50",
-        dropTarget && "border-dashed border-border-strong",
+        dropTarget && "[--bw-chamfer-line:var(--border-strong)]",
       )}
     >
       <GripIcon className="cursor-grab text-faint" />
@@ -499,11 +499,11 @@ function TaskRow({
 }) {
   const OriginIcon = ORIGIN_ICONS[task.origin.kind];
   return (
-    <li className="flex items-center gap-1 rounded-lg hover:bg-card">
+    <li className="bw-chamfer flex items-center gap-1 [--bw-chamfer-line:transparent] hover:bg-card">
       <Link
         to="/tasks/$taskId"
         params={{ taskId: task.id }}
-        className="flex min-h-10 min-w-0 flex-1 items-center gap-2.5 rounded-lg border border-transparent py-1.5 pr-2 pl-1.5 text-foreground no-underline hover:no-underline focus-visible:border-cyan focus-visible:shadow-ring focus-visible:outline-none"
+        className="bw-chamfer bw-chamfer-focus flex min-h-10 min-w-0 flex-1 items-center gap-2.5 py-1.5 pr-2 pl-1.5 text-foreground no-underline [--bw-chamfer-line:transparent] hover:no-underline focus-visible:outline-none"
       >
         <OriginIcon size="sm" className="text-muted-foreground" />
         <span className="flex min-w-0 flex-1 flex-col">

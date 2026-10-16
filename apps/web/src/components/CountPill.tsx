@@ -47,15 +47,17 @@ export function CountPill<T extends { errors: { host: string; message: string }[
       aria-label={label}
       title={hostErrors.length > 0 || failed ? errorTitle : undefined}
       className={cn(
-        "pointer-events-auto relative isolate flex h-9 items-center gap-2 rounded-full border bg-popover px-4 whitespace-nowrap no-underline hover:no-underline focus-visible:border-cyan focus-visible:shadow-ring focus-visible:outline-none",
-        needed ? "border-magenta" : "border-border-strong",
-        needed ? "shadow-glow-needs" : "shadow-pop",
+        "bw-chamfer-fill bw-chamfer-focus pointer-events-auto flex h-9 items-center gap-2 px-4 whitespace-nowrap no-underline [--bw-chamfer-bg:var(--bg-4)] hover:no-underline focus-visible:outline-none",
+        needed
+          ? "drop-shadow-glow-needs [--bw-chamfer-line:var(--magenta)]"
+          : "drop-shadow-pop [--bw-chamfer-line:var(--border-strong)]",
         needed ? "text-needs text-shadow-glow-needs" : "text-muted-foreground",
       )}
     >
       {boom !== null && (
         <>
-          <span key={`flash:${boom}`} aria-hidden="true" className="bw-assigned-flash -z-10" />
+          {/* z-[-1] paints after the fill's ::before, so the flash shows over it, under the text. */}
+          <span key={`flash:${boom}`} aria-hidden="true" className="bw-assigned-flash z-[-1]" />
           <span
             key={`boom:${boom}`}
             aria-hidden="true"

@@ -89,10 +89,10 @@ function TagEditor({ saved }: { saved: string[] }) {
             {tags.map((tag, i) => (
               <li
                 key={tag}
-                className="group flex h-9 items-center gap-2 rounded-md px-2 hover:bg-card"
+                className="group bw-chamfer flex h-9 items-center gap-2 px-2 [--bw-chamfer-line:transparent] hover:bg-card"
               >
                 <span className="mono w-6 text-right text-label text-faint">{i + 1}</span>
-                <span className="mono inline-flex h-5 items-center rounded-xs bg-muted px-1.5 text-foreground-strong">
+                <span className="bw-chamfer bw-chamfer-pill mono inline-flex h-5 items-center bg-muted px-1.5 text-foreground-strong">
                   {tag}
                 </span>
                 <span className="flex-1" />

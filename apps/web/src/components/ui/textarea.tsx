@@ -8,7 +8,7 @@ export function Textarea({ className, ...props }: ComponentProps<"textarea">) {
     <textarea
       {...control}
       className={cn(
-        "w-full resize-y rounded-md border border-input bg-card px-2.5 py-1.5 text-body text-foreground-strong focus:border-cyan focus:shadow-ring focus:outline-none",
+        "bw-chamfer-box w-full resize-y bg-card px-2.5 py-1.5 text-body text-foreground-strong",
         className,
       )}
       {...props}

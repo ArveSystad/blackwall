@@ -3,13 +3,13 @@ import type { ComponentProps } from "react";
 import { cn } from "../../lib/utils";
 
 const chipVariants = cva(
-  "inline-flex h-5 items-center rounded-sm border px-1.5 text-[11.5px] font-medium",
+  "bw-chamfer bw-chamfer-pill inline-flex h-5 items-center px-1.5 text-[11.5px] font-medium",
   {
     variants: {
       tone: {
-        neutral: "border-border-strong text-muted-foreground",
-        done: "border-done/40 text-done",
-        cyan: "border-cyan/45 text-cyan",
+        neutral: "text-muted-foreground [--bw-chamfer-line:var(--border-strong)]",
+        done: "text-done [--bw-chamfer-line:color-mix(in_oklab,var(--st-done)_40%,transparent)]",
+        cyan: "text-cyan [--bw-chamfer-line:color-mix(in_oklab,var(--cyan)_45%,transparent)]",
       },
     },
     defaultVariants: { tone: "neutral" },
@@ -30,7 +30,7 @@ export function Tag({ className, ...props }: ComponentProps<"span">) {
   return (
     <span
       className={cn(
-        "mono inline-flex h-[18px] flex-none items-center rounded-xs bg-muted px-[5px] text-label text-muted-foreground",
+        "bw-chamfer bw-chamfer-pill mono inline-flex h-[18px] flex-none items-center bg-muted px-[5px] text-label text-muted-foreground",
         className,
       )}
       {...props}

@@ -6,8 +6,8 @@ export function Kbd({ className, onFill, ...props }: ComponentProps<"kbd"> & { o
   return (
     <kbd
       className={cn(
-        "inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-sm border border-b-2 border-input bg-card px-[5px] font-mono text-[10.5px] leading-4 text-muted-foreground",
-        onFill && "border-kbd-on-fill-border bg-kbd-on-fill text-inherit",
+        "bw-chamfer-box inline-flex h-[18px] min-w-[18px] items-center justify-center border-b-2 bg-card px-[5px] font-mono text-[10.5px] leading-4 text-muted-foreground [--bw-cut:4px]",
+        onFill && "bg-kbd-on-fill text-inherit [--bw-chamfer-line:var(--kbd-on-fill-border)]",
         className,
       )}
       {...props}

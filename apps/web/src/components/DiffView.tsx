@@ -15,7 +15,7 @@ export function DiffView({ lines, className }: { lines: readonly DiffLine[]; cla
   return (
     <div
       className={cn(
-        "overflow-x-auto rounded-md border border-border bg-code font-mono text-code",
+        "bw-chamfer-box overflow-x-auto bg-code font-mono text-code [--bw-chamfer-line:var(--border)]",
         className,
       )}
     >

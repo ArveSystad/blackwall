@@ -404,7 +404,7 @@ export function AgentLibrary() {
                     aria-current={current ? "true" : undefined}
                     onClick={() => setEditing({ kind: "agent", id: agent.id })}
                     className={cn(
-                      "flex w-full cursor-pointer flex-col gap-1 bg-transparent px-2.5 py-[9px] text-left text-foreground focus-visible:shadow-ring focus-visible:outline-none",
+                      "bw-chamfer-focus flex w-full cursor-pointer flex-col gap-1 bg-transparent px-2.5 py-[9px] text-left text-foreground focus-visible:outline-none",
                       rowSelectable,
                       current && rowSelected,
                     )}

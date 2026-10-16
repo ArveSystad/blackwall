@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "../../lib/utils";
 
-/** A checkbox styled as a chip; the border turns primary while checked. */
+/** A checkbox styled as a chip; the frame line turns primary while checked. */
 export function CheckChip({
   checked,
   onCheckedChange,
@@ -18,9 +18,9 @@ export function CheckChip({
   return (
     <label
       className={cn(
-        "inline-flex cursor-pointer items-center gap-1.5 rounded-sm border border-input text-muted-foreground has-focus-visible:shadow-ring",
+        "bw-chamfer bw-chamfer-has-focus inline-flex cursor-pointer items-center gap-1.5 text-muted-foreground [--bw-chamfer-line:var(--border-strong)]",
         size === "sm" ? "h-6 px-2 text-meta" : "h-7 px-2.5 text-[12.5px] font-medium",
-        checked && "border-primary text-foreground-strong",
+        checked && "text-foreground-strong [--bw-chamfer-line:var(--primary)]",
         className,
       )}
     >

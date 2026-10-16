@@ -38,17 +38,24 @@ export function TaskCard({
   const deletable = deleteBlockedReason(task) === null;
   const [deleting, setDeleting] = useState(false);
   return (
-    <div className="group relative">
+    <div className="group relative isolate">
+      {/* The wash is translucent, so the open needs-you card glows from a halo sibling. */}
+      {needsYou && (
+        <span
+          aria-hidden="true"
+          className="bw-chamfer-halo bw-chamfer-halo-glow-needs hidden group-has-[a[data-status=active]]:block"
+        />
+      )}
       <Link
         to="/tasks/$taskId"
         params={{ taskId: task.id }}
         className={cn(
-          "relative flex flex-col gap-[5px] rounded-lg border border-transparent py-[9px] pr-3 pl-3.5 text-foreground no-underline hover:bg-card hover:no-underline",
-          "data-[status=active]:bg-muted data-[status=active]:border-border-strong",
+          "bw-chamfer bw-chamfer-focus flex flex-col gap-[5px] py-[9px] pr-3 pl-3.5 text-foreground no-underline [--bw-chamfer-line:transparent] hover:bg-card hover:no-underline",
+          "data-[status=active]:bg-muted data-[status=active]:[--bw-chamfer-line:var(--border-strong)]",
           needsYou &&
-            "border-magenta/30 bg-needs-wash hover:bg-needs-wash data-[status=active]:border-magenta data-[status=active]:bg-needs-wash data-[status=active]:shadow-glow-needs",
+            "bg-needs-wash [--bw-chamfer-line:color-mix(in_oklab,var(--magenta)_30%,transparent)] hover:bg-needs-wash data-[status=active]:bg-needs-wash data-[status=active]:[--bw-chamfer-line:var(--magenta)]",
           needsYou &&
-            "before:absolute before:top-2.5 before:bottom-2.5 before:left-[5px] before:w-[3px] before:rounded-[2px] before:bg-magenta before:shadow-glow-rail",
+            "before:absolute before:top-2.5 before:bottom-2.5 before:left-[5px] before:w-[3px] before:bg-magenta before:shadow-glow-rail",
         )}
       >
         <span className="flex h-4 items-center gap-1.5">

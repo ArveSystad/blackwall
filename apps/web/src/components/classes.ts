@@ -19,17 +19,17 @@ export const listPane = "flex w-[360px] shrink-0 flex-col border-r border-border
 export const sideList = "m-0 flex min-h-0 flex-1 list-none flex-col gap-0.5 overflow-auto p-1.5";
 
 /** A row in `sideList`; add `rowSelected` for the open one. */
-export const rowSelectable = "rounded-lg border border-transparent hover:bg-card";
+export const rowSelectable = "bw-chamfer [--bw-chamfer-line:transparent] hover:bg-card";
 
 /** The selected row in `sideList`. */
-export const rowSelected = "border-border-strong bg-muted hover:bg-muted";
+export const rowSelected = "bg-muted [--bw-chamfer-line:var(--border-strong)] hover:bg-muted";
 
 /** A settings fieldset's legend. */
 export const sectionLegend = "label mb-1 p-0 text-muted-foreground";
 
 /** A block of code or a suggested fix. */
 export const codeBlock =
-  "m-0 overflow-x-auto rounded-md border border-border bg-code px-3 py-2 font-mono text-code text-foreground";
+  "bw-chamfer-box m-0 overflow-x-auto bg-code px-3 py-2 font-mono text-code text-foreground [--bw-chamfer-line:var(--border)]";
 
 /** A task panel's placeholder or note text. */
 export const panelNote = "m-0 px-5 py-4 text-muted-foreground";

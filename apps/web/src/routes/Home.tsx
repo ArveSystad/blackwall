@@ -39,29 +39,31 @@ function SetupStep({
   children: ReactNode;
   action: ReactNode;
 }) {
+  // The glow sits on the unclipped item: clip-path drops the panel's own shadow.
   return (
-    <li
-      className={cn(
-        "flex items-center gap-3.5 rounded-lg border border-border bg-sidebar px-4 py-3.5",
-        current && "border-cyan shadow-glow-cyan",
-        !done && !current && "opacity-60",
-      )}
-    >
-      <span
+    <li className={cn(current && "drop-shadow-glow-cyan", !done && !current && "opacity-60")}>
+      <div
         className={cn(
-          "mono inline-flex size-6 flex-none items-center justify-center rounded-full border border-border-strong text-label text-muted-foreground",
-          current && "border-cyan text-cyan",
-          done && "border-done text-done",
+          "bw-chamfer flex items-center gap-3.5 bg-sidebar px-4 py-3.5 [--bw-chamfer-line:var(--border)]",
+          current && "[--bw-chamfer-line:var(--cyan)]",
         )}
       >
-        {done ? <CheckIcon size="sm" /> : number}
-        <span className="sr-only">{done ? " (done)" : ""}</span>
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="font-semibold text-foreground-strong">{title}</span>
-        <span className="text-[12.5px] text-muted-foreground">{children}</span>
+        <span
+          className={cn(
+            "mono inline-flex size-6 flex-none items-center justify-center rounded-full border border-border-strong text-label text-muted-foreground",
+            current && "border-cyan text-cyan",
+            done && "border-done text-done",
+          )}
+        >
+          {done ? <CheckIcon size="sm" /> : number}
+          <span className="sr-only">{done ? " (done)" : ""}</span>
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="font-semibold text-foreground-strong">{title}</span>
+          <span className="text-[12.5px] text-muted-foreground">{children}</span>
+        </div>
+        {action}
       </div>
-      {action}
     </li>
   );
 }

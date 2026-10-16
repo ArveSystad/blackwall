@@ -171,78 +171,81 @@ function AgentDot({
           id={cardId}
           role="tooltip"
           style={{ left: cardLeft(x, width, overlayWidth), top: y - DOT_SPACING / 2, width }}
-          className="absolute z-30 flex -translate-y-full flex-col gap-1 rounded-lg bg-popover p-3 text-left shadow-pop"
+          className="absolute z-30 -translate-y-full drop-shadow-pop"
         >
-          <span className="flex min-w-0 items-center gap-2">
-            <span className="min-w-0 truncate font-medium text-foreground-strong">
-              {task.title}
+          {/* The pop sits on the unclipped tooltip: clip-path drops the panel's own shadow. */}
+          <div className="bw-chamfer flex flex-col gap-1 bg-popover p-3 text-left">
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="min-w-0 truncate font-medium text-foreground-strong">
+                {task.title}
+              </span>
+              <span className="mono flex-none text-label text-muted-foreground">
+                {originKey(task)}
+              </span>
             </span>
-            <span className="mono flex-none text-label text-muted-foreground">
-              {originKey(task)}
-            </span>
-          </span>
-          {done ? (
-            <>
-              <span className="label text-done">Done</span>
-              <span className="text-meta text-muted-foreground">{modClick} to archive</span>
-            </>
-          ) : interrupted || failed ? (
-            <>
-              <span className="label">
-                <span className={failed ? "text-failed" : "text-interrupted"}>
-                  {failed ? "Failed" : stopped ? "Stopped" : "Stopped mid-step"}
+            {done ? (
+              <>
+                <span className="label text-done">Done</span>
+                <span className="text-meta text-muted-foreground">{modClick} to archive</span>
+              </>
+            ) : interrupted || failed ? (
+              <>
+                <span className="label">
+                  <span className={failed ? "text-failed" : "text-interrupted"}>
+                    {failed ? "Failed" : stopped ? "Stopped" : "Stopped mid-step"}
+                  </span>
+                  {stage && <span className="text-muted-foreground"> · {stage}</span>}
                 </span>
-                {stage && <span className="text-muted-foreground"> · {stage}</span>}
-              </span>
-              {detail && (
-                <span className="mono truncate text-meta text-muted-foreground">{detail}</span>
-              )}
-              <span className="text-meta text-muted-foreground">
-                {waiting
-                  ? failed
-                    ? "Retrying…"
-                    : "Resuming…"
-                  : `${modClick} to ${failed ? "retry" : "resume"}`}
-              </span>
-            </>
-          ) : subagent ? (
-            <>
-              <span className="label text-cyan">Sub-agent</span>
-              <span className="truncate text-meta text-foreground-strong">
-                {subagent.description ?? subagent.agentType}
-              </span>
-              {agent && <span className="text-meta text-muted-foreground">via {agent.name}</span>}
-              <span className="mono truncate text-meta text-foreground">
-                {activity ?? "Starting…"}
-              </span>
-            </>
-          ) : (
-            stage && (
-              <span className={cn("label", needs ? "text-magenta" : "text-cyan")}>{stage}</span>
-            )
-          )}
-          {dot.state === "running" && !subagent && (
-            <>
-              {agent && (
-                <span className="flex items-center gap-2 text-meta">
-                  {dot.cli && <AgentTile cli={dot.cli} />}
-                  <span className="text-foreground-strong">{agent.name}</span>
+                {detail && (
+                  <span className="mono truncate text-meta text-muted-foreground">{detail}</span>
+                )}
+                <span className="text-meta text-muted-foreground">
+                  {waiting
+                    ? failed
+                      ? "Retrying…"
+                      : "Resuming…"
+                    : `${modClick} to ${failed ? "retry" : "resume"}`}
                 </span>
-              )}
-              <span className="mono truncate text-meta text-foreground">
-                {activity ?? "Starting…"}
-              </span>
-            </>
-          )}
-          {needs && task.gate && (
-            <span className="text-meta text-magenta">{GATE_REASONS[task.gate]}</span>
-          )}
-          {dot.state === "queued" && (
-            <span className="text-meta text-muted-foreground">Queued</span>
-          )}
-          {dot.state === "queued" && waiting && (
-            <span className="text-meta text-muted-foreground">Resuming…</span>
-          )}
+              </>
+            ) : subagent ? (
+              <>
+                <span className="label text-cyan">Sub-agent</span>
+                <span className="truncate text-meta text-foreground-strong">
+                  {subagent.description ?? subagent.agentType}
+                </span>
+                {agent && <span className="text-meta text-muted-foreground">via {agent.name}</span>}
+                <span className="mono truncate text-meta text-foreground">
+                  {activity ?? "Starting…"}
+                </span>
+              </>
+            ) : (
+              stage && (
+                <span className={cn("label", needs ? "text-magenta" : "text-cyan")}>{stage}</span>
+              )
+            )}
+            {dot.state === "running" && !subagent && (
+              <>
+                {agent && (
+                  <span className="flex items-center gap-2 text-meta">
+                    {dot.cli && <AgentTile cli={dot.cli} />}
+                    <span className="text-foreground-strong">{agent.name}</span>
+                  </span>
+                )}
+                <span className="mono truncate text-meta text-foreground">
+                  {activity ?? "Starting…"}
+                </span>
+              </>
+            )}
+            {needs && task.gate && (
+              <span className="text-meta text-magenta">{GATE_REASONS[task.gate]}</span>
+            )}
+            {dot.state === "queued" && (
+              <span className="text-meta text-muted-foreground">Queued</span>
+            )}
+            {dot.state === "queued" && waiting && (
+              <span className="text-meta text-muted-foreground">Resuming…</span>
+            )}
+          </div>
         </div>
       )}
     </>

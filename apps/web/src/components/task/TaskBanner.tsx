@@ -207,8 +207,10 @@ export function TaskBanner({
         <div
           role="status"
           className={cn(
-            "flex flex-wrap items-start gap-3.5 rounded-lg border bg-sidebar px-4 py-3.5",
-            failed ? "border-failed/45" : "border-interrupted/40",
+            "bw-chamfer flex flex-wrap items-start gap-3.5 bg-sidebar px-4 py-3.5",
+            failed
+              ? "[--bw-chamfer-line:color-mix(in_oklab,var(--st-failed)_45%,transparent)]"
+              : "[--bw-chamfer-line:color-mix(in_oklab,var(--st-interrupted)_40%,transparent)]",
           )}
         >
           <Icon size="lg" className={cn("mt-0.5", failed ? "text-failed" : "text-interrupted")} />

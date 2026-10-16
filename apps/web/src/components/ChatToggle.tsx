@@ -13,7 +13,7 @@ export function ChatToggle({ className }: { className?: string }) {
       size="icon"
       // Pressed looks like the top bar's active Stats and Settings buttons.
       className={cn(
-        "aria-pressed:border-border-strong aria-pressed:bg-muted aria-pressed:text-foreground-strong",
+        "aria-pressed:bg-muted aria-pressed:text-foreground-strong aria-pressed:[--bw-chamfer-line:var(--border-strong)]",
         className,
       )}
       aria-label="Chat"

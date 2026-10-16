@@ -182,7 +182,7 @@ function PaletteContent() {
                     onMouseDown={(event) => event.preventDefault()}
                     onMouseMove={() => entry !== active && select(entries.indexOf(entry))}
                     onClick={() => openEntry(entry)}
-                    className="flex cursor-pointer flex-col gap-0.5 rounded-lg border border-transparent px-2 py-1.5 aria-selected:border-cyan aria-selected:bg-muted"
+                    className="bw-chamfer flex cursor-pointer flex-col gap-0.5 px-2 py-1.5 [--bw-chamfer-line:transparent] aria-selected:bg-muted aria-selected:[--bw-chamfer-line:var(--cyan)]"
                   >
                     <ResultRow entry={entry} />
                   </div>

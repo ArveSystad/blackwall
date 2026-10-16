@@ -44,12 +44,12 @@ export function IssueRow({
   assignees?: readonly string[];
 }) {
   return (
-    <li className="flex items-center gap-1 rounded-lg hover:bg-card">
+    <li className="bw-chamfer flex items-center gap-1 [--bw-chamfer-line:transparent] hover:bg-card">
       <a
         href={issue.url}
         target="_blank"
         rel="noreferrer"
-        className="flex min-h-10 min-w-0 flex-1 items-center gap-2.5 rounded-lg border border-transparent py-1.5 pr-2 pl-1.5 text-foreground no-underline hover:no-underline focus-visible:border-cyan focus-visible:shadow-ring focus-visible:outline-none"
+        className="bw-chamfer bw-chamfer-focus flex min-h-10 min-w-0 flex-1 items-center gap-2.5 py-1.5 pr-2 pl-1.5 text-foreground no-underline [--bw-chamfer-line:transparent] hover:no-underline focus-visible:outline-none"
       >
         <IssueIcon size="sm" className="text-muted-foreground" />
         <span className="flex min-w-0 flex-1 flex-col">

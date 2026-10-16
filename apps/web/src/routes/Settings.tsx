@@ -95,7 +95,7 @@ export function Settings({ section }: { section: SettingsSection }) {
           <Button
             key={s.id}
             variant="ghost"
-            className="justify-start text-foreground data-[status=active]:border-border-strong data-[status=active]:bg-muted data-[status=active]:text-foreground-strong"
+            className="justify-start text-foreground data-[status=active]:bg-muted data-[status=active]:[--bw-chamfer-line:var(--border-strong)] data-[status=active]:text-foreground-strong"
             asChild
           >
             <Link to="/settings/$section" params={{ section: s.id }}>

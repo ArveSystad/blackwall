@@ -7,7 +7,10 @@ export interface SegmentedOption<T extends string> {
   label: ReactNode;
 }
 
-/** Segmented control (`.seg`): pick one of a few options. Arrow keys move between them. */
+/**
+ * Segmented control (`.seg`): pick one of a few options. Arrow keys move between them. Outer ends
+ * chamfered: the first segment cuts its top-left corner, the last its bottom-right.
+ */
 export function Segmented<T extends string>({
   value,
   options,
@@ -35,7 +38,7 @@ export function Segmented<T extends string>({
         if (option) onChange(option.value);
       }}
       className={cn(
-        "inline-flex gap-0.5 self-start rounded-md border border-border bg-muted p-0.5",
+        "bw-chamfer inline-flex gap-0.5 self-start bg-muted p-0.5 [--bw-chamfer-line:var(--border)]",
         className,
       )}
     >
@@ -43,7 +46,7 @@ export function Segmented<T extends string>({
         <ToggleGroup.Item
           key={option.value}
           value={option.value}
-          className="inline-flex h-[26px] cursor-pointer items-center gap-1.5 rounded-sm px-2.5 text-meta font-medium text-muted-foreground focus-visible:shadow-ring focus-visible:outline-none data-[state=on]:bg-seg-on data-[state=on]:text-foreground-strong data-[state=on]:ring-1 data-[state=on]:ring-seg-on-ring data-disabled:cursor-default data-disabled:opacity-50"
+          className="bw-chamfer bw-chamfer-seg bw-chamfer-focus inline-flex h-[26px] cursor-pointer items-center gap-1.5 px-2.5 text-meta font-medium text-muted-foreground [--bw-chamfer-line:transparent] [--bw-cut:7px] focus-visible:outline-none data-[state=on]:bg-seg-on data-[state=on]:text-foreground-strong data-[state=on]:[--bw-chamfer-line:var(--seg-on-ring)] data-disabled:cursor-default data-disabled:opacity-50"
         >
           {option.label}
         </ToggleGroup.Item>

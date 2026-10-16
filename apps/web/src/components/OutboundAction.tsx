@@ -33,7 +33,7 @@ export function OutboundAction({
   return (
     <div
       className={cn(
-        "flex flex-col gap-2 rounded-lg border border-border bg-card p-3 has-focus-visible:shadow-ring",
+        "bw-chamfer-box bw-chamfer-has-focus flex flex-col gap-2 bg-card p-3 [--bw-chamfer-line:var(--border)]",
         optional && "border-dashed bg-transparent",
       )}
     >
@@ -70,7 +70,7 @@ export function OutboundAction({
         </span>
       </label>
       {body && (
-        <pre className="m-0 ml-[25px] max-h-48 overflow-auto rounded-md border border-border bg-sidebar px-2.5 py-2 font-sans text-meta whitespace-pre-wrap text-foreground">
+        <pre className="bw-chamfer-box m-0 ml-[25px] max-h-48 overflow-auto bg-sidebar px-2.5 py-2 font-sans text-meta whitespace-pre-wrap text-foreground [--bw-chamfer-line:var(--border)]">
           {body}
         </pre>
       )}
