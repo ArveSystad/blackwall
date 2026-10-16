@@ -25,8 +25,9 @@ import {
   lookupPullRequest,
   updateBacklogItem,
 } from "../api";
+import { dependencyChoices } from "../backlog";
 import { useWithCredential } from "../credentials";
-import { originKey } from "../inbox";
+import { originKey, statusLabel } from "../inbox";
 import { isModKey, isPlainKey, isTypingTarget, modKeyLabel, useWindowKeydown } from "../keyboard";
 import { cn } from "../lib/utils";
 import {
@@ -40,6 +41,7 @@ import {
   roleDefaultsQuery,
   settingsQuery,
   taskQuery,
+  tasksQuery,
 } from "../query";
 import { resolveSelectedRepo, useSelectedRepoId } from "../selected-repo";
 import {
@@ -304,19 +306,19 @@ function AgentsField({
 
 function DependsOnField({
   items,
+  tasks,
   selfId,
   value,
   onChange,
 }: {
   items: readonly BacklogItemView[];
+  tasks: ReadonlyMap<string, Task>;
   selfId: string | undefined;
   value: string[];
   onChange: (value: string[]) => void;
 }) {
-  // Other items still waiting (or paused), plus any already chosen.
-  const choices = items.filter(
-    (i) => i.id !== selfId && (i.status !== "promoted" || value.includes(i.id)),
-  );
+  // Other items still waiting (or paused), items whose task is running now, plus any already chosen.
+  const choices = dependencyChoices(items, tasks, selfId, value);
   return (
     <div className="flex flex-col gap-1.5">
       <span className={fieldLabel} id="backlog-depends-label">
@@ -326,7 +328,7 @@ function DependsOnField({
         {choices.length === 0 && (
           <span className="text-meta text-faint">No other items in this backlog.</span>
         )}
-        {choices.map((choice) => (
+        {choices.map(({ item: choice, task }) => (
           <CheckChip
             key={choice.id}
             size="sm"
@@ -337,11 +339,12 @@ function DependsOnField({
             }
           >
             <span className="truncate">{choice.title}</span>
+            {task && <span className="text-faint">· {statusLabel(task)}</span>}
           </CheckChip>
         ))}
       </div>
       <span className="text-[11.5px] text-muted-foreground">
-        The runner starts this item only once these are done.
+        The runner starts this item only once these are done, including tasks already running.
       </span>
     </div>
   );
@@ -435,6 +438,8 @@ function NewTaskForm({
   const runner = useQuery({ ...backlogRunnerQuery(repoId ?? ""), enabled: !!repoId && !item });
   const settings = useQuery(settingsQuery);
   const backlogItems = backlogList.data ?? [];
+  const tasks = useQuery(tasksQuery);
+  const tasksById = new Map((tasks.data ?? []).map((t) => [t.id, t]));
   // The repo can change after picking dependencies: keep only that repo's items.
   const chosenDeps = item
     ? dependsOn
@@ -848,6 +853,7 @@ function NewTaskForm({
         {repoId ? (
           <DependsOnField
             items={backlogItems}
+            tasks={tasksById}
             selfId={item?.id}
             value={chosenDeps}
             onChange={setDependsOn}

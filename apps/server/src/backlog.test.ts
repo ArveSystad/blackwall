@@ -349,6 +349,24 @@ describe("starting new backlog items", () => {
     expect(ready.status).toBe("promoted");
   });
 
+  it("waits for an item whose task is still running", async () => {
+    const started = await create({ title: "Started" });
+    const task = repositories.tasks.create({
+      title: "Started",
+      origin: { kind: "free-text" },
+      repoId,
+      status: "running",
+    });
+    repositories.backlogItems.markPromoted(started.id, task.id);
+    const after = await create({ title: "After", dependsOn: [started.id], start: true });
+    expect(after).toMatchObject({ status: "waiting", taskId: null });
+    expect(createTask).not.toHaveBeenCalled();
+    expect((await list()).find((i) => i.id === after.id)).toMatchObject({
+      blocked: true,
+      blockedBy: [started.id],
+    });
+  });
+
   it("removes the item and announces nothing when promotion fails", async () => {
     createTask.mockImplementation(() => {
       throw new Error("boom");

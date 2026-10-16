@@ -131,6 +131,29 @@ export function nextBacklogItem(
   return undefined;
 }
 
+const ACTIVE_STATUSES: ReadonlySet<Task["status"]> = new Set(["queued", "running", "needs-you"]);
+
+/**
+ * What "Depends on" offers, in pick order: other items still waiting or
+ * paused, promoted items whose task is under way (unarchived and queued,
+ * running or needing you), and any already `chosen`. Promoted items carry
+ * their task.
+ */
+export function dependencyChoices(
+  items: readonly BacklogItemView[],
+  tasks: ReadonlyMap<string, Task>,
+  selfId: string | undefined,
+  chosen: readonly string[],
+): { item: BacklogItemView; task: Task | undefined }[] {
+  return items.flatMap((item) => {
+    if (item.id === selfId) return [];
+    if (item.status !== "promoted") return [{ item, task: undefined }];
+    const task = item.taskId ? tasks.get(item.taskId) : undefined;
+    const active = !!task && task.archivedAt === null && ACTIVE_STATUSES.has(task.status);
+    return active || chosen.includes(item.id) ? [{ item, task }] : [];
+  });
+}
+
 export type BacklogItemState =
   | { kind: "next" }
   | { kind: "waiting" }

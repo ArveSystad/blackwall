@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   backlogSections,
   countdown,
+  dependencyChoices,
   itemState,
   moveItem,
   nextBacklogItem,
@@ -394,5 +395,72 @@ describe("syncControl", () => {
       kind: "diverged",
       text: "main diverged from origin/main; pull first",
     });
+  });
+});
+
+describe("dependencyChoices", () => {
+  const byId = (tasks: ReturnType<typeof makeTask>[]) => new Map(tasks.map((t) => [t.id, t]));
+
+  it("keeps waiting and paused items, leaving out the item itself", () => {
+    const self = makeBacklogItem();
+    const waiting = makeBacklogItem();
+    const paused = makeBacklogItem({ status: "paused" });
+    expect(dependencyChoices([self, waiting, paused], new Map(), self.id, [])).toEqual([
+      { item: waiting, task: undefined },
+      { item: paused, task: undefined },
+    ]);
+  });
+
+  it("keeps promoted items whose task is under way, with the task, in pick order", () => {
+    const running = makeTask({ status: "running" });
+    const queued = makeTask({ status: "queued" });
+    const needsYou = makeTask({ status: "needs-you" });
+    const toNeedsYou = makeBacklogItem({ status: "promoted", taskId: needsYou.id });
+    const waiting = makeBacklogItem();
+    const toRunning = makeBacklogItem({ status: "promoted", taskId: running.id });
+    const toQueued = makeBacklogItem({ status: "promoted", taskId: queued.id });
+    expect(
+      dependencyChoices(
+        [toNeedsYou, waiting, toRunning, toQueued],
+        byId([running, queued, needsYou]),
+        undefined,
+        [],
+      ),
+    ).toEqual([
+      { item: toNeedsYou, task: needsYou },
+      { item: waiting, task: undefined },
+      { item: toRunning, task: running },
+      { item: toQueued, task: queued },
+    ]);
+  });
+
+  it("drops promoted items whose task is finished, archived or gone, unless chosen", () => {
+    const done = makeTask({ status: "done" });
+    const failed = makeTask({ status: "failed" });
+    const interrupted = makeTask({ status: "interrupted" });
+    const archived = makeTask({ status: "running", archivedAt: new Date(1) });
+    const tasks = byId([done, failed, interrupted, archived]);
+    const items = [
+      makeBacklogItem({ status: "promoted", taskId: done.id }),
+      makeBacklogItem({ status: "promoted", taskId: failed.id }),
+      makeBacklogItem({ status: "promoted", taskId: interrupted.id }),
+      makeBacklogItem({ status: "promoted", taskId: archived.id }),
+      makeBacklogItem({ status: "promoted", taskId: "gone" }),
+      makeBacklogItem({ status: "promoted", taskId: null }),
+    ];
+    expect(dependencyChoices(items, tasks, undefined, [])).toEqual([]);
+    const chosen = [items[0]!, items[4]!, items[5]!];
+    expect(
+      dependencyChoices(
+        items,
+        tasks,
+        undefined,
+        chosen.map((i) => i.id),
+      ),
+    ).toEqual([
+      { item: items[0], task: done },
+      { item: items[4], task: undefined },
+      { item: items[5], task: undefined },
+    ]);
   });
 });
