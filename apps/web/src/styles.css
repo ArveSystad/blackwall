@@ -28,6 +28,8 @@
   --fg-faint: #6f6a90; /* disabled, non-essential */
   --primary: #a77bff; /* primary action, selection */
   --primary-fg: #0a0918;
+  /* Checkbox check mark; a data URI can't read variables, so its stroke must track --primary-fg. */
+  --bw-glyph-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 11 11'%3E%3Cpath d='M1.5 5.5l2.75 2.75L9.5 3' fill='none' stroke='%230a0918' stroke-width='2'/%3E%3C/svg%3E");
   --cyan: #2ee6ff; /* machine is working, focus */
   --magenta: #ff3dcf; /* human is needed */
   --needs-fg: #1a0614; /* text on magenta */
@@ -112,6 +114,8 @@
   --fg-faint: #9a9aa8;
   --primary: #5a45e0;
   --primary-fg: #ffffff;
+  /* Tracks --primary-fg (see dark). */
+  --bw-glyph-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 11 11'%3E%3Cpath d='M1.5 5.5l2.75 2.75L9.5 3' fill='none' stroke='%23ffffff' stroke-width='2'/%3E%3C/svg%3E");
   --cyan: #1d6fe0;
   --magenta: #c4167c;
   --needs-fg: #ffffff;
@@ -1401,22 +1405,27 @@
    * (and the -within variants) on its own variable, which the per-element line tones never set.
    * Primary and needs button focus is a 2px line in the button's own foreground colour
    * (currentColor), at 5:1 or better on the fill in both themes.
+   * Checkboxes and radios are 3px-cut .bw-chamfer-box controls, with their glyph in the mark layer.
    */
   .bw-chamfer,
   .bw-chamfer-fill,
   .bw-chamfer-halo,
-  .bw-chamfer-box {
+  .bw-chamfer-box,
+  input:is([type="checkbox"], [type="radio"]) {
     --bw-cut: 8px;
     --bw-cut-tl: var(--bw-cut);
     --bw-cut-br: var(--bw-cut);
     --bw-chamfer-line: var(--border-strong);
     --bw-chamfer-w: 1px;
+    --bw-chamfer-mark: none;
+    --bw-chamfer-mark-size: auto;
   }
 
   /* Focus never leaks into a nested chamfer. */
   .bw-chamfer,
   .bw-chamfer-fill,
-  .bw-chamfer-box {
+  .bw-chamfer-box,
+  input:is([type="checkbox"], [type="radio"]) {
     --bw-chamfer-focus-line: initial;
   }
 
@@ -1529,10 +1538,13 @@
 
   /* The second mechanism (see the block comment): a real border for the sides, and for each
    * diagonal a cut × cut gradient square that is transparent up to its centre line, where the clip
-   * falls, then the line for --bw-chamfer-w. Background colour utilities leave the gradients be. */
-  .bw-chamfer-box {
+   * falls, then the line for --bw-chamfer-w. Background colour utilities leave the gradients be.
+   * The first layer, --bw-chamfer-mark, is a centred glyph (none by default) for the controls. */
+  .bw-chamfer-box,
+  input:is([type="checkbox"], [type="radio"]) {
     border: 1px solid var(--bw-chamfer-focus-line, var(--bw-chamfer-line));
     background-image:
+      var(--bw-chamfer-mark),
       linear-gradient(
         to bottom right,
         transparent 50%,
@@ -1548,9 +1560,11 @@
         transparent calc(50% + var(--bw-chamfer-w))
       );
     background-position:
+      center,
       left top,
       right bottom;
     background-size:
+      var(--bw-chamfer-mark-size),
       var(--bw-cut-tl) var(--bw-cut-tl),
       var(--bw-cut-br) var(--bw-cut-br);
     background-repeat: no-repeat;
@@ -1571,6 +1585,65 @@
     --bw-chamfer-w: 2px;
     outline: none;
     box-shadow: inset 0 0 0 1px var(--cyan);
+  }
+
+  /* Checkboxes and radios: a 15px square .bw-chamfer-box control with a 3px cut. Checked and
+   * indeterminate fill with --primary and draw a --primary-fg glyph in the mark layer; the odd
+   * mark sizes keep it on whole pixels. Indeterminate is checkbox-only, since :indeterminate also
+   * matches radios in a group with nothing selected. */
+  input:is([type="checkbox"], [type="radio"]) {
+    --bw-cut: 3px;
+    appearance: none;
+    flex: none;
+    width: 15px;
+    height: 15px;
+    margin: 0;
+    cursor: pointer;
+    background-color: var(--bg-2);
+  }
+
+  input:is([type="checkbox"], [type="radio"]):hover:not(:disabled, :checked) {
+    --bw-chamfer-line: var(--fg-muted);
+  }
+
+  input:is([type="checkbox"], [type="radio"]):checked,
+  input[type="checkbox"]:indeterminate {
+    --bw-chamfer-line: var(--primary);
+    background-color: var(--primary);
+  }
+
+  input[type="checkbox"]:checked {
+    --bw-chamfer-mark: var(--bw-glyph-check);
+    --bw-chamfer-mark-size: 11px 11px;
+  }
+
+  input[type="checkbox"]:indeterminate {
+    --bw-chamfer-mark: linear-gradient(var(--primary-fg), var(--primary-fg));
+    --bw-chamfer-mark-size: 7px 3px;
+  }
+
+  input[type="radio"]:checked {
+    --bw-chamfer-mark: linear-gradient(var(--primary-fg), var(--primary-fg));
+    --bw-chamfer-mark-size: 5px 5px;
+  }
+
+  input:is([type="checkbox"], [type="radio"]):disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  /* Keyboard focus only: the same 2px cyan frame fields get. */
+  input:is([type="checkbox"], [type="radio"]):focus-visible {
+    --bw-chamfer-focus-line: var(--cyan);
+    --bw-chamfer-w: 2px;
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--cyan);
+  }
+
+  @media (forced-colors: active) {
+    input:is([type="checkbox"], [type="radio"]) {
+      appearance: auto;
+    }
   }
 
   /* An outer-only glow tracing the chamfer of its .bw-chamfer sibling. The ::before is the opaque
@@ -1713,14 +1786,6 @@
 
   ::placeholder {
     color: var(--fg-faint);
-  }
-
-  input[type="checkbox"],
-  input[type="radio"] {
-    accent-color: var(--primary);
-    width: 15px;
-    height: 15px;
-    margin: 0;
   }
 
   @media (prefers-reduced-motion: reduce) {

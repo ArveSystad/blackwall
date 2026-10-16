@@ -42,4 +42,12 @@ describe("corners", () => {
     expect(tokens.length).toBeGreaterThan(0);
     expect(tokens.filter((token) => !token.endsWith(": 0"))).toEqual([]);
   });
+
+  it("draws checkboxes and radios as chamfered controls", () => {
+    expect(styles).toMatch(
+      /input:is\(\[type="checkbox"\], \[type="radio"\]\) \{[^}]*appearance: none;/,
+    );
+    expect(styles).not.toContain("accent-color");
+    expect(styles.match(/--bw-glyph-check:/g)).toHaveLength(2);
+  });
 });
