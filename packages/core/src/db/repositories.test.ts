@@ -88,6 +88,16 @@ describe("connections and repos", () => {
     expect(r.repos.get(repo.id)?.watchCi).toBe(false);
   });
 
+  it("starts repos without reference repos and round-trips the list", () => {
+    const repo = r.repos.create({ path: "/code/app", name: "app" });
+    const lib = r.repos.create({ path: "/code/lib", name: "lib" });
+    expect(repo.referenceRepoIds).toEqual([]);
+    expect(r.repos.update(repo.id, { referenceRepoIds: [lib.id] }).referenceRepoIds).toEqual([
+      lib.id,
+    ]);
+    expect(r.repos.get(repo.id)?.referenceRepoIds).toEqual([lib.id]);
+  });
+
   it("appends new repos to the manual order and lists favourites first", () => {
     const c = r.repos.create({ path: "/code/c", name: "c" });
     const a = r.repos.create({ path: "/code/a", name: "a" });

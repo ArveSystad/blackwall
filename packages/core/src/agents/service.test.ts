@@ -518,6 +518,22 @@ describe("invocation", () => {
     expect(onClaude.permissions.allow).not.toContain("shell(npm test)");
   });
 
+  it("lets read-only stages read the reference repos, but never implementers", () => {
+    const refs = [{ name: "lib", path: "/code/lib" }];
+    const review = service.invocation(
+      byName("Security reviewer").id,
+      "code-review",
+      "claude",
+      refs,
+    );
+    expect(review.permissions.readDirs).toEqual(["/code/lib"]);
+    expect(review.systemPrompt).toContain("- lib: /code/lib");
+
+    const implement = service.invocation(byName("Implementer").id, "implement", "claude", refs);
+    expect(implement.permissions.readDirs).toEqual([]);
+    expect(implement.systemPrompt).not.toContain("## Reference repos");
+  });
+
   it("refuses a stage the agent is not eligible for", () => {
     expect(() => service.invocation(byName("Security reviewer").id, "implement", "claude")).toThrow(
       InvalidAgentError,

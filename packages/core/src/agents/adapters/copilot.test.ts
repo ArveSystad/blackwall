@@ -322,6 +322,19 @@ describe("copilotArgs", () => {
     ).not.toContain("--plugin-dir");
   });
 
+  it("adds reference repo dirs among the permission flags, keeping the rest in order", () => {
+    const base = { cwd: "x", sessionId: "s-1", resume: false };
+    const args = copilotArgs({
+      ...base,
+      permissions: permissionsFor("copilot", "read-only", {}, ["/refs/a"]),
+    });
+    const at = args.indexOf("--add-dir");
+    expect(args.slice(at - 1, at + 2)).toEqual(["--disallow-temp-dir", "--add-dir", "/refs/a"]);
+    expect(args.filter((_, i) => i < at || i >= at + 2)).toEqual(
+      copilotArgs({ ...base, permissions: readOnly }),
+    );
+  });
+
   it("resumes an existing session", () => {
     const args = copilotArgs({ cwd: "x", permissions: readOnly, sessionId: "s-1", resume: true });
     expect(args).toEqual(expect.arrayContaining(["--resume", "s-1"]));

@@ -526,6 +526,25 @@ describe("pipeline engine", () => {
     await h.engine.shutdown();
   });
 
+  it("lets the planner read the repo's reference repos, but not the implementer", async () => {
+    const seeded = seedTask();
+    const lib = r.repos.create({ path: tmpdir(), name: "lib" });
+    r.repos.update(seeded.repoId, { referenceRepoIds: [lib.id] });
+    const h = harness();
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    const inform = h.calls.find((c) => c.stage === "inform")!;
+    expect(inform.options.permissions.readDirs).toEqual([tmpdir()]);
+    expect(inform.options.systemPrompt).toContain(`- lib: ${tmpdir()}`);
+
+    await h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" });
+    await vi.waitFor(() => expect(h.calls.some((c) => c.stage === "implement")).toBe(true));
+    const implement = h.calls.find((c) => c.stage === "implement")!;
+    expect(implement.options.permissions.readDirs).toEqual([]);
+    expect(implement.options.systemPrompt).not.toContain("## Reference repos");
+    await h.engine.shutdown();
+  });
+
   it("hands questions the planner cannot answer to the user", async () => {
     const seeded = seedTask();
     let grills = 0;

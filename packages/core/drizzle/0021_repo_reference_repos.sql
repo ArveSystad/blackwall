@@ -1,0 +1,1 @@
+ALTER TABLE `repos` ADD `reference_repo_ids` text DEFAULT '[]' NOT NULL;

@@ -242,6 +242,22 @@ describe("claudeArgs", () => {
     expect(claudeArgs({ permissions: readOnly })).not.toContain("--agents");
   });
 
+  it("adds reference repo dirs before --tools, keeping the rest in order", () => {
+    const args = claudeArgs({
+      permissions: permissionsFor("claude", "read-only", {}, ["/refs/a", "/refs/b"]),
+    });
+    const plain = claudeArgs({ permissions: readOnly });
+    const at = args.indexOf("--add-dir");
+    expect(args.slice(at, at + 5)).toEqual([
+      "--add-dir",
+      "/refs/a",
+      "--add-dir",
+      "/refs/b",
+      "--tools",
+    ]);
+    expect(args.filter((_, i) => i < at || i >= at + 4)).toEqual(plain);
+  });
+
   it("refuses permissions built for another CLI", () => {
     expect(() => claudeArgs({ permissions: permissionsFor("copilot", "read-only") })).toThrow(
       /copilot/,

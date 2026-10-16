@@ -16,6 +16,11 @@ export interface AgentPermissions {
   profile: PermissionProfile;
   allow: string[];
   deny: string[];
+  /**
+   * Folders outside the working directory the agent may read: the repo's
+   * reference repos. Always empty for implementers.
+   */
+  readDirs: string[];
 }
 
 /** Git commands a read-only agent may run: they only read history and the working tree. */
@@ -102,14 +107,12 @@ const opencodeAllow = (command: string) => [`bash(${command})`, `bash(${command}
 /** A deny stays broad so it fails closed: `git push*` also catches `git pushx`. */
 const opencodeDeny = (command: string) => `bash(${command}*)`;
 
-/** OpenCode tools no profile allows: web access, skills, other dirs. */
-const OPENCODE_DENIED = [
-  "webfetch",
-  "websearch",
-  "codesearch",
-  "skill",
-  "external_directory",
-] as const;
+/**
+ * OpenCode tools no profile allows: web access and skills. Other dirs
+ * (`external_directory`) are denied by `opencodeConfig` unless the permissions
+ * list `readDirs`.
+ */
+const OPENCODE_DENIED = ["webfetch", "websearch", "codesearch", "skill"] as const;
 
 /**
  * OpenCode's built-in sub-agents, all denied: they run on the parent's model,
@@ -191,12 +194,15 @@ function unique(rules: readonly string[]): string[] {
  * Permissions for an agent working under a profile: the profile's rules for the
  * agent's CLI plus the agent's own overrides. Overrides can widen what a profile
  * allows (e.g. a test command for a reviewer) but never lift a profile's deny,
- * and a read-only Claude agent never gets the edit tools at all.
+ * and a read-only Claude agent never gets the edit tools at all. `readDirs`
+ * (the reference repos) are kept only for the read-only profile, so only the
+ * harness ever writes outside the worktree.
  */
 export function permissionsFor(
   cli: AgentCli,
   profile: PermissionProfile,
   overrides: PermissionOverrides = {},
+  readDirs: readonly string[] = [],
 ): AgentPermissions {
   const rules = PROFILE_RULES[cli][profile];
   return {
@@ -204,16 +210,19 @@ export function permissionsFor(
     profile,
     allow: unique([...rules.allow, ...(overrides.allow ?? [])]),
     deny: unique([...rules.deny, ...(overrides.deny ?? [])]),
+    readDirs: profile === "read-only" ? unique(readDirs) : [],
   };
 }
 
 /**
  * Command-line flags enforcing the permissions. All three CLIs run headless, so
  * any tool call not allowed is refused rather than prompted for, and all confine
- * file access to the working directory (the task's worktree).
+ * file access to the working directory (the task's worktree) plus `readDirs`,
+ * which only read-only agents get (`--add-dir`).
  */
 export function permissionArgs(permissions: AgentPermissions): string[] {
-  const { cli, profile, allow, deny } = permissions;
+  const { cli, profile, allow, deny, readDirs } = permissions;
+  const addDirs = readDirs.flatMap((dir) => ["--add-dir", dir]);
   // OpenCode has no permission flags; its rules go in through config (`opencodeConfig`).
   if (cli === "opencode") return [];
   if (cli === "claude") {
@@ -224,6 +233,8 @@ export function permissionArgs(permissions: AgentPermissions): string[] {
       "--strict-mcp-config",
       "--permission-mode",
       "dontAsk",
+      // Before --tools, so the variadic --add-dir always ends at a flag.
+      ...addDirs,
       "--tools",
       CLAUDE_TOOLS[profile].join(","),
       "--allowedTools",
@@ -237,6 +248,7 @@ export function permissionArgs(permissions: AgentPermissions): string[] {
     // The built-in GitHub MCP server can open PRs and post comments.
     "--disable-builtin-mcps",
     "--disallow-temp-dir",
+    ...addDirs,
     ...COPILOT_EXCLUDED_TOOLS[profile].map((tool) => `--excluded-tools=${tool}`),
     ...allow.map((rule) => `--allow-tool=${rule}`),
     ...deny.map((rule) => `--deny-tool=${rule}`),
@@ -247,7 +259,8 @@ type OpencodeAction = "allow" | "deny";
 
 /**
  * OpenCode's permission config: a top-level action per tool, and a pattern map
- * for `bash` (commands) and `task` (sub-agent names).
+ * for `bash` (commands), `task` (sub-agent names) and `external_directory`
+ * (folders outside the working directory).
  */
 export type OpencodePermission = Record<string, OpencodeAction | Record<string, OpencodeAction>>;
 
@@ -308,16 +321,37 @@ function patternMap(
 }
 
 /**
+ * OpenCode's `external_directory` rule: denied, unless `readDirs` lists folders
+ * and no deny names the tool; then only those folders (and everything under
+ * them) are allowed. OpenCode's `*` matches across `/`, and it compares
+ * forward-slash paths.
+ */
+function externalDirectory(
+  readDirs: readonly string[],
+  denied: readonly OpencodeRule[],
+): OpencodeAction | Record<string, OpencodeAction> {
+  if (readDirs.length === 0 || denied.some((r) => r.tool === "external_directory")) return "deny";
+  const map: Record<string, OpencodeAction> = { "*": "deny" };
+  for (const dir of readDirs) {
+    const path = dir.replace(/\\/g, "/").replace(/\/+$/, "");
+    map[path] = "allow";
+    map[`${path}/*`] = "allow";
+  }
+  return map;
+}
+
+/**
  * OpenCode config enforcing the permissions. Everything starts denied (a
  * headless run never asks); a tool key is allowed only if an allow names it and
  * no deny does. `bash` and `task` get pattern maps (see {@link patternMap}),
- * but a bare `task` deny stays a plain deny. The run pins the injected
+ * but a bare `task` deny stays a plain deny. `external_directory` comes from
+ * `readDirs` alone (see {@link externalDirectory}). The run pins the injected
  * `blackwall` agent, so the built-in agents' permissions never apply. When the
  * `task` map allows the worker, the config defines it, on `subagentModel` if
  * given and otherwise on the parent's model.
  */
 export function opencodeConfig(
-  { cli, allow, deny }: AgentPermissions,
+  { cli, allow, deny, readDirs }: AgentPermissions,
   { subagentModel }: { subagentModel?: string | undefined } = {},
 ): OpencodeConfig {
   if (cli !== "opencode") throw new Error(`Permissions for ${cli} are not OpenCode rules`);
@@ -326,6 +360,7 @@ export function opencodeConfig(
   const permission: OpencodePermission = { "*": "deny" };
   for (const tool of OPENCODE_TOOLS) {
     if ((OPENCODE_PATTERN_TOOLS as readonly string[]).includes(tool)) continue;
+    if (tool === "external_directory") continue;
     const allows = allowed.some((r) => r.tool === tool && r.pattern === null);
     const denies = denied.some((r) => r.tool === tool);
     if (allows || denies) permission[tool] = allows && !denies ? "allow" : "deny";
@@ -335,6 +370,7 @@ export function opencodeConfig(
     : patternMap("task", allowed, denied);
   permission.task = task;
   permission.bash = patternMap("bash", allowed, denied);
+  permission.external_directory = externalDirectory(readDirs, denied);
   const agent: OpencodeConfig["agent"] = { blackwall: { mode: "primary", permission } };
   if (task !== "deny" && (task[SUBAGENT_NAME] ?? task["*"]) === "allow") {
     agent[SUBAGENT_NAME] = opencodeSubagent(permission, subagentModel);

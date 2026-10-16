@@ -20,7 +20,7 @@ import {
 } from "@blackwall/shared";
 import type { Repositories } from "../db/repositories.js";
 import { permissionsFor, type AgentPermissions } from "./permissions.js";
-import { buildSystemPrompt } from "./prompts.js";
+import { buildSystemPrompt, type ReferenceRepoPrompt } from "./prompts.js";
 import { CLI_TWIN_SUFFIX, LEGACY_SEED_PROMPTS, SEED_AGENTS, SEED_ROLE_DEFAULTS } from "./seeds.js";
 
 /** Rejected agent or role-default input. Safe to show the user. */
@@ -443,9 +443,15 @@ export function createAgentService({
      * What an agent gets for a stage on a CLI: its system prompt (code
      * reviewers also get the current tags and the findings contract), its
      * model on that CLI, and the permissions of the stage's profile plus the
-     * agent's overrides for that CLI.
+     * agent's overrides for that CLI. Read-only stages may also read the
+     * repo's reference repos; implementers never get them.
      */
-    invocation(agentId: string, stage: Stage, cli: AgentCli): AgentInvocation {
+    invocation(
+      agentId: string,
+      stage: Stage,
+      cli: AgentCli,
+      referenceRepos: readonly ReferenceRepoPrompt[] = [],
+    ): AgentInvocation {
       const agent = existing(agentId);
       assertEligible(agent, stage);
       const profile = stagePermissionProfile(stage);
@@ -454,8 +460,20 @@ export function createAgentService({
         stage,
         cli,
         model: agent.models[cli] ?? null,
-        systemPrompt: buildSystemPrompt({ agent, stage, profile, cli, tags: tags.names() }),
-        permissions: permissionsFor(cli, profile, agent.permissionOverrides[cli]),
+        systemPrompt: buildSystemPrompt({
+          agent,
+          stage,
+          profile,
+          cli,
+          tags: tags.names(),
+          referenceRepos,
+        }),
+        permissions: permissionsFor(
+          cli,
+          profile,
+          agent.permissionOverrides[cli],
+          referenceRepos.map((ref) => ref.path),
+        ),
       };
     },
 

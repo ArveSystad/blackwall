@@ -30,6 +30,7 @@ import { GripIcon, PlusIcon, RepoIcon, StarIcon, WarnIcon } from "../icons";
 import { ORIGINS } from "../origins";
 import { Segmented } from "../Segmented";
 import { Button } from "../ui/button";
+import { CheckChip } from "../ui/check-chip";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "../ui/dialog";
 import { ErrorText, Field, fieldLabel } from "../ui/field";
 import { Input } from "../ui/input";
@@ -156,6 +157,7 @@ function RepoEditor({
   const queryClient = useQueryClient();
   const connections = useQuery(connectionsQuery);
   const settings = useQuery(settingsQuery);
+  const repos = useQuery(reposQuery);
   const [name, setName] = useState(repo.name);
   const [checks, setChecks] = useState(repo.checkCommands.join("\n"));
   const [defaultCli, setDefaultCli] = useState(repo.defaultCli);
@@ -165,6 +167,7 @@ function RepoEditor({
     repo.maxBacklogTasks === null ? "" : String(repo.maxBacklogTasks),
   );
   const [watchCi, setWatchCi] = useState(repo.watchCi);
+  const [referenceRepoIds, setReferenceRepoIds] = useState(repo.referenceRepoIds);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -182,7 +185,9 @@ function RepoEditor({
     defaultBranch.trim() !== repo.defaultBranch ||
     backlogCapInvalid ||
     backlogCapValue !== repo.maxBacklogTasks ||
-    watchCi !== repo.watchCi;
+    watchCi !== repo.watchCi ||
+    !sameList([...referenceRepoIds].sort(), [...repo.referenceRepoIds].sort());
+  const otherRepos = repos.data?.filter((other) => other.id !== repo.id) ?? [];
   const connection = connections.data?.find((c) => c.id === repo.connectionId);
   const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeys.repos });
 
@@ -217,6 +222,7 @@ function RepoEditor({
         defaultBranch: defaultBranch.trim(),
         maxBacklogTasks: backlogCapValue,
         watchCi,
+        referenceRepoIds,
       });
       await invalidate();
       // The Backlog header's ahead/behind is cached per repo and follows the branch.
@@ -403,6 +409,39 @@ function RepoEditor({
           </span>
         </label>
 
+        <div className="flex flex-col gap-1.5">
+          <span className={fieldLabel} id="repo-reference-repos-label">
+            Reference repos <span className="font-normal text-faint">optional</span>
+          </span>
+          <div
+            role="group"
+            aria-labelledby="repo-reference-repos-label"
+            className="flex flex-wrap gap-1"
+          >
+            {otherRepos.length === 0 && (
+              <span className="text-meta text-faint">No other repos registered.</span>
+            )}
+            {otherRepos.map((other) => (
+              <CheckChip
+                key={other.id}
+                size="sm"
+                className="max-w-72"
+                checked={referenceRepoIds.includes(other.id)}
+                onCheckedChange={(checked) =>
+                  setReferenceRepoIds((ids) =>
+                    checked ? [...ids, other.id] : ids.filter((id) => id !== other.id),
+                  )
+                }
+              >
+                <span className="truncate">{other.name}</span>
+              </CheckChip>
+            ))}
+          </div>
+          <span className="text-[11.5px] text-muted-foreground">
+            Read by planners, reviewers and chat, never written. Implementers stay in the worktree.
+          </span>
+        </div>
+
         <label className="flex flex-col gap-1.5">
           <span className="flex items-center gap-2">
             <span className={fieldLabel}>Check commands</span>
@@ -443,6 +482,7 @@ function RepoEditor({
           setDefaultBranch(repo.defaultBranch);
           setBacklogCap(repo.maxBacklogTasks === null ? "" : String(repo.maxBacklogTasks));
           setWatchCi(repo.watchCi);
+          setReferenceRepoIds(repo.referenceRepoIds);
           setError(null);
           setNotice(null);
         }}

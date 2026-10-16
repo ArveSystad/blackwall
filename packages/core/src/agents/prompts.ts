@@ -30,6 +30,28 @@ export function workspaceRules(profile: PermissionProfile): string {
   return WORKSPACE_RULES[profile];
 }
 
+/** Another registered repo an agent may read: its name and the absolute path of its folder. */
+export interface ReferenceRepoPrompt {
+  name: string;
+  path: string;
+}
+
+/**
+ * Where the reference repos are and how to use them; empty without any. Only
+ * read-only agents and the chat get them.
+ */
+export function referenceReposSection(referenceRepos: readonly ReferenceRepoPrompt[]): string {
+  if (referenceRepos.length === 0) return "";
+  return [
+    "## Reference repos",
+    "",
+    ...referenceRepos.map(({ name, path }) => `- ${name}: ${path}`),
+    "",
+    "You may read and search these folders. They are read-only, and git commands do not work on them.",
+    "Cite their files as `<name>/<path>`.",
+  ].join("\n");
+}
+
 /** The sections every plan has, in order, as `## <section>` headings. */
 export const PLAN_SECTIONS = ["Goal", "Approach", "Changes", "Risks", "Verification"] as const;
 
@@ -144,6 +166,8 @@ export interface SystemPromptContext {
   cli: AgentCli;
   /** Current finding tags, in display order. */
   tags: readonly string[];
+  /** Other repos the agent may read; used only for the read-only profile. */
+  referenceRepos?: readonly ReferenceRepoPrompt[];
 }
 
 /** The output contracts a stage's agents follow. */
@@ -181,7 +205,8 @@ export function subagentGuide(cli: AgentCli): string {
  * The system prompt of the repo chat: the role, the read-only workspace rules
  * and the actions contract. The agent proposes actions; the user applies them.
  */
-export function chatSystemPrompt(): string {
+export function chatSystemPrompt(referenceRepos: readonly ReferenceRepoPrompt[] = []): string {
+  const refs = referenceReposSection(referenceRepos);
   return [
     "You are Blackwall's chat assistant for one repository. Answer questions about its code, its backlog and its tasks.",
     "Keep replies short and concrete; use markdown, and cite files as repo-relative paths.",
@@ -189,6 +214,7 @@ export function chatSystemPrompt(): string {
     "## Workspace rules",
     "",
     workspaceRules("read-only"),
+    ...(refs === "" ? [] : ["", refs]),
     "",
     "## Actions contract",
     "",
@@ -366,7 +392,8 @@ export function chatStatePrompt({
  * The system prompt for one step: the agent's persona, the workspace rules for
  * its permission profile and the output contracts of the stage: the plan
  * contract for Inform, plan and questions for Plan review, and the tag list and
- * findings contract for Code review. Implementers on a CLI with the worker
+ * findings contract for Code review. Read-only agents also get their reference
+ * repos ({@link referenceReposSection}). Implementers on a CLI with the worker
  * ({@link SUBAGENT_CLIS}) also get the sub-agent guide.
  */
 export function buildSystemPrompt({
@@ -375,10 +402,12 @@ export function buildSystemPrompt({
   profile,
   cli,
   tags,
+  referenceRepos = [],
 }: SystemPromptContext): string {
   const parts = [
     agent.prompt.trim(),
     `## Workspace rules\n\n${WORKSPACE_RULES[profile]}`,
+    profile === "read-only" ? referenceReposSection(referenceRepos) : "",
     ...contractsFor(stage, tags),
     ...(profile === "implement" && SUBAGENT_CLIS.includes(cli) ? [subagentGuide(cli)] : []),
   ];

@@ -30,6 +30,7 @@ import type { QuotaTracker } from "../agents/quota.js";
 import type { Repositories } from "../db/repositories.js";
 import { describeGitError } from "../git/errors.js";
 import { GitError } from "../git/service.js";
+import { referenceReposOf, type ReferenceRepo } from "../repos/service.js";
 import { MAX_CI_FAILURES, type CiWatcher } from "./ci.js";
 import {
   DELIVERY_CONFLICT_EVENT,
@@ -216,8 +217,16 @@ export interface PreparedWorkspace {
 
 export interface PipelineEngineOptions {
   repositories: Repositories;
-  /** Resolves an agent's prompt, model and permissions for a stage on a CLI. */
-  invocation: (agentId: string, stage: Stage, cli: AgentCli) => AgentInvocation;
+  /**
+   * Resolves an agent's prompt, model and permissions for a stage on a CLI;
+   * read-only stages may also read the reference repos.
+   */
+  invocation: (
+    agentId: string,
+    stage: Stage,
+    cli: AgentCli,
+    referenceRepos?: readonly ReferenceRepo[],
+  ) => AgentInvocation;
   adapters: Partial<Record<AgentCli, AgentAdapter>>;
   stages: StageHandlers;
   /** Creates the task's worktree before its first stage. */
@@ -443,7 +452,12 @@ export function createPipelineEngine({
 
     // A resumed step stays on its own CLI, since its session belongs to that CLI.
     const cli = earlier?.cli ?? agentCliFor(ctx.task, input.agentId);
-    const inv = invocation(input.agentId, input.asStage ?? stage, cli);
+    const inv = invocation(
+      input.agentId,
+      input.asStage ?? stage,
+      cli,
+      referenceReposOf(r.repos, ctx.task.repoId),
+    );
     const adapter = adapters[cli];
     if (!adapter) throw new Error(`No adapter for the ${cli} CLI`);
 

@@ -15,6 +15,7 @@ import {
   RepoPushError,
   StaleRepoError,
   createRepoService,
+  referenceReposOf,
   type RepoService,
 } from "./service.js";
 
@@ -232,6 +233,69 @@ describe("repo service", () => {
     service.delete(repo.id);
     expect(service.list()).toEqual([]);
     expect(() => service.delete(repo.id)).toThrow(RepoNotFoundError);
+  });
+});
+
+describe("reference repos", () => {
+  it("accepts other registered repos and rejects itself, unknown ids and duplicates", async () => {
+    const app = await service.add({ path: gitRepo(["app"]) });
+    const lib = await service.add({ path: gitRepo(["lib"]) });
+    expect(app.referenceRepoIds).toEqual([]);
+    expect(service.update(app.id, { referenceRepoIds: [lib.id] }).referenceRepoIds).toEqual([
+      lib.id,
+    ]);
+    expect(service.get(app.id).referenceRepoIds).toEqual([lib.id]);
+
+    expect(() => service.update(app.id, { referenceRepoIds: [app.id] })).toThrow(
+      /its own reference repo/,
+    );
+    expect(() => service.update(app.id, { referenceRepoIds: ["missing"] })).toThrow(
+      InvalidRepoError,
+    );
+    expect(() => service.update(app.id, { referenceRepoIds: [lib.id, lib.id] })).toThrow(
+      /only once/,
+    );
+    expect(service.get(app.id).referenceRepoIds).toEqual([lib.id]);
+    expect(service.update(app.id, { referenceRepoIds: [] }).referenceRepoIds).toEqual([]);
+  });
+
+  it("drops a deleted repo from every other repo's list", async () => {
+    const app = await service.add({ path: gitRepo(["app"]) });
+    const lib = await service.add({ path: gitRepo(["lib"]) });
+    const api = await service.add({ path: gitRepo(["api"]) });
+    service.update(app.id, { referenceRepoIds: [lib.id, api.id] });
+    service.update(api.id, { referenceRepoIds: [lib.id] });
+
+    service.delete(lib.id);
+    expect(service.get(app.id).referenceRepoIds).toEqual([api.id]);
+    expect(service.get(api.id).referenceRepoIds).toEqual([]);
+  });
+
+  it("drops a stale repo removed on use from every other repo's list", async () => {
+    const app = await service.add({ path: gitRepo(["app"]) });
+    const libPath = gitRepo(["lib"]);
+    const lib = await service.add({ path: libPath });
+    service.update(app.id, { referenceRepoIds: [lib.id] });
+    rmSync(libPath, { recursive: true, force: true });
+    expect(() => service.use(lib.id)).toThrow(StaleRepoError);
+    expect(service.get(app.id).referenceRepoIds).toEqual([]);
+  });
+
+  it("resolves names and paths, skipping missing folders, unknown ids and the repo itself", async () => {
+    const app = await service.add({ path: gitRepo(["app"]) });
+    const lib = await service.add({ path: gitRepo(["lib"]) });
+    const goneDir = gitRepo(["gone"]);
+    const gone = await service.add({ path: goneDir });
+    service.update(app.id, { referenceRepoIds: [lib.id, gone.id] });
+    rmSync(goneDir, { recursive: true, force: true });
+    // Ids written behind the service's back (e.g. an older import) are skipped too.
+    r.repos.update(app.id, {
+      referenceRepoIds: [...service.get(app.id).referenceRepoIds, app.id, "missing"],
+    });
+
+    expect(referenceReposOf(r.repos, app.id)).toEqual([{ name: "lib", path: lib.path }]);
+    expect(referenceReposOf(r.repos, lib.id)).toEqual([]);
+    expect(referenceReposOf(r.repos, "missing")).toEqual([]);
   });
 });
 

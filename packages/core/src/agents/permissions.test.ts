@@ -161,8 +161,11 @@ describe("OpenCode permissions", () => {
       "bash(git status *)",
     ]);
     expect(deny).toEqual(
-      expect.arrayContaining(["edit", "task", "webfetch", "external_directory", "bash(git push*)"]),
+      expect.arrayContaining(["edit", "task", "webfetch", "skill", "bash(git push*)"]),
     );
+    expect(opencodeConfig(permissionsFor("opencode", "read-only")).permission).toMatchObject({
+      external_directory: "deny",
+    });
   });
 
   it("lets implementers edit, use bash and start only the worker, but never push or use gh", () => {
@@ -328,5 +331,70 @@ describe("OpenCode permissions", () => {
       opencodeConfig(permissionsFor("opencode", "implement", { allow: ["Bash(npm test:*)"] })),
     ).toThrow(/Bash\(npm test:\*\)/);
     expect(() => opencodeConfig(permissionsFor("claude", "implement"))).toThrow(/claude/);
+  });
+});
+
+describe("Reference repos", () => {
+  const dirs = ["C:\\Code\\other", "/home/me/lib"];
+
+  it("adds one --add-dir per dir for read-only Claude, before --tools", () => {
+    const args = permissionArgs(permissionsFor("claude", "read-only", {}, dirs));
+    const first = args.indexOf("--add-dir");
+    expect(args.slice(first, first + 4)).toEqual([
+      "--add-dir",
+      "C:\\Code\\other",
+      "--add-dir",
+      "/home/me/lib",
+    ]);
+    expect(args[first + 4]).toBe("--tools");
+    expect(args).toContain("--restricted");
+  });
+
+  it("adds one --add-dir per dir for read-only Copilot", () => {
+    const args = permissionArgs(permissionsFor("copilot", "read-only", {}, dirs));
+    expect(args.filter((a) => a === "--add-dir")).toHaveLength(2);
+    expect(args[args.indexOf("--add-dir") + 1]).toBe("C:\\Code\\other");
+    expect(args).toContain("--disallow-temp-dir");
+  });
+
+  it("adds no --add-dir without dirs", () => {
+    for (const cli of ["claude", "copilot"] as const) {
+      expect(permissionArgs(permissionsFor(cli, "read-only"))).not.toContain("--add-dir");
+    }
+  });
+
+  it("never gives implementers the dirs", () => {
+    for (const cli of ["claude", "copilot", "opencode"] as const) {
+      const permissions = permissionsFor(cli, "implement", {}, dirs);
+      expect(permissions.readDirs).toEqual([]);
+      expect(permissionArgs(permissions)).not.toContain("--add-dir");
+    }
+    expect(
+      opencodeConfig(permissionsFor("opencode", "implement", {}, dirs)).permission
+        .external_directory,
+    ).toBe("deny");
+  });
+
+  it("allows only the dirs for read-only OpenCode, with forward slashes", () => {
+    const { permission } = opencodeConfig(permissionsFor("opencode", "read-only", {}, dirs));
+    expect(permission.external_directory).toEqual({
+      "*": "deny",
+      "C:/Code/other": "allow",
+      "C:/Code/other/*": "allow",
+      "/home/me/lib": "allow",
+      "/home/me/lib/*": "allow",
+    });
+    expect(permission.edit).toBe("deny");
+  });
+
+  it("keeps OpenCode's other dirs denied without dirs or under a deny override", () => {
+    expect(
+      opencodeConfig(permissionsFor("opencode", "read-only")).permission.external_directory,
+    ).toBe("deny");
+    expect(
+      opencodeConfig(
+        permissionsFor("opencode", "read-only", { deny: ["external_directory"] }, dirs),
+      ).permission.external_directory,
+    ).toBe("deny");
   });
 });

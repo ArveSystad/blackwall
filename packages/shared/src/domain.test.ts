@@ -420,6 +420,15 @@ describe("settings and inputs", () => {
     expect(repoUpdateSchema.safeParse({ defaultCli: "codex" }).success).toBe(false);
   });
 
+  it("accepts a repo's reference repos once each", () => {
+    expect(repoUpdateSchema.parse({ referenceRepoIds: ["a", "b"] })).toEqual({
+      referenceRepoIds: ["a", "b"],
+    });
+    expect(repoUpdateSchema.parse({ referenceRepoIds: [] })).toEqual({ referenceRepoIds: [] });
+    expect(repoUpdateSchema.safeParse({ referenceRepoIds: ["a", "a"] }).success).toBe(false);
+    expect(repoUpdateSchema.safeParse({ referenceRepoIds: [""] }).success).toBe(false);
+  });
+
   it("accepts a repo's default origin and rejects unknown ones", () => {
     expect(repoUpdateSchema.parse({ defaultOrigin: "github-pr" })).toEqual({
       defaultOrigin: "github-pr",

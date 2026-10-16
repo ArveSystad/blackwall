@@ -120,6 +120,41 @@ describe("buildSystemPrompt", () => {
     ).not.toContain("## Sub-agents");
   });
 
+  it("lists reference repos for read-only agents only", () => {
+    const referenceRepos = [{ name: "lib", path: "/code/lib" }];
+    const reviewer = buildSystemPrompt({
+      agent,
+      stage: "code-review",
+      profile: "read-only",
+      cli: "claude",
+      tags: [],
+      referenceRepos,
+    });
+    expect(reviewer).toContain("## Reference repos");
+    expect(reviewer).toContain("- lib: /code/lib");
+    expect(reviewer).toContain("git commands do not work on them");
+    expect(reviewer).toContain("`<name>/<path>`");
+    expect(
+      buildSystemPrompt({
+        agent,
+        stage: "code-review",
+        profile: "read-only",
+        cli: "claude",
+        tags: [],
+      }),
+    ).not.toContain("## Reference repos");
+    expect(
+      buildSystemPrompt({
+        agent,
+        stage: "implement",
+        profile: "implement",
+        cli: "claude",
+        tags: [],
+        referenceRepos,
+      }),
+    ).not.toContain("## Reference repos");
+  });
+
   it("says when no tags are defined", () => {
     expect(findingsContract([])).toContain("(none defined)");
   });
@@ -152,6 +187,19 @@ describe("chat prompts", () => {
     ]) {
       expect(prompt).toContain(`\`${kind}\``);
     }
+  });
+
+  it("lists the chat's reference repos only when it has some", () => {
+    expect(chatSystemPrompt()).not.toContain("## Reference repos");
+    const prompt = chatSystemPrompt([
+      { name: "lib", path: "/code/lib" },
+      { name: "api", path: "/code/api" },
+    ]);
+    expect(prompt).toContain("## Reference repos");
+    expect(prompt).toContain("- lib: /code/lib\n- api: /code/api");
+    expect(prompt.indexOf("## Reference repos")).toBeLessThan(
+      prompt.indexOf("## Actions contract"),
+    );
   });
 
   it("lists the tasks and backlog before the user's text", () => {

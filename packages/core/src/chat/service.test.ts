@@ -103,6 +103,19 @@ describe("chat service", () => {
     expect(two?.resumeSessionId).toBe("fake-1");
   });
 
+  it("lets the chat read the repo's reference repos whose folders exist", async () => {
+    const lib = r.repos.create({ path: tmpdir(), name: "lib" });
+    // "/code/other" does not exist, so it is skipped.
+    r.repos.update(repoId, { referenceRepoIds: [lib.id, otherRepoId] });
+    chat.send(repoId, "What does lib export?");
+    await idle();
+
+    const options = adapter.calls[0]?.options;
+    expect(options?.permissions.readDirs).toEqual([tmpdir()]);
+    expect(options?.systemPrompt).toContain(`- lib: ${tmpdir()}`);
+    expect(options?.systemPrompt).not.toContain("/code/other");
+  });
+
   it("lists only this repo's unarchived tasks and backlog in the prompt", async () => {
     const mine = addTask("Add dark mode", repoId);
     const archived = addTask("Old work", repoId);

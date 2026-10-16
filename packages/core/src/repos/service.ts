@@ -84,6 +84,30 @@ export function defaultBranchOf(repos: Pick<Repositories["repos"], "get">, repoI
   return repos.get(repoId)?.defaultBranch ?? DEFAULT_BRANCH;
 }
 
+/** A reference repo as agents see it: its name and the absolute path of its folder. */
+export interface ReferenceRepo {
+  name: string;
+  path: string;
+}
+
+/**
+ * The repo's reference repos, looked up again on every call so a changed list
+ * applies to the next step. Unknown repos, folders that no longer exist and the
+ * repo itself are skipped.
+ */
+export function referenceReposOf(
+  repos: Pick<Repositories["repos"], "get">,
+  repoId: string,
+): ReferenceRepo[] {
+  const refs: ReferenceRepo[] = [];
+  for (const refId of repos.get(repoId)?.referenceRepoIds ?? []) {
+    if (refId === repoId) continue;
+    const ref = repos.get(refId);
+    if (ref && existsSync(ref.path)) refs.push({ name: ref.name, path: ref.path });
+  }
+  return refs;
+}
+
 function invalid(error: { issues: readonly { message: string }[] }): InvalidRepoError {
   return new InvalidRepoError(error.issues.map((issue) => issue.message).join("; "));
 }
@@ -110,6 +134,18 @@ export function createRepoService({ repos, connections }: RepoServiceOptions) {
     const repo = repos.get(id);
     if (!repo) throw new RepoNotFoundError(id);
     return repo;
+  }
+
+  /** Removes a repo from the registry and from every other repo's reference repos. */
+  function remove(id: string): void {
+    for (const other of repos.list()) {
+      if (other.referenceRepoIds.includes(id)) {
+        repos.update(other.id, {
+          referenceRepoIds: other.referenceRepoIds.filter((refId) => refId !== id),
+        });
+      }
+    }
+    repos.delete(id);
   }
 
   /** GitHub connection for a remote; `null` without a remote, a readable host or a connection. */
@@ -145,7 +181,7 @@ export function createRepoService({ repos, connections }: RepoServiceOptions) {
     const repo = existing(id);
     if (existsSync(repo.path)) return repo;
     const removable = !repos.hasTasks(id);
-    if (removable) repos.delete(id);
+    if (removable) remove(id);
     throw new StaleRepoError(repo, removable);
   }
 
@@ -204,7 +240,12 @@ export function createRepoService({ repos, connections }: RepoServiceOptions) {
         defaultBranch,
         favorite,
         watchCi,
+        referenceRepoIds,
       } = parsed.data;
+      for (const refId of referenceRepoIds ?? []) {
+        if (refId === id) throw new InvalidRepoError("A repo can't be its own reference repo");
+        if (!repos.get(refId)) throw new InvalidRepoError(`Reference repo ${refId} not found`);
+      }
       return repos.update(id, {
         ...(name === undefined ? {} : { name }),
         ...(checkCommands === undefined ? {} : { checkCommands }),
@@ -214,6 +255,7 @@ export function createRepoService({ repos, connections }: RepoServiceOptions) {
         ...(defaultBranch === undefined ? {} : { defaultBranch }),
         ...(favorite === undefined ? {} : { favorite }),
         ...(watchCi === undefined ? {} : { watchCi }),
+        ...(referenceRepoIds === undefined ? {} : { referenceRepoIds }),
       });
     },
 
@@ -233,7 +275,7 @@ export function createRepoService({ repos, connections }: RepoServiceOptions) {
     delete(id: string): void {
       const repo = existing(id);
       if (repos.hasTasks(id)) throw new RepoInUseError(repo);
-      repos.delete(id);
+      remove(id);
     },
 
     /** Check commands suggested from the repo's current build files. */

@@ -23,7 +23,7 @@ import {
 } from "../agents/prompts.js";
 import type { Repositories } from "../db/repositories.js";
 import { TaskStateError } from "../pipeline/engine.js";
-import { RepoNotFoundError } from "../repos/service.js";
+import { referenceReposOf, RepoNotFoundError } from "../repos/service.js";
 
 /** A message sent while the chat still answers the previous one. Maps to 409 like a task state conflict. */
 export class ChatBusyError extends TaskStateError {
@@ -252,14 +252,20 @@ export function createChatService({
         .flatMap((m) => (m.role === "error" ? [] : [{ role: m.role, text: m.text }]))
         .slice(-historyLimit);
       const model = modelFor(cli);
+      const refs = referenceReposOf(repos, repo.id);
 
       const attempt = async (resumeSessionId?: string): Promise<AgentResult> => {
         const run = adapter.run({
           cwd,
           // A resumed session already holds the conversation.
           prompt: chatStatePrompt(resumeSessionId ? state : { ...state, history }),
-          systemPrompt: chatSystemPrompt(),
-          permissions: permissionsFor(cli, "read-only"),
+          systemPrompt: chatSystemPrompt(refs),
+          permissions: permissionsFor(
+            cli,
+            "read-only",
+            {},
+            refs.map((ref) => ref.path),
+          ),
           jsonSchema: chatReplyJsonSchema(),
           signal: controller.signal,
           ...(model ? { model } : {}),

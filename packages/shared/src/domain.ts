@@ -431,6 +431,11 @@ export const repoSchema = z.object({
   position: z.int(),
   /** Watch CI after a task pushes its branch; matters only for GitHub/GHE remotes. */
   watchCi: z.boolean(),
+  /**
+   * Other registered repos whose files the read-only agents (planner, reviewers,
+   * summarizer) and the chat may read. Implementers stay in the worktree.
+   */
+  referenceRepoIds: z.array(id),
   createdAt: timestamp,
   updatedAt: timestamp,
 });
@@ -470,6 +475,9 @@ export const repoUpdateSchema = z.object({
   defaultBranch: branchNameSchema.optional(),
   favorite: z.boolean().optional(),
   watchCi: z.boolean().optional(),
+  referenceRepoIds: repoSchema.shape.referenceRepoIds
+    .refine((ids) => new Set(ids).size === ids.length, "Each repo can be listed only once")
+    .optional(),
 });
 export type RepoUpdate = z.infer<typeof repoUpdateSchema>;
 
