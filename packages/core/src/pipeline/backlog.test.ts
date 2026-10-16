@@ -11,7 +11,6 @@ let clock = 0;
 function item(id: string, patch: Partial<BacklogPickItem> = {}): BacklogPickItem {
   return {
     id,
-    priority: "normal",
     position: 0,
     createdAt: new Date(++clock),
     status: "waiting",
@@ -30,29 +29,22 @@ describe("nextBacklogItem", () => {
     expect(pick([])).toBeUndefined();
   });
 
-  it("orders by priority bucket, then position, then age", () => {
+  it("orders by position, then age", () => {
     const items = [
-      item("low", { priority: "low" }),
-      item("normal-late", { position: 2 }),
-      item("normal-early", { position: 1 }),
-      item("normal-early-newer", { position: 1 }),
-      item("high", { priority: "high", position: 9 }),
+      item("late", { position: 2 }),
+      item("early", { position: 1 }),
+      item("early-newer", { position: 1 }),
+      item("first", { position: 0 }),
     ];
-    expect(sortBacklog(items).map((i) => i.id)).toEqual([
-      "high",
-      "normal-early",
-      "normal-early-newer",
-      "normal-late",
-      "low",
-    ]);
-    expect(pick(items)).toBe("high");
+    expect(sortBacklog(items).map((i) => i.id)).toEqual(["first", "early", "early-newer", "late"]);
+    expect(pick(items)).toBe("first");
   });
 
   it("skips paused and promoted items", () => {
     const items = [
-      item("paused", { priority: "high", status: "paused" }),
-      item("promoted", { priority: "high", status: "promoted", taskId: "t1" }),
-      item("waiting", { priority: "low" }),
+      item("paused", { status: "paused" }),
+      item("promoted", { status: "promoted", taskId: "t1" }),
+      item("waiting", { position: 1 }),
     ];
     expect(pick(items)).toBe("waiting");
     expect(pick([item("p", { status: "paused" })])).toBeUndefined();
@@ -60,20 +52,20 @@ describe("nextBacklogItem", () => {
 
   it("descends into unmet dependencies in listed order", () => {
     const items = [
-      item("head", { priority: "high", dependsOn: ["dep1", "dep2"] }),
-      item("dep1", { priority: "low", dependsOn: ["deep"] }),
-      item("dep2", { priority: "low" }),
-      item("deep", { priority: "low", position: 5 }),
-      item("other", { priority: "normal" }),
+      item("head", { dependsOn: ["dep1", "dep2"] }),
+      item("dep1", { position: 2, dependsOn: ["deep"] }),
+      item("dep2", { position: 2 }),
+      item("deep", { position: 5 }),
+      item("other", { position: 1 }),
     ];
     expect(pick(items)).toBe("deep");
   });
 
   it("tries the next dependency when one is held back", () => {
     const items = [
-      item("head", { priority: "high", dependsOn: ["paused", "ready"] }),
+      item("head", { dependsOn: ["paused", "ready"] }),
       item("paused", { status: "paused" }),
-      item("ready", { priority: "low" }),
+      item("ready", { position: 1 }),
     ];
     expect(pick(items)).toBe("ready");
   });
@@ -81,7 +73,7 @@ describe("nextBacklogItem", () => {
   it("treats a dependency as done only when its promoted task is done", () => {
     const dep = item("dep", { status: "promoted", taskId: "t1" });
     const head = item("head", { dependsOn: ["dep"] });
-    const later = item("later", { priority: "low" });
+    const later = item("later", { position: 1 });
     // Running (or failed) task: head is blocked, and the in-flight dependency is not picked.
     expect(pick([dep, head, later])).toBe("later");
     expect(pick([dep, head, later], (id) => id === "t1")).toBe("head");
@@ -90,7 +82,7 @@ describe("nextBacklogItem", () => {
   });
 
   it("blocks an item whose dependency no longer exists", () => {
-    const items = [item("head", { dependsOn: ["gone"] }), item("next", { priority: "low" })];
+    const items = [item("head", { dependsOn: ["gone"] }), item("next", { position: 1 })];
     expect(pick(items)).toBe("next");
     expect(pick([items[0]!])).toBeUndefined();
     expect(unmetDependencies(items[0]!, new Map(), none)).toEqual(["gone"]);
@@ -103,7 +95,7 @@ describe("nextBacklogItem", () => {
       item("c", { dependsOn: ["a"] }),
     ];
     expect(pick(items)).toBeUndefined();
-    expect(pick([...items, item("free", { priority: "low" })])).toBe("free");
+    expect(pick([...items, item("free", { position: 1 })])).toBe("free");
     expect(pick([item("self", { dependsOn: ["self"] })])).toBeUndefined();
   });
 });

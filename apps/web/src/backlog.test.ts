@@ -3,9 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   backlogSections,
   countdown,
-  groupBacklog,
   itemState,
-  moveInBucket,
+  moveItem,
   nextBacklogItem,
   pendingCount,
   reorderIds,
@@ -17,16 +16,7 @@ import {
 } from "./backlog";
 import { makeBacklogItem, makeTask } from "./test-fixtures";
 
-describe("groupBacklog", () => {
-  it("buckets by priority, high first, keeping pick order and dropping empty buckets", () => {
-    const a = makeBacklogItem({ priority: "low" });
-    const b = makeBacklogItem({ priority: "high" });
-    const c = makeBacklogItem({ priority: "low" });
-    const groups = groupBacklog([b, a, c]);
-    expect(groups.map((g) => g.priority)).toEqual(["high", "low"]);
-    expect(groups[1]!.items).toEqual([a, c]);
-  });
-
+describe("pendingCount", () => {
   it("counts items not yet promoted", () => {
     expect(
       pendingCount([
@@ -59,16 +49,14 @@ describe("backlogSections", () => {
     const toLive = makeBacklogItem({ status: "promoted", taskId: live.id });
     const toDone = makeBacklogItem({ status: "promoted", taskId: finished.id });
     const toGone = makeBacklogItem({ status: "promoted", taskId: "gone" });
-    const { groups } = backlogSections([waiting, toLive, paused, toDone, toGone], [live, finished]);
-    expect(groups).toEqual([{ priority: "normal", items: [waiting, paused, toDone, toGone] }]);
+    const { items } = backlogSections([waiting, toLive, paused, toDone, toGone], [live, finished]);
+    expect(items).toEqual([waiting, paused, toDone, toGone]);
   });
 
-  it("leaves out a bucket whose only item became an active task", () => {
+  it("lists nothing when the only item became an active task", () => {
     const live = makeTask({ status: "queued" });
-    const high = makeBacklogItem({ priority: "high", status: "promoted", taskId: live.id });
-    const low = makeBacklogItem({ priority: "low" });
-    const { groups } = backlogSections([high, low], [live]);
-    expect(groups.map((g) => g.priority)).toEqual(["low"]);
+    const item = makeBacklogItem({ status: "promoted", taskId: live.id });
+    expect(backlogSections([item], [live]).items).toEqual([]);
   });
 
   it("lists finished tasks no item links to, newest first", () => {
@@ -81,15 +69,15 @@ describe("backlogSections", () => {
     expect(earlier).toEqual([failed, interrupted, done]);
   });
 
-  it("without tasks groups every item as groupBacklog does", () => {
+  it("without tasks lists every item in pick order", () => {
     const items = [
-      makeBacklogItem({ priority: "low" }),
+      makeBacklogItem(),
       makeBacklogItem({ status: "promoted", taskId: "t-any" }),
-      makeBacklogItem({ priority: "high", status: "paused" }),
+      makeBacklogItem({ status: "paused" }),
     ];
     expect(backlogSections(items, [])).toEqual({
       active: [],
-      groups: groupBacklog(items),
+      items,
       earlier: [],
       archived: [],
       archivable: [],
@@ -105,17 +93,13 @@ describe("backlogSections", () => {
     expect(archived).toEqual([newer, older]);
   });
 
-  it("hides promoted items whose task is archived, and buckets left empty", () => {
+  it("hides promoted items whose task is archived", () => {
     const archivedTask = makeTask({ status: "done", archivedAt: at(1) });
     const doneTask = makeTask({ status: "done" });
-    const high = makeBacklogItem({ priority: "high", status: "promoted", taskId: archivedTask.id });
     const toArchived = makeBacklogItem({ status: "promoted", taskId: archivedTask.id });
     const toDone = makeBacklogItem({ status: "promoted", taskId: doneTask.id });
-    const { groups, archived } = backlogSections(
-      [high, toArchived, toDone],
-      [archivedTask, doneTask],
-    );
-    expect(groups).toEqual([{ priority: "normal", items: [toDone] }]);
+    const { items, archived } = backlogSections([toArchived, toDone], [archivedTask, doneTask]);
+    expect(items).toEqual([toDone]);
     expect(archived).toEqual([archivedTask]);
   });
 
@@ -130,35 +114,36 @@ describe("backlogSections", () => {
   });
 });
 
-describe("moveInBucket and reorderIds", () => {
-  const high = makeBacklogItem({ priority: "high" });
+describe("moveItem and reorderIds", () => {
+  const n0 = makeBacklogItem();
   const n1 = makeBacklogItem();
   const n2 = makeBacklogItem();
   const n3 = makeBacklogItem();
-  const items = [high, n1, n2, n3];
+  const items = [n0, n1, n2, n3];
 
-  it("moves inside the bucket and lists every item once", () => {
-    expect(moveInBucket(items, n2.id, -1)).toEqual([high.id, n2.id, n1.id, n3.id]);
-    expect(moveInBucket(items, n2.id, 1)).toEqual([high.id, n1.id, n3.id, n2.id]);
+  it("moves across the whole list and lists every item once", () => {
+    expect(moveItem(items, n2.id, -1)).toEqual([n0.id, n2.id, n1.id, n3.id]);
+    expect(moveItem(items, n2.id, 1)).toEqual([n0.id, n1.id, n3.id, n2.id]);
+    expect(moveItem(items, n1.id, -1)).toEqual([n1.id, n0.id, n2.id, n3.id]);
   });
 
-  it("stops at the bucket's edges", () => {
-    expect(moveInBucket(items, n1.id, -1)).toBeNull();
-    expect(moveInBucket(items, n3.id, 1)).toBeNull();
-    expect(moveInBucket(items, high.id, 1)).toBeNull();
+  it("stops at either end of the list", () => {
+    expect(moveItem(items, n0.id, -1)).toBeNull();
+    expect(moveItem(items, n3.id, 1)).toBeNull();
   });
 
   it("steps past items not shown, still listing every item", () => {
-    const shown = new Set([high.id, n1.id, n3.id]);
-    expect(moveInBucket(items, n3.id, -1, shown)).toEqual([high.id, n3.id, n1.id, n2.id]);
-    expect(moveInBucket(items, n1.id, 1, shown)).toEqual([high.id, n2.id, n3.id, n1.id]);
-    expect(moveInBucket(items, n3.id, 1, shown)).toBeNull();
+    const shown = new Set([n0.id, n1.id, n3.id]);
+    expect(moveItem(items, n3.id, -1, shown)).toEqual([n0.id, n3.id, n1.id, n2.id]);
+    expect(moveItem(items, n1.id, 1, shown)).toEqual([n0.id, n2.id, n3.id, n1.id]);
+    expect(moveItem(items, n3.id, 1, shown)).toBeNull();
   });
 
-  it("drops onto another item of the same bucket only", () => {
-    expect(reorderIds(items, n3.id, n1.id)).toEqual([high.id, n3.id, n1.id, n2.id]);
-    expect(reorderIds(items, n1.id, n3.id)).toEqual([high.id, n2.id, n3.id, n1.id]);
-    expect(reorderIds(items, n1.id, high.id)).toBeNull();
+  it("drops onto any other item, never onto itself", () => {
+    expect(reorderIds(items, n3.id, n1.id)).toEqual([n0.id, n3.id, n1.id, n2.id]);
+    expect(reorderIds(items, n1.id, n3.id)).toEqual([n0.id, n2.id, n3.id, n1.id]);
+    expect(reorderIds(items, n3.id, n0.id)).toEqual([n3.id, n0.id, n1.id, n2.id]);
+    expect(reorderIds(items, n0.id, n3.id)).toEqual([n1.id, n2.id, n3.id, n0.id]);
     expect(reorderIds(items, n1.id, n1.id)).toBeNull();
   });
 });
@@ -172,9 +157,8 @@ describe("nextBacklogItem", () => {
   });
 
   it("runs an unmet dependency before the item that needs it", () => {
-    const dep = makeBacklogItem({ priority: "low" });
+    const dep = makeBacklogItem();
     const item = makeBacklogItem({
-      priority: "high",
       dependsOn: [dep.id],
       blocked: true,
       blockedBy: [dep.id],

@@ -98,7 +98,6 @@ describe("backlog routes", () => {
       repoId,
       title: "Add dark mode",
       status: "waiting",
-      priority: "normal",
       triageMode: "intervene",
       taskId: null,
     });
@@ -141,14 +140,14 @@ describe("backlog routes", () => {
   });
 
   it("lists in pick order with blocked annotations", async () => {
-    const low = await create({ title: "Low", priority: "low" });
     const base = await create({ title: "Base" });
-    const high = await create({ title: "High", priority: "high", dependsOn: [base.id] });
+    const head = await create({ title: "Head", dependsOn: [base.id] });
+    const later = await create({ title: "Later" });
 
     const items = await list();
-    expect(items.map((i) => i.title)).toEqual(["High", "Base", "Low"]);
-    expect(items[0]).toMatchObject({ id: high.id, blocked: true, blockedBy: [base.id] });
-    expect(items[1]).toMatchObject({ blocked: false, blockedBy: [] });
+    expect(items.map((i) => i.title)).toEqual(["Base", "Head", "Later"]);
+    expect(items[0]).toMatchObject({ blocked: false, blockedBy: [] });
+    expect(items[1]).toMatchObject({ id: head.id, blocked: true, blockedBy: [base.id] });
 
     // Done once promoted and its task is done.
     const task = repositories.tasks.create({
@@ -158,8 +157,8 @@ describe("backlog routes", () => {
       status: "done",
     });
     repositories.backlogItems.markPromoted(base.id, task.id);
-    expect((await list()).find((i) => i.id === high.id)?.blocked).toBe(false);
-    expect(low.position).toBe(0);
+    expect((await list()).find((i) => i.id === head.id)?.blocked).toBe(false);
+    expect(later.position).toBe(2);
   });
 
   it("lists the task a follow-up came from", async () => {
@@ -187,13 +186,12 @@ describe("backlog routes", () => {
 
     const paused = await request(`/${a.id}`, {
       method: "PATCH",
-      body: { status: "paused", title: "A2", priority: "high" },
+      body: { status: "paused", title: "A2" },
     });
     expect(paused.status).toBe(200);
     expect(backlogItemSchema.parse(await paused.json())).toMatchObject({
       status: "paused",
       title: "A2",
-      priority: "high",
     });
 
     const cycle = await request(`/${a.id}`, { method: "PATCH", body: { dependsOn: [b.id] } });
@@ -494,7 +492,6 @@ describe("stacked pull requests", () => {
       agents: { implementer: "a-impl" },
       agentClis: { "a-impl": "copilot" },
       triageMode: "pause",
-      priority: "high",
     });
     expect(item.mode).toBe("work");
     expect(item.origin).toEqual({ ...pr(42), stack: { prs: [41, 42, 43] } });
@@ -513,9 +510,9 @@ describe("stacked pull requests", () => {
         agents: { implementer: "a-impl" },
         agentClis: { "a-impl": "copilot" },
         triageMode: "pause",
-        priority: "high",
         dependsOn: [],
       });
+      expect(sibling).not.toHaveProperty("priority");
     }
     expect(siblings.map((i) => i.title)).toEqual(["PR 41", "PR 43"]);
     expect(events).toEqual([

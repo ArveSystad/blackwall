@@ -1,9 +1,7 @@
 import {
-  BACKLOG_PRIORITIES,
   backlogCapFor,
   type AgentCli,
   type BacklogItemView,
-  type BacklogPriority,
   type GeneralSettings,
   type QuotaState,
   type Repo,
@@ -14,30 +12,14 @@ import {
 import { groupTasks } from "./inbox";
 import { CLI_NAMES } from "./settings-forms";
 
-export const PRIORITY_LABELS: Record<BacklogPriority, string> = {
-  high: "High",
-  normal: "Normal",
-  low: "Low",
-};
-
-export interface BacklogGroup {
-  priority: BacklogPriority;
-  items: BacklogItemView[];
-}
-
-/** Priority buckets, high first, each in the pick order the API returned. Empty buckets are left out. */
-export function groupBacklog(items: readonly BacklogItemView[]): BacklogGroup[] {
-  return BACKLOG_PRIORITIES.map((priority) => ({
-    priority,
-    items: items.filter((i) => i.priority === priority),
-  })).filter((g) => g.items.length > 0);
-}
-
 export interface BacklogSections {
   /** Needs-you, running and queued tasks, from the backlog or not. */
   active: Task[];
-  /** Priority buckets, without promoted items whose task is active or archived. */
-  groups: BacklogGroup[];
+  /**
+   * The queue, in the pick order the API returned, without promoted items
+   * whose task is active or archived.
+   */
+  items: BacklogItemView[];
   /** Finished, unarchived tasks no item links to (started outside the backlog). */
   earlier: Task[];
   /** Archived tasks, most recently archived first. */
@@ -47,7 +29,7 @@ export interface BacklogSections {
 }
 
 /**
- * The backlog view's layout: active tasks on top, then the priority buckets,
+ * The backlog view's layout: active tasks on top, then the queue,
  * then finished tasks that never came from the backlog, then the archive.
  * `tasks` are the repo's. An active task shows once, at the top, never also
  * as its promoted item; an archived task shows only in the archive.
@@ -66,9 +48,7 @@ export function backlogSections(
   const hiddenIds = new Set([...activeIds, ...archived.map((t) => t.id)]);
   return {
     active,
-    groups: groupBacklog(
-      items.filter((i) => !(i.status === "promoted" && i.taskId && hiddenIds.has(i.taskId))),
-    ),
+    items: items.filter((i) => !(i.status === "promoted" && i.taskId && hiddenIds.has(i.taskId))),
     earlier: recent.filter((t) => !linked.has(t.id)),
     archived,
     archivable: tasks.filter((t) => t.status === "done" && t.archivedAt === null),
@@ -82,11 +62,11 @@ export function pendingCount(items: readonly Pick<BacklogItemView, "status">[]):
 
 /**
  * The whole backlog's id order after moving `id` one step (`delta` -1 up,
- * +1 down) inside its priority bucket, or null when it cannot move further.
+ * +1 down), or null when it cannot move further.
  * The reorder API wants every item of the repo listed once. With `shown`,
  * the step skips items not on screen, so a move never swaps with a hidden one.
  */
-export function moveInBucket(
+export function moveItem(
   items: readonly BacklogItemView[],
   id: string,
   delta: -1 | 1,
@@ -94,16 +74,16 @@ export function moveInBucket(
 ): string[] | null {
   const item = items.find((i) => i.id === id);
   if (!item) return null;
-  const bucket = items.filter((i) => i.priority === item.priority && (!shown || shown.has(i.id)));
-  const from = bucket.indexOf(item);
+  const visible = items.filter((i) => !shown || shown.has(i.id));
+  const from = visible.indexOf(item);
   const to = from + delta;
-  if (to < 0 || to >= bucket.length) return null;
-  return reorderIds(items, id, bucket[to]!.id);
+  if (to < 0 || to >= visible.length) return null;
+  return reorderIds(items, id, visible[to]!.id);
 }
 
 /**
- * The whole backlog's id order after dropping `id` where `targetId` is,
- * inside one priority bucket (drag and drop). Null across buckets or onto itself.
+ * The whole backlog's id order after dropping `id` where `targetId` is
+ * (drag and drop). Null onto itself.
  */
 export function reorderIds(
   items: readonly BacklogItemView[],
@@ -112,7 +92,7 @@ export function reorderIds(
 ): string[] | null {
   const item = items.find((i) => i.id === id);
   const target = items.find((i) => i.id === targetId);
-  if (!item || !target || item === target || item.priority !== target.priority) return null;
+  if (!item || !target || item === target) return null;
   const ids = items.map((i) => i.id);
   const from = ids.indexOf(id);
   const to = ids.indexOf(targetId);

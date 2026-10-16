@@ -127,21 +127,21 @@ function unitRunner(overrides: Partial<BacklogRunnerOptions> = {}) {
 
 describe("backlog runner", () => {
   it("promotes the top item of an idle repo, and the next only after it finishes", async () => {
-    const low = addItem("Low", { priority: "low" });
-    const high = addItem("High", { priority: "high" });
+    const second = addItem("Second", { position: 1 });
+    const first = addItem("First", { position: 0 });
     const { runner, promoted } = unitRunner();
 
     await runner.tick();
-    expect(promoted.map((i) => i.title)).toEqual(["High"]);
-    const first = item(high.id).taskId!;
+    expect(promoted.map((i) => i.title)).toEqual(["First"]);
+    const firstTask = item(first.id).taskId!;
 
     await runner.tick();
     expect(promoted).toHaveLength(1);
 
-    setStatus(first, "done");
+    setStatus(firstTask, "done");
     await runner.tick();
-    expect(promoted.map((i) => i.title)).toEqual(["High", "Low"]);
-    expect(item(low.id).status).toBe("promoted");
+    expect(promoted.map((i) => i.title)).toEqual(["First", "Second"]);
+    expect(item(second.id).status).toBe("promoted");
   });
 
   it("waits while a task the user started is queued, and while the repo is full", async () => {

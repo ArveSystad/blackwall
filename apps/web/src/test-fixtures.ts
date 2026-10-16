@@ -56,7 +56,6 @@ export function makeBacklogItem(overrides: Partial<BacklogItemView> = {}): Backl
     agents: {},
     agentClis: {},
     triageMode: "intervene",
-    priority: "normal",
     position: seq,
     dependsOn: [],
     status: "waiting",

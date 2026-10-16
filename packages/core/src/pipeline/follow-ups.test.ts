@@ -81,7 +81,6 @@ describe("createFollowUpTasks", () => {
         freeText: "Do A",
         agents: {},
         triageMode: "pause",
-        priority: "normal",
         position: 1,
         dependsOn: [],
         status: "waiting",

@@ -1,13 +1,11 @@
 import {
   AGENT_CLIS,
   AGENT_ROLES,
-  BACKLOG_PRIORITIES,
   MAX_TITLE_CHARS,
   type Agent,
   type AgentCli,
   type AgentClis,
   type BacklogItemView,
-  type BacklogPriority,
   type IssueLookup,
   type OriginKind,
   type PrMode,
@@ -27,7 +25,6 @@ import {
   lookupPullRequest,
   updateBacklogItem,
 } from "../api";
-import { PRIORITY_LABELS } from "../backlog";
 import { useWithCredential } from "../credentials";
 import { originKey } from "../inbox";
 import { isModKey, isPlainKey, isTypingTarget, modKeyLabel, useWindowKeydown } from "../keyboard";
@@ -399,7 +396,6 @@ function NewTaskForm({
   // Backlog items run unattended, so they default to "Run and let me intervene" too.
   const [triageMode, setTriageMode] = useState<TriageMode>(item?.triageMode ?? "intervene");
   const [title, setTitle] = useState(item?.title ?? "");
-  const [priority, setPriority] = useState<BacklogPriority>(item?.priority ?? "normal");
   const [dependsOn, setDependsOn] = useState<string[]>(item?.dependsOn ?? []);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -487,7 +483,6 @@ function NewTaskForm({
       await updateBacklogItem(edited.repoId, edited.id, {
         title: name,
         freeText,
-        priority,
         dependsOn: chosenDeps,
         agents: roles,
         agentClis: overrides,
@@ -527,7 +522,6 @@ function NewTaskForm({
             agents: roles,
             agentClis: overrides,
             triageMode,
-            priority,
             dependsOn: chosenDeps,
             start: true,
             ...(comment ? { startComment: { body: comment } } : {}),
@@ -849,14 +843,6 @@ function NewTaskForm({
             maxLength={MAX_TITLE_CHARS}
             value={title}
             onChange={(event) => setTitle(event.target.value)}
-          />
-        </Field>
-        <Field label="Priority" group>
-          <Segmented
-            label="Priority"
-            value={priority}
-            onChange={setPriority}
-            options={BACKLOG_PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABELS[p] }))}
           />
         </Field>
         {repoId ? (

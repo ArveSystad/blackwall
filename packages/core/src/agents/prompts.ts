@@ -211,10 +211,7 @@ export type ChatStateTask = Pick<
 >;
 
 /** A backlog item as the chat's state block lists it. */
-export type ChatStateBacklogItem = Pick<
-  BacklogItem,
-  "id" | "title" | "status" | "priority" | "freeText"
->;
+export type ChatStateBacklogItem = Pick<BacklogItem, "id" | "title" | "status" | "freeText">;
 
 /** Longest backlog description excerpt in the chat's state block. */
 const STATE_EXCERPT_CHARS = 200;
@@ -273,7 +270,6 @@ export function chatStatePrompt({
     [
       `- \`${i.id}\` ${i.title}`,
       `status ${i.status}`,
-      `priority ${i.priority}`,
       ...(i.freeText.trim() ? [excerpt(i.freeText)] : []),
     ].join(" · "),
   );

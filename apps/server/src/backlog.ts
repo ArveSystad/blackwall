@@ -130,7 +130,7 @@ function samePullRequest(origin: TaskOrigin, pr: PrOrigin, number: number): bool
 
 /**
  * Adds a waiting Review PR item for each other PR of `main`'s stack, bottom
- * first, with `main`'s agents, triage mode and priority. PRs an unarchived
+ * first, with `main`'s agents and triage mode. PRs an unarchived
  * task or an unpromoted backlog item already works on are skipped; a promoted
  * item counts through its task. Returns the items added; the caller announces them.
  */
@@ -164,7 +164,6 @@ export function addStackSiblings(
       agents: main.agents,
       agentClis: main.agentClis,
       triageMode: main.triageMode,
-      priority: main.priority,
       dependsOn: [],
     })),
   );

@@ -253,17 +253,8 @@ export function createTasksRepository(db: Db) {
 
 /** Backlog item fields the user can edit; promotion goes through `markPromoted`. */
 export type BacklogItemPatch = {
-  [
-    K in
-      | "title"
-      | "freeText"
-      | "priority"
-      | "dependsOn"
-      | "status"
-      | "agents"
-      | "agentClis"
-      | "triageMode"
-  ]?: BacklogItem[K] | undefined;
+  [K in "title" | "freeText" | "dependsOn" | "status" | "agents" | "agentClis" | "triageMode"]?:
+    BacklogItem[K] | undefined;
 };
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];

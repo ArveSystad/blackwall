@@ -146,7 +146,6 @@ describe("backlog items", () => {
       title: "B",
       origin: { kind: "free-text" },
       dependsOn: [a.id],
-      priority: "high",
     });
     const c = r.backlogItems.insert({
       repoId: other.id,
@@ -156,7 +155,6 @@ describe("backlog items", () => {
     expect(backlogItemSchema.parse(b)).toMatchObject({
       status: "waiting",
       triageMode: "intervene",
-      priority: "high",
       dependsOn: [a.id],
       taskId: null,
     });

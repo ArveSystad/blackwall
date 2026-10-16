@@ -345,4 +345,43 @@ describe("openDatabase", () => {
     expect(opencode?.costUsd).toBeCloseTo(0.03);
     expect(r.steps.get("none")).toMatchObject({ inputTokens: 0, outputTokens: 0, costUsd: null });
   });
+
+  it("keeps the backlog's pick order when priority is dropped", () => {
+    // Build a database at the migration before the backlog priority was dropped.
+    const oldMigrations = join(dir, "..", "migrations-0019");
+    cpSync(MIGRATIONS_DIR, oldMigrations, { recursive: true });
+    const journalPath = join(oldMigrations, "meta", "_journal.json");
+    const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
+      entries: { tag: string }[];
+    };
+    journal.entries = journal.entries.slice(
+      0,
+      journal.entries.findIndex((e) => e.tag === "0020_drop_backlog_priority"),
+    );
+    expect(journal.entries.at(-1)?.tag).toBe("0019_ci_watch");
+    writeFileSync(journalPath, JSON.stringify(journal));
+
+    mkdirSync(dir, { recursive: true });
+    const sqlite = new Database(join(dir, DB_FILENAME));
+    migrate(drizzle(sqlite), { migrationsFolder: oldMigrations });
+    sqlite.exec(`
+      insert into repos (id, path, name, created_at, updated_at)
+        values ('r1', '/code/a', 'a', 0, 0), ('r2', '/code/b', 'b', 0, 0);
+      insert into backlog_items (id, repo_id, title, origin, priority, position, created_at, updated_at)
+        values ('normal0', 'r1', 'Normal 0', '{"kind":"free-text"}', 'normal', 0, 0, 0),
+               ('high', 'r1', 'High', '{"kind":"free-text"}', 'high', 5, 1, 1),
+               ('low', 'r1', 'Low', '{"kind":"free-text"}', 'low', 1, 2, 2),
+               ('normal2', 'r1', 'Normal 2', '{"kind":"free-text"}', 'normal', 2, 3, 3),
+               ('other', 'r2', 'Other', '{"kind":"free-text"}', 'low', 7, 4, 4);
+    `);
+    sqlite.close();
+
+    opened = openDatabase(dir);
+    const columns = opened.db.$client.pragma("table_info(backlog_items)") as { name: string }[];
+    expect(columns.map((c) => c.name)).not.toContain("priority");
+    const r = createRepositories(opened.db);
+    const position = (id: string) => r.backlogItems.get(id)?.position;
+    expect(["high", "normal0", "normal2", "low"].map(position)).toEqual([0, 1, 2, 3]);
+    expect(position("other")).toBe(0);
+  });
 });

@@ -32,8 +32,6 @@ export const TASK_STATUSES = [
 export const TASK_STOPPED_ERROR = "Stopped by you";
 /** The `error` of a task a data import found `running` or `queued` and made `interrupted`. */
 export const IMPORT_INTERRUPTED_ERROR = "Interrupted by a data import";
-/** Backlog pick order: higher buckets run first. */
-export const BACKLOG_PRIORITIES = ["high", "normal", "low"] as const;
 /**
  * `waiting`: eligible to run. `promoted`: turned into a task (`taskId`).
  * `paused`: the user held it back.
@@ -156,7 +154,6 @@ export const findingStatusSchema = z.enum(FINDING_STATUSES);
 export const findingOverrideSchema = z.enum(FINDING_OVERRIDES);
 export const grillAnswererSchema = z.enum(GRILL_ANSWERERS);
 export const deliveryTargetSchema = z.enum(DELIVERY_TARGETS);
-export const backlogPrioritySchema = z.enum(BACKLOG_PRIORITIES);
 export const backlogStatusSchema = z.enum(BACKLOG_STATUSES);
 
 export type ConnectionKind = z.infer<typeof connectionKindSchema>;
@@ -174,7 +171,6 @@ export type FindingStatus = z.infer<typeof findingStatusSchema>;
 export type FindingOverride = z.infer<typeof findingOverrideSchema>;
 export type GrillAnswerer = z.infer<typeof grillAnswererSchema>;
 export type DeliveryTarget = z.infer<typeof deliveryTargetSchema>;
-export type BacklogPriority = z.infer<typeof backlogPrioritySchema>;
 export type BacklogStatus = z.infer<typeof backlogStatusSchema>;
 
 export function isGatingSeverity(severity: Severity): boolean {
@@ -960,8 +956,7 @@ export const backlogItemSchema = z
     /** Agents to run on another CLI than the repo's default once promoted. */
     agentClis: agentClisSchema,
     triageMode: triageModeSchema,
-    priority: backlogPrioritySchema,
-    /** Manual order inside a priority bucket. */
+    /** Manual order in the repo's backlog. */
     position: z.int(),
     /** Backlog items (same repo) that must be done first. */
     dependsOn: z.array(id),
@@ -1002,7 +997,6 @@ export const newBacklogItemInputSchema = z
     agents: roleAgentsSchema.default({}),
     agentClis: agentClisSchema.default({}),
     triageMode: triageModeSchema.default("intervene"),
-    priority: backlogPrioritySchema.default("normal"),
     dependsOn: backlogDependsOn.default([]),
     /** Not stored: whether to promote the item at once when the runner would. */
     start: z.boolean().default(false),
@@ -1023,7 +1017,6 @@ export type NewBacklogItemInput = z.input<typeof newBacklogItemInputSchema>;
 export const updateBacklogItemInputSchema = z.object({
   title: backlogTitle.optional(),
   freeText: z.string().optional(),
-  priority: backlogPrioritySchema.optional(),
   dependsOn: backlogDependsOn.optional(),
   /** Hold an item back or release it; promotion happens through `run`. */
   status: z.enum(["waiting", "paused"]).optional(),

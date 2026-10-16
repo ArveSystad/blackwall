@@ -11,7 +11,6 @@ import {
 } from "drizzle-orm/sqlite-core";
 import {
   AGENT_CLIS,
-  BACKLOG_PRIORITIES,
   BACKLOG_STATUSES,
   CHAT_ROLES,
   CONNECTION_KINDS,
@@ -218,8 +217,7 @@ export const backlogItems = sqliteTable(
       .notNull()
       .default(sql`'{}'`),
     triageMode: text("triage_mode", { enum: TRIAGE_MODES }).notNull().default("intervene"),
-    priority: text("priority", { enum: BACKLOG_PRIORITIES }).notNull().default("normal"),
-    /** Manual order inside a priority bucket. */
+    /** Manual order in the repo's backlog. */
     position: integer("position").notNull().default(0),
     /** Backlog item ids that must be done first. */
     dependsOn: text("depends_on", { mode: "json" })

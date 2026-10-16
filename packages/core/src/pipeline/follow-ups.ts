@@ -82,7 +82,6 @@ export function createFollowUpTasks({
       agents: {},
       agentClis: {},
       triageMode: task.triageMode,
-      priority: "normal" as const,
       dependsOn: [],
       status: "waiting" as const,
       sourceTaskId: task.id,

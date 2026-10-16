@@ -25,11 +25,10 @@ import {
   updateBacklogItem,
 } from "../api";
 import {
-  PRIORITY_LABELS,
   PUSHED_NOTE_MS,
   backlogSections,
   itemState,
-  moveInBucket,
+  moveItem,
   nextBacklogItem,
   pendingCount,
   plural,
@@ -347,8 +346,7 @@ function BacklogRow({
   const promoted = item.status === "promoted";
   const archivable =
     state.kind === "promoted" && state.task?.status === "done" && state.task.archivedAt === null;
-  const dropTarget =
-    dragging !== null && dragging.id !== item.id && dragging.priority === item.priority;
+  const dropTarget = dragging !== null && dragging.id !== item.id;
   return (
     <li
       data-item-id={item.id}
@@ -609,7 +607,7 @@ function QuickAdd({ repoId, onError }: { repoId: string; onError: (error: string
       </span>
       <Input
         aria-label="Quick add a Blackwall item"
-        placeholder="Quick add: describe the work, Enter adds it at normal priority"
+        placeholder="Quick add: describe the work, Enter adds it to the queue"
         className="pr-10 pl-[30px]"
         maxLength={120}
         value={text}
@@ -684,10 +682,7 @@ export function Backlog({
     () => backlogSections(items, tasks.isError ? [] : repoTasks),
     [items, repoTasks, tasks.isError],
   );
-  const shown = useMemo(
-    () => new Set(sections.groups.flatMap((g) => g.items.map((i) => i.id))),
-    [sections],
-  );
+  const shown = useMemo(() => new Set(sections.items.map((i) => i.id)), [sections]);
   // Filtered in the view only: the archive bar keeps counting every archived task.
   const archivedShown = useMemo(
     () => sections.archived.filter((t) => matchesFilter(t, archiveFilter)),
@@ -906,14 +901,9 @@ export function Backlog({
                 ))}
               </Section>
             )}
-            {sections.groups.map((group) => (
-              <Section
-                key={group.priority}
-                label={PRIORITY_LABELS[group.priority]}
-                ariaLabel={`${PRIORITY_LABELS[group.priority]} priority`}
-                count={group.items.length}
-              >
-                {group.items.map((item) => {
+            {sections.items.length > 0 && (
+              <Section label="Queue" ariaLabel="Queue" count={sections.items.length}>
+                {sections.items.map((item) => {
                   const state = itemState(item, { nextId, titles, tasks: taskById });
                   const action = rowAction(state);
                   return (
@@ -930,9 +920,7 @@ export function Backlog({
                         if (dragging) reorder(reorderIds(items, dragging.id, item.id));
                         setDragging(null);
                       }}
-                      onMove={(delta) =>
-                        reorder(moveInBucket(items, item.id, delta, shown), item.id)
-                      }
+                      onMove={(delta) => reorder(moveItem(items, item.id, delta, shown), item.id)}
                       onFocusStep={(delta) => focusStep(item.id, delta)}
                       onOpen={
                         action?.kind === "edit"
@@ -968,7 +956,7 @@ export function Backlog({
                   );
                 })}
               </Section>
-            ))}
+            )}
             {repoIssues.data?.errors.map((issuesError) => (
               <EmptyState
                 key={`issues-error:${issuesError.host}`}
@@ -1073,7 +1061,7 @@ export function Backlog({
               ) : (
                 <p className="m-0 px-1.5 text-label text-faint">No archived tasks</p>
               ))}
-            {sections.groups.length > 0 && (
+            {sections.items.length > 0 && (
               <p className="m-0 flex flex-wrap items-center gap-x-3 gap-y-1 px-1.5 text-label text-faint">
                 <span>
                   <Kbd>J</Kbd> <Kbd>K</Kbd> move

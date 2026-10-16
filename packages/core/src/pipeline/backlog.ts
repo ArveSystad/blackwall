@@ -1,20 +1,18 @@
-import { BACKLOG_PRIORITIES, type BacklogItem } from "@blackwall/shared";
+import type { BacklogItem } from "@blackwall/shared";
 
 /** The fields that decide a backlog item's turn. */
 export type BacklogPickItem = Pick<
   BacklogItem,
-  "id" | "priority" | "position" | "createdAt" | "status" | "dependsOn" | "taskId"
+  "id" | "position" | "createdAt" | "status" | "dependsOn" | "taskId"
 >;
 
 /** Whether the task an item was promoted to is done. */
 export type IsTaskDone = (taskId: string) => boolean;
 
-/** Pick order: priority bucket (`high` first), then manual position, then age. */
+/** Pick order: manual position, then age. */
 export function sortBacklog<T extends BacklogPickItem>(items: readonly T[]): T[] {
-  const rank = (item: T) => BACKLOG_PRIORITIES.indexOf(item.priority);
   return [...items].sort(
-    (a, b) =>
-      rank(a) - rank(b) || a.position - b.position || a.createdAt.getTime() - b.createdAt.getTime(),
+    (a, b) => a.position - b.position || a.createdAt.getTime() - b.createdAt.getTime(),
   );
 }
 

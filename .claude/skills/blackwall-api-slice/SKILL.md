@@ -29,7 +29,7 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
 
 ## Reference slice: backlog
 
-- `packages/shared/src/domain.ts`: backlog schemas and types (`backlogPrioritySchema` / `BacklogPriority`).
+- `packages/shared/src/domain.ts`: backlog schemas and types.
 - `packages/shared/src/protocol.ts`: the `backlog.changed` event in `serverEventSchema`.
 - `packages/core/src/pipeline/backlog.ts`: pure logic (`sortBacklog`, `unmetDependencies`,
   `createsDependencyCycle`); `packages/core/src/db/repositories.ts`: the `backlogItems` store.
