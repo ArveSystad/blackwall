@@ -1067,6 +1067,37 @@ describe("stop and delete", () => {
     expect(r.tasks.get(seeded.id)).toBeUndefined();
   });
 
+  it("runs beforeDelete before removing the worktree of a task that is not running", async () => {
+    const failed = seedTask({ status: "failed", worktreePath: dir });
+    const waiting = seedTask({ status: "needs-you", gate: "plan", worktreePath: dir });
+    const order: string[] = [];
+    const h = harness(() => ({}), {
+      beforeDelete: async (taskId) => void order.push(`beforeDelete ${taskId}`),
+      removeWorkspace: async (t) => void order.push(`removeWorkspace ${t.id}`),
+    });
+    await h.engine.delete(failed.id);
+    await h.engine.delete(waiting.id);
+    expect(order).toEqual([
+      `beforeDelete ${failed.id}`,
+      `removeWorkspace ${failed.id}`,
+      `beforeDelete ${waiting.id}`,
+      `removeWorkspace ${waiting.id}`,
+    ]);
+  });
+
+  it("leaves beforeDelete alone when a running task is only stopped", async () => {
+    const seeded = seedTask();
+    const beforeDelete = vi.fn(async () => undefined);
+    const h = harness((stage) => (stage === "inform" ? { hang: true, sessionId: "s" } : {}), {
+      beforeDelete,
+    });
+    h.engine.enqueue(seeded.id);
+    await vi.waitFor(() => expect(lastStep(seeded.id)?.sessionId).toBe("s"));
+
+    expect(await h.engine.stop(seeded.id)).toMatchObject({ status: "interrupted" });
+    expect(beforeDelete).not.toHaveBeenCalled();
+  });
+
   it("deletes a task whose repo folder is gone without touching git", async () => {
     const seeded = seedTask({ worktreePath: "/gone/app.worktrees/t1" });
     const removeWorkspace = vi.fn(async () => undefined);

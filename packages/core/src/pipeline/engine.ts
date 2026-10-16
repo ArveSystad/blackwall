@@ -995,7 +995,6 @@ export function createPipelineEngine({
       pending.delete(taskId);
       controllers.get(taskId)?.abort();
       await drives.get(taskId);
-      await beforeDelete?.(taskId);
       const settled = getTask(taskId);
       // A queued task never started a drive, or its drive ended before the abort.
       if (settled.status === "queued" || settled.status === "running") {
@@ -1367,6 +1366,7 @@ export function createPipelineEngine({
       scheduler.dequeue(taskId);
       pending.delete(taskId);
       await drives.get(taskId);
+      await beforeDelete?.(taskId);
       const settled = getTask(taskId);
       // A repo folder that is gone (say, after an import on another machine) has nothing to remove.
       const repo = r.repos.get(settled.repoId);
