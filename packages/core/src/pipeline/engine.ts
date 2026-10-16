@@ -236,6 +236,8 @@ export interface PipelineEngineOptions {
    * branch, its local branch. Called only for tasks that have a worktree.
    */
   removeWorkspace?: (task: Task) => Promise<void>;
+  /** Ends anything else working in the task's worktree (its chat) before the worktree is removed. */
+  beforeDelete?: (taskId: string) => Promise<void>;
   /** Plans and performs the delivery actions the user confirms at finish (or posts the review). */
   delivery: Deliverer;
   maxTasksPerRepo: () => number;
@@ -288,6 +290,7 @@ export function createPipelineEngine({
   stages,
   prepareWorkspace,
   removeWorkspace = async () => undefined,
+  beforeDelete,
   delivery,
   maxTasksPerRepo,
   quota,
@@ -992,6 +995,7 @@ export function createPipelineEngine({
       pending.delete(taskId);
       controllers.get(taskId)?.abort();
       await drives.get(taskId);
+      await beforeDelete?.(taskId);
       const settled = getTask(taskId);
       // A queued task never started a drive, or its drive ended before the abort.
       if (settled.status === "queued" || settled.status === "running") {
@@ -1340,6 +1344,7 @@ export function createPipelineEngine({
      * task is stopped first. Refused while delivery runs, while a plan-approval
      * issue comment posts, or once anything was delivered (progress comments
      * on an issue don't count). Backlog items that promoted it keep `taskId: null`.
+     * `beforeDelete` runs once the task has stopped, before the worktree goes.
      */
     async delete(taskId: string): Promise<void> {
       const task = getTask(taskId);

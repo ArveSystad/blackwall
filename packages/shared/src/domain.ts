@@ -1775,9 +1775,11 @@ export const chatMessageSchema = z.object({
 });
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 
-/** A repo's chat, stored per repo; `busy` and `activity` are live only. */
+/** A chat conversation, stored per repo or per task; `busy` and `activity` are live only. */
 export const chatStateSchema = z.object({
   repoId: id,
+  /** null: the repo's chat; set: that task's own conversation. */
+  taskId: id.nullable(),
   /** True while the agent answers. */
   busy: z.boolean(),
   /** What the agent is doing right now (e.g. `Grep · useTheme`); null when idle or unknown. */
@@ -1790,13 +1792,12 @@ export type ChatState = z.infer<typeof chatStateSchema>;
 export const CHAT_CLEAR_COMMAND = "/clear";
 
 /**
- * `POST /api/repos/:repoId/chat` body; {@link CHAT_CLEAR_COMMAND} starts over.
- * `taskId`: the task the user is looking at; ignored unless it is an
- * unarchived task of the repo.
+ * `POST /api/repos/:repoId/chat` (the repo's chat) or
+ * `POST /api/repos/:repoId/tasks/:taskId/chat` (that task's) body;
+ * {@link CHAT_CLEAR_COMMAND} starts over.
  */
 export const chatSendInputSchema = z.object({
   text: z.string().trim().min(1),
-  taskId: z.string().min(1).optional(),
 });
 export type ChatSendInput = z.infer<typeof chatSendInputSchema>;
 

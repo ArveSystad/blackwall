@@ -4,7 +4,9 @@ import { join } from "node:path";
 import type { ChatState, ServerEvent } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDatabase, type OpenedDatabase } from "../db/database.js";
+import type { AgentAdapter } from "../agents/adapters/types.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
+import { TaskNotFoundError } from "../pipeline/engine.js";
 import { createFakeAdapter, type FakeAdapter, type FakeScript } from "../pipeline/fake-adapter.js";
 import { RepoNotFoundError } from "../repos/service.js";
 import {
@@ -38,9 +40,12 @@ beforeEach(() => {
 });
 
 /** A chat service on the shared database; a second one stands in for a server restart. */
-function createService(options: { historyLimit?: number } = {}): ChatService {
+function createService({
+  cli = adapter,
+  ...options
+}: { historyLimit?: number; cli?: AgentAdapter } = {}): ChatService {
   return createChatService({
-    adapters: { claude: adapter, copilot: adapter },
+    adapters: { claude: cli, copilot: cli },
     repos: r.repos,
     tasks: r.tasks,
     questions: r.grillQuestions,
@@ -64,13 +69,15 @@ afterEach(() => {
   rmSync(worktree, { recursive: true, force: true });
 });
 
-/** Resolves once the repo's chat is idle again. */
-async function idle(id = repoId): Promise<ChatState> {
-  for (let i = 0; i < 100 && chat.get(id).busy; i++) {
+/** Resolves once the repo's chat, or the task's when `taskId` is given, is idle again. */
+async function idle(id = repoId, taskId?: string): Promise<ChatState> {
+  for (let i = 0; i < 100 && chat.get(id, taskId).busy; i++) {
     await new Promise((resolve) => setImmediate(resolve));
   }
-  return chat.get(id);
+  return chat.get(id, taskId);
 }
+
+const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 function addTask(title: string, repo: string) {
   return r.tasks.create({
@@ -147,7 +154,7 @@ describe("chat service", () => {
     expect(prompt).not.toContain("## Focused task");
   });
 
-  it("gives the task the user is looking at in full", async () => {
+  it("gives the task in full in its own chat", async () => {
     const failed = addTask("Fix login", repoId);
     r.tasks.update(failed.id, {
       status: "failed",
@@ -156,34 +163,76 @@ describe("chat service", () => {
     });
 
     chat.send(repoId, "Why did this fail?", failed.id);
-    await idle();
+    await idle(repoId, failed.id);
     const prompt = adapter.calls[0]!.options.prompt;
     const focus = prompt.slice(prompt.indexOf("## Focused task"));
+    expect(focus).toContain("This conversation is about this task");
     expect(focus).toContain(`- id \`${failed.id}\``);
     expect(focus).toContain("### Error\n\npnpm install failed: ENOTFOUND");
     expect(focus).toContain("### Plan\n\n## Plan\nSwap the hash");
   });
 
-  it("ignores a focused task of another repo, an archived one or an unknown id", async () => {
-    const foreign = addTask("Foreign task", otherRepoId);
-    const archived = addTask("Old work", repoId);
-    r.tasks.update(archived.id, { archivedAt: new Date() });
-    for (const id of [foreign.id, archived.id, "nope"]) {
-      chat.send(repoId, "Why?", id);
-      await idle();
-    }
-    for (const call of adapter.calls) {
-      expect(call.options.prompt).not.toContain("## Focused task");
-      expect(call.options.cwd).toBe("/code/app");
-    }
+  it("keeps a task's chat apart from the repo's and publishes it with the task id", async () => {
+    const task = addTask("Fix login", repoId);
+    chat.send(repoId, "Repo question");
+    await idle();
+    events = [];
+    chat.send(repoId, "Task question", task.id);
+    const state = await idle(repoId, task.id);
+
+    expect(state.taskId).toBe(task.id);
+    expect(state.messages.map((m) => m.text)).toEqual(["Task question", "Hello"]);
+    expect(chat.get(repoId).taskId).toBeNull();
+    expect(chat.get(repoId).messages.map((m) => m.text)).toEqual(["Repo question", "Hello"]);
+    expect(r.chatMessages.list(repoId, task.id)).toEqual(state.messages);
+    expect(events.length).toBeGreaterThanOrEqual(2);
+    expect(
+      events.every((e) => e.type === "chat.upserted" && e.payload.chat.taskId === task.id),
+    ).toBe(true);
+    // The task chat's turn carries no repo chat history and starts its own session.
+    expect(adapter.calls[1]!.options.resumeSessionId).toBeUndefined();
+    expect(adapter.calls[1]!.options.prompt).not.toContain("Repo question");
   });
 
-  it("runs read-only in the focused task's worktree", async () => {
+  it("never focuses a task in the repo's chat", async () => {
+    const task = addTask("Fix login", repoId);
+    r.tasks.update(task.id, { worktreePath: worktree, branch: "agent/fix-login" });
+    chat.send(repoId, "Why?");
+    await idle();
+    const call = adapter.calls[0]!.options;
+    expect(call.prompt).not.toContain("## Focused task");
+    expect(call.cwd).toBe("/code/app");
+  });
+
+  it("focuses an archived task in its own chat", async () => {
+    const archived = addTask("Old work", repoId);
+    r.tasks.update(archived.id, { archivedAt: new Date() });
+    chat.send(repoId, "What happened here?", archived.id);
+    await idle(repoId, archived.id);
+    const prompt = adapter.calls[0]!.options.prompt;
+    expect(prompt.slice(prompt.indexOf("## Focused task"))).toContain(`- id \`${archived.id}\``);
+  });
+
+  it("refuses a task of another repo or an unknown task", () => {
+    const foreign = addTask("Foreign task", otherRepoId);
+    for (const id of [foreign.id, "nope"]) {
+      expect(() => chat.get(repoId, id)).toThrow(TaskNotFoundError);
+      expect(() => chat.send(repoId, "Why?", id)).toThrow(TaskNotFoundError);
+      expect(() => chat.markApplied(repoId, "a1", id)).toThrow(TaskNotFoundError);
+      expect(() => chat.addAction(repoId, "m1", { kind: "stop-task", taskId: "t1" }, id)).toThrow(
+        TaskNotFoundError,
+      );
+    }
+    expect(adapter.calls).toEqual([]);
+    expect(r.chatMessages.list(repoId, null)).toEqual([]);
+  });
+
+  it("runs read-only in the task's worktree", async () => {
     const task = addTask("Fix login", repoId);
     r.tasks.update(task.id, { worktreePath: worktree, branch: "agent/fix-login" });
 
     chat.send(repoId, "Why did the checks fail?", task.id);
-    await idle();
+    await idle(repoId, task.id);
     const call = adapter.calls[0]!.options;
     expect(call.cwd).toBe(worktree);
     expect(call.permissions.profile).toBe("read-only");
@@ -192,13 +241,13 @@ describe("chat service", () => {
     );
   });
 
-  it("runs in the checkout when the focused task has no worktree on disk", async () => {
+  it("runs in the checkout when the task has no worktree on disk", async () => {
     const none = addTask("No worktree", repoId);
     const gone = addTask("Removed worktree", repoId);
     r.tasks.update(gone.id, { worktreePath: join(worktree, "missing"), branch: "agent/gone" });
     for (const id of [none.id, gone.id]) {
       chat.send(repoId, "Why?", id);
-      await idle();
+      await idle(repoId, id);
     }
     for (const call of adapter.calls) {
       expect(call.options.cwd).toBe("/code/app");
@@ -207,27 +256,99 @@ describe("chat service", () => {
     }
   });
 
-  it("resumes a session only in the directory it ran in", async () => {
+  it("resumes each conversation's own session", async () => {
     const task = addTask("Fix login", repoId);
     r.tasks.update(task.id, { worktreePath: worktree, branch: "agent/fix-login" });
 
     chat.send(repoId, "Hi");
     await idle();
     chat.send(repoId, "Look at the task", task.id);
-    await idle();
+    await idle(repoId, task.id);
     chat.send(repoId, "And the diff?", task.id);
-    await idle();
-    chat.send(repoId, "/clear");
-    chat.send(repoId, "Again", task.id);
+    await idle(repoId, task.id);
+    chat.send(repoId, "Back to the repo");
     await idle();
 
-    const [, moved, same, cleared] = adapter.calls.map((c) => c.options);
-    expect(moved?.cwd).toBe(worktree);
-    expect(moved?.resumeSessionId).toBeUndefined();
-    expect(moved?.prompt).toContain("**User:** Hi");
-    expect(same?.resumeSessionId).toBe("fake-2");
-    expect(same?.prompt).not.toContain("## Earlier conversation");
-    expect(cleared?.resumeSessionId).toBeUndefined();
+    const [, task1, task2, repo2] = adapter.calls.map((c) => c.options);
+    expect(task1?.cwd).toBe(worktree);
+    expect(task1?.resumeSessionId).toBeUndefined();
+    expect(task2?.resumeSessionId).toBe("fake-2");
+    expect(task2?.prompt).not.toContain("## Earlier conversation");
+    expect(repo2?.cwd).toBe("/code/app");
+    expect(repo2?.resumeSessionId).toBe("fake-1");
+
+    restart();
+    chat.send(repoId, "After a restart", task.id);
+    await idle(repoId, task.id);
+    expect(adapter.calls.at(-1)!.options.resumeSessionId).toBe("fake-2");
+  });
+
+  it("clears only the task's chat on /clear there", async () => {
+    const task = addTask("Fix login", repoId);
+    chat.send(repoId, "Repo question");
+    await idle();
+    chat.send(repoId, "Task question", task.id);
+    await idle(repoId, task.id);
+
+    chat.send(repoId, "/clear", task.id);
+    expect(chat.get(repoId, task.id).messages).toEqual([]);
+    expect(r.chatMessages.list(repoId, task.id)).toEqual([]);
+    expect(chat.get(repoId).messages).toHaveLength(2);
+    expect(r.chatMessages.list(repoId, null)).toHaveLength(2);
+  });
+
+  it("answers in the repo's chat and a task's at the same time", async () => {
+    const task = addTask("Fix login", repoId);
+    script = () => ({ hang: true });
+    chat.send(repoId, "Long repo question");
+    chat.send(repoId, "Long task question", task.id);
+    expect(chat.get(repoId).busy).toBe(true);
+    expect(chat.get(repoId, task.id).busy).toBe(true);
+    expect(adapter.calls).toHaveLength(2);
+  });
+
+  it("forgetTask ends the task's turn and waits for its run before returning", async () => {
+    const task = addTask("Fix login", repoId);
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    // Like a CLI that takes a while to exit after the kill.
+    const slow: AgentAdapter = {
+      cli: "claude",
+      run(options) {
+        const run = adapter.run(options);
+        return {
+          result: run.result.finally(() => released),
+          [Symbol.asyncIterator]: () => run[Symbol.asyncIterator](),
+        };
+      },
+    };
+    chat.shutdown();
+    chat = createService({ cli: slow });
+    script = () => ({ hang: true });
+    chat.send(repoId, "Long question", task.id);
+    chat.send(repoId, "Repo question");
+
+    let forgotten = false;
+    const forgetting = chat.forgetTask(task.id).then(() => (forgotten = true));
+    for (let i = 0; i < 5; i++) await tick();
+    expect(adapter.calls[0]!.options.signal?.aborted).toBe(true);
+    expect(adapter.calls[1]!.options.signal?.aborted).toBe(false);
+    expect(forgotten).toBe(false);
+
+    release();
+    await forgetting;
+    expect(r.chatMessages.list(repoId, task.id).map((m) => m.role)).toEqual(["user"]);
+    expect(() => chat.send(repoId, "Again", task.id)).toThrow(TaskNotFoundError);
+    expect(() => chat.get(repoId, task.id)).toThrow(TaskNotFoundError);
+    expect(chat.get(repoId).busy).toBe(true);
+  });
+
+  it("forgetTask is a no-op for a task without a chat", async () => {
+    const task = addTask("Fix login", repoId);
+    await chat.forgetTask(task.id);
+    expect(() => chat.get(repoId, task.id)).toThrow(TaskNotFoundError);
+    chat.reset();
+    expect(chat.get(repoId, task.id).messages).toEqual([]);
   });
 
   it("lists the open questions of a task at the questions gate", async () => {
@@ -241,7 +362,7 @@ describe("chat service", () => {
     r.grillQuestions.create({ taskId: grilled.id, question: "Planner's to answer" });
 
     chat.send(repoId, "What should I answer?", grilled.id);
-    await idle();
+    await idle(repoId, grilled.id);
     const prompt = adapter.calls[0]!.options.prompt;
     expect(prompt).toContain(`  - question \`${open.id}\`: Zip or tar?`);
     expect(prompt).toContain(`### Open questions for the user\n\n- \`${open.id}\` Zip or tar?`);
@@ -379,7 +500,7 @@ describe("chat service", () => {
     expect(action.id).toEqual(expect.any(String));
     expect(action.appliedAt).toBeNull();
     expect(events).toEqual([{ type: "chat.upserted", payload: { chat: state } }]);
-    expect(r.chatMessages.list(repoId)).toEqual(state.messages);
+    expect(r.chatMessages.list(repoId, null)).toEqual(state.messages);
 
     restart();
     expect(chat.get(repoId).messages).toEqual(state.messages);
@@ -405,7 +526,7 @@ describe("chat service", () => {
     const state = await idle();
     expect(state.messages.map((m) => m.text)).toEqual(["Hi", "Hello", "More", "Later"]);
     expect(state.messages[1]!.actions).toMatchObject([{ kind: "create-task", title: "T" }]);
-    expect(r.chatMessages.list(repoId)).toEqual(state.messages);
+    expect(r.chatMessages.list(repoId, null)).toEqual(state.messages);
   });
 
   it("reset aborts running answers and reloads every chat from the database", async () => {
@@ -415,12 +536,12 @@ describe("chat service", () => {
     chat.send(repoId, "Long question");
 
     // Stands in for a data import replacing the stored rows.
-    r.chatMessages.deleteForRepo(otherRepoId);
+    r.chatMessages.deleteConversation(otherRepoId, null);
     chat.reset();
     await new Promise((resolve) => setImmediate(resolve));
     expect(adapter.calls[1]!.options.signal?.aborted).toBe(true);
     expect(chat.get(repoId)).toMatchObject({ busy: false });
-    expect(chat.get(repoId).messages).toEqual(r.chatMessages.list(repoId));
+    expect(chat.get(repoId).messages).toEqual(r.chatMessages.list(repoId, null));
     expect(chat.get(otherRepoId).messages).toEqual([]);
 
     // The next message starts a fresh session.
@@ -436,8 +557,11 @@ describe("chat service", () => {
     });
     chat.send(repoId, "Resume it");
     const state = await idle();
-    expect(r.chatMessages.list(repoId)).toEqual(state.messages);
-    expect(r.chatMessages.latestSession(repoId)).toEqual({ sessionId: "fake-1", cli: "claude" });
+    expect(r.chatMessages.list(repoId, null)).toEqual(state.messages);
+    expect(r.chatMessages.latestSession(repoId, null)).toEqual({
+      sessionId: "fake-1",
+      cli: "claude",
+    });
   });
 
   it("reloads the conversation and resumes its session after a restart", async () => {
@@ -469,8 +593,8 @@ describe("chat service", () => {
     chat.send(repoId, "Long question");
     chat.send(repoId, "/clear");
     await new Promise((resolve) => setImmediate(resolve));
-    expect(r.chatMessages.list(repoId)).toEqual([]);
-    expect(r.chatMessages.list(otherRepoId)).toHaveLength(2);
+    expect(r.chatMessages.list(repoId, null)).toEqual([]);
+    expect(r.chatMessages.list(otherRepoId, null)).toHaveLength(2);
 
     restart();
     expect(chat.get(repoId).messages).toEqual([]);

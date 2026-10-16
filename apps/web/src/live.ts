@@ -244,7 +244,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       break;
     case "chat.upserted": {
       const { chat } = event.payload;
-      client.setQueryData<ChatState>(queryKeys.chat(chat.repoId), chat);
+      client.setQueryData<ChatState>(queryKeys.chat(chat.repoId, chat.taskId), chat);
       break;
     }
     case "data.imported":

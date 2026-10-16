@@ -269,10 +269,25 @@ describe("applyServerEvent", () => {
   });
 
   it("writes a repo's chat into its query", () => {
-    const chat = { repoId: "r1", busy: true, activity: "Grep · useTheme", messages: [] };
+    const chat = {
+      repoId: "r1",
+      taskId: null,
+      busy: true,
+      activity: "Grep · useTheme",
+      messages: [],
+    };
     applyServerEvent(client, { type: "chat.upserted", payload: { chat } });
+    expect(client.getQueryData(["chat", "r1", null])).toEqual(chat);
     expect(client.getQueryData(queryKeys.chat("r1"))).toEqual(chat);
     expect(client.getQueryData(queryKeys.chat("r2"))).toBeUndefined();
+  });
+
+  it("writes a task's chat into its own query, apart from the repo's", () => {
+    const chat = { repoId: "r1", taskId: "t1", busy: false, activity: null, messages: [] };
+    applyServerEvent(client, { type: "chat.upserted", payload: { chat } });
+    expect(client.getQueryData(["chat", "r1", "t1"])).toEqual(chat);
+    expect(client.getQueryData(queryKeys.chat("r1"))).toBeUndefined();
+    expect(client.getQueryData(queryKeys.chat("r1", "t2"))).toBeUndefined();
   });
 
   it("drops every cached query after a data import", () => {

@@ -923,13 +923,16 @@ describe("chat schemas", () => {
     expect(parses({ kind: "resume-task", taskId: "t1", note: "x" })).toBe(false);
   });
 
-  it("takes an optional task id with a chat message", () => {
+  it("takes only the text with a chat message; the URL names the task", () => {
     expect(chatSendInputSchema.parse({ text: " Why? " })).toEqual({ text: "Why?" });
-    expect(chatSendInputSchema.parse({ text: "Why?", taskId: "t1" })).toEqual({
-      text: "Why?",
-      taskId: "t1",
-    });
-    expect(chatSendInputSchema.safeParse({ text: "Why?", taskId: "" }).success).toBe(false);
+    expect(chatSendInputSchema.parse({ text: "Why?", taskId: "t1" })).toEqual({ text: "Why?" });
+  });
+
+  it("requires a chat state's task id, null for the repo's chat", () => {
+    const repoChat = { repoId: "r1", taskId: null, busy: false, activity: null, messages: [] };
+    expect(chatStateSchema.parse(repoChat)).toEqual(repoChat);
+    expect(chatStateSchema.parse({ ...repoChat, taskId: "t1" }).taskId).toBe("t1");
+    expect(chatStateSchema.safeParse({ ...repoChat, taskId: undefined }).success).toBe(false);
   });
 
   it("takes optional guidance when resuming a task", () => {
@@ -941,6 +944,7 @@ describe("chat schemas", () => {
   it("accepts a stored action with its id and applied time", () => {
     const state = {
       repoId: "r1",
+      taskId: null,
       busy: false,
       activity: null,
       messages: [

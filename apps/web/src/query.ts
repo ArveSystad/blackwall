@@ -85,8 +85,8 @@ export const queryKeys = {
    */
   repoSync: (repoId: string) => ["backlog", repoId, "sync"] as const,
   quota: ["quota"] as const,
-  /** A repo's chat; written in place by `chat.upserted`. */
-  chat: (repoId: string) => ["chat", repoId] as const,
+  /** A repo's chat (`taskId` null) or a task's own; written in place by `chat.upserted`. */
+  chat: (repoId: string, taskId?: string | null) => ["chat", repoId, taskId ?? null] as const,
   reviewRequests: ["review-requests"] as const,
   assignedIssues: ["assigned-issues"] as const,
   repoIssues: (repoId: string) => ["repo-issues", repoId] as const,
@@ -226,10 +226,10 @@ export const repoSyncQuery = (repoId: string) =>
   });
 
 /** Written in place by `chat.upserted`, so it never goes stale once loaded. */
-export const chatQuery = (repoId: string) =>
+export const chatQuery = (repoId: string, taskId?: string) =>
   queryOptions({
-    queryKey: queryKeys.chat(repoId),
-    queryFn: () => getChat(repoId),
+    queryKey: queryKeys.chat(repoId, taskId),
+    queryFn: () => getChat(repoId, taskId),
     staleTime: Infinity,
   });
 

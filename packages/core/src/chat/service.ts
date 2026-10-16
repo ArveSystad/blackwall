@@ -22,7 +22,7 @@ import {
   type ChatStateQuestion,
 } from "../agents/prompts.js";
 import type { Repositories } from "../db/repositories.js";
-import { TaskStateError } from "../pipeline/engine.js";
+import { TaskNotFoundError, TaskStateError } from "../pipeline/engine.js";
 import { referenceReposOf, RepoNotFoundError } from "../repos/service.js";
 
 /** A message sent while the chat still answers the previous one. Maps to 409 like a task state conflict. */
@@ -50,13 +50,13 @@ export class ChatMessageNotFoundError extends Error {
 export interface ChatServiceOptions {
   adapters: Partial<Record<AgentCli, AgentAdapter>>;
   repos: Pick<Repositories["repos"], "get">;
-  tasks: Pick<Repositories["tasks"], "list">;
+  tasks: Pick<Repositories["tasks"], "list" | "get">;
   /** Grill questions; the open ones of tasks at the `questions` gate reach the prompt. */
   questions: Pick<Repositories["grillQuestions"], "listByTask">;
   backlogItems: Pick<Repositories["backlogItems"], "list">;
   messages: Pick<
     Repositories["chatMessages"],
-    "list" | "latestSession" | "insert" | "setActions" | "deleteForRepo"
+    "list" | "latestSession" | "insert" | "setActions" | "deleteConversation"
   >;
   /** Earlier messages a turn on a fresh CLI session carries; defaults to {@link CHAT_HISTORY_LIMIT}. */
   historyLimit?: number;
@@ -70,7 +70,7 @@ export type ChatService = ReturnType<typeof createChatService>;
 /** Earlier user and assistant messages replayed when the CLI session cannot be resumed. */
 export const CHAT_HISTORY_LIMIT = 20;
 
-/** One repo's chat: the state clients see, plus the CLI session and the running turn. */
+/** One conversation (a repo's or a task's): the state clients see, plus the CLI session and the running turn. */
 interface ChatEntry {
   state: ChatState;
   sessionId: string | null;
@@ -84,6 +84,8 @@ interface ChatEntry {
   /** Bumped by `/clear` and shutdown, so a turn that started before drops its result. */
   generation: number;
   controller: AbortController | null;
+  /** The running turn; settles once its CLI run has ended. */
+  turn: Promise<void> | null;
 }
 
 const TARGET_KEYS = ["file_path", "path", "command", "pattern", "url", "query", "description"];
@@ -111,10 +113,12 @@ function message(role: ChatMessage["role"], text: string, actions: ChatAction[] 
 }
 
 /**
- * The repo chat: one conversation per repo, stored in SQLite and loaded on
- * first use. Each message runs the repo's default CLI once, headless and
- * read-only in the repo's checkout, or in the focused task's worktree when it
- * has one on disk, continuing the chat's CLI session; when that session cannot
+ * The chat: one conversation per repo, plus one per task, stored in SQLite
+ * and loaded on first use. A task's conversation always focuses that task
+ * (archived ones too); the repo's never has a focused task. Each message runs
+ * the repo's default CLI once, headless and read-only in the repo's checkout,
+ * or in the focused task's worktree when it has one on disk, continuing the
+ * conversation's CLI session; when that session cannot
  * be resumed or ran in another directory, the prompt carries the last
  * `historyLimit` messages instead. The agent answers with a markdown reply
  * and proposed actions; the user applies those through the existing endpoints
@@ -133,7 +137,10 @@ export function createChatService({
   modelFor,
   publish,
 }: ChatServiceOptions) {
+  /** Keyed by `${repoId}:${taskId ?? ""}`. */
   const chats = new Map<string, ChatEntry>();
+  /** Tasks being or already deleted: their chat takes no new turn. */
+  const forgotten = new Set<string>();
 
   function repoOf(repoId: string): Repo {
     const repo = repos.get(repoId);
@@ -141,21 +148,43 @@ export function createChatService({
     return repo;
   }
 
-  function entryFor(repoId: string): ChatEntry {
-    let entry = chats.get(repoId);
+  /** The repo's task, archived or not; {@link TaskNotFoundError} for another repo's or a forgotten one. */
+  function taskOf(repo: Repo, taskId: string): Task {
+    const task = forgotten.has(taskId) ? undefined : tasks.get(taskId);
+    if (!task || task.repoId !== repo.id) throw new TaskNotFoundError(taskId);
+    return task;
+  }
+
+  function entryFor(repoId: string, taskId: string | null): ChatEntry {
+    const key = `${repoId}:${taskId ?? ""}`;
+    let entry = chats.get(key);
     if (!entry) {
-      const session = messages.latestSession(repoId);
+      const session = messages.latestSession(repoId, taskId);
       entry = {
-        state: { repoId, busy: false, activity: null, messages: messages.list(repoId) },
+        state: {
+          repoId,
+          taskId,
+          busy: false,
+          activity: null,
+          messages: messages.list(repoId, taskId),
+        },
         sessionId: session?.sessionId ?? null,
         sessionCli: session?.cli ?? null,
         sessionCwd: null,
         generation: 0,
         controller: null,
+        turn: null,
       };
-      chats.set(repoId, entry);
+      chats.set(key, entry);
     }
     return entry;
+  }
+
+  /** The repo and the conversation: the task's when `taskId` is given, else the repo's. */
+  function open(repoId: string, taskId: string | undefined): { repo: Repo; entry: ChatEntry } {
+    const repo = repoOf(repoId);
+    if (taskId !== undefined) taskOf(repo, taskId);
+    return { repo, entry: entryFor(repo.id, taskId ?? null) };
   }
 
   /** Replaces the entry's state and announces it. */
@@ -180,6 +209,7 @@ export function createChatService({
     messages.insert({
       id: msg.id,
       repoId: entry.state.repoId,
+      taskId: entry.state.taskId,
       role: msg.role,
       text: msg.text,
       actions: msg.actions,
@@ -198,12 +228,7 @@ export function createChatService({
       .map(({ id, question }) => ({ id, question }));
   }
 
-  async function runTurn(
-    entry: ChatEntry,
-    repo: Repo,
-    text: string,
-    focusId: string | undefined,
-  ): Promise<void> {
+  async function runTurn(entry: ChatEntry, repo: Repo, text: string): Promise<void> {
     const generation = entry.generation;
     const current = () => entry.generation === generation;
     const controller = new AbortController();
@@ -217,7 +242,8 @@ export function createChatService({
       if (!adapter) throw new Error(`No adapter for the ${cli} CLI`);
       const repoTasks = tasks.list().filter((t) => t.repoId === repo.id && t.archivedAt === null);
       const open = Object.fromEntries(repoTasks.map((t) => [t.id, openQuestions(t)]));
-      const focusTask = repoTasks.find((t) => t.id === focusId);
+      // A task's conversation focuses that task, archived or not; the repo's has no focus.
+      const focusTask = entry.state.taskId === null ? undefined : tasks.get(entry.state.taskId);
       // The focused task's worktree, when it is still on disk, so the agent can read it.
       const worktreePath =
         focusTask?.worktreePath && existsSync(focusTask.worktreePath)
@@ -227,7 +253,7 @@ export function createChatService({
       const focus: ChatFocus | undefined = focusTask
         ? {
             task: focusTask,
-            questions: open[focusTask.id] ?? [],
+            questions: open[focusTask.id] ?? openQuestions(focusTask),
             ...(worktreePath
               ? {
                   worktree: {
@@ -341,23 +367,26 @@ export function createChatService({
   }
 
   return {
-    /** The repo's chat; empty until the first message. */
-    get(repoId: string): ChatState {
-      repoOf(repoId);
-      return entryFor(repoId).state;
+    /**
+     * The repo's chat, or the task's own when `taskId` is given; empty until
+     * the first message. Throws {@link TaskNotFoundError} for a task that is
+     * not the repo's.
+     */
+    get(repoId: string, taskId?: string): ChatState {
+      return open(repoId, taskId).entry.state;
     },
 
     /**
      * Sends a message and starts the agent's answer in the background.
      * `/clear` aborts any running answer and starts over; anything else is
-     * refused with {@link ChatBusyError} while the chat answers. `taskId` is
-     * the task the user is looking at; the prompt gives it in full when it is
-     * an unarchived task of the repo, and ignores it otherwise. When that task
-     * has a worktree on disk, the answer runs read-only in it.
+     * refused with {@link ChatBusyError} while the conversation answers. With
+     * `taskId` the message goes to that task's conversation: the prompt gives
+     * the task in full, and when it has a worktree on disk the answer runs
+     * read-only in it. Without, it goes to the repo's chat, which runs in the
+     * repo's checkout.
      */
     send(repoId: string, text: string, taskId?: string): ChatState {
-      const repo = repoOf(repoId);
-      const entry = entryFor(repoId);
+      const { repo, entry } = open(repoId, taskId);
       const trimmed = text.trim();
       if (trimmed === CHAT_CLEAR_COMMAND) {
         entry.controller?.abort();
@@ -366,14 +395,17 @@ export function createChatService({
         entry.sessionId = null;
         entry.sessionCli = null;
         entry.sessionCwd = null;
-        messages.deleteForRepo(repoId);
+        messages.deleteConversation(repo.id, entry.state.taskId);
         return update(entry, { busy: false, activity: null, messages: [] });
       }
       if (entry.state.busy) throw new ChatBusyError();
       const state = append(entry, message("user", trimmed), {
         patch: { busy: true, activity: null },
       });
-      void runTurn(entry, repo, trimmed, taskId);
+      const turn: Promise<void> = runTurn(entry, repo, trimmed).finally(() => {
+        if (entry.turn === turn) entry.turn = null;
+      });
+      entry.turn = turn;
       return state;
     },
 
@@ -382,9 +414,8 @@ export function createChatService({
      * first `appliedAt`. Throws {@link ChatActionNotFoundError} for an action
      * not in the chat (e.g. after `/clear`).
      */
-    markApplied(repoId: string, actionId: string): ChatState {
-      repoOf(repoId);
-      const entry = entryFor(repoId);
+    markApplied(repoId: string, actionId: string, taskId?: string): ChatState {
+      const { entry } = open(repoId, taskId);
       const found = entry.state.messages.some((m) => m.actions.some((a) => a.id === actionId));
       if (!found) throw new ChatActionNotFoundError(actionId);
       const alreadyApplied = entry.state.messages.some((m) =>
@@ -407,9 +438,13 @@ export function createChatService({
      * Allowed while the chat answers. Throws {@link ChatMessageNotFoundError}
      * for a message not in the chat (e.g. after `/clear`) or not from the assistant.
      */
-    addAction(repoId: string, messageId: string, proposal: ChatActionProposal): ChatState {
-      repoOf(repoId);
-      const entry = entryFor(repoId);
+    addAction(
+      repoId: string,
+      messageId: string,
+      proposal: ChatActionProposal,
+      taskId?: string,
+    ): ChatState {
+      const { entry } = open(repoId, taskId);
       const target = entry.state.messages.find((m) => m.id === messageId);
       if (!target || target.role !== "assistant") throw new ChatMessageNotFoundError(messageId);
       const actions: ChatAction[] = [
@@ -430,6 +465,25 @@ export function createChatService({
         entry.controller = null;
       }
       chats.clear();
+      forgotten.clear();
+    },
+
+    /**
+     * Ends a task's chat before the task is deleted: refuses new turns for it,
+     * aborts its running turn and waits until that turn's CLI run has ended (so
+     * nothing still runs in the worktree), then forgets the conversation. Its
+     * stored messages go with the task.
+     */
+    async forgetTask(taskId: string): Promise<void> {
+      forgotten.add(taskId);
+      for (const [key, entry] of chats) {
+        if (entry.state.taskId !== taskId) continue;
+        entry.generation += 1;
+        entry.controller?.abort();
+        entry.controller = null;
+        await entry.turn?.catch(() => undefined);
+        chats.delete(key);
+      }
     },
 
     /** Aborts every running answer; their results are dropped. */

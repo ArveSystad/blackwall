@@ -64,7 +64,7 @@ export interface AppOptions {
   taskServices?: TaskRouteServices;
   /** Backlog stores and runner hooks; omit to leave the backlog routes out (e.g. in tests). */
   backlog?: BacklogRouteOptions;
-  /** The repo chat; omit to leave the chat routes out (e.g. in tests). */
+  /** The repo and task chats; omit to leave the chat routes out (e.g. in tests). */
   chat?: Pick<ChatService, "get" | "send" | "markApplied" | "addAction">;
   /** Agent CLI usage limits; omit to leave the quota route out (e.g. in tests). */
   quota?: Pick<QuotaTracker, "state">;
@@ -140,7 +140,10 @@ export function createApp({
       }),
     );
   }
-  if (chat) app.route("/api/repos/:repoId/chat", chatRoutes(chat));
+  if (chat) {
+    app.route("/api/repos/:repoId/chat", chatRoutes(chat));
+    app.route("/api/repos/:repoId/tasks/:taskId/chat", chatRoutes(chat));
+  }
   if (repos) app.route("/api/repos", repoRoutes(repos));
   if (repos && connections) {
     app.route(

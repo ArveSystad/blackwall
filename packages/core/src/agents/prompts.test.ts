@@ -302,7 +302,7 @@ describe("chat prompts", () => {
     expect(focus).toBeGreaterThan(prompt.indexOf("### Backlog"));
     expect(focus).toBeLessThan(prompt.indexOf("## Message"));
     const section = prompt.slice(focus);
-    expect(section).toContain('"this task" means it');
+    expect(section).toContain('This conversation is about this task; "this task" means it.');
     expect(section).toContain(
       "- id `t3`\n- title Add export\n- status needs-you · stage plan-review · gate questions",
     );

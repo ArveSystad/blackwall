@@ -139,6 +139,7 @@ function harness(
     deliver = async () => undefined,
     quota,
     removeWorkspace,
+    beforeDelete,
     commentOnIssue = async () => ({ url: ISSUE_COMMENT_URL }),
     pathExists,
     ci,
@@ -150,6 +151,7 @@ function harness(
     deliver?: (ctx: DeliveryContext) => Promise<void>;
     quota?: Pick<QuotaTracker, "report" | "succeeded">;
     removeWorkspace?: (task: Task) => Promise<void>;
+    beforeDelete?: (taskId: string) => Promise<void>;
     commentOnIssue?: (task: Task, body: string) => Promise<{ url: string }>;
     pathExists?: (path: string) => boolean;
     ci?: Pick<CiWatcher, "watch" | "cancel" | "failureContext">;
@@ -197,6 +199,7 @@ function harness(
     maxTasksPerRepo: () => maxPerRepo,
     ...(quota ? { quota } : {}),
     ...(removeWorkspace ? { removeWorkspace } : {}),
+    ...(beforeDelete ? { beforeDelete } : {}),
     ...(pathExists ? { pathExists } : {}),
     ...(ci ? { ci } : {}),
     ...(prFeedback ? { prFeedback } : {}),
@@ -1032,10 +1035,36 @@ describe("stop and delete", () => {
   it("deletes a task that never got a worktree without touching git", async () => {
     const seeded = seedTask();
     const removeWorkspace = vi.fn(async () => undefined);
-    const h = harness(() => ({}), { removeWorkspace });
+    const beforeDelete = vi.fn(async () => undefined);
+    const h = harness(() => ({}), { removeWorkspace, beforeDelete });
     await h.engine.delete(seeded.id);
     expect(r.tasks.get(seeded.id)).toBeUndefined();
     expect(removeWorkspace).not.toHaveBeenCalled();
+    expect(beforeDelete).toHaveBeenCalledWith(seeded.id);
+  });
+
+  it("waits for beforeDelete before removing the worktree", async () => {
+    const seeded = seedTask({ worktreePath: dir });
+    const order: string[] = [];
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    const h = harness(() => ({}), {
+      beforeDelete: async (taskId) => {
+        order.push(`beforeDelete ${taskId}`);
+        await released;
+      },
+      removeWorkspace: async () => void order.push("removeWorkspace"),
+    });
+    const deleting = h.engine.delete(seeded.id);
+    await vi.waitFor(() => expect(order).toEqual([`beforeDelete ${seeded.id}`]));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(order).toEqual([`beforeDelete ${seeded.id}`]);
+    expect(r.tasks.get(seeded.id)).toBeDefined();
+
+    release();
+    await deleting;
+    expect(order).toEqual([`beforeDelete ${seeded.id}`, "removeWorkspace"]);
+    expect(r.tasks.get(seeded.id)).toBeUndefined();
   });
 
   it("deletes a task whose repo folder is gone without touching git", async () => {
@@ -1082,9 +1111,11 @@ describe("stop and delete", () => {
     const squashStep = r.steps.create({ runId: squashRun.id, stage: "summarize", agentId: null });
     r.stepEvents.append(squashStep.id, DELIVERY_DONE_EVENT, { action: "squash", detail: "x" });
 
-    const h = harness();
+    const beforeDelete = vi.fn(async () => undefined);
+    const h = harness(() => ({}), { beforeDelete });
     await expect(h.engine.delete(done.id)).rejects.toThrow(TaskStateError);
     await expect(h.engine.delete(partial.id)).rejects.toThrow(TaskStateError);
+    expect(beforeDelete).not.toHaveBeenCalled();
     expect(r.tasks.get(done.id)).toBeDefined();
     expect(r.tasks.get(partial.id)).toBeDefined();
     // A squash alone never left the machine.

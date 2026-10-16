@@ -177,6 +177,8 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
         baseBranchFor: github.baseBranchFor,
       }),
       removeWorkspace: createWorkspaceRemover({ git, repos: repositories.repos }),
+      // Uses the chat only once a task is deleted, after the chat below exists.
+      beforeDelete: (taskId) => chat.forgetTask(taskId),
       delivery: createDeliverer({
         git,
         repositories,

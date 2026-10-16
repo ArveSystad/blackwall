@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNotNull, max, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, max, or, sql } from "drizzle-orm";
 import type {
   ActiveAgentStep,
   ActiveSubagent,
@@ -341,26 +341,37 @@ function toChatMessage(row: typeof chatMessages.$inferSelect): ChatMessage {
   };
 }
 
+/** One conversation's rows: the repo's chat when `taskId` is null, else that task's. */
+function chatScope(repoId: string, taskId: string | null) {
+  return and(
+    eq(chatMessages.repoId, repoId),
+    taskId === null ? isNull(chatMessages.taskId) : eq(chatMessages.taskId, taskId),
+  );
+}
+
 export function createChatMessagesRepository(db: Db) {
   return {
-    /** A repo's chat, oldest first. */
-    list(repoId: string): ChatMessage[] {
+    /** A conversation, oldest first: the repo's chat when `taskId` is null, else that task's. */
+    list(repoId: string, taskId: string | null): ChatMessage[] {
       return db
         .select()
         .from(chatMessages)
-        .where(eq(chatMessages.repoId, repoId))
+        .where(chatScope(repoId, taskId))
         .orderBy(asc(chatMessages.createdAt), asc(rowid))
         .all()
         .map(toChatMessage);
     },
-    /** The CLI session of the repo's newest assistant turn that recorded one. */
-    latestSession(repoId: string): { sessionId: string; cli: AgentCli } | undefined {
+    /** The CLI session of the conversation's newest assistant turn that recorded one. */
+    latestSession(
+      repoId: string,
+      taskId: string | null,
+    ): { sessionId: string; cli: AgentCli } | undefined {
       const row = db
         .select({ sessionId: chatMessages.sessionId, cli: chatMessages.cli })
         .from(chatMessages)
         .where(
           and(
-            eq(chatMessages.repoId, repoId),
+            chatScope(repoId, taskId),
             isNotNull(chatMessages.sessionId),
             isNotNull(chatMessages.cli),
           ),
@@ -376,8 +387,8 @@ export function createChatMessagesRepository(db: Db) {
     setActions(id: string, actions: ChatAction[]): void {
       db.update(chatMessages).set({ actions }).where(eq(chatMessages.id, id)).run();
     },
-    deleteForRepo(repoId: string): void {
-      db.delete(chatMessages).where(eq(chatMessages.repoId, repoId)).run();
+    deleteConversation(repoId: string, taskId: string | null): void {
+      db.delete(chatMessages).where(chatScope(repoId, taskId)).run();
     },
   };
 }

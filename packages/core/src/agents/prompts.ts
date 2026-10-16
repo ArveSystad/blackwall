@@ -232,7 +232,7 @@ export function chatSystemPrompt(referenceRepos: readonly ReferenceRepoPrompt[] 
     "",
     "## Focused task",
     "",
-    'When the message comes with a `Focused task` section, the user is looking at that task: "this task" means it.',
+    'When the message comes with a `Focused task` section, this conversation is about that task: "this task" means it.',
     "When a task failed or was interrupted, explain its error first, then propose `resume-task` with guidance that addresses it, or `message-task` when it waits at a gate.",
     "When the focused task lists a worktree, the current directory is that worktree: read its files and use `git status`, `git diff <base>...HEAD` and `git log` there to diagnose failed checks, errors and conflicts.",
     "Otherwise the current directory is the repo's checkout.",
@@ -248,7 +248,7 @@ export type ChatStateTask = Pick<
 /** An open question waiting on the user, as the chat's prompt lists it. */
 export type ChatStateQuestion = Pick<GrillQuestion, "id" | "question">;
 
-/** The task the user is looking at, given in full in the chat's prompt. */
+/** The task a task chat is about, given in full in the chat's prompt. */
 export interface ChatFocus {
   task: ChatStateTask & Pick<Task, "plan">;
   questions: readonly ChatStateQuestion[];
@@ -279,7 +279,7 @@ function focusSection({ task, questions, worktree }: ChatFocus): string[] {
   return [
     "## Focused task",
     "",
-    'The user is looking at this task; "this task" means it.',
+    'This conversation is about this task; "this task" means it.',
     "",
     `- id \`${task.id}\``,
     `- title ${task.title}`,

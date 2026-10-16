@@ -240,7 +240,7 @@ export const backlogItems = sqliteTable(
   (t) => [index("backlog_items_repo_status_idx").on(t.repoId, t.status)],
 );
 
-/** Per-repo chat conversation, oldest first. */
+/** Per-repo chat, or per-task when `taskId` is set; oldest first. */
 export const chatMessages = sqliteTable(
   "chat_messages",
   {
@@ -248,6 +248,8 @@ export const chatMessages = sqliteTable(
     repoId: text("repo_id")
       .notNull()
       .references(() => repos.id, { onDelete: "cascade" }),
+    /** The task this conversation is about; null for the repo's chat. */
+    taskId: text("task_id").references(() => tasks.id, { onDelete: "cascade" }),
     role: text("role", { enum: CHAT_ROLES }).notNull(),
     text: text("text").notNull().default(""),
     /** Proposed actions as clients see them, including `appliedAt`. */
@@ -261,7 +263,7 @@ export const chatMessages = sqliteTable(
     cli: text("cli", { enum: AGENT_CLIS }),
     createdAt: createdAt(),
   },
-  (t) => [index("chat_messages_repo_idx").on(t.repoId, t.createdAt)],
+  (t) => [index("chat_messages_repo_idx").on(t.repoId, t.taskId, t.createdAt)],
 );
 
 export const runs = sqliteTable(

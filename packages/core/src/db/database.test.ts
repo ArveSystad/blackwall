@@ -274,9 +274,50 @@ describe("openDatabase", () => {
     opened = openDatabase(dir);
     const r = createRepositories(opened.db);
     expect(r.repos.get("r1")?.name).toBe("a");
-    expect(r.chatMessages.list("r1")).toEqual([]);
+    expect(r.chatMessages.list("r1", null)).toEqual([]);
     r.chatMessages.insert({ repoId: "r1", role: "user", text: "Hi" });
-    expect(r.chatMessages.list("r1")).toHaveLength(1);
+    expect(r.chatMessages.list("r1", null)).toHaveLength(1);
+  });
+
+  it("keeps existing chat messages as the repo's chat when adding task chats", () => {
+    // Build a database at the migration before the task chats.
+    const oldMigrations = join(dir, "..", "migrations-0021");
+    cpSync(MIGRATIONS_DIR, oldMigrations, { recursive: true });
+    const journalPath = join(oldMigrations, "meta", "_journal.json");
+    const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
+      entries: { tag: string }[];
+    };
+    journal.entries = journal.entries.slice(
+      0,
+      journal.entries.findIndex((e) => e.tag === "0022_chat_task"),
+    );
+    expect(journal.entries.at(-1)?.tag).toBe("0021_repo_reference_repos");
+    writeFileSync(journalPath, JSON.stringify(journal));
+
+    mkdirSync(dir, { recursive: true });
+    const sqlite = new Database(join(dir, DB_FILENAME));
+    migrate(drizzle(sqlite), { migrationsFolder: oldMigrations });
+    sqlite.exec(`
+      insert into repos (id, path, name, created_at, updated_at) values ('r1', '/code/a', 'a', 0, 0);
+      insert into tasks (id, title, origin, repo_id, created_at, updated_at)
+        values ('t1', 'Fix login', '{"kind":"free-text"}', 'r1', 0, 0);
+      insert into chat_messages (id, repo_id, role, text, created_at)
+        values ('m1', 'r1', 'user', 'Hi', 0);
+    `);
+    sqlite.close();
+
+    opened = openDatabase(dir);
+    const columns = opened.db.$client.prepare("pragma table_info(chat_messages)").all() as {
+      name: string;
+    }[];
+    expect(columns.map((c) => c.name)).toContain("task_id");
+    const r = createRepositories(opened.db);
+    expect(r.chatMessages.list("r1", null).map((m) => m.id)).toEqual(["m1"]);
+    expect(r.chatMessages.list("r1", "t1")).toEqual([]);
+    r.chatMessages.insert({ repoId: "r1", taskId: "t1", role: "user", text: "Why?" });
+    r.tasks.delete("t1");
+    expect(r.chatMessages.list("r1", "t1")).toEqual([]);
+    expect(r.chatMessages.list("r1", null).map((m) => m.id)).toEqual(["m1"]);
   });
 
   it("backfills step usage from the stored usage and result events", () => {

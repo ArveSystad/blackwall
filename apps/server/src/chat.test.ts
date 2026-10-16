@@ -3,6 +3,7 @@ import {
   ChatBusyError,
   ChatMessageNotFoundError,
   RepoNotFoundError,
+  TaskNotFoundError,
 } from "@blackwall/core";
 import { MAX_TITLE_CHARS, chatStateSchema, type ChatState } from "@blackwall/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -15,35 +16,36 @@ const host = `127.0.0.1:${port}`;
 let busy: boolean;
 let chat: { [K in keyof ChatRouteService]: ReturnType<typeof vi.fn<ChatRouteService[K]>> };
 
-function state(repoId: string): ChatState {
-  return { repoId, busy, activity: null, messages: [] };
+function state(repoId: string, taskId?: string): ChatState {
+  return { repoId, taskId: taskId ?? null, busy, activity: null, messages: [] };
 }
 
-function known(repoId: string) {
+function known(repoId: string, taskId?: string) {
   if (repoId !== "r1") throw new RepoNotFoundError(repoId);
+  if (taskId !== undefined && taskId !== "t1") throw new TaskNotFoundError(taskId);
 }
 
 beforeEach(() => {
   busy = false;
   chat = {
-    get: vi.fn((repoId: string) => {
-      known(repoId);
-      return state(repoId);
+    get: vi.fn((repoId: string, taskId?: string) => {
+      known(repoId, taskId);
+      return state(repoId, taskId);
     }),
-    send: vi.fn((repoId: string, text: string) => {
-      known(repoId);
+    send: vi.fn((repoId: string, text: string, taskId?: string) => {
+      known(repoId, taskId);
       if (busy && text.trim() !== "/clear") throw new ChatBusyError();
-      return state(repoId);
+      return state(repoId, taskId);
     }),
-    markApplied: vi.fn((repoId: string, actionId: string) => {
-      known(repoId);
+    markApplied: vi.fn((repoId: string, actionId: string, taskId?: string) => {
+      known(repoId, taskId);
       if (actionId !== "a1") throw new ChatActionNotFoundError(actionId);
-      return state(repoId);
+      return state(repoId, taskId);
     }),
-    addAction: vi.fn((repoId: string, messageId: string) => {
-      known(repoId);
+    addAction: vi.fn((repoId: string, messageId: string, _proposal, taskId?: string) => {
+      known(repoId, taskId);
       if (messageId !== "m1") throw new ChatMessageNotFoundError(messageId);
-      return state(repoId);
+      return state(repoId, taskId);
     }),
   };
 });
@@ -66,7 +68,16 @@ describe("chat routes", () => {
     const res = await request("r1/chat");
     expect(res.status).toBe(200);
     expect(chatStateSchema.parse(await res.json())).toEqual(state("r1"));
+    expect(chat.get).toHaveBeenCalledWith("r1", undefined);
     expect((await request("nope/chat")).status).toBe(404);
+  });
+
+  it("serves a task's own chat at the task mount", async () => {
+    const res = await request("r1/tasks/t1/chat");
+    expect(res.status).toBe(200);
+    expect(chatStateSchema.parse(await res.json())).toEqual(state("r1", "t1"));
+    expect(chat.get).toHaveBeenCalledWith("r1", "t1");
+    expect((await request("r1/tasks/nope/chat")).status).toBe(404);
   });
 
   it("accepts a message for the background answer", async () => {
@@ -75,10 +86,30 @@ describe("chat routes", () => {
     expect(chat.send).toHaveBeenCalledWith("r1", "Hi", undefined);
   });
 
-  it("forwards the task the user is looking at", async () => {
-    const res = await request("r1/chat", { method: "POST", body: { text: "Why?", taskId: "t1" } });
+  it("sends to the task's chat from the URL, and ignores a task id in the body", async () => {
+    const res = await request("r1/tasks/t1/chat", { method: "POST", body: { text: "Why?" } });
     expect(res.status).toBe(202);
     expect(chat.send).toHaveBeenCalledWith("r1", "Why?", "t1");
+
+    await request("r1/chat", { method: "POST", body: { text: "Hi", taskId: "t1" } });
+    expect(chat.send).toHaveBeenLastCalledWith("r1", "Hi", undefined);
+    expect(
+      (await request("r1/tasks/nope/chat", { method: "POST", body: { text: "Hi" } })).status,
+    ).toBe(404);
+  });
+
+  it("marks applied and adds actions in a task's chat", async () => {
+    expect((await request("r1/tasks/t1/chat/actions/a1/applied", { method: "POST" })).status).toBe(
+      200,
+    );
+    expect(chat.markApplied).toHaveBeenCalledWith("r1", "a1", "t1");
+    const proposal = { kind: "create-task", title: "T", description: "D" };
+    const res = await request("r1/tasks/t1/chat/messages/m1/actions", {
+      method: "POST",
+      body: proposal,
+    });
+    expect(res.status).toBe(200);
+    expect(chat.addAction).toHaveBeenCalledWith("r1", "m1", proposal, "t1");
   });
 
   it("rejects empty text, unknown repos and messages while answering, but not /clear", async () => {
@@ -95,7 +126,7 @@ describe("chat routes", () => {
   it("marks an action applied", async () => {
     const res = await request("r1/chat/actions/a1/applied", { method: "POST" });
     expect(res.status).toBe(200);
-    expect(chat.markApplied).toHaveBeenCalledWith("r1", "a1");
+    expect(chat.markApplied).toHaveBeenCalledWith("r1", "a1", undefined);
     expect((await request("r1/chat/actions/zz/applied", { method: "POST" })).status).toBe(404);
     expect((await request("nope/chat/actions/a1/applied", { method: "POST" })).status).toBe(404);
   });
@@ -107,11 +138,12 @@ describe("chat routes", () => {
     const res = await post(path, { kind: "create-task", title: " Fix it ", description: " Why " });
     expect(res.status).toBe(200);
     expect(chatStateSchema.parse(await res.json())).toEqual(state("r1"));
-    expect(chat.addAction).toHaveBeenCalledWith("r1", "m1", {
-      kind: "create-task",
-      title: "Fix it",
-      description: "Why",
-    });
+    expect(chat.addAction).toHaveBeenCalledWith(
+      "r1",
+      "m1",
+      { kind: "create-task", title: "Fix it", description: "Why" },
+      undefined,
+    );
 
     const valid = { kind: "create-task", title: "T", description: "D" };
     expect((await post(path, { ...valid, title: "  " })).status).toBe(400);

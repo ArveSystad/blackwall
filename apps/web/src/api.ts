@@ -523,30 +523,43 @@ export function runBacklogItem(repoId: string, id: string): Promise<Task> {
   return request(`${at(backlogPath(repoId), id)}/run`, taskSchema, { method: "POST" });
 }
 
-const chatPath = (repoId: string) => `${at("/api/repos", repoId)}/chat`;
+/** The repo's chat, or the task's own when `taskId` is set. */
+const chatPath = (repoId: string, taskId?: string) =>
+  taskId
+    ? `${at(`${at("/api/repos", repoId)}/tasks`, taskId)}/chat`
+    : `${at("/api/repos", repoId)}/chat`;
 
-/** The repo's chat, stored per repo; `busy` and `activity` are live only. */
-export function getChat(repoId: string): Promise<ChatState> {
-  return request(chatPath(repoId), chatStateSchema);
+/**
+ * The repo's chat, or the task's own conversation when `taskId` is set;
+ * `busy` and `activity` are live only.
+ */
+export function getChat(repoId: string, taskId?: string): Promise<ChatState> {
+  return request(chatPath(repoId, taskId), chatStateSchema);
 }
 
 /**
- * Sends a chat message; the answer arrives as `chat.upserted`. `/clear` starts
- * over; any other text answers 409 while the chat still answers. `taskId` is
- * the task the user is looking at, which the agent then knows in full.
+ * Sends a chat message to the repo's chat, or to the task's own conversation
+ * when `taskId` is set; the answer arrives as `chat.upserted`. `/clear` starts
+ * that conversation over; any other text answers 409 while it still answers.
  */
 export function sendChat(repoId: string, text: string, taskId?: string): Promise<ChatState> {
-  return request(chatPath(repoId), chatStateSchema, {
+  return request(chatPath(repoId, taskId), chatStateSchema, {
     method: "POST",
-    body: { text, ...(taskId ? { taskId } : {}) },
+    body: { text },
   });
 }
 
 /** Records that a proposed action was applied, so its card stays done; 404 once the chat is cleared. */
-export function markChatActionApplied(repoId: string, actionId: string): Promise<ChatState> {
-  return request(`${at(`${chatPath(repoId)}/actions`, actionId)}/applied`, chatStateSchema, {
-    method: "POST",
-  });
+export function markChatActionApplied(
+  repoId: string,
+  actionId: string,
+  taskId?: string,
+): Promise<ChatState> {
+  return request(
+    `${at(`${chatPath(repoId, taskId)}/actions`, actionId)}/applied`,
+    chatStateSchema,
+    { method: "POST" },
+  );
 }
 
 /** Adds an action to an assistant message, e.g. to turn a reply into a task; 404 once the chat is cleared. */
@@ -554,11 +567,13 @@ export function addChatAction(
   repoId: string,
   messageId: string,
   proposal: ChatActionProposal,
+  taskId?: string,
 ): Promise<ChatState> {
-  return request(`${at(`${chatPath(repoId)}/messages`, messageId)}/actions`, chatStateSchema, {
-    method: "POST",
-    body: proposal,
-  });
+  return request(
+    `${at(`${chatPath(repoId, taskId)}/messages`, messageId)}/actions`,
+    chatStateSchema,
+    { method: "POST", body: proposal },
+  );
 }
 
 /** Sets the manual order; `ids` must list every item of the repo once. */

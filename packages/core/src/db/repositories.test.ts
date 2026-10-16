@@ -301,21 +301,64 @@ describe("chat messages", () => {
       createdAt: "2026-10-14T10:00:00.000Z",
     });
     expect(chatMessageSchema.parse(reply)).toEqual(reply);
-    expect(r.chatMessages.list(repo.id).map((m) => m.id)).toEqual(["m1", "m2", "m3", "m4"]);
-    expect(r.chatMessages.list(repo.id)[0]!.actions).toEqual([]);
-    expect(r.chatMessages.latestSession(repo.id)).toEqual({ sessionId: "s2", cli: "copilot" });
-    expect(r.chatMessages.latestSession(other.id)).toBeUndefined();
+    expect(r.chatMessages.list(repo.id, null).map((m) => m.id)).toEqual(["m1", "m2", "m3", "m4"]);
+    expect(r.chatMessages.list(repo.id, null)[0]!.actions).toEqual([]);
+    expect(r.chatMessages.latestSession(repo.id, null)).toEqual({
+      sessionId: "s2",
+      cli: "copilot",
+    });
+    expect(r.chatMessages.latestSession(other.id, null)).toBeUndefined();
 
     const applied = [{ ...actions[0]!, appliedAt: "2026-10-14T11:00:00.000Z" }];
     r.chatMessages.setActions("m2", applied);
-    expect(r.chatMessages.list(repo.id)[1]!.actions).toEqual(applied);
+    expect(r.chatMessages.list(repo.id, null)[1]!.actions).toEqual(applied);
 
-    r.chatMessages.deleteForRepo(repo.id);
-    expect(r.chatMessages.list(repo.id)).toEqual([]);
-    expect(r.chatMessages.list(other.id).map((m) => m.id)).toEqual(["o1"]);
+    r.chatMessages.deleteConversation(repo.id, null);
+    expect(r.chatMessages.list(repo.id, null)).toEqual([]);
+    expect(r.chatMessages.list(other.id, null).map((m) => m.id)).toEqual(["o1"]);
 
     r.repos.delete(other.id);
-    expect(r.chatMessages.list(other.id)).toEqual([]);
+    expect(r.chatMessages.list(other.id, null)).toEqual([]);
+  });
+
+  it("keeps each task's chat apart from the repo's", () => {
+    const repo = r.repos.create({ path: "/code/app", name: "app" });
+    const task = r.tasks.create({ title: "A", origin: { kind: "free-text" }, repoId: repo.id });
+    const other = r.tasks.create({ title: "B", origin: { kind: "free-text" }, repoId: repo.id });
+    const session = { role: "assistant" as const, text: "Ok", cli: "claude" as const };
+    r.chatMessages.insert({ id: "r1", repoId: repo.id, ...session, sessionId: "s-repo" });
+    r.chatMessages.insert({
+      id: "t1",
+      repoId: repo.id,
+      taskId: task.id,
+      ...session,
+      sessionId: "s-a",
+    });
+    r.chatMessages.insert({
+      id: "t2",
+      repoId: repo.id,
+      taskId: other.id,
+      role: "user",
+      text: "Hi",
+    });
+
+    expect(r.chatMessages.list(repo.id, null).map((m) => m.id)).toEqual(["r1"]);
+    expect(r.chatMessages.list(repo.id, task.id).map((m) => m.id)).toEqual(["t1"]);
+    expect(r.chatMessages.latestSession(repo.id, null)?.sessionId).toBe("s-repo");
+    expect(r.chatMessages.latestSession(repo.id, task.id)?.sessionId).toBe("s-a");
+    expect(r.chatMessages.latestSession(repo.id, other.id)).toBeUndefined();
+
+    r.chatMessages.deleteConversation(repo.id, task.id);
+    expect(r.chatMessages.list(repo.id, task.id)).toEqual([]);
+    expect(r.chatMessages.list(repo.id, null).map((m) => m.id)).toEqual(["r1"]);
+    expect(r.chatMessages.list(repo.id, other.id).map((m) => m.id)).toEqual(["t2"]);
+
+    r.chatMessages.deleteConversation(repo.id, null);
+    expect(r.chatMessages.list(repo.id, null)).toEqual([]);
+    expect(r.chatMessages.list(repo.id, other.id).map((m) => m.id)).toEqual(["t2"]);
+
+    r.tasks.delete(other.id);
+    expect(r.chatMessages.list(repo.id, other.id)).toEqual([]);
   });
 });
 

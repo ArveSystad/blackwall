@@ -59,7 +59,7 @@ import {
 } from "../chat";
 import { isPlainKey, modKeyLabel } from "../keyboard";
 import { cn } from "../lib/utils";
-import { chatQuery, queryKeys, reposQuery, taskGrillQuery, tasksQuery } from "../query";
+import { chatQuery, queryKeys, reposQuery, taskGrillQuery, taskQuery, tasksQuery } from "../query";
 import { resolveSelectedRepo, useSelectedRepoId } from "../selected-repo";
 import { errorMessage } from "../settings-forms";
 import { GATE_REASONS } from "../task-view";
@@ -80,10 +80,11 @@ const FOLLOW_SLACK_PX = 24;
 const LONG_DESCRIPTION_CHARS = 280;
 
 /**
- * The repo chat on the right of every page: ask about the selected repo's code, backlog and tasks,
- * and apply the actions the agent proposes. On a task's page it is about that task: it uses the
- * task's repo, tells the agent which task is open, and can send the draft straight to the task
- * (its gate, or resuming it with the draft as guidance). Its width is the user's preference, clamped so the
+ * The chat on the right of every page: ask about the selected repo's code, backlog and tasks,
+ * and apply the actions the agent proposes. On a task's page it is that task's own conversation,
+ * chosen from the URL and never falling back to the repo chat: it uses the task's repo, the agent
+ * always knows the task in full, and it can send the draft straight to the task (its gate, or
+ * resuming it with the draft as guidance). Its width is the user's preference, clamped so the
  * main pane keeps room; it never overlays the page. It slides its width open and closed
  * (`CHAT_PANEL_MS`), so the main pane eases along.
  */
@@ -130,13 +131,8 @@ function OpenChatPanel({
   onSettled: () => void;
 }) {
   const repos = useQuery(reposQuery);
-  const tasks = useQuery(tasksQuery);
   const { taskId } = useParams({ strict: false });
-  const focusTask = taskId
-    ? tasks.data?.find((t) => t.id === taskId && t.archivedAt === null)
-    : undefined;
   const selected = resolveSelectedRepo(useSelectedRepoId(), repos.data);
-  const repo = repos.data?.find((r) => r.id === focusTask?.repoId) ?? selected;
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   const width = clampChatWidth(dragWidth ?? preferred, viewport);
   const closeButton = useRef<HTMLButtonElement>(null);
@@ -184,11 +180,14 @@ function OpenChatPanel({
       {/* Clipped and fixed-width while the aside slides, so the text never reflows. */}
       <div className="absolute inset-0 overflow-hidden">
         <div className="bw-chat-content absolute inset-y-0 right-0 flex flex-col">
-          {repo ? (
+          {taskId ? (
+            <TaskChat taskId={taskId} closeButton={closeButton} />
+          ) : selected ? (
             <ChatBody
-              key={repo.id}
-              repo={repo}
-              focusTask={focusTask?.repoId === repo.id ? focusTask : undefined}
+              key={`${selected.id}:`}
+              repo={selected}
+              taskId={undefined}
+              focusTask={undefined}
               closeButton={closeButton}
             />
           ) : (
@@ -202,6 +201,54 @@ function OpenChatPanel({
         </div>
       </div>
     </aside>
+  );
+}
+
+/**
+ * A task page's chat: the task's own conversation, picked from the route. Until the task and its
+ * repo load it shows their state, never the repo chat.
+ */
+function TaskChat({
+  taskId,
+  closeButton,
+}: {
+  taskId: string;
+  closeButton: RefObject<HTMLButtonElement | null>;
+}) {
+  const task = useQuery(taskQuery(taskId));
+  const repos = useQuery(reposQuery);
+  const repo = task.data && repos.data?.find((r) => r.id === task.data.repoId);
+
+  if (task.isSuccess && repo) {
+    return (
+      <ChatBody
+        key={`${repo.id}:${taskId}`}
+        repo={repo}
+        taskId={taskId}
+        focusTask={task.data}
+        closeButton={closeButton}
+      />
+    );
+  }
+  // A loaded task whose repo is not listed is as good as gone.
+  const notFound =
+    (task.error instanceof ApiError && task.error.status === 404) ||
+    (task.isSuccess && repos.isSuccess);
+  return (
+    <>
+      <ChatHeader title="Chat" closeButton={closeButton} />
+      {notFound ? (
+        <EmptyState key="not-found" title="Task not found">
+          It may have been deleted.
+        </EmptyState>
+      ) : task.isError || repos.isError ? (
+        <EmptyState key="error" role="alert" title="Could not load the task">
+          {(task.error ?? repos.error)?.message}
+        </EmptyState>
+      ) : (
+        <EmptyState key="loading" role="status" title="Pulling the task…" />
+      )}
+    </>
   );
 }
 
@@ -317,16 +364,19 @@ interface FadeState {
 
 function ChatBody({
   repo,
+  taskId,
   focusTask,
   closeButton,
 }: {
   repo: RepoView;
-  /** The task whose page is open; the agent is told about it in full. */
+  /** The task whose own conversation this is, from the route; undefined for the repo chat. */
+  taskId: string | undefined;
+  /** The loaded task `taskId` names; the agent is told about it in full. */
   focusTask: Task | undefined;
   closeButton: RefObject<HTMLButtonElement | null>;
 }) {
   const queryClient = useQueryClient();
-  const chat = useQuery(chatQuery(repo.id));
+  const chat = useQuery(chatQuery(repo.id, taskId));
   const tasks = useQuery(tasksQuery);
   const repoTasks = (tasks.data ?? []).filter((t) => t.repoId === repo.id);
   const [draft, setDraft] = useState("");
@@ -376,8 +426,8 @@ function ChatBody({
     setSending(true);
     setSendError(null);
     try {
-      const next = await sendChat(repo.id, text, focusTask?.id);
-      queryClient.setQueryData<ChatState>(queryKeys.chat(repo.id), next);
+      const next = await sendChat(repo.id, text, taskId);
+      queryClient.setQueryData<ChatState>(queryKeys.chat(repo.id, taskId), next);
       scrollToEnd();
     } catch (cause) {
       throw new Error(
@@ -422,7 +472,10 @@ function ChatBody({
 
   return (
     <>
-      <ChatHeader title={`Chat · ${repo.name}`} closeButton={closeButton}>
+      <ChatHeader
+        title={focusTask ? `Chat · About ${focusTask.title}` : `Chat · ${repo.name}`}
+        closeButton={closeButton}
+      >
         <Button
           variant="ghost"
           size="sm"
@@ -460,7 +513,8 @@ function ChatBody({
         >
           {count === 0 && !busy && (
             <p className="m-0 text-meta text-muted-foreground">
-              Channel open. Ask about this repo. Proposed actions wait for you to apply them.
+              Channel open. Ask about this {taskId ? "task" : "repo"}. Proposed actions wait for you
+              to apply them.
             </p>
           )}
           {messages?.map((message) => (
@@ -468,6 +522,7 @@ function ChatBody({
               key={message.id}
               message={message}
               repoId={repo.id}
+              taskId={taskId}
               tasks={repoTasks}
               needsId={needsId}
               fadeIn={fade?.fading.has(message.id) ?? false}
@@ -645,12 +700,15 @@ function DirectSend({
 function MessageItem({
   message,
   repoId,
+  taskId,
   tasks,
   needsId,
   fadeIn,
 }: {
   message: ChatMessage;
   repoId: string;
+  /** The task whose conversation this is; undefined for the repo chat. */
+  taskId: string | undefined;
   tasks: readonly Task[];
   needsId: string | null;
   fadeIn: boolean;
@@ -685,18 +743,29 @@ function MessageItem({
               key={action.id}
               action={action}
               repoId={repoId}
+              taskId={taskId}
               tasks={tasks}
               needs={action.id === needsId}
             />
           ))}
-          {canTurnIntoTask(message) && <TurnIntoTaskButton message={message} repoId={repoId} />}
+          {canTurnIntoTask(message) && (
+            <TurnIntoTaskButton message={message} repoId={repoId} taskId={taskId} />
+          )}
         </div>
       );
   }
 }
 
 /** Adds a pre-filled `create-task` card to an assistant reply; the card applies like any other. */
-function TurnIntoTaskButton({ message, repoId }: { message: ChatMessage; repoId: string }) {
+function TurnIntoTaskButton({
+  message,
+  repoId,
+  taskId,
+}: {
+  message: ChatMessage;
+  repoId: string;
+  taskId: string | undefined;
+}) {
   const queryClient = useQueryClient();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -707,8 +776,8 @@ function TurnIntoTaskButton({ message, repoId }: { message: ChatMessage; repoId:
     setPending(true);
     setError(null);
     try {
-      const next = await addChatAction(repoId, message.id, proposal);
-      queryClient.setQueryData<ChatState>(queryKeys.chat(repoId), next);
+      const next = await addChatAction(repoId, message.id, proposal, taskId);
+      queryClient.setQueryData<ChatState>(queryKeys.chat(repoId, taskId), next);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -734,11 +803,14 @@ function TurnIntoTaskButton({ message, repoId }: { message: ChatMessage; repoId:
 function ActionCard({
   action,
   repoId,
+  taskId,
   tasks,
   needs,
 }: {
   action: ChatAction;
   repoId: string;
+  /** The conversation's task; undefined for the repo chat. */
+  taskId: string | undefined;
   tasks: readonly Task[];
   needs: boolean;
 }) {
@@ -750,6 +822,7 @@ function ActionCard({
       <CreateTaskCard
         action={action}
         repoId={repoId}
+        chatTaskId={taskId}
         summary={summary}
         availability={availability}
       />
@@ -763,6 +836,7 @@ function ActionCard({
         availability={availability}
         apply={{ variant: "default", pending: false, error: null, run: async () => false }}
         repoId={repoId}
+        chatTaskId={taskId}
         actionId={action.id}
       />
     );
@@ -772,6 +846,7 @@ function ActionCard({
       action={action}
       task={task}
       repoId={repoId}
+      chatTaskId={taskId}
       summary={summary}
       availability={availability}
       needs={needs}
@@ -785,6 +860,7 @@ function TaskActionCard({
   action,
   task,
   repoId,
+  chatTaskId,
   summary,
   availability,
   needs,
@@ -792,6 +868,7 @@ function TaskActionCard({
   action: TaskChatAction;
   task: Task;
   repoId: string;
+  chatTaskId: string | undefined;
   summary: ChatActionSummary;
   availability: ChatActionAvailability;
   needs: boolean;
@@ -885,6 +962,7 @@ function TaskActionCard({
       availability={answered ?? availability}
       apply={{ variant, pending: taskAction.pending, error: taskAction.error, run }}
       repoId={repoId}
+      chatTaskId={chatTaskId}
       actionId={action.id}
     />
   );
@@ -893,11 +971,13 @@ function TaskActionCard({
 function CreateTaskCard({
   action,
   repoId,
+  chatTaskId,
   summary,
   availability,
 }: {
   action: Extract<ChatAction, { kind: "create-task" }>;
   repoId: string;
+  chatTaskId: string | undefined;
   summary: ChatActionSummary;
   availability: ChatActionAvailability;
 }) {
@@ -954,6 +1034,7 @@ function CreateTaskCard({
       availability={availability}
       apply={{ variant: "default", pending, error, run }}
       repoId={repoId}
+      chatTaskId={chatTaskId}
       actionId={action.id}
     />
   );
@@ -975,6 +1056,7 @@ function CardShell({
   availability,
   apply,
   repoId,
+  chatTaskId,
   actionId,
 }: {
   summary: ChatActionSummary;
@@ -984,6 +1066,8 @@ function CardShell({
   availability: ChatActionAvailability;
   apply: ApplyAction;
   repoId: string;
+  /** The task whose conversation holds the action; undefined for the repo chat. */
+  chatTaskId: string | undefined;
   actionId: string;
 }) {
   const queryClient = useQueryClient();
@@ -996,8 +1080,8 @@ function CardShell({
     setMarking(true);
     setMarkError(null);
     try {
-      const next = await markChatActionApplied(repoId, actionId);
-      queryClient.setQueryData<ChatState>(queryKeys.chat(repoId), next);
+      const next = await markChatActionApplied(repoId, actionId, chatTaskId);
+      queryClient.setQueryData<ChatState>(queryKeys.chat(repoId, chatTaskId), next);
     } catch (cause) {
       setMarkError(errorMessage(cause));
     } finally {
