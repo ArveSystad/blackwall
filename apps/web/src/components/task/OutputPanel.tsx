@@ -14,11 +14,13 @@ import {
   subagentStatus,
   type TranscriptItem,
 } from "../../task-view";
+import { TRUST_NAMES, globalConfigNote, loadedSkills } from "../../trust";
 import { formatCost, formatTokens, sumUsage, usageTitle } from "../../usage";
 import { AgentTile } from "../AgentTile";
 import { panelNote } from "../classes";
-import { CheckIcon, ChevronRightIcon, FailedIcon, PausedIcon } from "../icons";
+import { CheckIcon, ChevronRightIcon, FailedIcon, PausedIcon, WarnIcon } from "../icons";
 import { ToolCall } from "../ToolCall";
+import { Chip } from "../ui/chip";
 import { ErrorText } from "../ui/field";
 
 function stepName(step: Step, agent: Agent | undefined): string {
@@ -178,6 +180,30 @@ function TranscriptEntry({ item, live }: { item: TranscriptItem; live: boolean }
   }
 }
 
+/**
+ * The trust the step ran under, saying when it was forced below the repo's setting; nothing for
+ * harness steps and steps from before trust levels.
+ */
+function StepTrustChip({ step }: { step: Step }) {
+  if (step.trust === null) return null;
+  const unrestricted = step.trust === "unrestricted";
+  const label = `${TRUST_NAMES[step.trust]}${step.trustForced ? " (forced)" : ""}`;
+  return (
+    <Chip
+      tone={unrestricted ? "failed" : "neutral"}
+      className="gap-1"
+      title={
+        step.trustForced
+          ? "Ran Locked: the task runs code you did not write"
+          : `Ran with agent trust ${label}`
+      }
+    >
+      {unrestricted && <WarnIcon size="sm" />}
+      {label}
+    </Chip>
+  );
+}
+
 /** The step's tokens and cost; rises live as `step.usage` patches the step. */
 function StepUsageLabel({ step }: { step: Step }) {
   const total = sumUsage([step]);
@@ -205,6 +231,8 @@ function Transcript({
   const end = useRef<HTMLDivElement>(null);
   const count = events.data?.length ?? 0;
   const model = effectiveModel(events.data, agent, step.cli);
+  const skills = loadedSkills(events.data ?? []);
+  const globalNote = globalConfigNote(step);
 
   useEffect(() => {
     if (follow && live) end.current?.scrollIntoView({ block: "end" });
@@ -238,7 +266,28 @@ function Transcript({
           {step.round > 0 && ` · round ${step.round}`}
         </span>
         {step.agentId !== null && <StepUsageLabel step={step} />}
+        <StepTrustChip step={step} />
       </div>
+      {(skills !== null || globalNote) && (
+        <div className="flex max-w-[860px] flex-col gap-1 pl-7 text-meta text-muted-foreground">
+          {skills !== null && (
+            <span>
+              Skills:{" "}
+              {skills.length > 0 ? (
+                <span className="mono text-[11.5px] text-foreground">{skills.join(", ")}</span>
+              ) : (
+                "none"
+              )}
+            </span>
+          )}
+          {globalNote && (
+            <span className="inline-flex items-center gap-1.5">
+              <WarnIcon size="sm" className="text-sev-medium" />
+              {globalNote}
+            </span>
+          )}
+        </div>
+      )}
       <div className="flex max-w-[860px] flex-col gap-2 pl-7">
         {events.isPending ? (
           <p className="m-0 text-muted-foreground">Tapping the output stream…</p>

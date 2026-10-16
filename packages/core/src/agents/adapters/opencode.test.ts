@@ -1,9 +1,10 @@
+import { LOCKED_TRUST, type AgentTrust } from "@blackwall/shared";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { opencodeConfig, permissionsFor } from "../permissions.js";
+import { opencodeConfig, permissionsFor, type OpencodeProject } from "../permissions.js";
 import { createClaudeAdapter, createClaudeParser } from "./claude.js";
 import {
   createOpencodeAdapter,
@@ -242,6 +243,16 @@ describe("createOpencodeParser", () => {
   it("yields the same normalized events as Claude for the same task", () => {
     const claude = parseWith(createClaudeParser(), join(fixtures, "claude", "tool-call.jsonl"));
     expect(normalized(parse("tool-call.jsonl"))).toEqual(normalized(claude));
+  });
+
+  it("reads a skills run's answer, which lists the repo's skills, and reports no skills-loaded", () => {
+    const events = parse("skills-trusted.jsonl");
+    expect(events.some((e) => e.type === "skills-loaded")).toBe(false);
+    expect(events.some((e) => e.type === "tool-call-start")).toBe(false);
+    expect(events.at(-1)).toMatchObject({
+      type: "result",
+      result: { text: "customize-opencode\nghprobe\nocprobe\nprobe" },
+    });
   });
 
   it("reports a task call as a sub-agent, keeping its result out of the final text", () => {
@@ -576,6 +587,60 @@ describe("createOpencodeAdapter", () => {
     };
     expect(config.agent["blackwall-worker"]).toBeDefined();
     expect(config.agent["blackwall-worker"]).not.toHaveProperty("model");
+  });
+
+  describe("by trust level", () => {
+    const cwd = "/wt";
+    const base = { PATH: "p", XDG_CONFIG_HOME: "/real", OPENCODE_DISABLE_PROJECT_CONFIG: "1" };
+    const at = (level: AgentTrust["level"]): AgentTrust => ({ ...LOCKED_TRUST, level });
+    const configOf = (env: NodeJS.ProcessEnv) =>
+      JSON.parse(env.OPENCODE_CONFIG_CONTENT ?? "{}") as {
+        permission: Record<string, unknown>;
+        agent: Record<string, { mode?: string; description?: string }>;
+        instructions?: string[];
+        skills?: { paths: string[] };
+      };
+
+    it("keeps Locked as it was: project config off, external skills still on", () => {
+      const permissions = permissionsFor("opencode", "read-only", {}, [], at("locked"));
+      const env = opencodeEnv(permissions, { cwd, configHome: "/mirror" }, base);
+      expect(env.OPENCODE_DISABLE_PROJECT_CONFIG).toBe("1");
+      expect(env).not.toHaveProperty("OPENCODE_DISABLE_EXTERNAL_SKILLS");
+      expect(env.XDG_CONFIG_HOME).toBe("/mirror");
+      expect(env.OPENCODE_CONFIG_CONTENT).toBe(JSON.stringify(opencodeConfig(permissions)));
+    });
+
+    it("disables external skills under Trusted and injects the repo's pieces", () => {
+      const permissions = permissionsFor("opencode", "read-only", {}, [], at("trusted"));
+      const project: OpencodeProject = {
+        agents: { reviewer: { description: "Reviews changes", prompt: "Review." } },
+        instructions: ["/wt/AGENTS.md"],
+        skillPaths: ["/wt/.claude/skills"],
+        mcp: {},
+        plugin: [],
+      };
+      const env = opencodeEnv(permissions, { cwd, configHome: "/mirror", project }, base);
+      expect(env.OPENCODE_DISABLE_EXTERNAL_SKILLS).toBe("1");
+      expect(env.OPENCODE_DISABLE_PROJECT_CONFIG).toBe("1");
+      expect(env.XDG_CONFIG_HOME).toBe("/mirror");
+      const config = configOf(env);
+      expect(config.skills).toEqual({ paths: ["/wt/.claude/skills"] });
+      expect(config.instructions).toEqual(["/wt/AGENTS.md"]);
+      expect(config.agent.reviewer).toMatchObject({
+        mode: "subagent",
+        description: "Reviews changes",
+      });
+    });
+
+    it("drops the project-config switch under Unrestricted and keeps the base config home", () => {
+      const permissions = permissionsFor("opencode", "read-only", {}, [], at("unrestricted"));
+      const env = opencodeEnv(permissions, { cwd }, base);
+      expect(env).not.toHaveProperty("OPENCODE_DISABLE_PROJECT_CONFIG");
+      expect(env).not.toHaveProperty("OPENCODE_DISABLE_EXTERNAL_SKILLS");
+      expect(env.XDG_CONFIG_HOME).toBe("/real");
+      expect(env.PWD).toBe(cwd);
+      expect(configOf(env).permission).toEqual({ "*": "allow" });
+    });
   });
 
   it("does not pass on OpenCode config variables from the environment", () => {

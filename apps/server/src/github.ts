@@ -27,6 +27,7 @@ import {
   parseIssueUrl,
   parsePullRequestUrl,
   parseRemoteSlug,
+  pullRequestOwnedBy,
   readCheckLog,
   readCommitChecks,
   renderPullRequestComments,
@@ -436,6 +437,33 @@ export function createGitHubOrigin({ connections, fetch: fetchImpl }: GitHubOrig
         body: signComment(payload.body),
       });
       return { url };
+    },
+
+    /**
+     * Whether the PR task's branch holds only the token user's own commits and
+     * the PR is their own from the base repository (see `pullRequestOwnedBy`).
+     * Throws for other tasks, without a token, and on GitHub failures; callers
+     * treat a throw as unchecked.
+     */
+    async prBranchOwned(task: Task, signal?: AbortSignal): Promise<boolean> {
+      const origin = requirePr(task);
+      const client = await prClient(origin);
+      signal?.throwIfAborted();
+      const [viewer, pr, commits] = await Promise.all([
+        client.getViewer(signal),
+        client.getPullRequest(origin, signal),
+        client.listPullRequestCommits(origin, signal),
+      ]);
+      signal?.throwIfAborted();
+      return pullRequestOwnedBy(
+        {
+          authorLogin: pr.user?.login ?? null,
+          headRepo: pr.head.repo?.full_name ?? null,
+          baseRepo: pr.base.repo?.full_name ?? `${origin.owner}/${origin.repo}`,
+        },
+        commits,
+        viewer.login,
+      );
     },
   };
 }

@@ -158,6 +158,38 @@ describe("repo routes", () => {
     expect((await request(`/api/repos/${repo.id}`)).status).toBe(404);
   });
 
+  it("accepts and returns the agent trust level and the project MCP and hook flags", async () => {
+    const add = await request("/api/repos", { method: "POST", body: { path: gitRepo("app") } });
+    const repo = repoSchema.parse(await add.json());
+    expect(repo).toMatchObject({
+      agentTrust: "locked",
+      trustProjectMcp: false,
+      trustProjectHooks: false,
+    });
+
+    const patch = await request(`/api/repos/${repo.id}`, {
+      method: "PATCH",
+      body: { agentTrust: "trusted", trustProjectMcp: true, trustProjectHooks: true },
+    });
+    expect(patch.status).toBe(200);
+    expect(repoSchema.parse(await patch.json())).toMatchObject({
+      agentTrust: "trusted",
+      trustProjectMcp: true,
+      trustProjectHooks: true,
+    });
+    expect(repoSchema.parse(await (await request(`/api/repos/${repo.id}`)).json())).toMatchObject({
+      agentTrust: "trusted",
+      trustProjectMcp: true,
+      trustProjectHooks: true,
+    });
+
+    const invalid = await request(`/api/repos/${repo.id}`, {
+      method: "PATCH",
+      body: { agentTrust: "wide-open" },
+    });
+    expect(invalid.status).toBe(400);
+  });
+
   it("reorders repos and lists favourites first", async () => {
     gitRepo("a");
     gitRepo("b");

@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { permissionArgs } from "../permissions.js";
+import { projectMcp } from "../project-config.js";
 import { copilotSubagentFile, SUBAGENT_NAME } from "../subagents.js";
 import { deferredRun } from "./deferred-run.js";
 import { copilotRateLimitFromText } from "./rate-limit.js";
@@ -26,6 +27,11 @@ export interface CopilotParserOptions {
   sessionId?: string;
   /** Clock for relative "try again in …" reset times. */
   now?: () => Date;
+  /**
+   * Report `session.skills_loaded` as `skills-loaded`: only when the run keeps
+   * the `skill` tool (Trusted), since Copilot lists the skills either way.
+   */
+  reportSkills?: boolean;
 }
 
 /**
@@ -41,10 +47,13 @@ export interface CopilotParserOptions {
  * (`data.parentToolCallId`) as `parentId`; their text is never the final
  * text. Copilot's `subagent.*` lifecycle events repeat the tool call's and are
  * dropped. The top-level `parentId` of every event only chains events.
+ * `session.skills_loaded`, also ephemeral, yields `skills-loaded` when
+ * `reportSkills` is set.
  */
 export function createCopilotParser({
   sessionId,
   now = () => new Date(),
+  reportSkills = false,
 }: CopilotParserOptions = {}): LineParser {
   let announced = false;
   let reportedModel: string | undefined;
@@ -78,6 +87,16 @@ export function createCopilotParser({
           reportedModel = model;
           events.push({ type: "session", sessionId, model });
         }
+      }
+      if (parsed.type === "session.skills_loaded" && reportSkills) {
+        const skills = Array.isArray(data.skills) ? data.skills.filter(isObject) : [];
+        events.push({
+          type: "skills-loaded",
+          skills: skills
+            .filter((skill) => skill.enabled !== false)
+            .map((skill) => str(skill.name))
+            .filter((name): name is string => !!name),
+        });
       }
       if (parsed.ephemeral === true) return events;
 
@@ -174,12 +193,19 @@ export interface CopilotArgsOptions extends Pick<AgentRunOptions, "cwd" | "model
   resume: boolean;
   /** Harness plugin to load (`--plugin-dir`): see {@link prepareCopilotPlugin}. */
   pluginDir?: string;
+  /** Trusted implementers with the repo's MCP servers turned on: its `.mcp.json`. */
+  mcpConfig?: string;
 }
 
 /**
  * Arguments for a headless Copilot CLI run. The prompt goes to stdin, which
  * Copilot treats like `-p <text>` but without the Windows command-line limit.
  * A new session gets its id up front through `--session-id`.
+ *
+ * Under Trusted the repo's skills and agents load through `--add-dir` (see
+ * {@link permissionArgs}). Copilot has no way to load them without the user's
+ * own `~/.copilot` agents, skills and MCP servers, which also hold its login,
+ * so a Trusted run loads those too: hence `TRUSTED_LOADS_GLOBAL_CONFIG`.
  */
 export function copilotArgs({
   cwd,
@@ -188,6 +214,7 @@ export function copilotArgs({
   sessionId,
   resume,
   pluginDir,
+  mcpConfig,
 }: CopilotArgsOptions): string[] {
   if (permissions.cli !== "copilot") {
     throw new Error(`Permissions for ${permissions.cli} cannot run on Copilot CLI`);
@@ -200,7 +227,7 @@ export function copilotArgs({
     ...(model ? ["--model", model] : []),
     ...(resume ? ["--resume", sessionId] : ["--session-id", sessionId]),
     ...(pluginDir ? ["--plugin-dir", pluginDir] : []),
-    ...permissionArgs(permissions),
+    ...permissionArgs(permissions, { cwd, ...(mcpConfig ? { mcpConfig } : {}) }),
   ];
 }
 
@@ -291,7 +318,7 @@ export function createCopilotAdapter({
     cli: "copilot",
     run({ cwd, prompt, systemPrompt, jsonSchema, resumeSessionId, model, permissions, signal }) {
       const sessionId = resumeSessionId ?? randomUUID();
-      const start = (pluginDir?: string) => {
+      const start = (pluginDir?: string, mcpConfig?: string) => {
         const spawn = (input: string, resume: boolean) =>
           runAgentProcess({
             command,
@@ -304,12 +331,16 @@ export function createCopilotAdapter({
                 resume,
                 ...(model ? { model } : {}),
                 ...(pluginDir ? { pluginDir } : {}),
+                ...(mcpConfig ? { mcpConfig } : {}),
               }),
             ],
             cwd,
             input,
             signal,
-            parser: createCopilotParser({ sessionId }),
+            parser: createCopilotParser({
+              sessionId,
+              reportSkills: permissions.trust.level !== "locked",
+            }),
             detectRateLimit: (text) => copilotRateLimitFromText(text),
             // Only a resumed run can lose its session; gating avoids false positives.
             ...(resumeSessionId !== undefined
@@ -331,9 +362,12 @@ export function createCopilotAdapter({
       };
 
       if (permissions.profile !== "implement") return start();
+      const { trust } = permissions;
       return deferredRun("Copilot", async () => {
+        const mcp =
+          trust.level === "trusted" && trust.projectMcp ? await projectMcp(cwd) : undefined;
         const plugin = await prepareCopilotPlugin(pluginRoot);
-        return { run: start(plugin.dir), dispose: plugin.dispose };
+        return { run: start(plugin.dir, mcp?.path), dispose: plugin.dispose };
       });
     },
   };

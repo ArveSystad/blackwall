@@ -102,6 +102,18 @@ export interface GitHubReviewJson {
   submitted_at?: string;
 }
 
+/** A commit of a pull request (`GET /pulls/{n}/commits`), with the GitHub user it is linked to. */
+export interface GitHubPullRequestCommitJson {
+  sha: string;
+  author?: GitHubUserJson | null;
+}
+
+/** A commit on a pull request; `authorLogin` is null when the commit's author email is not linked to a GitHub user. */
+export interface PullRequestCommit {
+  sha: string;
+  authorLogin: string | null;
+}
+
 /** A check run on a commit (`GET /commits/{ref}/check-runs`), the fields CI reads. */
 export interface GitHubCheckRunJson {
   id: number;
@@ -516,6 +528,25 @@ export function createGitHubClient(credentials: GitHubCredentials, fetchImpl: Fe
       });
     },
 
+    /** Every commit on the pull request, oldest first. */
+    listPullRequestCommits(pr: PullRequestCoordinates, signal?: AbortSignal) {
+      return call(prName(pr), signal, async () => {
+        const all = await octokit.paginate(octokit.rest.pulls.listCommits, {
+          owner: pr.owner,
+          repo: pr.repo,
+          pull_number: pr.number,
+          per_page: PER_PAGE,
+          request: requestOptions(signal),
+        });
+        return (all as unknown as GitHubPullRequestCommitJson[]).map(
+          (commit): PullRequestCommit => ({
+            sha: commit.sha,
+            authorLogin: commit.author?.login ?? null,
+          }),
+        );
+      });
+    },
+
     /** Opens a pull request; returns its number and link. */
     createPullRequest(input: NewPullRequest) {
       return call(
@@ -636,6 +667,14 @@ export function createGitHubClient(credentials: GitHubCredentials, fetchImpl: Fe
             },
           ];
         });
+      });
+    },
+
+    /** The token's user. */
+    getViewer(signal?: AbortSignal) {
+      return call("Authenticated user", signal, async () => {
+        const res = await octokit.rest.users.getAuthenticated({ request: requestOptions(signal) });
+        return { login: res.data.login };
       });
     },
 

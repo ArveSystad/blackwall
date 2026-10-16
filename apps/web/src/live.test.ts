@@ -340,6 +340,8 @@ describe("applyServerEvent", () => {
       stage: "implement",
       agentId: "a1",
       cli: "claude",
+      trust: null,
+      trustForced: false,
       round: 0,
       visit: 0,
       status: "running",

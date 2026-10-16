@@ -2,6 +2,7 @@ import {
   AGENT_CLIS,
   AGENT_ROLES,
   DEFAULT_TAGS,
+  LOCKED_TRUST,
   ROLE_STAGES,
   agentInputSchema,
   agentUpdateSchema,
@@ -14,6 +15,7 @@ import {
   type AgentModels,
   type AgentPermissionOverrides,
   type AgentRole,
+  type AgentTrust,
   type AgentUpdate,
   type RoleAgents,
   type Stage,
@@ -444,13 +446,15 @@ export function createAgentService({
      * reviewers also get the current tags and the findings contract), its
      * model on that CLI, and the permissions of the stage's profile plus the
      * agent's overrides for that CLI. Read-only stages may also read the
-     * repo's reference repos; implementers never get them.
+     * repo's reference repos; implementers never get them. `trust` is the
+     * level the step runs under (Locked unless the engine says otherwise).
      */
     invocation(
       agentId: string,
       stage: Stage,
       cli: AgentCli,
       referenceRepos: readonly ReferenceRepoPrompt[] = [],
+      trust: AgentTrust = LOCKED_TRUST,
     ): AgentInvocation {
       const agent = existing(agentId);
       assertEligible(agent, stage);
@@ -473,6 +477,7 @@ export function createAgentService({
           profile,
           agent.permissionOverrides[cli],
           referenceRepos.map((ref) => ref.path),
+          trust,
         ),
       };
     },

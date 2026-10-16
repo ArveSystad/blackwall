@@ -221,6 +221,98 @@ function fakeComments({
   });
 }
 
+describe("prBranchOwned", () => {
+  const signal = () => new AbortController().signal;
+
+  /** Answers the viewer, the PR (from `arve` on the shop repo) and its commits. */
+  function fakeOwnership({
+    login = "arve",
+    prAuthor = "arve",
+    headRepo = "acme/shop",
+    commits = [{ sha: "a1", author: { login: "arve" } }],
+  }: {
+    login?: string;
+    prAuthor?: string;
+    headRepo?: string | null;
+    commits?: { sha: string; author: { login: string } | null }[];
+  } = {}) {
+    return vi.fn<typeof fetch>((input) => {
+      const path = new URL(String(input)).pathname;
+      const json = (body: unknown) =>
+        new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+      if (path === "/user") return Promise.resolve(json({ login }));
+      if (path === "/repos/acme/shop/pulls/42") {
+        return Promise.resolve(
+          json({
+            number: 42,
+            html_url: "https://acme.ghe.com/acme/shop/pull/42",
+            title: "Round invoice totals once",
+            state: "open",
+            user: { login: prAuthor },
+            head: {
+              ref: "fix/abc-123-rounding",
+              sha: "abc",
+              repo: headRepo === null ? null : { full_name: headRepo },
+            },
+            base: { ref: "main", sha: "def", repo: { full_name: "acme/shop" } },
+          }),
+        );
+      }
+      if (path === "/repos/acme/shop/pulls/42/commits") return Promise.resolve(json(commits));
+      return Promise.resolve(json([]));
+    });
+  }
+
+  it("is true when the PR and every commit on its branch are the user's own", async () => {
+    const fetchImpl = fakeOwnership();
+    const github = createGitHubOrigin({ connections: connections([ghe]), fetch: fetchImpl });
+    expect(await github.prBranchOwned(prTask("g1"), signal())).toBe(true);
+    const paths = fetchImpl.mock.calls.map(([url]) => new URL(String(url)).pathname);
+    expect(paths).toEqual(
+      expect.arrayContaining([
+        "/user",
+        "/repos/acme/shop/pulls/42",
+        "/repos/acme/shop/pulls/42/commits",
+      ]),
+    );
+  });
+
+  it("is false when a commit on the branch is by someone else", async () => {
+    const commits = [
+      { sha: "a1", author: { login: "arve" } },
+      { sha: "a2", author: { login: "kari" } },
+    ];
+    const github = createGitHubOrigin({
+      connections: connections([ghe]),
+      fetch: fakeOwnership({ commits }),
+    });
+    expect(await github.prBranchOwned(prTask("g1"), signal())).toBe(false);
+  });
+
+  it("throws for a task that is not a pull request, or without a connection", async () => {
+    const list = connections([ghe]);
+    const github = createGitHubOrigin({ connections: list, fetch: fakeOwnership() });
+    const freeText = { ...prTask(null), origin: { kind: "free-text" } } as Task;
+    await expect(github.prBranchOwned(freeText, signal())).rejects.toThrow(/has no pull request/);
+
+    list.requireCredential.mockRejectedValueOnce(
+      new MissingCredentialError("github", "acme.ghe.com", null),
+    );
+    await expect(github.prBranchOwned(prTask(null), signal())).rejects.toThrow(
+      MissingCredentialError,
+    );
+  });
+
+  it("throws when the signal is already aborted", async () => {
+    const fetchImpl = fakeOwnership();
+    const github = createGitHubOrigin({ connections: connections([ghe]), fetch: fetchImpl });
+    const controller = new AbortController();
+    controller.abort();
+    await expect(github.prBranchOwned(prTask("g1"), controller.signal)).rejects.toThrow();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
 describe("pullRequestComments", () => {
   const rootComment = {
     id: 101,

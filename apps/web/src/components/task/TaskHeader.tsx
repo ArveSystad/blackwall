@@ -1,9 +1,16 @@
-import { MAX_FIX_ROUNDS, type Agent, type Task } from "@blackwall/shared";
+import {
+  MAX_FIX_ROUNDS,
+  effectiveTrust,
+  type Agent,
+  type Step,
+  type Task,
+} from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { originKey, relativeTime, statusLabel } from "../../inbox";
 import { useAgentLibrary } from "../../hooks";
 import { connectionsQuery, queryKeys, reposQuery, usageQuery } from "../../query";
+import { TRUST_NAMES, otherTrustLevels } from "../../trust";
 import { formatCost, formatTokens, sumUsage, usageTitle } from "../../usage";
 import {
   agentClis,
@@ -20,6 +27,7 @@ import { BacklogIcon, BranchIcon, ChevronRightIcon, StopIcon, TrashIcon } from "
 import { ORIGIN_ICONS, PR_MODE_LABELS } from "../origins";
 import { StageStepper } from "../StageStepper";
 import { StatusBadge } from "../StatusBadge";
+import { TrustBadge } from "../TrustBadge";
 import { Button } from "../ui/button";
 import { Chip } from "../ui/chip";
 import { Kbd } from "../ui/kbd";
@@ -75,7 +83,8 @@ function startedLabel(date: Date): string {
 
 /**
  * Task header: origin, title with a breadcrumb back to the repo's backlog,
- * branch, agents, the tokens and cost used so far, and the stage stepper with the review round, plus Stop
+ * branch, agents, the tokens and cost used so far, the agents' trust (with a note when steps of
+ * the latest run ran at another level), and the stage stepper with the review round, plus Stop
  * (while queued, running or waiting on you), Archive (when done), Unarchive (when archived)
  * and Delete (until something was delivered).
  * While running, a cyan stream sweeps along the bottom border. Corner brackets frame it and turn
@@ -84,11 +93,14 @@ function startedLabel(date: Date): string {
 export function TaskHeader({
   task,
   round,
+  steps,
   action,
   onDelete,
 }: {
   task: Task;
   round: number;
+  /** The latest run's steps, for the levels its agents ran under. */
+  steps: readonly Step[];
   action: TaskAction;
   onDelete: () => void;
 }) {
@@ -111,6 +123,8 @@ export function TaskHeader({
           ? "GitHub issue"
           : "Blackwall";
   const inReview = task.stage === "code-review" || task.stage === "aggregate";
+  const trust = repo ? effectiveTrust(repo, task) : undefined;
+  const otherLevels = trust ? otherTrustLevels(steps, trust) : [];
 
   async function setArchived(archived: boolean) {
     try {
@@ -215,6 +229,12 @@ export function TaskHeader({
         {task.ci && <CiBadge ci={task.ci} />}
         <AgentSummary task={task} agents={agentMap} />
         <UsageChip taskId={task.id} />
+        {trust && <TrustBadge trust={trust} />}
+        {otherLevels.length > 0 && (
+          <span className="text-faint">
+            Earlier steps ran {otherLevels.map((level) => TRUST_NAMES[level]).join(" and ")}
+          </span>
+        )}
       </div>
       <div className="mt-1">
         <StageStepper

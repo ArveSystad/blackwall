@@ -236,6 +236,40 @@ describe("repo service", () => {
   });
 });
 
+describe("agent trust", () => {
+  it("starts locked with project MCP and hooks off, and updates all three", async () => {
+    const app = await service.add({ path: gitRepo(["app"]) });
+    expect(app).toMatchObject({
+      agentTrust: "locked",
+      trustProjectMcp: false,
+      trustProjectHooks: false,
+    });
+
+    expect(
+      service.update(app.id, {
+        agentTrust: "trusted",
+        trustProjectMcp: true,
+        trustProjectHooks: true,
+      }),
+    ).toMatchObject({ agentTrust: "trusted", trustProjectMcp: true, trustProjectHooks: true });
+    expect(service.get(app.id)).toMatchObject({
+      agentTrust: "trusted",
+      trustProjectMcp: true,
+      trustProjectHooks: true,
+    });
+
+    expect(service.update(app.id, { agentTrust: "unrestricted" }).agentTrust).toBe("unrestricted");
+    expect(service.update(app.id, { trustProjectHooks: false })).toMatchObject({
+      agentTrust: "unrestricted",
+      trustProjectMcp: true,
+      trustProjectHooks: false,
+    });
+    expect(() => service.update(app.id, { agentTrust: "wide-open" as "locked" })).toThrow(
+      InvalidRepoError,
+    );
+  });
+});
+
 describe("reference repos", () => {
   it("accepts other registered repos and rejects itself, unknown ids and duplicates", async () => {
     const app = await service.add({ path: gitRepo(["app"]) });

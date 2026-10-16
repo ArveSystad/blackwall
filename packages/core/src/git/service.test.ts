@@ -19,6 +19,7 @@ import {
   ProtectedBranchError,
   createGitService,
   runGit,
+  sameSnapshot,
   type GitService,
 } from "./service.js";
 
@@ -1015,5 +1016,94 @@ describe("removeWorktree", () => {
       }),
     ).rejects.toBeInstanceOf(ProtectedBranchError);
     expect(git(repo, "branch", "--list", "develop")).toContain("develop");
+  });
+});
+
+describe("snapshotWorktree and restoreWorktree", () => {
+  /** A worktree with a staged, an unstaged and an untracked change on top of two committed files. */
+  async function dirty(id: string): Promise<string> {
+    const path = worktreePathFor(repo, id);
+    await service.createWorktree({
+      repoPath: repo,
+      worktreePath: path,
+      branch: `agent/${id}`,
+      checkout: { kind: "new" },
+    });
+    commit(path, "staged.txt", "one\n", "add staged");
+    commit(path, "unstaged.txt", "one\n", "add unstaged");
+    write(path, "staged.txt", "two\n");
+    git(path, "add", "staged.txt");
+    write(path, "unstaged.txt", "two\n");
+    write(path, "untracked.txt", "new\n");
+    return path;
+  }
+
+  /** What a restore must bring back: HEAD, status, both diffs and every file's content. */
+  function view(dir: string) {
+    const names = git(dir, "ls-files", "--cached", "--others", "--exclude-standard")
+      .split("\n")
+      .filter(Boolean);
+    return {
+      head: git(dir, "rev-parse", "HEAD"),
+      status: git(dir, "status", "--porcelain"),
+      diff: git(dir, "diff"),
+      cached: git(dir, "diff", "--cached"),
+      files: Object.fromEntries(
+        names.map((name) => [
+          name,
+          existsSync(join(dir, name)) ? readFileSync(join(dir, name), "utf8") : null,
+        ]),
+      ),
+    };
+  }
+
+  it("is stable when nothing changes, and leaves the real index alone", async () => {
+    const path = await dirty("s1");
+    expect(git(path, "status", "--porcelain")).toBe(
+      "M  staged.txt\n M unstaged.txt\n?? untracked.txt",
+    );
+    const cachedBefore = git(path, "diff", "--cached");
+    const stageBefore = git(path, "ls-files", "--stage");
+
+    const first = await service.snapshotWorktree(path);
+    const second = await service.snapshotWorktree(path);
+
+    expect(sameSnapshot(first, second)).toBe(true);
+    expect(first.head).toBe(git(path, "rev-parse", "HEAD"));
+    expect(first.worktree).not.toBe(first.index);
+    expect(git(path, "diff", "--cached")).toBe(cachedBefore);
+    expect(git(path, "ls-files", "--stage")).toBe(stageBefore);
+  });
+
+  it.each([
+    ["edits the staged file further", (path: string) => write(path, "staged.txt", "three\n")],
+    ["adds a new untracked file", (path: string) => write(path, "added.txt", "added\n")],
+    ["deletes a tracked file", (path: string) => rmSync(join(path, "unstaged.txt"))],
+    ["makes a new commit", (path: string) => git(path, "commit", "--quiet", "-am", "feat: more")],
+  ])("notices when the worktree %s, and restores the exact state", async (_, change) => {
+    const path = await dirty("s2");
+    const snapshot = await service.snapshotWorktree(path);
+    const before = view(path);
+
+    await change(path);
+    expect(sameSnapshot(await service.snapshotWorktree(path), snapshot)).toBe(false);
+
+    await service.restoreWorktree(path, snapshot);
+    expect(view(path)).toEqual(before);
+    expect(await service.snapshotWorktree(path)).toEqual(snapshot);
+  });
+
+  it("removes a file added after the snapshot", async () => {
+    const path = await dirty("s3");
+    const snapshot = await service.snapshotWorktree(path);
+
+    write(path, "added.txt", "added\n");
+    git(path, "add", "added.txt");
+    await service.restoreWorktree(path, snapshot);
+
+    expect(existsSync(join(path, "added.txt"))).toBe(false);
+    expect(git(path, "status", "--porcelain")).toBe(
+      "M  staged.txt\n M unstaged.txt\n?? untracked.txt",
+    );
   });
 });

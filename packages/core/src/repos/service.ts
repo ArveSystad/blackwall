@@ -241,6 +241,9 @@ export function createRepoService({ repos, connections }: RepoServiceOptions) {
         favorite,
         watchCi,
         referenceRepoIds,
+        agentTrust,
+        trustProjectMcp,
+        trustProjectHooks,
       } = parsed.data;
       for (const refId of referenceRepoIds ?? []) {
         if (refId === id) throw new InvalidRepoError("A repo can't be its own reference repo");
@@ -256,6 +259,9 @@ export function createRepoService({ repos, connections }: RepoServiceOptions) {
         ...(favorite === undefined ? {} : { favorite }),
         ...(watchCi === undefined ? {} : { watchCi }),
         ...(referenceRepoIds === undefined ? {} : { referenceRepoIds }),
+        ...(agentTrust === undefined ? {} : { agentTrust }),
+        ...(trustProjectMcp === undefined ? {} : { trustProjectMcp }),
+        ...(trustProjectHooks === undefined ? {} : { trustProjectHooks }),
       });
     },
 

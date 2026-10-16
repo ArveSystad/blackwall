@@ -150,6 +150,14 @@ export interface RemoveWorktreeInput {
   mainBranch?: string;
 }
 
+/** A worktree's state as git tree objects: HEAD, the staged index and the full working state. */
+export type WorktreeSnapshot = { head: string; index: string; worktree: string };
+
+/** Whether two snapshots name the same HEAD, staged index and working state. */
+export function sameSnapshot(a: WorktreeSnapshot, b: WorktreeSnapshot): boolean {
+  return a.head === b.head && a.index === b.index && a.worktree === b.worktree;
+}
+
 export interface GitServiceOptions {
   /** Fallback default branch when a call doesn't name the repo's own. Default `main`. */
   mainBranch?: string;
@@ -823,6 +831,40 @@ export function createGitService({
         if (error instanceof GitError) return null;
         throw error;
       }
+    },
+
+    /**
+     * Records the worktree at `path` as three tree objects: HEAD, the real index
+     * (`git write-tree`) and the full working state, untracked non-ignored files
+     * included, built in a temporary index so the real one is never touched.
+     */
+    async snapshotWorktree(path: string): Promise<WorktreeSnapshot> {
+      const head = await headSha(path);
+      const index = await runGit(path, ["write-tree"]);
+      const dir = await mkdtemp(join(tmpdir(), "blackwall-snap-"));
+      try {
+        const env = { GIT_INDEX_FILE: join(dir, "index") };
+        await runGit(path, ["read-tree", head], env);
+        await runGit(path, ["add", "-A"], env);
+        const worktree = await runGit(path, ["write-tree"], env);
+        return { head, index, worktree };
+      } finally {
+        await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+      }
+    },
+
+    /**
+     * Puts the worktree at `path` back to `snapshot`: resets HEAD and its branch
+     * to the snapshot's head, writes the files of its working state, removes the
+     * untracked files, then restores the real index. The staged, unstaged and
+     * untracked split comes back exactly. Ignored files are not touched.
+     */
+    async restoreWorktree(path: string, snapshot: WorktreeSnapshot): Promise<void> {
+      await runGit(path, ["reset", "--hard", snapshot.head]);
+      await runGit(path, ["read-tree", snapshot.worktree]);
+      await runGit(path, ["checkout-index", "-a", "-f"]);
+      await runGit(path, ["clean", "-fd"]);
+      await runGit(path, ["read-tree", snapshot.index]);
     },
 
     /**

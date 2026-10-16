@@ -21,6 +21,8 @@ import {
   agentCliFor,
   backlogCapFor,
   ciNeedsYou,
+  effectiveTrust,
+  LOCKED_TRUST,
   agentPermissionOverridesSchema,
   agentUpdateSchema,
   connectionInputSchema,
@@ -61,6 +63,7 @@ const task = {
   title: "Fix login",
   origin: { kind: "jira-issue", key: "ABC-123", connectionId: "c1" },
   mode: null,
+  prBranch: null,
   repoId: "r1",
   branch: "feature/abc-123-fix-login",
   baseBranch: null,
@@ -111,6 +114,90 @@ describe("ciNeedsYou", () => {
     expect(ciNeedsYou({ status: "done", archivedAt: null, ci: ci("passed") })).toBe(false);
     expect(ciNeedsYou({ status: "done", archivedAt: null, ci: ci("pending") })).toBe(false);
     expect(ciNeedsYou({ status: "done", archivedAt: null, ci: null })).toBe(false);
+  });
+});
+
+describe("effectiveTrust", () => {
+  const repo = (agentTrust: "locked" | "trusted" | "unrestricted") => ({
+    agentTrust,
+    trustProjectMcp: true,
+    trustProjectHooks: true,
+  });
+  const pr = {
+    kind: "github-pr",
+    url: "https://github.com/a/b/pull/1",
+    owner: "a",
+    repo: "b",
+    number: 1,
+    connectionId: null,
+  } as const;
+  const free = { origin: { kind: "free-text" }, mode: null, prBranch: null } as const;
+
+  it("runs a Locked repo's tasks Locked, never forced", () => {
+    expect(effectiveTrust(repo("locked"), free)).toEqual(LOCKED_TRUST);
+    expect(
+      effectiveTrust(repo("locked"), { origin: pr, mode: "review", prBranch: "unchecked" }),
+    ).toEqual(LOCKED_TRUST);
+    expect(
+      effectiveTrust(repo("locked"), { origin: pr, mode: "work", prBranch: "foreign" }),
+    ).toEqual(LOCKED_TRUST);
+  });
+
+  it("forces Review PR tasks Locked", () => {
+    for (const level of ["trusted", "unrestricted"] as const) {
+      expect(
+        effectiveTrust(repo(level), { origin: pr, mode: "review", prBranch: "owned" }),
+      ).toEqual({
+        ...LOCKED_TRUST,
+        forced: true,
+        forcedReason: "review",
+      });
+    }
+  });
+
+  it("forces work PR tasks Locked until their branch is known to be the user's", () => {
+    expect(
+      effectiveTrust(repo("trusted"), { origin: pr, mode: "work", prBranch: "unchecked" }),
+    ).toMatchObject({ level: "locked", forced: true, forcedReason: "unchecked-branch" });
+    expect(
+      effectiveTrust(repo("unrestricted"), { origin: pr, mode: "work", prBranch: "foreign" }),
+    ).toMatchObject({ level: "locked", forced: true, forcedReason: "foreign-branch" });
+    expect(
+      effectiveTrust(repo("trusted"), { origin: pr, mode: "work", prBranch: null }),
+    ).toMatchObject({
+      level: "locked",
+      forcedReason: "unchecked-branch",
+    });
+  });
+
+  it("runs an owned work PR at the repo's level", () => {
+    expect(
+      effectiveTrust(repo("trusted"), { origin: pr, mode: "work", prBranch: "owned" }),
+    ).toEqual({
+      level: "trusted",
+      projectMcp: true,
+      projectHooks: true,
+      forced: false,
+      forcedReason: null,
+    });
+  });
+
+  it("runs other tasks at the repo's level, with the extras only under Trusted", () => {
+    expect(effectiveTrust(repo("trusted"), free)).toMatchObject({
+      level: "trusted",
+      projectMcp: true,
+    });
+    expect(effectiveTrust({ ...repo("trusted"), trustProjectMcp: false }, free)).toMatchObject({
+      projectMcp: false,
+      projectHooks: true,
+    });
+    expect(effectiveTrust(repo("unrestricted"), free)).toEqual({
+      level: "unrestricted",
+      projectMcp: false,
+      projectHooks: false,
+      forced: false,
+      forcedReason: null,
+    });
   });
 });
 
@@ -483,6 +570,11 @@ describe("settings and inputs", () => {
   it("accepts a repo's favourite flag", () => {
     expect(repoUpdateSchema.parse({ favorite: true })).toEqual({ favorite: true });
     expect(repoUpdateSchema.parse({ watchCi: false })).toEqual({ watchCi: false });
+    expect(repoUpdateSchema.parse({ agentTrust: "trusted", trustProjectMcp: true })).toEqual({
+      agentTrust: "trusted",
+      trustProjectMcp: true,
+    });
+    expect(repoUpdateSchema.safeParse({ agentTrust: "yolo" }).success).toBe(false);
     expect(repoUpdateSchema.safeParse({ favorite: "yes" }).success).toBe(false);
   });
 
@@ -1011,6 +1103,8 @@ describe("stepSchema", () => {
     stage: "implement",
     agentId: "a1",
     cli: "copilot",
+    trust: "trusted",
+    trustForced: false,
     round: 0,
     visit: 0,
     status: "succeeded",

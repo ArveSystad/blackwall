@@ -1,7 +1,8 @@
 import { mkdtemp, readdir, rm, stat, symlink } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { opencodeConfig } from "../permissions.js";
+import { opencodeConfig, type OpencodeProject } from "../permissions.js";
+import { opencodeProject } from "../project-config.js";
 import { opencodeSubagentModel } from "../subagents.js";
 import { deferredRun, emittingRun } from "./deferred-run.js";
 import { opencodeRateLimitFromText } from "./rate-limit.js";
@@ -313,20 +314,45 @@ const INHERITED_CONFIG_VARS = ["OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR", "OPENCO
  * lives in the XDG data dir and HOME is untouched, so logins and
  * `~/.gitconfig` still apply. `PWD` is the worktree too: OpenCode reads its
  * directory from it, and an inherited one names wherever the server started.
+ *
+ * Trusted keeps all of that and also shuts out the skills OpenCode finds by
+ * itself (the user's `~/.claude/skills` and `~/.agents/skills`, and the repo's
+ * own): `project` names the repo's skill folders, agents and instruction files
+ * explicitly. Unrestricted runs OpenCode as the user would, with every config
+ * source (no `configHome` needed) and everything allowed.
  */
 export function opencodeEnv(
   permissions: AgentRunOptions["permissions"],
-  { cwd, configHome, model }: { cwd: string; configHome: string; model?: string | undefined },
+  {
+    cwd,
+    configHome,
+    model,
+    project,
+  }: {
+    cwd: string;
+    configHome?: string | undefined;
+    model?: string | undefined;
+    project?: OpencodeProject | undefined;
+  },
   base: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...base };
+  const subagentModel = opencodeSubagentModel(model);
+  if (permissions.trust.level === "unrestricted") {
+    delete env.OPENCODE_DISABLE_PROJECT_CONFIG;
+    const config = opencodeConfig(permissions, { subagentModel });
+    return { ...env, PWD: cwd, OPENCODE_CONFIG_CONTENT: JSON.stringify(config) };
+  }
+  if (!configHome) throw new Error("A Locked or Trusted OpenCode run needs its own config home");
   for (const name of INHERITED_CONFIG_VARS) delete env[name];
-  const config = opencodeConfig(permissions, { subagentModel: opencodeSubagentModel(model) });
+  const trusted = permissions.trust.level === "trusted";
+  const config = opencodeConfig(permissions, { subagentModel, ...(trusted ? { project } : {}) });
   return {
     ...env,
     PWD: cwd,
     OPENCODE_CONFIG_CONTENT: JSON.stringify(config),
     OPENCODE_DISABLE_PROJECT_CONFIG: "1",
+    ...(trusted ? { OPENCODE_DISABLE_EXTERNAL_SKILLS: "1" } : {}),
     XDG_CONFIG_HOME: configHome,
   };
 }
@@ -416,9 +442,18 @@ export function createOpencodeAdapter({
         throw new Error(`Permissions for ${permissions.cli} cannot run on OpenCode`);
       }
       const base = env ?? process.env;
+      const { level } = permissions.trust;
       return deferredRun("OpenCode", async () => {
-        const home = await prepareConfigHome(base);
-        const runEnv = opencodeEnv(permissions, { cwd, configHome: home.dir, model }, base);
+        const home =
+          level === "unrestricted"
+            ? { dir: undefined, dispose: async () => undefined }
+            : await prepareConfigHome(base);
+        const project = level === "trusted" ? await opencodeProject(cwd) : undefined;
+        const runEnv = opencodeEnv(
+          permissions,
+          { cwd, configHome: home.dir, model, project },
+          base,
+        );
         const spawn = (input: string, sessionId: string | undefined) =>
           retryWhileLocked(
             () =>

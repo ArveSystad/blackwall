@@ -45,6 +45,12 @@ export type AgentEvent =
    * not stopped by it.
    */
   | { type: "rate-limit"; resetsAt?: string }
+  /**
+   * The skills the agent can use, as the CLI reported them at start (Claude's
+   * `init` line, Copilot's `session.skills_loaded`); only when its skill tool
+   * is in reach, so never under Locked. OpenCode reports none.
+   */
+  | { type: "skills-loaded"; skills: string[] }
   /** The CLI reported a failure; the run ends without a result. */
   | { type: "error"; message: string }
   | { type: "result"; result: AgentResult };
@@ -61,6 +67,11 @@ export interface AgentRunOptions {
   model?: string;
   /** Continue an earlier session instead of starting a new one. */
   resumeSessionId?: string;
+  /**
+   * The step's rules and trust. `permissions.trust` decides each adapter's
+   * flags, config and environment: what the run loads from the repo, and
+   * whether any rule applies at all.
+   */
   permissions: AgentPermissions;
   /**
    * JSON Schema the final answer must match; its parsed value lands in

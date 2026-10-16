@@ -280,6 +280,7 @@ function TaskScreen({ task }: { task: Task }) {
       <TaskHeader
         task={task}
         round={data.round}
+        steps={data.steps}
         action={action}
         onDelete={() => setDeleting(true)}
       />

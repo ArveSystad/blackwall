@@ -15,6 +15,7 @@ import { deleteFinding } from "../../api";
 import { isModKey, isTypingTarget, modKeyLabel, useWindowKeydown } from "../../keyboard";
 import { queryKeys, taskDeliveryQuery } from "../../query";
 import { errorMessage } from "../../settings-forms";
+import { ranUnrestricted } from "../../trust";
 import {
   canDeleteFinding,
   canFixPrComments,
@@ -26,7 +27,7 @@ import {
   isReviewTriage,
 } from "../../task-view";
 import { CiBadge } from "../CiBadge";
-import { CheckIcon, FailedIcon, SpinnerIcon, WallIcon } from "../icons";
+import { CheckIcon, FailedIcon, SpinnerIcon, WallIcon, WarnIcon } from "../icons";
 import { Markdown } from "../Markdown";
 import { OutboundAction } from "../OutboundAction";
 import { SeverityChip } from "../SeverityChip";
@@ -646,6 +647,18 @@ export function FinishPanel({
                   : "Delivered. CI on the pushed commit is below."}
             </span>
           </div>
+          {atGate && ranUnrestricted(data.steps) && (
+            <p
+              role="alert"
+              className="m-0 flex items-start gap-2 border-b border-border px-[18px] py-2.5 text-[12.5px] text-failed"
+            >
+              <WarnIcon size="sm" className="mt-[3px] flex-none" />
+              <span>
+                Agents ran Unrestricted and may already have pushed or changed remotes. Check the
+                remote before confirming.
+              </span>
+            </p>
+          )}
           {task.ci && <CiSection task={task} ci={task.ci} action={action} />}
           {!atGate && delivered && <Delivered url={delivered} task={task} action={action} />}
           {atGate && resolving && (

@@ -98,6 +98,30 @@ describe("connections and repos", () => {
     expect(r.repos.get(repo.id)?.referenceRepoIds).toEqual([lib.id]);
   });
 
+  it("locks agents by default, round-trips the trust level and project flags", () => {
+    const repo = r.repos.create({ path: "/code/app", name: "app" });
+    expect(repo).toMatchObject({
+      agentTrust: "locked",
+      trustProjectMcp: false,
+      trustProjectHooks: false,
+    });
+    expect(r.repos.update(repo.id, { agentTrust: "trusted", trustProjectMcp: true })).toMatchObject(
+      { agentTrust: "trusted", trustProjectMcp: true, trustProjectHooks: false },
+    );
+    expect(
+      r.repos.update(repo.id, { trustProjectHooks: true, agentTrust: "unrestricted" }),
+    ).toMatchObject({
+      agentTrust: "unrestricted",
+      trustProjectMcp: true,
+      trustProjectHooks: true,
+    });
+    expect(r.repos.get(repo.id)).toMatchObject({
+      agentTrust: "unrestricted",
+      trustProjectMcp: true,
+      trustProjectHooks: true,
+    });
+  });
+
   it("appends new repos to the manual order and lists favourites first", () => {
     const c = r.repos.create({ path: "/code/c", name: "c" });
     const a = r.repos.create({ path: "/code/a", name: "a" });
@@ -479,6 +503,71 @@ describe("tasks, runs and steps", () => {
         costUsd: null,
       },
     ]);
+  });
+
+  it("marks PR tasks' branch unchecked and leaves other origins without one", () => {
+    const free = seedTask();
+    const pr = r.tasks.create({
+      title: "Review PR",
+      origin: {
+        kind: "github-pr",
+        url: "https://github.com/acme/app/pull/7",
+        owner: "acme",
+        repo: "app",
+        number: 7,
+        connectionId: null,
+      },
+      mode: "review",
+      repoId: free.repoId,
+    });
+    expect(pr.prBranch).toBe("unchecked");
+    expect(r.tasks.get(pr.id)?.prBranch).toBe("unchecked");
+
+    expect(free.prBranch).toBeNull();
+    expect(r.tasks.get(free.id)?.prBranch).toBeNull();
+  });
+
+  it("stores the PR branch state set after creation", () => {
+    const repo = r.repos.create({ path: "/code/app", name: "app" });
+    const pr = r.tasks.create({
+      title: "Review PR",
+      origin: {
+        kind: "github-pr",
+        url: "https://github.com/acme/app/pull/7",
+        owner: "acme",
+        repo: "app",
+        number: 7,
+        connectionId: null,
+      },
+      mode: "review",
+      repoId: repo.id,
+    });
+    expect(r.tasks.setPrBranch(pr.id, "owned").prBranch).toBe("owned");
+    expect(r.tasks.get(pr.id)?.prBranch).toBe("owned");
+    expect(r.tasks.setPrBranch(pr.id, "foreign").prBranch).toBe("foreign");
+    expect(() => r.tasks.setPrBranch("missing", "owned")).toThrow(/not found/);
+  });
+
+  it("gives steps no trust until one is set, then round-trips trust and trustForced", () => {
+    const task = seedTask();
+    const run = r.runs.create(task.id);
+    const step = r.steps.create({ runId: run.id, stage: "inform" });
+    expect(step).toMatchObject({ trust: null, trustForced: false });
+
+    const forced = r.steps.create({
+      runId: run.id,
+      stage: "implement",
+      trust: "trusted",
+      trustForced: true,
+    });
+    expect(r.steps.get(forced.id)).toMatchObject({ trust: "trusted", trustForced: true });
+
+    expect(r.steps.update(step.id, { trust: "locked" })).toMatchObject({
+      trust: "locked",
+      trustForced: false,
+    });
+    expect(r.steps.update(step.id, { trustForced: true }).trustForced).toBe(true);
+    expect(r.steps.get(step.id)).toMatchObject({ trust: "locked", trustForced: true });
   });
 
   it("has no CI until a watch stores it, then round-trips the JSON", () => {

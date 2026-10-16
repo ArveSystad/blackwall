@@ -1,3 +1,4 @@
+import { LOCKED_TRUST, type AgentTrust } from "@blackwall/shared";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,6 +35,11 @@ const parse = (name: string, sessionId?: string) =>
 
 const readOnly = permissionsFor("copilot", "read-only");
 const implement = permissionsFor("copilot", "implement");
+const trustAt = (level: AgentTrust["level"]): AgentTrust => ({ ...LOCKED_TRUST, level });
+
+/** The skill lists of the `skills-loaded` events in a run. */
+const skillsOf = (events: AgentEvent[]) =>
+  events.flatMap((e) => (e.type === "skills-loaded" ? [e.skills] : []));
 const schema = {
   type: "object",
   properties: { sum: { type: "number" }, color: { type: "string" } },
@@ -191,6 +197,33 @@ describe("createCopilotParser", () => {
     expect(normalized(copilot)).toEqual(normalized(claude));
   });
 
+  it("reports the repo's skills only when the run keeps the skill tool", () => {
+    const locked = parseWith(
+      createCopilotParser({ reportSkills: false }),
+      fixture("skills-locked.jsonl"),
+    );
+    expect(skillsOf(locked)).toEqual([]);
+    const trusted = parseWith(
+      createCopilotParser({ reportSkills: true }),
+      fixture("skills-trusted.jsonl"),
+    );
+    expect(skillsOf(trusted)).toHaveLength(1);
+    expect(skillsOf(trusted)[0]).toEqual(expect.arrayContaining(["ghprobe", "probe"]));
+  });
+
+  it("reports the repo's skills as Claude does for the same task", () => {
+    const claude = parseWith(
+      createClaudeParser(),
+      join(fixtures, "claude", "skills-trusted.jsonl"),
+    );
+    const copilot = parseWith(
+      createCopilotParser({ reportSkills: true }),
+      fixture("skills-trusted.jsonl"),
+    );
+    expect(skillsOf(claude)[0]).toContain("probe");
+    expect(skillsOf(copilot)[0]).toContain("probe");
+  });
+
   it("reports a sub-agent and tags its events with the parent call", () => {
     const events = parse("subagent.jsonl", "11111111-2222-4333-8444-555555555559");
     const agentId = "toolu_019WkP85pw4zcjYmigRASgV6";
@@ -333,6 +366,59 @@ describe("copilotArgs", () => {
     expect(args.filter((_, i) => i < at || i >= at + 2)).toEqual(
       copilotArgs({ ...base, permissions: readOnly }),
     );
+  });
+
+  it("excludes the skill tool when Locked and keeps it under Trusted", () => {
+    const base = { cwd: "C:\\wt", sessionId: "s-1", resume: false };
+    const locked = copilotArgs({ ...base, permissions: permissionsFor("copilot", "read-only") });
+    expect(locked).toContain("--excluded-tools=skill");
+    expect(locked).not.toContain("--add-dir");
+
+    const trusted = copilotArgs({
+      ...base,
+      permissions: permissionsFor("copilot", "read-only", {}, [], trustAt("trusted")),
+    });
+    expect(trusted[trusted.indexOf("--add-dir") + 1]).toBe("C:\\wt");
+    expect(trusted).not.toContain("--excluded-tools=skill");
+  });
+
+  it("passes the repo's MCP config to Trusted implementers with project MCP on", () => {
+    const trust = { ...trustAt("trusted"), projectMcp: true };
+    const args = copilotArgs({
+      cwd: "C:\\wt",
+      sessionId: "s-1",
+      resume: false,
+      permissions: permissionsFor("copilot", "implement", {}, [], trust),
+      mcpConfig: "C:\\wt\\.mcp.json",
+    });
+    expect(args[args.indexOf("--additional-mcp-config") + 1]).toBe("@C:\\wt\\.mcp.json");
+    const readOnlyArgs = copilotArgs({
+      cwd: "C:\\wt",
+      sessionId: "s-1",
+      resume: false,
+      permissions: permissionsFor("copilot", "read-only", {}, [], trust),
+      mcpConfig: "C:\\wt\\.mcp.json",
+    });
+    expect(readOnlyArgs).not.toContain("--additional-mcp-config");
+  });
+
+  it("runs Unrestricted with no rules but its own allow-all flags", () => {
+    const args = copilotArgs({
+      cwd: "C:\\wt",
+      sessionId: "s-1",
+      resume: false,
+      permissions: permissionsFor("copilot", "read-only", {}, [], trustAt("unrestricted")),
+    });
+    expect(args).toEqual([
+      "--output-format",
+      "json",
+      "-C",
+      "C:\\wt",
+      "--session-id",
+      "s-1",
+      "--no-ask-user",
+      "--allow-all",
+    ]);
   });
 
   it("resumes an existing session", () => {

@@ -139,6 +139,22 @@ export const DEFAULT_TAGS = [
   "scope-creep",
 ] as const;
 
+/**
+ * What a repo lets its agents load. `locked`: the harness sandbox only, with no
+ * repo or user config. `trusted`: also the repo's own skills, sub-agents and
+ * instruction files (project MCP servers and hooks only when turned on, and only
+ * for implement steps); read-only steps keep exactly Locked's tool permissions.
+ * `unrestricted`: each CLI's full "yolo" mode, with no rules at all.
+ */
+export const AGENT_TRUST_LEVELS = ["locked", "trusted", "unrestricted"] as const;
+/**
+ * Whether a GitHub PR task's branch holds only the user's own commits.
+ * `unchecked`: not checked yet, or the check failed. `owned`: the PR is the
+ * user's, from the base repo, and every commit is theirs. `foreign`: anything
+ * else. Only `owned` lets a PR task run above Locked.
+ */
+export const PR_BRANCH_STATES = ["unchecked", "owned", "foreign"] as const;
+
 export const connectionKindSchema = z.enum(CONNECTION_KINDS);
 export const agentCliSchema = z.enum(AGENT_CLIS);
 export const originKindSchema = z.enum(ORIGIN_KINDS);
@@ -155,6 +171,11 @@ export const findingOverrideSchema = z.enum(FINDING_OVERRIDES);
 export const grillAnswererSchema = z.enum(GRILL_ANSWERERS);
 export const deliveryTargetSchema = z.enum(DELIVERY_TARGETS);
 export const backlogStatusSchema = z.enum(BACKLOG_STATUSES);
+export const agentTrustLevelSchema = z.enum(AGENT_TRUST_LEVELS);
+export const prBranchSchema = z.enum(PR_BRANCH_STATES);
+
+export type AgentTrustLevel = z.infer<typeof agentTrustLevelSchema>;
+export type PrBranch = z.infer<typeof prBranchSchema>;
 
 export type ConnectionKind = z.infer<typeof connectionKindSchema>;
 export type AgentCli = z.infer<typeof agentCliSchema>;
@@ -436,6 +457,12 @@ export const repoSchema = z.object({
    * summarizer) and the chat may read. Implementers stay in the worktree.
    */
   referenceRepoIds: z.array(id),
+  /** What the repo's agents may load and do; see {@link AGENT_TRUST_LEVELS}. */
+  agentTrust: agentTrustLevelSchema,
+  /** Trusted only: implement steps also start the repo's project MCP servers. */
+  trustProjectMcp: z.boolean(),
+  /** Trusted only: implement steps also run the repo's project hooks (OpenCode: plugins). */
+  trustProjectHooks: z.boolean(),
   createdAt: timestamp,
   updatedAt: timestamp,
 });
@@ -478,6 +505,9 @@ export const repoUpdateSchema = z.object({
   referenceRepoIds: repoSchema.shape.referenceRepoIds
     .refine((ids) => new Set(ids).size === ids.length, "Each repo can be listed only once")
     .optional(),
+  agentTrust: agentTrustLevelSchema.optional(),
+  trustProjectMcp: z.boolean().optional(),
+  trustProjectHooks: z.boolean().optional(),
 });
 export type RepoUpdate = z.infer<typeof repoUpdateSchema>;
 
@@ -644,6 +674,47 @@ export type PermissionProfile = z.infer<typeof permissionProfileSchema>;
 export function stagePermissionProfile(stage: Stage): PermissionProfile {
   return stage === "implement" ? "implement" : "read-only";
 }
+
+/**
+ * Why an agent step runs Locked although its repo is set higher. `review`: a
+ * Review PR task reads code someone else wrote. `unchecked-branch`: the PR
+ * branch's ownership is not checked yet (or the check failed).
+ * `foreign-branch`: the PR, or a commit on its branch, is not the user's.
+ */
+export const TRUST_FORCED_REASONS = ["review", "unchecked-branch", "foreign-branch"] as const;
+export type TrustForcedReason = (typeof TRUST_FORCED_REASONS)[number];
+
+/**
+ * The trust an agent step runs under: its level, the Trusted extras, and
+ * whether the level was forced below the repo's setting (with why).
+ */
+export interface AgentTrust {
+  level: AgentTrustLevel;
+  /** Trusted implement steps start the repo's project MCP servers. */
+  projectMcp: boolean;
+  /** Trusted implement steps run the repo's project hooks. */
+  projectHooks: boolean;
+  forced: boolean;
+  forcedReason: TrustForcedReason | null;
+}
+
+/** Today's sandbox: what every agent ran under before trust levels existed. */
+export const LOCKED_TRUST: AgentTrust = {
+  level: "locked",
+  projectMcp: false,
+  projectHooks: false,
+  forced: false,
+  forcedReason: null,
+};
+
+/**
+ * CLIs that, under Trusted, also load the user's own global agents, skills and
+ * MCP servers, because the CLI has no way to load the repo's config without
+ * the user's. Copilot CLI reads `~/.copilot` (its config dir) for both, so
+ * isolating it would also hide the user's login. The settings copy and the
+ * steps they run warn about it.
+ */
+export const TRUSTED_LOADS_GLOBAL_CONFIG: readonly AgentCli[] = ["copilot"];
 
 export const tagSchema = z.object({ name, position: z.int().nonnegative() });
 export type Tag = z.infer<typeof tagSchema>;
@@ -817,6 +888,8 @@ export const taskSchema = z
     origin: taskOriginSchema,
     /** PR tasks only. */
     mode: prModeSchema.nullable(),
+    /** PR tasks only: whether the branch holds only the user's commits; null for other tasks. */
+    prBranch: prBranchSchema.nullable(),
     ...workspaceSchema.shape,
     status: taskStatusSchema,
     /** Current pipeline stage; null before the first step starts. */
@@ -856,6 +929,40 @@ export const taskSchema = z
   })
   .superRefine(checkMode);
 export type Task = z.infer<typeof taskSchema>;
+
+/**
+ * The trust a task's agents run under. A Locked repo runs Locked. Otherwise
+ * any task that runs code the user didn't write is forced Locked: a Review PR
+ * task (`review`), and a work PR task whose branch is not known to hold only
+ * the user's commits (`unchecked-branch` until checked, `foreign-branch` when
+ * it doesn't; a PR task with no state recorded counts as unchecked). Every
+ * other task runs at the repo's level. `forced` means
+ * "lower than the repo's setting", so a Locked repo is never forced.
+ */
+export function effectiveTrust(
+  repo: Pick<Repo, "agentTrust" | "trustProjectMcp" | "trustProjectHooks">,
+  task: Pick<Task, "origin" | "mode" | "prBranch">,
+): AgentTrust {
+  if (repo.agentTrust === "locked") return LOCKED_TRUST;
+  const isPr = task.origin.kind === "github-pr";
+  const forcedReason: TrustForcedReason | null =
+    task.mode === "review"
+      ? "review"
+      : task.prBranch === "foreign"
+        ? "foreign-branch"
+        : // A PR task without a recorded check fails closed too.
+          task.prBranch === "unchecked" || (isPr && task.prBranch !== "owned")
+          ? "unchecked-branch"
+          : null;
+  if (forcedReason) return { ...LOCKED_TRUST, forced: true, forcedReason };
+  return {
+    level: repo.agentTrust,
+    projectMcp: repo.agentTrust === "trusted" && repo.trustProjectMcp,
+    projectHooks: repo.agentTrust === "trusted" && repo.trustProjectHooks,
+    forced: false,
+    forcedReason: null,
+  };
+}
 
 /**
  * Whether a done task's CI failed and it is still listed: it shows under
@@ -1416,6 +1523,10 @@ export const stepSchema = z.object({
   agentId: id.nullable(),
   /** CLI the agent ran on; null for harness-run steps. */
   cli: agentCliSchema.nullable(),
+  /** Trust level the agent last ran under; null for harness-run steps and older steps. */
+  trust: agentTrustLevelSchema.nullable(),
+  /** Whether that level was forced below the repo's setting (see {@link effectiveTrust}). */
+  trustForced: z.boolean(),
   /** Fix round within the stage loop (0 for the first pass). */
   round: z.int().nonnegative(),
   /**

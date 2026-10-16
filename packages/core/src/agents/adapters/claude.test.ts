@@ -1,8 +1,17 @@
-import { readFileSync } from "node:fs";
+import { LOCKED_TRUST, type AgentTrust } from "@blackwall/shared";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { permissionsFor } from "../permissions.js";
 import { claudeArgs, createClaudeAdapter, createClaudeParser } from "./claude.js";
 import { isAlive } from "./process.js";
@@ -21,6 +30,8 @@ function parse(name: string): AgentEvent[] {
 }
 
 const readOnly = permissionsFor("claude", "read-only");
+const trust: AgentTrust = { ...LOCKED_TRUST, level: "trusted" };
+const trustedReadOnly = permissionsFor("claude", "read-only", {}, [], trust);
 
 function fake(mode: string, ...args: string[]) {
   return createClaudeAdapter({ command: process.execPath, commandArgs: [fakeCli, mode, ...args] });
@@ -182,6 +193,30 @@ describe("createClaudeParser", () => {
     expect(parser.push("[1,2]")).toEqual([]);
     expect(parser.push('{"type":"rate_limit_event"}')).toEqual([]);
   });
+
+  it("reports the repo's skills right after the session, without the plugin prefix", () => {
+    const events = parse("skills-trusted.jsonl");
+    expect(events.slice(0, 2)).toEqual([
+      {
+        type: "session",
+        sessionId: "e9485437-901f-4a96-a48b-dd726e83de21",
+        model: "claude-haiku-5-5",
+      },
+      { type: "skills-loaded", skills: expect.any(Array) },
+    ]);
+    const loaded = events[1];
+    expect(loaded).toMatchObject({
+      type: "skills-loaded",
+      skills: expect.arrayContaining(["probe"]),
+    });
+    expect(JSON.stringify(loaded)).not.toContain("blackwall-project:");
+  });
+
+  it("reports no skills when the Skill tool is out of reach (Locked)", () => {
+    const events = parse("skills-locked.jsonl");
+    expect(events.some((e) => e.type === "skills-loaded")).toBe(false);
+    expect(events[0]).toMatchObject({ type: "session" });
+  });
 });
 
 describe("claudeArgs", () => {
@@ -256,6 +291,24 @@ describe("claudeArgs", () => {
       "--tools",
     ]);
     expect(args.filter((_, i) => i < at || i >= at + 4)).toEqual(plain);
+  });
+
+  it("loads the plugin, the guard hook and the repo's instructions under read-only Trusted", () => {
+    const args = claudeArgs(
+      { permissions: trustedReadOnly, systemPrompt: "You review code." },
+      {
+        pluginDir: "/tmp/blackwall-claude-x",
+        instructions: "## The repository's own instructions",
+      },
+    );
+    expect(args[args.indexOf("--plugin-dir") + 1]).toBe("/tmp/blackwall-claude-x");
+    expect(args).toContain("--restricted");
+    const settings = JSON.parse(args[args.indexOf("--settings") + 1] ?? "{}");
+    const hook = settings.hooks.PreToolUse[0].hooks[0];
+    expect(hook.command).toContain("guard-readonly.mjs");
+    expect(args[args.indexOf("--append-system-prompt") + 1]).toBe(
+      "You review code.\n\n## The repository's own instructions",
+    );
   });
 
   it("refuses permissions built for another CLI", () => {
@@ -366,5 +419,82 @@ describe("createClaudeAdapter", () => {
     }
     await expect(run.result).rejects.toMatchObject({ reason: "aborted" });
     await expect.poll(() => isAlive(grandchild), { timeout: 5_000 }).toBe(false);
+  });
+
+  it("replays the repo's skills as skills-loaded before the first message", async () => {
+    const run = fake("replay", fixture("skills-trusted.jsonl")).run({
+      cwd,
+      prompt: "x",
+      permissions: trustedReadOnly,
+    });
+    const events = await collect(run);
+    expect(events.slice(0, 2).map((e) => e.type)).toEqual(["session", "skills-loaded"]);
+    expect(events.some((e) => e.type === "tool-call-start" && e.name === "Skill")).toBe(true);
+    await expect(run.result).resolves.toMatchObject({
+      sessionId: "e9485437-901f-4a96-a48b-dd726e83de21",
+    });
+  });
+});
+
+describe("createClaudeAdapter under Trusted", () => {
+  let root: string;
+  let repo: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "blackwall-claude-test-"));
+    repo = mkdtempSync(join(tmpdir(), "blackwall-claude-repo-"));
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  /** The guard allow list the env fake reports for a run of this profile and trust, or "none". */
+  async function guardAllowFor(
+    profile: "read-only" | "implement",
+    level: AgentTrust["level"],
+  ): Promise<string> {
+    const base = { ...process.env };
+    delete base.BLACKWALL_GUARD_ALLOW;
+    const adapter = createClaudeAdapter({
+      command: process.execPath,
+      commandArgs: [fakeCli, "env"],
+      env: base,
+      pluginRoot: root,
+    });
+    const run = adapter.run({
+      cwd: repo,
+      prompt: "x",
+      permissions: permissionsFor("claude", profile, {}, [], { ...LOCKED_TRUST, level }),
+    });
+    return (await run.result).text;
+  }
+
+  it("hands the guard its allow list for read-only Trusted runs only", async () => {
+    expect(await guardAllowFor("read-only", "locked")).toBe("none");
+    expect(await guardAllowFor("read-only", "unrestricted")).toBe("none");
+    expect(await guardAllowFor("implement", "trusted")).toBe("none");
+    expect(JSON.parse(await guardAllowFor("read-only", "trusted"))).toEqual([
+      "git diff",
+      "git log",
+      "git show",
+      "git status",
+    ]);
+  });
+
+  it("creates the plugin for the repo's skills and removes it after the run", async () => {
+    mkdirSync(join(repo, ".claude", "skills", "x"), { recursive: true });
+    writeFileSync(join(repo, ".claude", "skills", "x", "SKILL.md"), "---\nname: x\n---\n");
+    const run = createClaudeAdapter({
+      command: process.execPath,
+      commandArgs: [fakeCli, "echo"],
+      pluginRoot: root,
+    }).run({ cwd: repo, prompt: "x", permissions: trustedReadOnly });
+    const result = await run.result;
+    const args = result.structured as string[];
+    const plugin = args[args.indexOf("--plugin-dir") + 1] ?? "";
+    expect(join(plugin, "..")).toBe(root);
+    expect(args).toContain("--restricted");
+    expect(readdirSync(root)).toEqual([]);
+    expect(existsSync(plugin)).toBe(false);
   });
 });

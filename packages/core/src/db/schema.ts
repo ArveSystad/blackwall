@@ -11,6 +11,7 @@ import {
 } from "drizzle-orm/sqlite-core";
 import {
   AGENT_CLIS,
+  AGENT_TRUST_LEVELS,
   BACKLOG_STATUSES,
   CHAT_ROLES,
   CONNECTION_KINDS,
@@ -18,6 +19,7 @@ import {
   GATES,
   GRILL_ANSWERERS,
   ORIGIN_KINDS,
+  PR_BRANCH_STATES,
   PR_MODES,
   STAGES,
   STEP_STATUSES,
@@ -102,6 +104,12 @@ export const repos = sqliteTable("repos", {
     .$type<string[]>()
     .notNull()
     .default(sql`'[]'`),
+  /** What the repo's agents may load and do; see AGENT_TRUST_LEVELS. */
+  agentTrust: text("agent_trust", { enum: AGENT_TRUST_LEVELS }).notNull().default("locked"),
+  /** Trusted repos only: load the repo's project MCP server config. */
+  trustProjectMcp: integer("trust_project_mcp", { mode: "boolean" }).notNull().default(false),
+  /** Trusted repos only: run the repo's project hooks. */
+  trustProjectHooks: integer("trust_project_hooks", { mode: "boolean" }).notNull().default(false),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -193,6 +201,8 @@ export const tasks = sqliteTable(
     archivedAt: timestamp("archived_at"),
     /** CI on the commit the task last pushed; null when it was never watched. */
     ci: text("ci", { mode: "json" }).$type<TaskCi>(),
+    /** PR tasks: whether the PR's head branch is ours to write to; null for other origins. */
+    prBranch: text("pr_branch", { enum: PR_BRANCH_STATES }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -293,6 +303,10 @@ export const steps = sqliteTable(
     agentId: text("agent_id").references(() => agents.id, { onDelete: "set null" }),
     /** CLI the agent ran on; null for harness steps. */
     cli: text("cli", { enum: AGENT_CLIS }),
+    /** Trust level the agent ran under; null for harness steps. */
+    trust: text("trust", { enum: AGENT_TRUST_LEVELS }),
+    /** The step ran under a forced trust level rather than the repo's. */
+    trustForced: integer("trust_forced", { mode: "boolean" }).notNull().default(false),
     /** Fix round within the stage loop (0 for the first pass). */
     round: integer("round").notNull().default(0),
     /** Visit of the stage within the run (0 for the first). */

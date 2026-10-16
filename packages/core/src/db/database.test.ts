@@ -387,6 +387,43 @@ describe("openDatabase", () => {
     expect(r.steps.get("none")).toMatchObject({ inputTokens: 0, outputTokens: 0, costUsd: null });
   });
 
+  it("backfills PR task branches as unchecked and locks repos registered before agent trust", () => {
+    // Build a database at the migration before agent trust.
+    const oldMigrations = join(dir, "..", "migrations-0022");
+    cpSync(MIGRATIONS_DIR, oldMigrations, { recursive: true });
+    const journalPath = join(oldMigrations, "meta", "_journal.json");
+    const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
+      entries: { tag: string }[];
+    };
+    journal.entries = journal.entries.slice(
+      0,
+      journal.entries.findIndex((e) => e.tag === "0023_agent_trust"),
+    );
+    expect(journal.entries.at(-1)?.tag).toBe("0022_chat_task");
+    writeFileSync(journalPath, JSON.stringify(journal));
+
+    mkdirSync(dir, { recursive: true });
+    const sqlite = new Database(join(dir, DB_FILENAME));
+    migrate(drizzle(sqlite), { migrationsFolder: oldMigrations });
+    sqlite.exec(`
+      insert into repos (id, path, name, created_at, updated_at) values ('r1', '/code/app', 'app', 0, 0);
+      insert into tasks (id, title, origin, mode, repo_id, created_at, updated_at)
+        values ('pr', 'Review PR', '{"kind":"github-pr","url":"https://github.com/acme/app/pull/7","owner":"acme","repo":"app","number":7,"connectionId":null}', 'review', 'r1', 0, 0),
+               ('free', 'Free', '{"kind":"free-text"}', NULL, 'r1', 1, 1);
+    `);
+    sqlite.close();
+
+    opened = openDatabase(dir);
+    const r = createRepositories(opened.db);
+    expect(r.tasks.get("pr")?.prBranch).toBe("unchecked");
+    expect(r.tasks.get("free")?.prBranch).toBeNull();
+    expect(r.repos.get("r1")).toMatchObject({
+      agentTrust: "locked",
+      trustProjectMcp: false,
+      trustProjectHooks: false,
+    });
+  });
+
   it("keeps the backlog's pick order when priority is dropped", () => {
     // Build a database at the migration before the backlog priority was dropped.
     const oldMigrations = join(dir, "..", "migrations-0019");

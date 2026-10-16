@@ -1,4 +1,4 @@
-import type { Task } from "@blackwall/shared";
+import { effectiveTrust, type Task } from "@blackwall/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
@@ -27,8 +27,8 @@ const GROUPS = [
 function TaskList({ tasks, filter }: { tasks: Task[]; filter: string }) {
   const repos = useQuery(reposQuery);
   const now = useNow();
-  const repoNames = useMemo(
-    () => new Map((repos.data ?? []).map((repo) => [repo.id, repo.name])),
+  const repoById = useMemo(
+    () => new Map((repos.data ?? []).map((repo) => [repo.id, repo])),
     [repos.data],
   );
   const groups = groupTasks(tasks.filter((task) => matchesFilter(task, filter)));
@@ -60,14 +60,14 @@ function TaskList({ tasks, filter }: { tasks: Task[]; filter: string }) {
               <span className="h-px flex-1 bg-border" />
             </h2>
             {list.map((task) => {
-              const repoName = repoNames.get(task.repoId);
+              const repo = repoById.get(task.repoId);
               return (
                 <TaskCard
                   key={task.id}
                   task={task}
                   now={now}
                   clis={agentClis(task)}
-                  {...(repoName ? { repoName } : {})}
+                  {...(repo ? { repoName: repo.name, trust: effectiveTrust(repo, task) } : {})}
                 />
               );
             })}

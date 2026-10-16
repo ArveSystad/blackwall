@@ -1,5 +1,7 @@
 import {
+  LOCKED_TRUST,
   agentCliFor,
+  effectiveTrust,
   deliveryConfirmationSchema,
   diffCommentsInputSchema,
   findingOverrideInputSchema,
@@ -7,6 +9,7 @@ import {
   grillAnswerInputSchema,
   TASK_STOPPED_ERROR,
   type AgentCli,
+  type AgentTrust,
   type DeliveryConfirmation,
   type DeliveryPlan,
   type DiffCommentsInput,
@@ -29,7 +32,7 @@ import { AgentRunError, type AgentAdapter, type AgentResult } from "../agents/ad
 import type { QuotaTracker } from "../agents/quota.js";
 import type { Repositories } from "../db/repositories.js";
 import { describeGitError } from "../git/errors.js";
-import { GitError } from "../git/service.js";
+import { GitError, sameSnapshot, type GitService } from "../git/service.js";
 import { referenceReposOf, type ReferenceRepo } from "../repos/service.js";
 import { MAX_CI_FAILURES, type CiWatcher } from "./ci.js";
 import {
@@ -226,6 +229,7 @@ export interface PipelineEngineOptions {
     stage: Stage,
     cli: AgentCli,
     referenceRepos?: readonly ReferenceRepo[],
+    trust?: AgentTrust,
   ) => AgentInvocation;
   adapters: Partial<Record<AgentCli, AgentAdapter>>;
   stages: StageHandlers;
@@ -254,6 +258,27 @@ export interface PipelineEngineOptions {
    * opened, minus blackwall's own comments, for Fetch comments and fix.
    */
   prFeedback?: (url: string, signal?: AbortSignal) => Promise<PullRequestFeedback>;
+  /**
+   * Whether a PR task's branch holds only the user's own commits: the PR is
+   * theirs, from the base repo, and so is every commit. Only a `true` lets a
+   * PR task run above Locked; without the port, PR tasks stay Locked.
+   */
+  prBranchOwned?: (task: Task, signal: AbortSignal) => Promise<boolean>;
+  /**
+   * Snapshots and restores a worktree around each read-only agent step under
+   * Trusted, so a read-only agent never leaves a change behind even if the
+   * repo's skills widened what it may run. Unrestricted has no such backstop
+   * by design. Without the port there is none either (tests only).
+   */
+  worktreeGuard?: Pick<GitService, "snapshotWorktree" | "restoreWorktree">;
+}
+
+/** A read-only agent step under Trusted left the worktree changed; the harness put it back. */
+export class WorktreeChangedError extends Error {
+  constructor() {
+    super("A read-only agent changed the worktree under Trusted");
+    this.name = "WorktreeChangedError";
+  }
 }
 
 /** In-memory hints for a task's next drive; lost on restart, which only costs a re-run. */
@@ -299,6 +324,8 @@ export function createPipelineEngine({
   pathExists = () => true,
   ci,
   prFeedback,
+  prBranchOwned,
+  worktreeGuard,
 }: PipelineEngineOptions) {
   const scheduler = createScheduler({ maxPerRepo: maxTasksPerRepo });
   const drives = new Map<string, Promise<void>>();
@@ -438,6 +465,39 @@ export function createPipelineEngine({
     return ctx;
   }
 
+  /**
+   * Checks whether a work PR task's branch holds only the user's commits and
+   * stores the answer (`owned` or `foreign`); a failed or aborted check, or no
+   * port, stores `unchecked`, which keeps the task Locked. Only work PR tasks
+   * on repos above Locked are checked: nothing else depends on the answer.
+   */
+  async function checkPrBranch(taskId: string, signal: AbortSignal): Promise<void> {
+    const task = getTask(taskId);
+    if (task.origin.kind !== "github-pr" || task.mode !== "work") return;
+    const repo = r.repos.get(task.repoId);
+    if (!repo || repo.agentTrust === "locked") return;
+    let state: NonNullable<Task["prBranch"]> = "unchecked";
+    if (prBranchOwned && !signal.aborted) {
+      try {
+        state = (await prBranchOwned(task, signal)) ? "owned" : "foreign";
+      } catch (error) {
+        log(`Task ${taskId}: could not check its PR branch: ${errorMessage(error)}`);
+      }
+    }
+    if (signal.aborted) state = "unchecked";
+    if (getTask(taskId).prBranch !== state) {
+      const saved = r.tasks.setPrBranch(taskId, state);
+      publish({ type: "task.upserted", payload: { task: saved } });
+    }
+  }
+
+  /** The trust a task's agent steps run under now (see {@link effectiveTrust}). */
+  function trustFor(taskId: string): AgentTrust {
+    const task = getTask(taskId);
+    const repo = r.repos.get(task.repoId);
+    return repo ? effectiveTrust(repo, task) : LOCKED_TRUST;
+  }
+
   async function runAgent(ctx: StageContext, input: RunAgentInput): Promise<AgentResult> {
     const { run, stage, round, visit, signal } = ctx;
     if (signal.aborted) throw new InterruptedError();
@@ -455,11 +515,13 @@ export function createPipelineEngine({
 
     // A resumed step stays on its own CLI, since its session belongs to that CLI.
     const cli = earlier?.cli ?? agentCliFor(ctx.task, input.agentId);
+    const trust = trustFor(ctx.task.id);
     const inv = invocation(
       input.agentId,
       input.asStage ?? stage,
       cli,
       referenceReposOf(r.repos, ctx.task.repoId),
+      trust,
     );
     const adapter = adapters[cli];
     if (!adapter) throw new Error(`No adapter for the ${cli} CLI`);
@@ -478,7 +540,13 @@ export function createPipelineEngine({
         : undefined;
     const withGuidance = (prompt: string) =>
       guided ? `${prompt}\n\n## Guidance from the user\n\n${guided}` : prompt;
-    const started = { status: "running" as const, startedAt: new Date(), finishedAt: null };
+    const started = {
+      status: "running" as const,
+      startedAt: new Date(),
+      finishedAt: null,
+      trust: trust.level,
+      trustForced: trust.forced,
+    };
     let step = earlier
       ? saveStep(earlier.id, { ...started, error: null })
       : r.steps.create({
@@ -535,7 +603,24 @@ export function createPipelineEngine({
       return result;
     };
 
+    // The backstop: a read-only step under Trusted must leave the worktree as it
+    // found it, staged changes and untracked files included (the summarizer
+    // starts on a staged round). Any change is undone and fails the step.
+    const guard =
+      worktreeGuard && inv.permissions.profile === "read-only" && trust.level === "trusted"
+        ? worktreeGuard
+        : undefined;
+    let before: Awaited<ReturnType<GitService["snapshotWorktree"]>> | undefined;
+    const keepWorktree = async (): Promise<void> => {
+      if (!guard || !before) return;
+      const after = await guard.snapshotWorktree(worktree);
+      if (sameSnapshot(before, after)) return;
+      await guard.restoreWorktree(worktree, before);
+      throw new WorktreeChangedError();
+    };
+
     try {
+      if (guard) before = await guard.snapshotWorktree(worktree);
       let result: AgentResult;
       try {
         result = await attempt(resumeSessionId);
@@ -550,6 +635,7 @@ export function createPipelineEngine({
         // The CLI no longer has the session: run the original prompt once, afresh.
         result = await attempt();
       }
+      await keepWorktree();
       saveStep(step.id, {
         status: "succeeded",
         finishedAt: new Date(),
@@ -558,6 +644,23 @@ export function createPipelineEngine({
       quota?.succeeded(cli);
       return result;
     } catch (error) {
+      // A step that failed or stopped is checked too; a change it left fails it.
+      const changed =
+        error instanceof WorktreeChangedError
+          ? error
+          : await keepWorktree().then(
+              () => undefined,
+              (guardError: unknown) => guardError,
+            );
+      if (changed) {
+        saveStep(step.id, {
+          status: "failed",
+          error: errorMessage(changed),
+          finishedAt: new Date(),
+          ...combine(base, attemptUsage),
+        });
+        throw changed;
+      }
       if (signal.aborted) {
         saveStep(step.id, { status: "interrupted", finishedAt: new Date() });
         throw new InterruptedError();
@@ -664,6 +767,8 @@ export function createPipelineEngine({
       log(DELIVERY_CONFLICT_EVENT, conflict);
       const agentId = task.agents.implementer;
       if (!agentId) throw new Error("The task has no implementer agent to resolve the conflicts");
+      // Delivery may have fetched someone else's commits onto the branch.
+      await checkPrBranch(task.id, controller.signal);
       const { round, visit } = ensureStep();
       const ctx = stageContext(task, run, stage, round, visit, undefined, controller.signal);
       await ctx.runAgent({
@@ -723,6 +828,9 @@ export function createPipelineEngine({
           `The task's worktree is missing at ${task.worktreePath}; it was not part of the import or was removed. Delete the task, or recreate the worktree to resume.`,
         );
       }
+      // Once per drive: the branch may have gained commits since the last one.
+      await checkPrBranch(taskId, signal);
+      task = getTask(taskId);
 
       let stage = task.stage ?? FIRST_STAGE;
       let round = hints.round ?? currentRound(run);

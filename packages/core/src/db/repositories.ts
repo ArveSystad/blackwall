@@ -12,6 +12,7 @@ import type {
   FindingStatus,
   GrillAnswerer,
   GrillQuestion,
+  PrBranch,
   Repo,
   Run,
   Step,
@@ -236,12 +237,24 @@ export function createTasksRepository(db: Db) {
     get(id: string): Task | undefined {
       return db.select().from(tasks).where(eq(tasks.id, id)).get();
     },
+    /** PR tasks start with their head branch `unchecked`; other origins have no PR branch state. */
     create(values: NewTask): Task {
-      return db.insert(tasks).values(values).returning().get();
+      const prBranch: PrBranch | null = values.origin.kind === "github-pr" ? "unchecked" : null;
+      return db
+        .insert(tasks)
+        .values({ ...values, prBranch })
+        .returning()
+        .get();
     },
     update(id: string, patch: Patch<NewTask>): Task {
       return required(
         db.update(tasks).set(patch).where(eq(tasks.id, id)).returning().get(),
+        `Task ${id}`,
+      );
+    },
+    setPrBranch(id: string, state: PrBranch): Task {
+      return required(
+        db.update(tasks).set({ prBranch: state }).where(eq(tasks.id, id)).returning().get(),
         `Task ${id}`,
       );
     },

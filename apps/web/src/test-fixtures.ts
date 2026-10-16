@@ -15,6 +15,7 @@ export function makeTask(overrides: Partial<Task> = {}): Task {
     title: `Task ${seq}`,
     origin: { kind: "free-text" },
     mode: null,
+    prBranch: null,
     repoId: "r1",
     branch: null,
     baseBranch: null,

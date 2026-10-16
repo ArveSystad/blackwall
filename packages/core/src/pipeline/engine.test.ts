@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -20,7 +20,7 @@ import { createQuotaTracker, type QuotaTracker } from "../agents/quota.js";
 import { createAgentService } from "../agents/service.js";
 import { DB_FILENAME, openDatabase, type OpenedDatabase } from "../db/database.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
-import { GitError, createGitService } from "../git/service.js";
+import { GitError, createGitService, type GitService } from "../git/service.js";
 import { ARTIFACTS_DIR } from "./artifacts.js";
 import type { CiFailure, CiWatcher } from "./ci.js";
 import {
@@ -145,6 +145,8 @@ function harness(
     ci,
     prFeedback,
     prepareWorkspace,
+    prBranchOwned,
+    worktreeGuard,
   }: {
     stages?: StageHandlers;
     maxPerRepo?: number;
@@ -157,6 +159,8 @@ function harness(
     ci?: Pick<CiWatcher, "watch" | "cancel" | "failureContext">;
     prFeedback?: (url: string) => Promise<PullRequestFeedback>;
     prepareWorkspace?: (task: Task) => Promise<{ branch: string; worktreePath: string }>;
+    prBranchOwned?: (task: Task, signal: AbortSignal) => Promise<boolean>;
+    worktreeGuard?: Pick<GitService, "snapshotWorktree" | "restoreWorktree">;
   } = {},
 ): Harness {
   const agents = agentService();
@@ -203,6 +207,8 @@ function harness(
     ...(pathExists ? { pathExists } : {}),
     ...(ci ? { ci } : {}),
     ...(prFeedback ? { prFeedback } : {}),
+    ...(prBranchOwned ? { prBranchOwned } : {}),
+    ...(worktreeGuard ? { worktreeGuard } : {}),
     publish: (event) => events.push(event),
     log: () => undefined,
   });
@@ -3872,5 +3878,276 @@ describe("CI", () => {
       ).toEqual([20, 21, 22, 23, 24].map((i) => `PR comment: Comment ${i}`));
       await settle(h.engine);
     });
+  });
+});
+
+describe("agent trust", () => {
+  /** Each distinct trust the task's agent steps ran under, as `level,forced`. */
+  const trustOf = (taskId: string) => [
+    ...new Set(
+      stepsOf(taskId)
+        .filter((s) => s.agentId !== null)
+        .map((s) => `${s.trust},${s.trustForced}`),
+    ),
+  ];
+  const callTrust = (h: Harness) => h.calls.map((c) => c.options.permissions.trust.level);
+
+  function trustedTask(
+    agentTrust: "trusted" | "unrestricted",
+    patch: Parameters<typeof seedTask>[0] = {},
+  ) {
+    const seeded = seedTask(patch);
+    r.repos.update(seeded.repoId, { agentTrust, trustProjectMcp: true });
+    return seeded;
+  }
+
+  it("runs a Review PR task Locked on a Trusted repo, and records why", async () => {
+    const prBranchOwned = vi.fn(async () => true);
+    const h = harness(() => ({}), { prBranchOwned });
+    const seeded = trustedTask("trusted", { mode: "review", origin: prOrigin() });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(prBranchOwned).not.toHaveBeenCalled();
+    expect(callTrust(h).length).toBeGreaterThan(0);
+    expect(new Set(callTrust(h))).toEqual(new Set(["locked"]));
+    expect(h.calls[0]!.options.permissions.trust).toMatchObject({
+      forced: true,
+      forcedReason: "review",
+    });
+    expect(trustOf(seeded.id)).toEqual(["locked,true"]);
+  });
+
+  it("runs a work PR on someone else's branch Locked", async () => {
+    const h = harness(() => ({}), { prBranchOwned: async () => false });
+    const seeded = trustedTask("trusted", { mode: "work", origin: prOrigin() });
+    expect(task(seeded.id).prBranch).toBe("unchecked");
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id).prBranch).toBe("foreign");
+    expect(h.calls[0]!.options.permissions.trust).toMatchObject({
+      level: "locked",
+      forcedReason: "foreign-branch",
+    });
+    expect(trustOf(seeded.id)).toEqual(["locked,true"]);
+  });
+
+  it("keeps a work PR Locked when the ownership check fails", async () => {
+    const h = harness(() => ({}), {
+      prBranchOwned: async () => {
+        throw new Error("rate limited");
+      },
+    });
+    const seeded = trustedTask("trusted", { mode: "work", origin: prOrigin() });
+    r.tasks.setPrBranch(seeded.id, "owned");
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id).prBranch).toBe("unchecked");
+    expect(h.calls[0]!.options.permissions.trust).toMatchObject({
+      level: "locked",
+      forcedReason: "unchecked-branch",
+    });
+  });
+
+  it("runs the user's own work PR at the repo's level", async () => {
+    const prBranchOwned = vi.fn(async () => true);
+    const h = harness(() => ({}), { prBranchOwned });
+    const seeded = trustedTask("trusted", { mode: "work", origin: prOrigin() });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(prBranchOwned).toHaveBeenCalledTimes(1);
+    expect(task(seeded.id).prBranch).toBe("owned");
+    expect(h.calls[0]!.options.permissions.trust).toEqual({
+      level: "trusted",
+      projectMcp: true,
+      projectHooks: false,
+      forced: false,
+      forcedReason: null,
+    });
+    expect(trustOf(seeded.id)).toEqual(["trusted,false"]);
+  });
+
+  it("records Unrestricted on a free-text task's steps", async () => {
+    const h = harness();
+    const seeded = trustedTask("unrestricted");
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(h.calls[0]!.options.permissions).toMatchObject({ allow: [], deny: [] });
+    expect(trustOf(seeded.id)).toEqual(["unrestricted,false"]);
+  });
+
+  it("never checks the branch on a Locked repo, and records Locked unforced", async () => {
+    const prBranchOwned = vi.fn(async () => true);
+    const h = harness(() => ({}), { prBranchOwned });
+    const seeded = seedTask({ mode: "work", origin: prOrigin() });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(prBranchOwned).not.toHaveBeenCalled();
+    expect(trustOf(seeded.id)).toEqual(["locked,false"]);
+  });
+
+  it("checks the branch again before the implementer resolves a delivery's conflicts", async () => {
+    // One check per drive (Inform, then Implement onwards), then one before the resolver.
+    const answers = [true, true, false];
+    const prBranchOwned = vi.fn(async () => answers.shift() ?? false);
+    const h = harness(
+      (stage) => (stage === "code-review" ? { structured: { findings: [] } } : {}),
+      {
+        prBranchOwned,
+        deliver: async (ctx) => {
+          await ctx.resolveConflicts({ branch: "feature/x", into: "main", files: ["a.ts"] });
+        },
+      },
+    );
+    const seeded = trustedTask("trusted", {
+      mode: "work",
+      origin: prOrigin(),
+      branch: "feature/x",
+    });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    await h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" });
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({
+      status: "needs-you",
+      gate: "finish",
+      prBranch: "owned",
+    });
+    await h.engine.respond(seeded.id, {
+      gate: "finish",
+      decision: "approve",
+      delivery: { actions: [] },
+    });
+    const resolver = h.calls.find((c) => c.stage === "resolve-conflicts")!;
+    expect(resolver.options.permissions.trust).toMatchObject({
+      level: "locked",
+      forcedReason: "foreign-branch",
+    });
+    expect(task(seeded.id).prBranch).toBe("foreign");
+  });
+});
+
+describe("read-only backstop under Trusted", () => {
+  let repo: string;
+  const git = (...args: string[]) =>
+    execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  const realGit = createGitService();
+
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), "blackwall-backstop-"));
+    git("init", "--quiet", "-b", "main");
+    git("config", "user.name", "Test");
+    git("config", "user.email", "test@example.com");
+    git("config", "commit.gpgsign", "false");
+    git("config", "core.autocrlf", "false");
+    writeFileSync(join(repo, "login.ts"), "if (a == b) {}\n");
+    git("add", "-A");
+    git("commit", "--quiet", "-m", "initial");
+  });
+
+  afterEach(() => rmSync(repo, { recursive: true, force: true }));
+
+  function backstopHarness(script: (stage: Call, options: AgentRunOptions) => FakeScript) {
+    return harness(
+      (stage, options) => {
+        if (stage === "implement") writeFileSync(join(repo, "login.ts"), "if (a === b) {}\n");
+        return script(stage, options);
+      },
+      {
+        stages: createDefaultStages({ git: realGit }),
+        prepareWorkspace: async (t) => ({ branch: `agent/${t.id}`, worktreePath: repo }),
+        worktreeGuard: realGit,
+      },
+    );
+  }
+
+  async function approvedTrusted(h: Harness) {
+    const seeded = seedTask();
+    r.repos.update(seeded.repoId, { agentTrust: "trusted" });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    await h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" });
+    await settle(h.engine);
+    return seeded;
+  }
+
+  it("lets a Trusted summarizer that leaves the staged round alone commit it", async () => {
+    const h = backstopHarness((stage) =>
+      stage === "commit" ? { text: "fix(auth): compare strictly" } : {},
+    );
+    const seeded = await approvedTrusted(h);
+    expect(git("log", "-1", "--format=%s").trim()).toBe("fix(auth): compare strictly");
+    const commitStep = stepsOf(seeded.id).find(
+      (s) => s.stage === "checks" && s.agentId === seeded.agents.summarizer,
+    );
+    expect(commitStep).toMatchObject({ status: "succeeded", trust: "trusted" });
+  });
+
+  it("undoes a Trusted summarizer's edit to the staged round and fails the step", async () => {
+    writeFileSync(join(repo, "notes.txt"), "untracked notes\n");
+    const h = backstopHarness((stage) => {
+      if (stage === "commit") {
+        writeFileSync(join(repo, "login.ts"), "tampered\n");
+        writeFileSync(join(repo, "extra.txt"), "planted\n");
+        rmSync(join(repo, "notes.txt"));
+      }
+      return {};
+    });
+    const seeded = await approvedTrusted(h);
+    const commitStep = stepsOf(seeded.id).find(
+      (s) => s.stage === "checks" && s.agentId === seeded.agents.summarizer,
+    );
+    expect(commitStep).toMatchObject({
+      status: "failed",
+      error: "A read-only agent changed the worktree under Trusted",
+      trust: "trusted",
+    });
+    expect(task(seeded.id)).toMatchObject({
+      status: "failed",
+      error: "A read-only agent changed the worktree under Trusted",
+    });
+    // The round is back as the harness staged it (notes.txt too), and nothing was committed.
+    expect(git("log", "--format=%s").trim()).toBe("initial");
+    expect(git("diff", "--cached", "--name-only").trim().split("\n")).toEqual([
+      "login.ts",
+      "notes.txt",
+    ]);
+    expect(git("show", ":login.ts")).toBe("if (a === b) {}\n");
+    expect(readFileSync(join(repo, "login.ts"), "utf8")).toBe("if (a === b) {}\n");
+    expect(readFileSync(join(repo, "notes.txt"), "utf8")).toBe("untracked notes\n");
+    expect(existsSync(join(repo, "extra.txt"))).toBe(false);
+  });
+
+  it("undoes a file a Trusted reviewer created on a clean tree and fails its step", async () => {
+    const h = backstopHarness((stage) => {
+      if (stage === "code-review") {
+        writeFileSync(join(repo, "pwned.txt"), "x\n");
+        return { structured: { findings: [] } };
+      }
+      return {};
+    });
+    const seeded = await approvedTrusted(h);
+    const reviewSteps = stepsOf(seeded.id).filter(
+      (s) => s.stage === "code-review" && s.agentId !== null,
+    );
+    expect(reviewSteps.some((s) => s.status === "failed")).toBe(true);
+    expect(reviewSteps.find((s) => s.status === "failed")?.error).toBe(
+      "A read-only agent changed the worktree under Trusted",
+    );
+    expect(existsSync(join(repo, "pwned.txt"))).toBe(false);
+    expect(git("status", "--porcelain").trim()).toBe("");
+  });
+
+  it("leaves Locked read-only steps alone", async () => {
+    const h = backstopHarness((stage) => {
+      if (stage === "commit") writeFileSync(join(repo, "extra.txt"), "planted\n");
+      return stage === "commit" ? { text: "fix: x" } : {};
+    });
+    const seeded = seedTask();
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    await h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" });
+    await settle(h.engine);
+    // No backstop under Locked: the file the summarizer planted stays (Locked's flags stop it).
+    expect(existsSync(join(repo, "extra.txt"))).toBe(true);
   });
 });

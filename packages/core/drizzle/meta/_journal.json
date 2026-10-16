@@ -162,6 +162,13 @@
       "when": 1792152803702,
       "tag": "0022_chat_task",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1792156282554,
+      "tag": "0023_agent_trust",
+      "breakpoints": true
     }
   ]
 }

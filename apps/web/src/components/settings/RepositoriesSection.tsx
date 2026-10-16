@@ -1,4 +1,10 @@
-import { AGENT_CLIS, DEFAULT_REPO_SCAN_DEPTH, type RepoView } from "@blackwall/shared";
+import {
+  AGENT_CLIS,
+  AGENT_TRUST_LEVELS,
+  DEFAULT_REPO_SCAN_DEPTH,
+  effectiveTrust,
+  type RepoView,
+} from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
@@ -15,6 +21,7 @@ import { cn } from "../../lib/utils";
 import { connectionsQuery, queryKeys, reposQuery, settingsQuery } from "../../query";
 import { moveRepo, reorderRepoIds } from "../../repo-order";
 import { CLI_NAMES, errorMessage, parseCap, parseLines, sameList } from "../../settings-forms";
+import { TRUST_NAMES, trustRisk } from "../../trust";
 import { AgentTile } from "../AgentTile";
 import {
   editorBody,
@@ -29,6 +36,7 @@ import { ConfirmDialog } from "../ConfirmDialog";
 import { GripIcon, PlusIcon, RepoIcon, StarIcon, WarnIcon } from "../icons";
 import { ORIGINS } from "../origins";
 import { Segmented } from "../Segmented";
+import { TrustBadge } from "../TrustBadge";
 import { Button } from "../ui/button";
 import { CheckChip } from "../ui/check-chip";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "../ui/dialog";
@@ -168,6 +176,10 @@ function RepoEditor({
   );
   const [watchCi, setWatchCi] = useState(repo.watchCi);
   const [referenceRepoIds, setReferenceRepoIds] = useState(repo.referenceRepoIds);
+  const [agentTrust, setAgentTrust] = useState(repo.agentTrust);
+  const [trustProjectMcp, setTrustProjectMcp] = useState(repo.trustProjectMcp);
+  const [trustProjectHooks, setTrustProjectHooks] = useState(repo.trustProjectHooks);
+  const [confirmUnrestricted, setConfirmUnrestricted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -186,7 +198,10 @@ function RepoEditor({
     backlogCapInvalid ||
     backlogCapValue !== repo.maxBacklogTasks ||
     watchCi !== repo.watchCi ||
-    !sameList([...referenceRepoIds].sort(), [...repo.referenceRepoIds].sort());
+    !sameList([...referenceRepoIds].sort(), [...repo.referenceRepoIds].sort()) ||
+    agentTrust !== repo.agentTrust ||
+    trustProjectMcp !== repo.trustProjectMcp ||
+    trustProjectHooks !== repo.trustProjectHooks;
   const otherRepos = repos.data?.filter((other) => other.id !== repo.id) ?? [];
   const connection = connections.data?.find((c) => c.id === repo.connectionId);
   const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeys.repos });
@@ -223,6 +238,9 @@ function RepoEditor({
         maxBacklogTasks: backlogCapValue,
         watchCi,
         referenceRepoIds,
+        agentTrust,
+        trustProjectMcp,
+        trustProjectHooks,
       });
       await invalidate();
       // The Backlog header's ahead/behind is cached per repo and follows the branch.
@@ -410,6 +428,82 @@ function RepoEditor({
         </label>
 
         <div className="flex flex-col gap-1.5">
+          <span className={fieldLabel} id="repo-agent-trust-label">
+            Agent trust
+          </span>
+          <Segmented
+            label="Agent trust"
+            value={agentTrust}
+            onChange={(level) => {
+              // Unrestricted takes a confirmation; until then the selection stays.
+              if (level === "unrestricted" && agentTrust !== "unrestricted") {
+                setConfirmUnrestricted(true);
+              } else {
+                setAgentTrust(level);
+              }
+            }}
+            options={AGENT_TRUST_LEVELS.map((level) => ({
+              value: level,
+              label: TRUST_NAMES[level],
+            }))}
+          />
+          <ul
+            aria-labelledby="repo-agent-trust-label"
+            className={cn(
+              "m-0 flex list-none flex-col gap-0.5 p-0 text-[11.5px]",
+              agentTrust === "unrestricted" ? "text-failed" : "text-muted-foreground",
+            )}
+          >
+            {trustRisk(agentTrust).map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+            <li className="text-faint">
+              Review PR tasks, and PR tasks with commits that aren't yours, always run Locked.
+            </li>
+          </ul>
+          {agentTrust === "trusted" && (
+            <div className="flex flex-col gap-1.5 pt-1">
+              <label className="flex cursor-pointer items-start gap-2.5">
+                <input
+                  type="checkbox"
+                  className="mt-[3px]"
+                  checked={trustProjectMcp}
+                  onChange={(event) => setTrustProjectMcp(event.target.checked)}
+                />
+                <span className="flex flex-col gap-0.5">
+                  <span className={fieldLabel}>
+                    Project MCP servers{" "}
+                    <span className="font-normal text-faint">implement steps only</span>
+                  </span>
+                  <span className="text-meta text-muted-foreground">
+                    Starts the servers in the repo's .mcp.json (OpenCode: its mcp config). They run
+                    as you, outside the sandbox.
+                  </span>
+                </span>
+              </label>
+              <label className="flex cursor-pointer items-start gap-2.5">
+                <input
+                  type="checkbox"
+                  className="mt-[3px]"
+                  checked={trustProjectHooks}
+                  onChange={(event) => setTrustProjectHooks(event.target.checked)}
+                />
+                <span className="flex flex-col gap-0.5">
+                  <span className={fieldLabel}>
+                    Project hooks{" "}
+                    <span className="font-normal text-faint">implement steps only</span>
+                  </span>
+                  <span className="text-meta text-muted-foreground">
+                    Runs the hooks in the repo's .claude/settings.json (OpenCode: its plugins). They
+                    run any command they name.
+                  </span>
+                </span>
+              </label>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
           <span className={fieldLabel} id="repo-reference-repos-label">
             Reference repos <span className="font-normal text-faint">optional</span>
           </span>
@@ -483,12 +577,27 @@ function RepoEditor({
           setBacklogCap(repo.maxBacklogTasks === null ? "" : String(repo.maxBacklogTasks));
           setWatchCi(repo.watchCi);
           setReferenceRepoIds(repo.referenceRepoIds);
+          setAgentTrust(repo.agentTrust);
+          setTrustProjectMcp(repo.trustProjectMcp);
+          setTrustProjectHooks(repo.trustProjectHooks);
           setError(null);
           setNotice(null);
         }}
         onSave={() => void save()}
       />
 
+      {confirmUnrestricted && (
+        <ConfirmDialog
+          title={`Run ${repo.name}'s agents Unrestricted?`}
+          confirmLabel="Allow everything"
+          onConfirm={async () => setAgentTrust("unrestricted")}
+          onClose={() => setConfirmUnrestricted(false)}
+        >
+          Every CLI runs in its own allow-everything mode: agents can run any command, push, change
+          remotes and read anywhere, with no sandbox. Review PR tasks and PR tasks with commits that
+          aren't yours still run Locked. Takes effect when you save.
+        </ConfirmDialog>
+      )}
       {confirmRemove && (
         <ConfirmDialog
           title={`Remove ${repo.name}?`}
@@ -583,6 +692,13 @@ function RepoRow({
       >
         <span className="flex items-center gap-2">
           <span className="truncate font-medium text-foreground-strong">{repo.name}</span>
+          <TrustBadge
+            trust={effectiveTrust(repo, {
+              origin: { kind: "free-text" },
+              mode: null,
+              prBranch: null,
+            })}
+          />
           <span className="flex-1" />
           {repo.exists ? (
             <span className="mono text-label text-faint">

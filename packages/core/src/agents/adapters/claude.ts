@@ -1,5 +1,18 @@
-import { permissionArgs } from "../permissions.js";
+import {
+  guardEnv,
+  permissionArgs,
+  type AgentPermissions,
+  type ProjectLoad,
+} from "../permissions.js";
+import {
+  CLAUDE_PROJECT_PLUGIN,
+  claudeProjectHooks,
+  claudeProjectInstructions,
+  prepareClaudeProjectPlugin,
+  projectMcp,
+} from "../project-config.js";
 import { claudeSubagents } from "../subagents.js";
+import { deferredRun } from "./deferred-run.js";
 import { claudeRateLimitFromEvent, claudeRateLimitFromText } from "./rate-limit.js";
 import { runAgentProcess, type LineParser } from "./run-process.js";
 import type { AgentAdapter, AgentEvent, AgentRunOptions, AgentUsage } from "./types.js";
@@ -75,6 +88,15 @@ function toolOutput(content: unknown): string {
     .join("\n");
 }
 
+/** The init line's skill names, the repo's without the harness plugin's prefix. */
+function skillNames(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const prefix = `${CLAUDE_PROJECT_PLUGIN}:`;
+  return raw
+    .filter((name): name is string => typeof name === "string")
+    .map((name) => (name.startsWith(prefix) ? name.slice(prefix.length) : name));
+}
+
 /**
  * Parses `claude -p --output-format stream-json --verbose` output. Hook and
  * other bookkeeping lines are dropped, as are thinking blocks and
@@ -127,6 +149,10 @@ export function createClaudeParser(now: () => Date = () => new Date()): LinePars
             sessionId = id;
             const model = str(parsed.model);
             events.push({ type: "session", sessionId: id, ...(model ? { model } : {}) });
+            // Without the Skill tool (Locked) the listed skills are out of reach.
+            if (Array.isArray(parsed.tools) && parsed.tools.includes("Skill")) {
+              events.push({ type: "skills-loaded", skills: skillNames(parsed.skills) });
+            }
           }
           break;
         }
@@ -237,11 +263,15 @@ function withoutDialect(schema: Record<string, unknown>): Record<string, unknown
  * outgrow the Windows command line, and Claude's list flags (`--tools …`)
  * would swallow a trailing positional prompt.
  */
-export function claudeArgs(options: Omit<AgentRunOptions, "cwd" | "prompt" | "signal">): string[] {
-  const { systemPrompt, model, resumeSessionId, permissions, jsonSchema, maxTurns } = options;
+export function claudeArgs(
+  options: Omit<AgentRunOptions, "cwd" | "prompt" | "signal">,
+  project: ClaudeProject = {},
+): string[] {
+  const { model, resumeSessionId, permissions, jsonSchema, maxTurns } = options;
   if (permissions.cli !== "claude") {
     throw new Error(`Permissions for ${permissions.cli} cannot run on Claude Code`);
   }
+  const systemPrompt = [options.systemPrompt, project.instructions].filter(Boolean).join("\n\n");
   return [
     "-p",
     "--output-format",
@@ -253,8 +283,45 @@ export function claudeArgs(options: Omit<AgentRunOptions, "cwd" | "prompt" | "si
     ...(jsonSchema ? ["--json-schema", JSON.stringify(withoutDialect(jsonSchema))] : []),
     ...(maxTurns !== undefined ? ["--max-turns", String(maxTurns)] : []),
     ...(permissions.profile === "implement" ? ["--agents", claudeSubagents()] : []),
-    ...permissionArgs(permissions),
+    ...permissionArgs(permissions, project),
   ];
+}
+
+/** What a Trusted Claude run loads from the repo: {@link ProjectLoad} plus its instruction files. */
+export interface ClaudeProject extends ProjectLoad {
+  /** The repo's `CLAUDE.md` files as a system prompt section. */
+  instructions?: string;
+}
+
+/**
+ * Reads and prepares what a Trusted run loads from the repo in `cwd`: the
+ * plugin with copies of its skills and agents, its `CLAUDE.md` files, and, for
+ * implementers with them turned on, its MCP servers and hooks. Locked and
+ * Unrestricted runs load nothing through the harness.
+ */
+export async function prepareClaudeProject(
+  cwd: string,
+  permissions: AgentPermissions,
+  pluginRoot?: string,
+): Promise<{ project: ClaudeProject; dispose: () => Promise<void> }> {
+  const { trust, profile } = permissions;
+  if (trust.level !== "trusted") return { project: {}, dispose: async () => undefined };
+  const implement = profile === "implement";
+  const [plugin, instructions, mcp, hooks] = await Promise.all([
+    prepareClaudeProjectPlugin(cwd, pluginRoot),
+    claudeProjectInstructions(cwd),
+    implement && trust.projectMcp ? projectMcp(cwd) : undefined,
+    implement && trust.projectHooks ? claudeProjectHooks(cwd) : undefined,
+  ]);
+  return {
+    project: {
+      ...(plugin ? { pluginDir: plugin.dir } : {}),
+      ...(instructions ? { instructions } : {}),
+      ...(mcp ? { mcpConfig: mcp.path, mcpServers: mcp.servers } : {}),
+      ...(hooks ? { hooks } : {}),
+    },
+    dispose: plugin?.dispose ?? (async () => undefined),
+  };
 }
 
 /** Whether a failed `--resume` run's output says the session no longer exists. */
@@ -268,28 +335,44 @@ export interface ClaudeAdapterOptions {
   /** Arguments placed before the generated ones (e.g. a script for a fake CLI). */
   commandArgs?: readonly string[];
   env?: NodeJS.ProcessEnv;
+  /** Where Trusted runs get their plugin directory. Default the OS temp dir. */
+  pluginRoot?: string;
 }
 
-/** Runs Claude Code headless (`claude -p`) with streamed JSON output. */
+/**
+ * Runs Claude Code headless (`claude -p`) with streamed JSON output. A
+ * Trusted run first prepares what it loads from the repo (see
+ * {@link prepareClaudeProject}), removed once the run settled; a guarded
+ * read-only run hands the guard hook its allow list through the environment.
+ */
 export function createClaudeAdapter({
   command = "claude",
   commandArgs = [],
   env,
+  pluginRoot,
 }: ClaudeAdapterOptions = {}): AgentAdapter {
   return {
     cli: "claude",
     run({ cwd, prompt, signal, ...rest }) {
-      return runAgentProcess({
-        command,
-        args: [...commandArgs, ...claudeArgs(rest)],
-        cwd,
-        input: prompt,
-        signal,
-        parser: createClaudeParser(),
-        detectRateLimit: (text) => claudeRateLimitFromText(text),
-        // Only a resumed run can lose its session; gating avoids false positives.
-        ...(rest.resumeSessionId ? { detectMissingSession: claudeSessionMissing } : {}),
-        ...(env ? { env } : {}),
+      const guard = guardEnv(rest.permissions);
+      const runEnv = Object.keys(guard).length > 0 ? { ...(env ?? process.env), ...guard } : env;
+      const start = (project?: ClaudeProject) =>
+        runAgentProcess({
+          command,
+          args: [...commandArgs, ...claudeArgs(rest, project)],
+          cwd,
+          input: prompt,
+          signal,
+          parser: createClaudeParser(),
+          detectRateLimit: (text) => claudeRateLimitFromText(text),
+          // Only a resumed run can lose its session; gating avoids false positives.
+          ...(rest.resumeSessionId ? { detectMissingSession: claudeSessionMissing } : {}),
+          ...(runEnv ? { env: runEnv } : {}),
+        });
+      if (rest.permissions.trust.level !== "trusted") return start();
+      return deferredRun("Claude Code", async () => {
+        const { project, dispose } = await prepareClaudeProject(cwd, rest.permissions, pluginRoot);
+        return { run: start(project), dispose };
       });
     },
   };

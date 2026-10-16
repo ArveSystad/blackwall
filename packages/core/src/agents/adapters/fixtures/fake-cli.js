@@ -13,6 +13,7 @@
 //                     fails like OpenCode on a locked database (exit 1) unless <marker> exists,
 //                     which it creates; then behaves like opencode-echo
 //   echo              reads stdin and returns it as the result text, with argv as structured output
+//   env               reads stdin and returns BLACKWALL_GUARD_ALLOW (or "none") as the result text
 //   hang              spawns a sleeping grandchild, reports its pid as the session id, then hangs
 //   fail              writes to stderr and exits with code 3 without a result
 //   limit             writes a rate-limit error to stderr and exits with code 1 without a result
@@ -97,6 +98,16 @@ if (mode === "replay") {
     session_id: "echo",
     result: input,
     structured_output: process.argv.slice(3),
+    usage: {},
+  });
+} else if (mode === "env") {
+  await readStdin();
+  print({
+    type: "result",
+    subtype: "success",
+    is_error: false,
+    session_id: "env",
+    result: process.env.BLACKWALL_GUARD_ALLOW ?? "none",
     usage: {},
   });
 } else if (mode === "hang") {

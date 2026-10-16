@@ -10,6 +10,8 @@ const chipVariants = cva(
         neutral: "text-muted-foreground [--bw-chamfer-line:var(--border-strong)]",
         done: "text-done [--bw-chamfer-line:color-mix(in_oklab,var(--st-done)_40%,transparent)]",
         cyan: "text-cyan [--bw-chamfer-line:color-mix(in_oklab,var(--cyan)_45%,transparent)]",
+        failed:
+          "text-failed [--bw-chamfer-line:color-mix(in_oklab,var(--st-failed)_45%,transparent)]",
       },
     },
     defaultVariants: { tone: "neutral" },

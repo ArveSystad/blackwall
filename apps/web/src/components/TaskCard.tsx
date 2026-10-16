@@ -1,4 +1,4 @@
-import { ciNeedsYou, type AgentCli, type Task } from "@blackwall/shared";
+import { ciNeedsYou, type AgentCli, type AgentTrust, type Task } from "@blackwall/shared";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { originKey, relativeTime, statusLabel } from "../inbox";
@@ -10,6 +10,7 @@ import { TrashIcon, WarnIcon } from "./icons";
 import { ORIGIN_ICONS } from "./origins";
 import { StagePips } from "./StagePips";
 import { StatusBadge } from "./StatusBadge";
+import { TrustBadge } from "./TrustBadge";
 import { DeleteTaskDialog } from "./task/DeleteTaskDialog";
 import { Button } from "./ui/button";
 
@@ -17,19 +18,23 @@ import { Button } from "./ui/button";
  * Inbox card linking to the task. Needs-you tasks, and done tasks whose CI
  * failed, get the magenta rail and wash, and say why they wait unless they
  * are finishing (delivering), when the pill reads "Finishing". A task that
- * pushed shows its CI as a small badge. Undelivered tasks show a delete button on
+ * pushed shows its CI as a small badge, and one whose agents run above Locked, or are forced
+ * Locked, shows their trust. Undelivered tasks show a delete button on
  * hover or focus, in place of the time.
  */
 export function TaskCard({
   task,
   repoName,
   clis = [],
+  trust,
   now,
 }: {
   task: Task;
   repoName?: string;
   /** The CLIs of the task's agents, one tile each. */
   clis?: readonly AgentCli[];
+  /** The trust the task's agents run under; nothing shows for a simply Locked repo. */
+  trust?: AgentTrust;
   now: Date;
 }) {
   const OriginIcon = ORIGIN_ICONS[task.origin.kind];
@@ -92,6 +97,7 @@ export function TaskCard({
             {CI_FAILED_REASON}
           </span>
         )}
+        {trust && <TrustBadge trust={trust} className="self-start" />}
         <span className="mt-px flex items-center gap-2">
           {repoName && (
             <span className="mono max-w-24 truncate text-label text-faint">{repoName}</span>
