@@ -335,6 +335,20 @@ describe("pushing main", () => {
     expect((error as Error).message).toContain("nope");
   });
 
+  it("says what to do when the remote cannot be reached, without credentials", async () => {
+    cloneWithOrigin();
+    const repo = await service.add({ path });
+    git(path, "remote", "set-url", "--push", "origin", "http://user:secret@127.0.0.1:1/app.git");
+    commit(path, "a.txt");
+
+    const error = await service.push(repo.id).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(RepoPushError);
+    expect((error as Error).message).toMatch(
+      /^Could not reach the remote\. Check the connection and retry\. \(fatal: unable to access 'http:\/\/127\.0\.0\.1:1\/app\.git\/'/,
+    );
+    expect((error as Error).message).not.toContain("secret");
+  }, 15_000);
+
   it("tracks the repo's default branch", async () => {
     cloneWithOrigin("trunk");
     const repo = await service.add({ path });

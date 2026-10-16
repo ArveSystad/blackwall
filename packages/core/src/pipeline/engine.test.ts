@@ -19,7 +19,7 @@ import { createQuotaTracker, type QuotaTracker } from "../agents/quota.js";
 import { createAgentService } from "../agents/service.js";
 import { DB_FILENAME, openDatabase, type OpenedDatabase } from "../db/database.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
-import { createGitService } from "../git/service.js";
+import { GitError, createGitService } from "../git/service.js";
 import { ARTIFACTS_DIR } from "./artifacts.js";
 import type { CiFailure, CiWatcher } from "./ci.js";
 import {
@@ -135,6 +135,7 @@ function harness(
     pathExists,
     ci,
     prFeedback,
+    prepareWorkspace,
   }: {
     stages?: StageHandlers;
     maxPerRepo?: number;
@@ -145,6 +146,7 @@ function harness(
     pathExists?: (path: string) => boolean;
     ci?: Pick<CiWatcher, "watch" | "cancel" | "failureContext">;
     prFeedback?: (url: string) => Promise<PullRequestFeedback>;
+    prepareWorkspace?: (task: Task) => Promise<{ branch: string; worktreePath: string }>;
   } = {},
 ): Harness {
   const agents = agentService();
@@ -165,10 +167,12 @@ function harness(
       copilot: createFakeAdapter("copilot", run("copilot")),
     },
     stages,
-    prepareWorkspace: async (task) => ({
-      branch: task.branch ?? `agent/${task.id}`,
-      worktreePath: dir,
-    }),
+    prepareWorkspace:
+      prepareWorkspace ??
+      (async (task) => ({
+        branch: task.branch ?? `agent/${task.id}`,
+        worktreePath: dir,
+      })),
     delivery: {
       plan: async (_task, completed) => ({
         actions: [],
@@ -895,6 +899,26 @@ describe("stop and delete", () => {
     expect(r.runs.listByTask(second.id)).toEqual([]);
   });
 
+  it("fails the task with what to do when preparing the worktree hits a git error", async () => {
+    const seeded = seedTask();
+    const h = harness(() => ({}), {
+      prepareWorkspace: async () => {
+        throw new GitError(
+          ["fetch", "origin"],
+          "fatal: Authentication failed for 'https://user:secret@github.com/acme/app.git/'\n",
+          128,
+        );
+      },
+    });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({
+      status: "failed",
+      error:
+        "Git could not authenticate to the remote. Set up git credentials (credential manager or SSH key) for it; this is not the blackwall token. (fatal: Authentication failed for 'https://github.com/acme/app.git/')",
+    });
+  });
+
   it("leaves a task that is neither queued, running nor waiting as it is", async () => {
     const seeded = seedTask();
     const h = harness((stage) => (stage === "inform" ? { fail: "boom" } : {}));
@@ -1361,6 +1385,27 @@ describe("implement and checks", () => {
     expect(runCheck).not.toHaveBeenCalled();
     expect(checkSteps(seeded.id)).toEqual([]);
     expect(task(seeded.id)).toMatchObject({ gate: "finish" });
+  });
+
+  it("fails the task with what to do when the commit hits a git lock", async () => {
+    const git = {
+      stagedDiff: async () => "diff --git a/a.ts b/a.ts\n+x",
+      commitAll: async (): Promise<string> => {
+        throw new GitError(
+          ["add", "-A"],
+          "fatal: Unable to create '/repo/.git/index.lock': File exists.\n\nAnother git process seems to be running\n",
+          128,
+        );
+      },
+    };
+    const h = harness(noFindings, { stages: createDefaultStages({ git }) });
+    const seeded = await approved(h, []);
+
+    // The commit runs after the commit message step succeeded, so the task carries the failure.
+    const failed = task(seeded.id);
+    expect(failed.status).toBe("failed");
+    expect(failed.error).toMatch(/^Another git process holds \/repo\/\.git\/index\.lock\./);
+    expect(failed.error).not.toContain("git add -A failed");
   });
 
   it("commits each round with the summarizer's message, prefixed with the Jira key", async () => {
@@ -2226,6 +2271,30 @@ describe("summarize and finish", () => {
     await h.engine.respond(seeded.id, { gate: "finish", decision: "approve" });
     expect(h.deliveries[0]!.confirmation.actions).toEqual([]);
     expect(task(seeded.id)).toMatchObject({ status: "done", deliveryTargets: [] });
+  });
+
+  it("stores what to do when delivery fails with a git error", async () => {
+    const h = harness(() => ({}), {
+      deliver: async () => {
+        throw new GitError(
+          ["push", "--quiet", "origin"],
+          "fatal: unable to access 'https://github.com/acme/app.git/': Could not resolve host: github.com\n",
+          128,
+        );
+      },
+    });
+    const seeded = await atFinish(h);
+    await expect(
+      h.engine.respond(seeded.id, {
+        gate: "finish",
+        decision: "approve",
+        delivery: { actions: ["push-branch"] },
+      }),
+    ).rejects.toThrow(GitError);
+    const message =
+      "Could not reach the remote. Check the connection and retry. (fatal: unable to access 'https://github.com/acme/app.git/': Could not resolve host: github.com)";
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish", error: message });
+    expect(lastStep(seeded.id)).toMatchObject({ status: "failed", error: message });
   });
 
   it("keeps the task at finish when an action fails, and skips done ones on retry", async () => {

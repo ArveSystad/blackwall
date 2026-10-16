@@ -11,7 +11,8 @@ import {
 } from "@blackwall/shared";
 import { MissingCredentialError } from "../connections/service.js";
 import type { Repositories } from "../db/repositories.js";
-import type { GitService } from "../git/service.js";
+import { describeGitError } from "../git/errors.js";
+import { GitError, type GitService } from "../git/service.js";
 import { defaultBranchOf } from "../repos/service.js";
 import { createFollowUpTasks, resolveFollowUps } from "./follow-ups.js";
 import { commitKey, withoutLeftovers } from "./stages.js";
@@ -151,7 +152,12 @@ function prTitle(task: Task): string {
   return key && !task.title.toUpperCase().startsWith(key) ? `${key} ${task.title}` : task.title;
 }
 
-const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const errorMessage = (error: unknown) =>
+  error instanceof GitError
+    ? describeGitError(error)
+    : error instanceof Error
+      ? error.message
+      : String(error);
 
 /** Prompt for the implementer resolving a stop of the rebase onto main. */
 export function conflictResolutionPrompt(
@@ -436,8 +442,30 @@ export function createDeliverer({
     switch (action) {
       case "push-branch": {
         const { branch, remote } = target("push-branch");
-        await git.push(worktree, branch, defaultBranchOf(r.repos, task.repoId));
-        return `${remote} ${branch}`;
+        const into = `origin/${branch}`;
+        // Only a branch that is ours on the remote (the PR head, or pushed before) takes in its new commits.
+        const integrate =
+          task.origin.kind === "github-pr" || task.deliveryTargets.includes("push-branch");
+        const result = await git.push(
+          worktree,
+          branch,
+          defaultBranchOf(r.repos, task.repoId),
+          integrate
+            ? { integrate: { resolve: ({ files }) => resolveConflicts({ branch, into, files }) } }
+            : {},
+        );
+        if (result.status === "conflict") {
+          const why = result.unresolved
+            ? ` The implementer could not resolve them: ${result.unresolved}.`
+            : "";
+          throw new DeliveryError(
+            `${into} has commits ${branch} does not, and rebasing onto them hit conflicts in ${result.files.join(", ")}.${why} Nothing was pushed: rebase the branch onto ${into} in the worktree (${worktree}), resolve the conflicts, then finish again.`,
+          );
+        }
+        if (!result.integrated) return `${remote} ${branch}`;
+        const resolved =
+          result.resolved.length > 0 ? `, resolved conflicts in ${result.resolved.join(", ")}` : "";
+        return `${remote} ${branch} (rebased onto ${into}${resolved})`;
       }
       case "open-pr":
         return (await ports.openPullRequest(task, target("open-pr"))).url;

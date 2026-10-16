@@ -1,16 +1,22 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { mkdir, readFile, readdir, rmdir, stat, unlink } from "node:fs/promises";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
+import { classifyGitError, lockPath, type GitErrorKind } from "./errors.js";
 
 const execFileAsync = promisify(execFile);
 
 /** Branches the harness never pushes or deletes, besides the repo's default branch. */
 const ALWAYS_PROTECTED = ["main", "master"];
 
-/** A git command that failed. `stderr` is git's own message. */
+/** A git command that failed. `stderr` is git's own message; `kind` classifies it. */
 export class GitError extends Error {
+  readonly kind: GitErrorKind;
+  /** A `lock` failure whose stale lock file {@link runGit} removed; a retry can succeed. */
+  staleLockRemoved = false;
+
   constructor(
     readonly args: readonly string[],
     readonly stderr: string,
@@ -18,6 +24,7 @@ export class GitError extends Error {
   ) {
     super(`git ${args.join(" ")} failed: ${stderr.trim() || `exit code ${exitCode}`}`);
     this.name = "GitError";
+    this.kind = classifyGitError(stderr);
   }
 }
 
@@ -81,6 +88,29 @@ export type FinishResult =
   /** The target moved after the rebase, so a fast-forward was impossible; nothing changed. */
   | { status: "not-fast-forward" };
 
+/** Outcome of {@link GitService.push}. */
+export type PushResult =
+  /**
+   * `integrated`: the remote branch had moved on, so the branch was rebased onto
+   * it first; `resolved`: the files whose conflicts that rebase resolved.
+   */
+  | { status: "pushed"; integrated: boolean; resolved: string[] }
+  /** The rebase onto the remote branch hit conflicts that were not resolved; nothing was pushed. */
+  | { status: "conflict"; files: string[]; unresolved?: string };
+
+export interface PushOptions {
+  /**
+   * When the remote branch has commits this one does not, fetch it, rebase
+   * onto it (conflicts go to `resolve`, as in {@link FinishInput}) and push
+   * again, never forcing. Without it, the rejection is thrown.
+   */
+  integrate?: { resolve?: FinishInput["resolve"] };
+}
+
+type RebaseResult =
+  | { status: "rebased"; resolved: string[] }
+  | { status: "conflict"; files: string[]; unresolved?: string };
+
 export interface RemoveWorktreeInput {
   repoPath: string;
   worktreePath: string;
@@ -111,8 +141,36 @@ const MAX_CONFLICT_ROUNDS = 20;
 /** Conflict marker lines git writes into text files; `=======` is left out (Markdown setext). */
 const CONFLICT_MARKER = /^(<<<<<<<|>>>>>>>|\|\|\|\|\|\|\|) /m;
 
-/** Runs git and returns trimmed stdout, throwing {@link GitError} on failure. */
-export async function runGit(
+/**
+ * Commands that take their lock before writing anything, so a lock failure
+ * changed nothing and running them again is safe (`update-ref` checks the old
+ * value; the harness only runs `merge --ff-only`).
+ */
+const LOCK_RETRY_COMMANDS: ReadonlySet<string> = new Set([
+  "add",
+  "commit",
+  "reset",
+  "checkout",
+  "branch",
+  "update-ref",
+  "merge",
+  "fetch",
+  "push",
+]);
+
+/** Commands retried after a network failure. */
+const NETWORK_RETRY_COMMANDS: ReadonlySet<string> = new Set(["fetch", "push"]);
+
+/** Waits before each retry of a lock or network failure. */
+const TRANSIENT_RETRY_MS = [200, 600, 1500];
+
+/** A lock file older than this, with no git command of the harness running, is stale. */
+const STALE_LOCK_MS = 120_000;
+
+/** {@link runGit} calls running in this process, across all repos. */
+let gitInFlight = 0;
+
+async function execGit(
   cwd: string,
   args: readonly string[],
   env?: NodeJS.ProcessEnv,
@@ -121,7 +179,8 @@ export async function runGit(
     const { stdout } = await execFileAsync("git", ["-C", cwd, ...args], {
       windowsHide: true,
       maxBuffer: 64 * 1024 * 1024,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...env },
+      // English messages, so classifyGitError can read them.
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C", LANG: "C", ...env },
     });
     return stdout.trimEnd();
   } catch (error) {
@@ -131,6 +190,64 @@ export async function runGit(
       failure.stderr ?? String(error),
       typeof failure.code === "number" ? failure.code : null,
     );
+  }
+}
+
+/**
+ * Deletes the lock file a `lock` failure names when it is stale: inside the
+ * repo's git directory, older than {@link STALE_LOCK_MS}, and no other git
+ * command of this process is running. Returns whether it was removed.
+ */
+async function clearStaleLock(cwd: string, stderr: string): Promise<boolean> {
+  const named = lockPath(stderr);
+  if (!named || gitInFlight > 1) return false;
+  try {
+    const lock = resolve(cwd, named);
+    const gitDir = resolve(cwd, await execGit(cwd, ["rev-parse", "--git-common-dir"]));
+    const inside = relative(gitDir, lock);
+    if (!inside || inside.startsWith("..") || isAbsolute(inside)) return false;
+    if (Date.now() - (await stat(lock)).mtimeMs < STALE_LOCK_MS) return false;
+    if (gitInFlight > 1) return false;
+    await unlink(lock);
+    return true;
+  } catch {
+    return false; // gone, busy (held open on Windows) or not a repo
+  }
+}
+
+/**
+ * Runs git and returns trimmed stdout, throwing {@link GitError} on failure.
+ * A stale lock file is removed (see {@link clearStaleLock}). Lock failures of
+ * {@link LOCK_RETRY_COMMANDS} and network failures of fetch and push are
+ * retried up to 3 times; nothing else is, so rebases and worktree commands
+ * fail at once.
+ */
+export async function runGit(
+  cwd: string,
+  args: readonly string[],
+  env?: NodeJS.ProcessEnv,
+): Promise<string> {
+  gitInFlight++;
+  try {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await execGit(cwd, args, env);
+      } catch (error) {
+        if (!(error instanceof GitError)) throw error;
+        const removed = error.kind === "lock" && (await clearStaleLock(cwd, error.stderr));
+        const command = args[0] ?? "";
+        const retryable =
+          (error.kind === "lock" && LOCK_RETRY_COMMANDS.has(command)) ||
+          (error.kind === "network" && NETWORK_RETRY_COMMANDS.has(command));
+        if (!retryable || attempt >= TRANSIENT_RETRY_MS.length) {
+          error.staleLockRemoved = removed;
+          throw error;
+        }
+        if (!removed) await sleep(TRANSIENT_RETRY_MS[attempt]);
+      }
+    }
+  } finally {
+    gitInFlight--;
   }
 }
 
@@ -254,6 +371,14 @@ function shortBranch(branch: string): string {
   return branch.replace(/^refs\/heads\//, "");
 }
 
+async function isEmptyDir(path: string): Promise<boolean> {
+  try {
+    return (await readdir(path)).length === 0;
+  } catch {
+    return false;
+  }
+}
+
 function samePath(a: string, b: string): boolean {
   const norm = (p: string) => {
     const full = resolve(p).replace(/[\\/]+$/, "");
@@ -311,6 +436,69 @@ export function createGitService({
     }
   }
 
+  /**
+   * Rebases `branch` onto `onto` in the worktree, after aborting a rebase a
+   * crash left behind. Conflicts go to `resolveConflict`; without it, or when
+   * it fails or leaves the rebase unfinished, the rebase is aborted, the branch
+   * checked out again and the conflicting files reported.
+   */
+  async function rebaseOnto(
+    worktree: string,
+    branch: string,
+    onto: string,
+    resolveConflict: FinishInput["resolve"],
+  ): Promise<RebaseResult> {
+    await restoreBranch(worktree, branch);
+    try {
+      await runGit(worktree, ["rebase", "--quiet", onto]);
+      return { status: "rebased", resolved: [] };
+    } catch (error) {
+      if (!(error instanceof GitError)) throw error;
+      const files = await unmergedFiles(worktree).catch(() => []);
+      if (files.length === 0 || !resolveConflict) {
+        await runGit(worktree, ["rebase", "--abort"]).catch(() => undefined);
+        if (files.length === 0) throw error;
+        return { status: "conflict", files };
+      }
+      const outcome = await resolveRebase(worktree, files, resolveConflict);
+      if ("unresolved" in outcome) return { status: "conflict", ...outcome };
+      // Only a finished rebase leaves the branch checked out at the rebased commit.
+      if (
+        (await rebaseInProgress(worktree)) ||
+        (await currentBranch(worktree)) !== shortBranch(branch)
+      ) {
+        await restoreBranch(worktree, branch);
+        return { status: "conflict", files, unresolved: "the rebase was left unfinished" };
+      }
+      return { status: "rebased", resolved: outcome.resolved };
+    }
+  }
+
+  /**
+   * `git worktree add <args>` for the worktree at `worktreePath`. A stale
+   * registration is pruned, and an empty leftover folder removed, before one
+   * more try.
+   */
+  async function addWorktree(
+    repoPath: string,
+    worktreePath: string,
+    args: readonly string[],
+  ): Promise<void> {
+    try {
+      await runGit(repoPath, ["worktree", "add", ...args]);
+    } catch (error) {
+      if (!(error instanceof GitError)) throw error;
+      if (error.kind === "stale-worktree") {
+        await runGit(repoPath, ["worktree", "prune"]);
+      } else if (error.kind === "path-exists" && (await isEmptyDir(worktreePath))) {
+        await rmdir(worktreePath);
+      } else {
+        throw error;
+      }
+      await runGit(repoPath, ["worktree", "add", ...args]);
+    }
+  }
+
   /** Branch checked out in the worktree at `path`, or `undefined` when no worktree is there. */
   async function worktreeAt(repoPath: string, path: string): Promise<string | null | undefined> {
     const list = await runGit(repoPath, ["worktree", "list", "--porcelain"]);
@@ -332,7 +520,9 @@ export function createGitService({
     /**
      * Creates the task's worktree on its branch. Idempotent: an existing
      * worktree at the same path on the same branch is returned as-is, so a
-     * restarted task picks up where it left off.
+     * restarted task picks up where it left off. A registration whose folder
+     * is gone is pruned, and a new branch an earlier failed attempt left
+     * behind is reused.
      */
     async createWorktree({
       repoPath,
@@ -340,7 +530,11 @@ export function createGitService({
       branch,
       checkout,
     }: CreateWorktreeInput): Promise<Worktree> {
-      const existing = await worktreeAt(repoPath, worktreePath);
+      let existing = await worktreeAt(repoPath, worktreePath);
+      if (existing !== undefined && !existsSync(worktreePath)) {
+        await runGit(repoPath, ["worktree", "prune"]);
+        existing = await worktreeAt(repoPath, worktreePath);
+      }
       if (existing !== undefined) {
         if (existing !== branch) {
           throw new GitError(
@@ -354,14 +548,17 @@ export function createGitService({
 
       await mkdir(dirname(worktreePath), { recursive: true });
       if (checkout.kind === "new") {
-        await runGit(repoPath, [
-          "worktree",
-          "add",
-          "-b",
-          branch,
-          worktreePath,
-          checkout.base ?? mainBranch,
-        ]);
+        try {
+          await addWorktree(repoPath, worktreePath, [
+            "-b",
+            branch,
+            worktreePath,
+            checkout.base ?? mainBranch,
+          ]);
+        } catch (error) {
+          if (!(error instanceof GitError) || error.kind !== "branch-exists") throw error;
+          await addWorktree(repoPath, worktreePath, [worktreePath, branch]);
+        }
       } else {
         const remoteRef = `refs/remotes/${remote}/${branch}`;
         if (checkout.fetch) {
@@ -461,30 +658,9 @@ export function createGitService({
       resolve: resolveConflict,
     }: FinishInput): Promise<FinishResult> {
       assertUnprotected(branch, into);
-      await restoreBranch(worktreePath, branch);
-      let resolved: string[] = [];
-      try {
-        await runGit(worktreePath, ["rebase", "--quiet", into]);
-      } catch (error) {
-        if (!(error instanceof GitError)) throw error;
-        const files = await unmergedFiles(worktreePath).catch(() => []);
-        if (files.length === 0 || !resolveConflict) {
-          await runGit(worktreePath, ["rebase", "--abort"]).catch(() => undefined);
-          if (files.length === 0) throw error;
-          return { status: "conflict", files };
-        }
-        const outcome = await resolveRebase(worktreePath, files, resolveConflict);
-        if ("unresolved" in outcome) return { status: "conflict", ...outcome };
-        // Only a finished rebase leaves the branch checked out at the rebased commit.
-        if (
-          (await rebaseInProgress(worktreePath)) ||
-          (await currentBranch(worktreePath)) !== shortBranch(branch)
-        ) {
-          await restoreBranch(worktreePath, branch);
-          return { status: "conflict", files, unresolved: "the rebase was left unfinished" };
-        }
-        resolved = outcome.resolved;
-      }
+      const rebased = await rebaseOnto(worktreePath, branch, into, resolveConflict);
+      if (rebased.status === "conflict") return rebased;
+      const { resolved } = rebased;
 
       const sha = await headSha(worktreePath);
       if (!(await succeeds(repoPath, ["merge-base", "--is-ancestor", into, sha]))) {
@@ -511,18 +687,40 @@ export function createGitService({
 
     /**
      * Pushes the task branch to the remote under the same name and sets
-     * upstream. Harness only, after the user confirms. Refuses `defaultBranch`
-     * (the repo's default branch), `main` and `master`.
+     * upstream; never forces. Harness only, after the user confirms. Refuses
+     * `defaultBranch` (the repo's default branch), `main` and `master`. With
+     * `integrate`, a push rejected because the remote branch moved on fetches
+     * it, rebases onto `<remote>/<branch>` and pushes again; conflicts the
+     * resolver did not resolve are returned and nothing is pushed.
      */
-    async push(worktreePath: string, branch: string, defaultBranch?: string): Promise<void> {
+    async push(
+      worktreePath: string,
+      branch: string,
+      defaultBranch?: string,
+      { integrate }: PushOptions = {},
+    ): Promise<PushResult> {
       assertUnprotected(branch, defaultBranch);
-      await runGit(worktreePath, [
+      const args = [
         "push",
         "--quiet",
         "--set-upstream",
         remote,
         `refs/heads/${branch}:refs/heads/${branch}`,
-      ]);
+      ];
+      try {
+        await runGit(worktreePath, args);
+        return { status: "pushed", integrated: false, resolved: [] };
+      } catch (error) {
+        if (!integrate || !(error instanceof GitError) || error.kind !== "non-fast-forward") {
+          throw error;
+        }
+      }
+      const tracking = `refs/remotes/${remote}/${branch}`;
+      await runGit(worktreePath, ["fetch", "--quiet", remote, `+refs/heads/${branch}:${tracking}`]);
+      const rebased = await rebaseOnto(worktreePath, branch, tracking, integrate.resolve);
+      if (rebased.status === "conflict") return rebased;
+      await runGit(worktreePath, args);
+      return { status: "pushed", integrated: true, resolved: rebased.resolved };
     },
 
     /**

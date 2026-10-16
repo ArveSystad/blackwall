@@ -13,7 +13,7 @@ import { MissingCredentialError } from "../connections/service.js";
 import { openDatabase, type OpenedDatabase } from "../db/database.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
 import { worktreePathFor } from "../git/branches.js";
-import { createGitService } from "../git/service.js";
+import { GitError, createGitService } from "../git/service.js";
 import {
   DeliveryError,
   createDeliverer,
@@ -591,12 +591,64 @@ describe("GitHub issue tasks", () => {
       expect(plan.squash).toBeNull();
     });
 
+    it("integrates the remote branch on a later push, but not on the first", async () => {
+      const { task, run: runRow } = await seed(issue, {
+        remoteUrl: "https://github.com/acme/app.git",
+      });
+      const push = vi.fn(git.push);
+      const d = createDeliverer({ git: { ...git, push }, repositories: r, ports: fakePorts() });
+      await deliver(d, task, runRow, { actions: ["push-branch"] });
+      expect(push.mock.calls[0]![3]).toEqual({});
+
+      const again = r.tasks.update(task.id, { deliveryTargets: ["push-branch"] });
+      commit(again.worktreePath!, "fix.txt", "fixed\n");
+      await deliver(d, again, runRow, { actions: ["push-branch"] });
+      expect(push.mock.calls[1]![3]).toEqual({ integrate: { resolve: expect.any(Function) } });
+    });
+
     it("still offers open-pr after a push that opened none", async () => {
       const { d, task } = await pushed(["push-branch"]);
       const plan = await d.plan(task, []);
       expect(kinds(plan.actions)).toEqual(["push-branch", "open-pr", "issue-comment"]);
       expect(plan.squash).toBeNull();
     });
+  });
+
+  it("does not integrate a branch someone else already pushed on a first push", async () => {
+    const { task, run: runRow } = await seed(issue);
+    const stranger = join(root, "stranger");
+    run(root, "clone", "--quiet", originPath, stranger);
+    run(stranger, "config", "user.name", "Stranger");
+    run(stranger, "config", "user.email", "stranger@example.com");
+    run(stranger, "switch", "--quiet", "-c", issue.branch);
+    commit(stranger, "theirs.txt", "theirs\n", "unrelated work");
+    run(stranger, "push", "--quiet", "origin", issue.branch);
+    const { deliverer: d } = deliverer();
+
+    const failed = deliver(d, task, runRow, { actions: ["push-branch"] });
+    await expect(failed).rejects.toThrow(DeliveryError);
+    await expect(failed).rejects.toThrow(
+      "The remote branch has commits this branch does not. Pull or rebase it, then finish again.",
+    );
+    expect(subjects(originPath, issue.branch)).toEqual(["unrelated work", "initial"]);
+  });
+
+  it("explains a git authentication failure", async () => {
+    const { task, run: runRow } = await seed(issue);
+    const push = vi.fn(async () => {
+      throw new GitError(
+        ["push"],
+        "fatal: could not read Username for 'https://github.com': terminal prompts disabled\n",
+        128,
+      );
+    });
+    const d = createDeliverer({ git: { ...git, push }, repositories: r, ports: fakePorts() });
+
+    const failed = deliver(d, task, runRow, { actions: ["push-branch"] });
+    await expect(failed).rejects.toThrow(DeliveryError);
+    await expect(failed).rejects.toThrow(
+      "Git could not authenticate to the remote. Set up git credentials (credential manager or SSH key) for it; this is not the blackwall token. (fatal: could not read Username for 'https://github.com': terminal prompts disabled)",
+    );
   });
 
   it("comments on the issue alone when only that is confirmed", async () => {
@@ -686,6 +738,77 @@ describe("pull request tasks", () => {
     await deliver(d, task, runRow, { actions: ["push-branch", "pr-comment"], squash: true });
     expect(subjects(originPath, "feature/pr")).toEqual(["Fix login", "author's work", "initial"]);
     expect(ports.commentOnPullRequest).toHaveBeenCalledWith(task, "Logins reject wrong passwords.");
+  });
+
+  describe("when the author pushed to the PR meanwhile", () => {
+    /** The author adds `file` to the PR branch on the remote from their own clone. */
+    function authorPushes(file: string, content: string): void {
+      const author = join(root, "author");
+      run(root, "clone", "--quiet", "--branch", "feature/pr", originPath, author);
+      run(author, "config", "user.name", "Author");
+      run(author, "config", "user.email", "author@example.com");
+      commit(author, file, content, "author's follow-up");
+      run(author, "push", "--quiet", "origin", "feature/pr");
+    }
+
+    it("rebases onto the PR branch, resolving conflicts with the implementer, and pushes", async () => {
+      const { task, run: runRow } = await seed(
+        { branch: "feature/pr", origin: pr, mode: "work" },
+        { existing: true, commits: 1 },
+      );
+      authorPushes("f0.txt", "author\n");
+      const push = vi.fn(git.push);
+      const d = createDeliverer({ git: { ...git, push }, repositories: r, ports: fakePorts() });
+      const conflicts: string[][] = [];
+
+      const outcomes = await deliver(
+        d,
+        task,
+        runRow,
+        { actions: ["push-branch"] },
+        [],
+        async (c) => {
+          conflicts.push(c.files);
+          expect(c).toMatchObject({ branch: "feature/pr", into: "origin/feature/pr" });
+          writeFileSync(join(task.worktreePath!, "f0.txt"), "both\n");
+        },
+      );
+
+      expect(push.mock.calls[0]![3]).toEqual({ integrate: { resolve: expect.any(Function) } });
+      expect(conflicts).toEqual([["f0.txt"]]);
+      expect(outcomes).toEqual([
+        {
+          action: "push-branch",
+          detail: `${originPath} feature/pr (rebased onto origin/feature/pr, resolved conflicts in f0.txt)`,
+        },
+      ]);
+      expect(subjects(originPath, "feature/pr")).toEqual([
+        "edit f0.txt",
+        "author's follow-up",
+        "author's work",
+        "initial",
+      ]);
+    });
+
+    it("pushes nothing and names the files when the conflicts stay unresolved", async () => {
+      const { task, run: runRow } = await seed(
+        { branch: "feature/pr", origin: pr, mode: "work" },
+        { existing: true, commits: 1 },
+      );
+      authorPushes("f0.txt", "author\n");
+      const { deliverer: d } = deliverer();
+
+      const failed = deliver(d, task, runRow, { actions: ["push-branch"] });
+      await expect(failed).rejects.toThrow(DeliveryError);
+      await expect(failed).rejects.toThrow(
+        "origin/feature/pr has commits feature/pr does not, and rebasing onto them hit conflicts in f0.txt. The implementer could not resolve them: no resolver.",
+      );
+      expect(subjects(originPath, "feature/pr")).toEqual([
+        "author's follow-up",
+        "author's work",
+        "initial",
+      ]);
+    });
   });
 
   it("offers no push when the PR's head branch is main", async () => {

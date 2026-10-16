@@ -6,13 +6,20 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { branchForTask, worktreePathFor } from "./branches.js";
-import { GitError, ProtectedBranchError, createGitService, type GitService } from "./service.js";
+import {
+  GitError,
+  ProtectedBranchError,
+  createGitService,
+  runGit,
+  type GitService,
+} from "./service.js";
 
 let root: string;
 let repo: string;
@@ -225,6 +232,122 @@ describe("createWorktree", () => {
       service.createWorktree({ ...input, branch: "agent/other" }),
     ).rejects.toBeInstanceOf(GitError);
   });
+
+  describe("after an earlier attempt failed", () => {
+    const input = (id: string) =>
+      ({
+        repoPath: repo,
+        worktreePath: worktreePathFor(repo, id),
+        branch: `agent/${id}`,
+        checkout: { kind: "new" },
+      }) as const;
+
+    it("reuses a branch the earlier attempt created", async () => {
+      git(repo, "branch", "agent/t7");
+      const head = commit(repo, "later.txt", "later\n");
+      const wt = await service.createWorktree(input("t7"));
+      expect(git(wt.path, "branch", "--show-current")).toBe("agent/t7");
+      expect(wt.baseSha).not.toBe(head);
+    });
+
+    it("prunes a registration whose folder is gone", async () => {
+      const first = await service.createWorktree(input("t8"));
+      rmSync(first.path, { recursive: true, force: true });
+      const again = await service.createWorktree(input("t8"));
+      expect(git(again.path, "branch", "--show-current")).toBe("agent/t8");
+    });
+
+    it("uses an empty leftover folder and refuses one with files", async () => {
+      mkdirSync(worktreePathFor(repo, "t9"), { recursive: true });
+      const wt = await service.createWorktree(input("t9"));
+      expect(git(wt.path, "branch", "--show-current")).toBe("agent/t9");
+
+      const busy = worktreePathFor(repo, "t10");
+      mkdirSync(busy, { recursive: true });
+      write(busy, "keep.txt", "mine\n");
+      const error = await service.createWorktree(input("t10")).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(GitError);
+      expect((error as GitError).kind).toBe("path-exists");
+      expect(readFileSync(join(busy, "keep.txt"), "utf8")).toBe("mine\n");
+    });
+  });
+});
+
+describe("git lock files", () => {
+  const indexLock = () => join(repo, ".git", "index.lock");
+
+  function lock(path: string, ageMs: number): void {
+    writeFileSync(path, "");
+    const then = new Date(Date.now() - ageMs);
+    utimesSync(path, then, then);
+  }
+
+  it("removes a stale lock and commits", async () => {
+    lock(indexLock(), 5 * 60_000);
+    write(repo, "a.txt", "a\n");
+    expect(await service.commitAll(repo, "after a crash")).toMatch(/^[0-9a-f]{40}$/);
+    expect(existsSync(indexLock())).toBe(false);
+  });
+
+  it("waits for a fresh lock another process releases", async () => {
+    lock(indexLock(), 0);
+    setTimeout(() => rmSync(indexLock(), { force: true }), 300);
+    write(repo, "a.txt", "a\n");
+    expect(await service.commitAll(repo, "after the other process")).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  it("leaves a fresh lock that is never released", async () => {
+    lock(indexLock(), 0);
+    write(repo, "a.txt", "a\n");
+    const error = (await service.commitAll(repo, "blocked").catch((e: unknown) => e)) as GitError;
+    expect(error).toBeInstanceOf(GitError);
+    expect(error.kind).toBe("lock");
+    expect(error.staleLockRemoved).toBe(false);
+    expect(existsSync(indexLock())).toBe(true);
+  });
+
+  it("removes a stale lock in a linked worktree", async () => {
+    const wt = await service.createWorktree({
+      repoPath: repo,
+      worktreePath: worktreePathFor(repo, "t1"),
+      branch: "agent/t1",
+      checkout: { kind: "new" },
+    });
+    const wtLock = resolve(wt.path, git(wt.path, "rev-parse", "--git-path", "index.lock"));
+    expect(wtLock).toContain(join(".git", "worktrees"));
+    lock(wtLock, 5 * 60_000);
+    write(wt.path, "a.txt", "a\n");
+    expect(await service.commitAll(wt.path, "after a crash")).toMatch(/^[0-9a-f]{40}$/);
+    expect(existsSync(wtLock)).toBe(false);
+  });
+
+  it("removes a stale lock but does not retry a rebase", async () => {
+    git(repo, "switch", "--quiet", "-c", "side");
+    const sideHead = commit(repo, "side.txt", "side\n");
+    git(repo, "switch", "--quiet", "main");
+    commit(repo, "main.txt", "main\n");
+    git(repo, "switch", "--quiet", "side");
+    lock(indexLock(), 5 * 60_000);
+    const error = (await runGit(repo, ["rebase", "--quiet", "main"]).catch(
+      (e: unknown) => e,
+    )) as GitError;
+    expect(error).toBeInstanceOf(GitError);
+    expect(error.kind).toBe("lock");
+    expect(error.staleLockRemoved).toBe(true);
+    expect(existsSync(indexLock())).toBe(false);
+    expect(git(repo, "rev-parse", "HEAD")).toBe(sideHead);
+  });
+
+  it("keeps a stale lock while another git command of its own runs", async () => {
+    const slow = runGit(repo, ["-c", "alias.wait=!sleep 5", "wait"]);
+    lock(indexLock(), 5 * 60_000);
+    write(repo, "a.txt", "a\n");
+    const error = (await service.commitAll(repo, "blocked").catch((e: unknown) => e)) as GitError;
+    expect(error.kind).toBe("lock");
+    expect(error.staleLockRemoved).toBe(false);
+    expect(existsSync(indexLock())).toBe(true);
+    await slow;
+  }, 15_000);
 });
 
 describe("commits, squash and diff", () => {
@@ -638,6 +761,91 @@ describe("push", () => {
 
     expect(git(origin, "rev-parse", "fix/abc-1-x")).toBe(head);
     expect(git(path, "rev-parse", "--abbrev-ref", "@{upstream}")).toBe("origin/fix/abc-1-x");
+  });
+
+  describe("when the remote branch moved on", () => {
+    const branch = "feature/moved";
+    let path: string;
+    let other: string;
+
+    /** Pushes the task branch, then another clone adds `file` to it on the remote. */
+    beforeEach(async () => {
+      path = worktreePathFor(repo, "t2");
+      await service.createWorktree({
+        repoPath: repo,
+        worktreePath: path,
+        branch,
+        checkout: { kind: "new" },
+      });
+      commit(path, "mine.txt", "mine\n", "first round");
+      await service.push(path, branch);
+      other = join(root, "other");
+      git(root, "clone", "--quiet", "--branch", branch, origin, other);
+      git(other, "config", "user.name", "Other");
+      git(other, "config", "user.email", "other@example.com");
+    });
+
+    it("rebases onto the remote branch and pushes, with integrate", async () => {
+      commit(other, "theirs.txt", "theirs\n", "their commit");
+      git(other, "push", "--quiet", "origin", branch);
+      commit(path, "mine.txt", "mine 2\n", "second round");
+
+      const result = await service.push(path, branch, undefined, { integrate: {} });
+
+      expect(result).toEqual({ status: "pushed", integrated: true, resolved: [] });
+      expect(log(origin, branch)).toEqual([
+        "second round",
+        "their commit",
+        "first round",
+        "initial",
+      ]);
+      expect(git(path, "rev-parse", "HEAD")).toBe(git(origin, "rev-parse", branch));
+    });
+
+    it("has the resolver resolve a conflict", async () => {
+      commit(other, "mine.txt", "theirs\n", "their edit");
+      git(other, "push", "--quiet", "origin", branch);
+      commit(path, "mine.txt", "mine 2\n", "second round");
+
+      const result = await service.push(path, branch, undefined, {
+        integrate: { resolve: async () => write(path, "mine.txt", "both\n") },
+      });
+
+      expect(result).toEqual({ status: "pushed", integrated: true, resolved: ["mine.txt"] });
+      expect(log(origin, branch)).toEqual(["second round", "their edit", "first round", "initial"]);
+      expect(git(origin, "show", `${branch}:mine.txt`)).toBe("both");
+    });
+
+    it("reports a conflict the resolver could not resolve and pushes nothing", async () => {
+      commit(other, "mine.txt", "theirs\n", "their edit");
+      git(other, "push", "--quiet", "origin", branch);
+      const remoteHead = git(origin, "rev-parse", branch);
+      const localHead = commit(path, "mine.txt", "mine 2\n", "second round");
+
+      const result = await service.push(path, branch, undefined, {
+        integrate: { resolve: () => Promise.reject(new Error("usage limit")) },
+      });
+
+      expect(result).toEqual({
+        status: "conflict",
+        files: ["mine.txt"],
+        unresolved: "usage limit",
+      });
+      expect(git(origin, "rev-parse", branch)).toBe(remoteHead);
+      expect(git(path, "rev-parse", "HEAD")).toBe(localHead);
+      expect(git(path, "status", "--porcelain")).toBe("");
+    });
+
+    it("throws the rejection without integrate", async () => {
+      commit(other, "theirs.txt", "theirs\n", "their commit");
+      git(other, "push", "--quiet", "origin", branch);
+      commit(path, "mine.txt", "mine 2\n", "second round");
+
+      const error = (await service.push(path, branch).catch((e: unknown) => e)) as GitError;
+      expect(error).toBeInstanceOf(GitError);
+      expect(error.kind).toBe("non-fast-forward");
+      expect(log(origin, branch)).toEqual(["their commit", "first round", "initial"]);
+    });
   });
 
   it("never pushes main (or the configured main branch)", async () => {

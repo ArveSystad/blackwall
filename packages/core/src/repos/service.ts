@@ -18,6 +18,7 @@ import {
 import type { ConnectionService } from "../connections/service.js";
 import type { Repositories } from "../db/repositories.js";
 import { suggestCheckCommands } from "./checks.js";
+import { describeGitError } from "../git/errors.js";
 import { GitError } from "../git/service.js";
 import { gitDirKind, pushBranch, readBranchSync, readOriginRemote } from "./git.js";
 import { findGitRepos } from "./scan.js";
@@ -275,8 +276,7 @@ export function createRepoService({ repos, connections }: RepoServiceOptions) {
       try {
         await pushBranch(repo.path, mainBranch);
       } catch (error) {
-        if (error instanceof GitError)
-          throw new RepoPushError(error.stderr.trim() || error.message);
+        if (error instanceof GitError) throw new RepoPushError(describeGitError(error));
         throw error;
       }
       return readBranchSync(repo.path, mainBranch);
