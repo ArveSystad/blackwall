@@ -10,10 +10,16 @@ import {
   type ChatState,
   type Repo,
   type ServerEvent,
+  type Task,
 } from "@blackwall/shared";
 import { AgentRunError, type AgentAdapter, type AgentResult } from "../agents/adapters/types.js";
 import { permissionsFor } from "../agents/permissions.js";
-import { chatStatePrompt, chatSystemPrompt } from "../agents/prompts.js";
+import {
+  chatStatePrompt,
+  chatSystemPrompt,
+  type ChatFocus,
+  type ChatStateQuestion,
+} from "../agents/prompts.js";
 import type { Repositories } from "../db/repositories.js";
 import { TaskStateError } from "../pipeline/engine.js";
 import { RepoNotFoundError } from "../repos/service.js";
@@ -44,6 +50,8 @@ export interface ChatServiceOptions {
   adapters: Partial<Record<AgentCli, AgentAdapter>>;
   repos: Pick<Repositories["repos"], "get">;
   tasks: Pick<Repositories["tasks"], "list">;
+  /** Grill questions; the open ones of tasks at the `questions` gate reach the prompt. */
+  questions: Pick<Repositories["grillQuestions"], "listByTask">;
   backlogItems: Pick<Repositories["backlogItems"], "list">;
   messages: Pick<
     Repositories["chatMessages"],
@@ -111,6 +119,7 @@ export function createChatService({
   adapters,
   repos,
   tasks,
+  questions,
   backlogItems,
   messages,
   historyLimit = CHAT_HISTORY_LIMIT,
@@ -172,7 +181,21 @@ export function createChatService({
     return update(entry, { ...patch, messages: [...entry.state.messages, msg] });
   }
 
-  async function runTurn(entry: ChatEntry, repo: Repo, text: string): Promise<void> {
+  /** Open questions waiting on the user, for a task at the `questions` gate. */
+  function openQuestions(task: Task): ChatStateQuestion[] {
+    if (task.status !== "needs-you" || task.gate !== "questions") return [];
+    return questions
+      .listByTask(task.id)
+      .filter((q) => q.needsHuman && q.answer === null)
+      .map(({ id, question }) => ({ id, question }));
+  }
+
+  async function runTurn(
+    entry: ChatEntry,
+    repo: Repo,
+    text: string,
+    focusId: string | undefined,
+  ): Promise<void> {
     const generation = entry.generation;
     const current = () => entry.generation === generation;
     const controller = new AbortController();
@@ -184,9 +207,17 @@ export function createChatService({
     try {
       const adapter = adapters[cli];
       if (!adapter) throw new Error(`No adapter for the ${cli} CLI`);
+      const repoTasks = tasks.list().filter((t) => t.repoId === repo.id && t.archivedAt === null);
+      const open = Object.fromEntries(repoTasks.map((t) => [t.id, openQuestions(t)]));
+      const focusTask = repoTasks.find((t) => t.id === focusId);
+      const focus: ChatFocus | undefined = focusTask
+        ? { task: focusTask, questions: open[focusTask.id] ?? [] }
+        : undefined;
       const state = {
-        tasks: tasks.list().filter((t) => t.repoId === repo.id && t.archivedAt === null),
+        tasks: repoTasks,
         backlog: backlogItems.list(repo.id),
+        questions: open,
+        ...(focus ? { focus } : {}),
         text,
       };
       // The user and assistant messages before the one being answered.
@@ -280,9 +311,11 @@ export function createChatService({
     /**
      * Sends a message and starts the agent's answer in the background.
      * `/clear` aborts any running answer and starts over; anything else is
-     * refused with {@link ChatBusyError} while the chat answers.
+     * refused with {@link ChatBusyError} while the chat answers. `taskId` is
+     * the task the user is looking at; the prompt gives it in full when it is
+     * an unarchived task of the repo, and ignores it otherwise.
      */
-    send(repoId: string, text: string): ChatState {
+    send(repoId: string, text: string, taskId?: string): ChatState {
       const repo = repoOf(repoId);
       const entry = entryFor(repoId);
       const trimmed = text.trim();
@@ -299,7 +332,7 @@ export function createChatService({
       const state = append(entry, message("user", trimmed), {
         patch: { busy: true, activity: null },
       });
-      void runTurn(entry, repo, trimmed);
+      void runTurn(entry, repo, trimmed, taskId);
       return state;
     },
 

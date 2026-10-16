@@ -7,7 +7,7 @@ import {
   type Task,
 } from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useParams } from "@tanstack/react-router";
 import {
   useEffect,
   useRef,
@@ -20,6 +20,7 @@ import {
 } from "react";
 import {
   addChatAction,
+  answerQuestion,
   ApiError,
   createBacklogItem,
   markChatActionApplied,
@@ -29,6 +30,7 @@ import {
   actionAvailability,
   canSendChat,
   canTurnIntoTask,
+  CHAT_INPUT_ID,
   CHAT_PANEL_FALLBACK_MS,
   chatActionSummary,
   chatActionTask,
@@ -36,6 +38,8 @@ import {
   chatWidthBounds,
   clampChatWidth,
   clearNeedsConfirm,
+  composerRoute,
+  composerShortcut,
   freshIds,
   isClearCommand,
   needsCardId,
@@ -51,10 +55,11 @@ import {
   type ChatActionAvailability,
   type ChatActionSummary,
   type ChatPresence,
+  type ComposerRoute,
 } from "../chat";
-import { isModKey, isPlainKey, modKeyLabel } from "../keyboard";
+import { isPlainKey, modKeyLabel } from "../keyboard";
 import { cn } from "../lib/utils";
-import { chatQuery, queryKeys, reposQuery, tasksQuery } from "../query";
+import { chatQuery, queryKeys, reposQuery, taskGrillQuery, tasksQuery } from "../query";
 import { resolveSelectedRepo, useSelectedRepoId } from "../selected-repo";
 import { errorMessage } from "../settings-forms";
 import { GATE_REASONS } from "../task-view";
@@ -69,7 +74,6 @@ import { Button } from "./ui/button";
 import { ErrorText } from "./ui/field";
 import { Kbd } from "./ui/kbd";
 
-const TEXTAREA_ID = "chat-input";
 /** Within this many px of the bottom, the log follows new messages. */
 const FOLLOW_SLACK_PX = 24;
 /** Longer create-task descriptions start clamped, with Show more. */
@@ -77,7 +81,9 @@ const LONG_DESCRIPTION_CHARS = 280;
 
 /**
  * The repo chat on the right of every page: ask about the selected repo's code, backlog and tasks,
- * and apply the actions the agent proposes. Its width is the user's preference, clamped so the
+ * and apply the actions the agent proposes. On a task's page it is about that task: it uses the
+ * task's repo, tells the agent which task is open, and can send the draft straight to the task
+ * (its gate, or resuming it with the draft as guidance). Its width is the user's preference, clamped so the
  * main pane keeps room; it never overlays the page. It slides its width open and closed
  * (`CHAT_PANEL_MS`), so the main pane eases along.
  */
@@ -124,7 +130,13 @@ function OpenChatPanel({
   onSettled: () => void;
 }) {
   const repos = useQuery(reposQuery);
-  const repo = resolveSelectedRepo(useSelectedRepoId(), repos.data);
+  const tasks = useQuery(tasksQuery);
+  const { taskId } = useParams({ strict: false });
+  const focusTask = taskId
+    ? tasks.data?.find((t) => t.id === taskId && t.archivedAt === null)
+    : undefined;
+  const selected = resolveSelectedRepo(useSelectedRepoId(), repos.data);
+  const repo = repos.data?.find((r) => r.id === focusTask?.repoId) ?? selected;
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   const width = clampChatWidth(dragWidth ?? preferred, viewport);
   const closeButton = useRef<HTMLButtonElement>(null);
@@ -133,7 +145,7 @@ function OpenChatPanel({
   // Also runs when the panel is reopened mid-close, since it stayed mounted.
   useEffect(() => {
     if (!open || !takeChatFocusRequest()) return;
-    const input = document.getElementById(TEXTAREA_ID);
+    const input = document.getElementById(CHAT_INPUT_ID);
     (input ?? closeButton.current)?.focus();
   }, [open]);
 
@@ -173,7 +185,12 @@ function OpenChatPanel({
       <div className="absolute inset-0 overflow-hidden">
         <div className="bw-chat-content absolute inset-y-0 right-0 flex flex-col">
           {repo ? (
-            <ChatBody key={repo.id} repo={repo} closeButton={closeButton} />
+            <ChatBody
+              key={repo.id}
+              repo={repo}
+              focusTask={focusTask?.repoId === repo.id ? focusTask : undefined}
+              closeButton={closeButton}
+            />
           ) : (
             <>
               <ChatHeader title="Chat" closeButton={closeButton} />
@@ -300,9 +317,12 @@ interface FadeState {
 
 function ChatBody({
   repo,
+  focusTask,
   closeButton,
 }: {
   repo: RepoView;
+  /** The task whose page is open; the agent is told about it in full. */
+  focusTask: Task | undefined;
   closeButton: RefObject<HTMLButtonElement | null>;
 }) {
   const queryClient = useQueryClient();
@@ -319,6 +339,8 @@ function ChatBody({
   const end = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const directButton = useRef<HTMLButtonElement>(null);
+  const direct = composerRoute(focusTask);
 
   const state = chat.data;
   const messages = state?.messages;
@@ -354,7 +376,7 @@ function ChatBody({
     setSending(true);
     setSendError(null);
     try {
-      const next = await sendChat(repo.id, text);
+      const next = await sendChat(repo.id, text, focusTask?.id);
       queryClient.setQueryData<ChatState>(queryKeys.chat(repo.id), next);
       scrollToEnd();
     } catch (cause) {
@@ -467,6 +489,17 @@ function ChatBody({
         {busy ? "Thinking…" : ""}
       </div>
       <div className="flex flex-none flex-col gap-1.5 border-t border-border px-4 pt-2.5 pb-3">
+        {focusTask && (
+          <div className="flex min-w-0 items-center gap-2 text-meta text-muted-foreground">
+            <span className="min-w-0 truncate">
+              About <span className="text-foreground-strong">{focusTask.title}</span>
+            </span>
+            <span className="text-faint" aria-hidden="true">
+              ·
+            </span>
+            <StatusBadge status={focusTask.status} />
+          </div>
+        )}
         <form
           className="bw-chamfer bw-chamfer-focus-within flex flex-col gap-1.5 bg-card p-1.5 [--bw-chamfer-line:var(--border-strong)]"
           onSubmit={(event) => {
@@ -474,22 +507,29 @@ function ChatBody({
             void sendDraft();
           }}
         >
-          <label htmlFor={TEXTAREA_ID} className="sr-only">
+          <label htmlFor={CHAT_INPUT_ID} className="sr-only">
             Message to the chat
           </label>
           <textarea
             ref={textarea}
-            id={TEXTAREA_ID}
+            id={CHAT_INPUT_ID}
             rows={3}
             value={draft}
             placeholder={
               busy
                 ? "Answering… type /clear to stop and start over"
-                : "Ask about the code, backlog or tasks. /clear starts over."
+                : focusTask
+                  ? "Ask about this task, the code or the backlog. /clear starts over."
+                  : "Ask about the code, backlog or tasks. /clear starts over."
             }
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && isModKey(event.nativeEvent)) {
+              const shortcut = composerShortcut(event.nativeEvent);
+              if (shortcut === "direct") {
+                event.preventDefault();
+                const button = directButton.current;
+                if (button && !button.disabled) button.click();
+              } else if (shortcut === "send") {
                 event.preventDefault();
                 void sendDraft();
               }
@@ -497,6 +537,18 @@ function ChatBody({
             className="min-h-0 w-full resize-none bg-transparent px-1 text-body text-foreground-strong outline-none focus-visible:shadow-none"
           />
           <div className="flex items-center justify-end gap-2">
+            {focusTask && direct && (
+              <DirectSend
+                key={focusTask.id}
+                task={focusTask}
+                route={direct}
+                draft={draft}
+                buttonRef={directButton}
+                onStart={() => setSendError(null)}
+                onSent={() => setDraft("")}
+                onError={setSendError}
+              />
+            )}
             <Kbd aria-hidden="true">{modKeyLabel("↵")}</Kbd>
             <Button
               size="sm"
@@ -528,6 +580,64 @@ function ChatBody({
           The answer in progress is stopped and the conversation is dropped.
         </ConfirmDialog>
       )}
+    </>
+  );
+}
+
+/**
+ * The composer's direct send: the draft goes as it is to the focused task, answering its gate or
+ * resuming it with the draft as guidance, without asking the agent. Not stored in the chat.
+ */
+function DirectSend({
+  task,
+  route,
+  draft,
+  buttonRef,
+  onStart,
+  onSent,
+  onError,
+}: {
+  task: Task;
+  route: ComposerRoute;
+  draft: string;
+  buttonRef: RefObject<HTMLButtonElement | null>;
+  onStart: () => void;
+  onSent: () => void;
+  onError: (error: string) => void;
+}) {
+  const action = useTaskAction(task);
+
+  useEffect(() => {
+    if (action.error) onError(action.error);
+  }, [action.error, onError]);
+
+  async function send() {
+    const message = draft.trim();
+    const gate = messageRoute(task);
+    if (!message || action.pending) return;
+    onStart();
+    const done =
+      route.kind === "resume"
+        ? await resume(action, task, message)
+        : gate
+          ? await answerGate(action, task, { decision: gate.decision, message }, gate.send)
+          : undefined;
+    if (done) onSent();
+  }
+
+  return (
+    <>
+      <Kbd aria-hidden="true">{modKeyLabel("⇧↵")}</Kbd>
+      <Button
+        ref={buttonRef}
+        size="sm"
+        variant="ghost"
+        type="button"
+        disabled={!draft.trim() || action.pending}
+        onClick={() => void send()}
+      >
+        {action.pending ? "Sending…" : route.label}
+      </Button>
     </>
   );
 }
@@ -686,10 +796,31 @@ function TaskActionCard({
   availability: ChatActionAvailability;
   needs: boolean;
 }) {
+  const queryClient = useQueryClient();
   const taskAction = useTaskAction(task);
+  const grill = useQuery({
+    ...taskGrillQuery(task.id),
+    enabled: action.kind === "answer-question",
+  });
+  const question =
+    action.kind === "answer-question"
+      ? grill.data?.find((q) => q.id === action.questionId)
+      : undefined;
+  const answered =
+    question && question.answer !== null && availability.kind === "available"
+      ? ({ kind: "unavailable", reason: "This question is already answered" } as const)
+      : undefined;
 
   async function run(): Promise<boolean> {
     switch (action.kind) {
+      case "answer-question": {
+        const done = await taskAction.run(
+          "Answer question",
+          async () => (await answerQuestion(task.id, action.questionId, action.answer)).task,
+        );
+        if (done) void queryClient.invalidateQueries({ queryKey: queryKeys.taskGrill(task.id) });
+        return done !== undefined;
+      }
       case "message-task": {
         const route = messageRoute(task);
         if (!route) return false;
@@ -704,14 +835,14 @@ function TaskActionCard({
       case "stop-task":
         return (await stop(taskAction, task)) !== undefined;
       case "resume-task":
-        return (await resume(taskAction, task)) !== undefined;
+        return (await resume(taskAction, task, action.message)) !== undefined;
     }
   }
 
   const variant =
     action.kind === "stop-task"
       ? "destructive-ghost"
-      : action.kind === "message-task" && needs
+      : (action.kind === "message-task" || action.kind === "answer-question") && needs
         ? "needs"
         : "default";
 
@@ -730,19 +861,28 @@ function TaskActionCard({
       badges={
         <>
           <StatusBadge status={task.status} />
-          {action.kind === "message-task" && task.gate && (
+          {(action.kind === "message-task" || action.kind === "answer-question") && task.gate && (
             <span className="text-meta text-needs">{GATE_REASONS[task.gate]}</span>
           )}
         </>
       }
       detail={
-        action.kind === "message-task" && (
-          <p className="m-0 text-body break-words whitespace-pre-wrap text-foreground">
-            {action.message}
-          </p>
+        (question || summary.detail) && (
+          <>
+            {question && (
+              <p className="m-0 text-meta break-words whitespace-pre-wrap text-muted-foreground">
+                {question.question}
+              </p>
+            )}
+            {summary.detail && (
+              <p className="m-0 text-body break-words whitespace-pre-wrap text-foreground">
+                {summary.detail}
+              </p>
+            )}
+          </>
         )
       }
-      availability={availability}
+      availability={answered ?? availability}
       apply={{ variant, pending: taskAction.pending, error: taskAction.error, run }}
       repoId={repoId}
       actionId={action.id}

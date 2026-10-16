@@ -25,7 +25,6 @@ function NeedsActions({
   task,
   action,
   counts,
-  draft,
   planComment,
   tab,
   onTab,
@@ -33,12 +32,10 @@ function NeedsActions({
   task: Task;
   action: TaskAction;
   counts: BannerCounts;
-  draft: string;
   planComment: PlanComment;
   tab: TaskTab;
   onTab: (tab: TaskTab) => void;
 }) {
-  const message = draft.trim() ? { message: draft.trim() } : {};
   switch (task.gate) {
     case "questions":
       return tab === "grill" ? null : (
@@ -82,7 +79,7 @@ function NeedsActions({
             variant="needs"
             disabled={action.pending}
             onClick={() =>
-              void answerGate(action, task, { decision: "approve", ...message }, "Start fix round")
+              void answerGate(action, task, { decision: "approve" }, "Start fix round")
             }
           >
             Start fix round {counts.round + 1}
@@ -95,9 +92,7 @@ function NeedsActions({
           <Button
             variant="ghost"
             disabled={action.pending}
-            onClick={() =>
-              void answerGate(action, task, { decision: "revise", ...message }, "One more round")
-            }
+            onClick={() => void answerGate(action, task, { decision: "revise" }, "One more round")}
           >
             One more fix round
           </Button>
@@ -129,7 +124,6 @@ export function TaskBanner({
   task,
   action,
   counts,
-  draft,
   planComment,
   tab,
   onTab,
@@ -138,7 +132,6 @@ export function TaskBanner({
   task: Task;
   action: TaskAction;
   counts: BannerCounts;
-  draft: string;
   /** The plan approval's issue comment, shared with the Plan tab's Approve plan. */
   planComment: PlanComment;
   tab: TaskTab;
@@ -158,7 +151,6 @@ export function TaskBanner({
               task={task}
               action={action}
               counts={counts}
-              draft={draft}
               planComment={planComment}
               tab={tab}
               onTab={onTab}

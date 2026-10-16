@@ -207,6 +207,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       adapters,
       repos: repositories.repos,
       tasks: repositories.tasks,
+      questions: repositories.grillQuestions,
       backlogItems: repositories.backlogItems,
       messages: repositories.chatMessages,
       // The planner's model on the CLI, so the chat answers like the agent that plans.

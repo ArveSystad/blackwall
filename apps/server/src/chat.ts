@@ -22,7 +22,8 @@ export function chatRoutes(chat: ChatRouteService): Hono {
     if (!parsed.success) {
       return c.json({ error: parsed.error.issues.map((i) => i.message).join("; ") }, 400);
     }
-    return c.json(chat.send(c.req.param("repoId") ?? "", parsed.data.text), 202);
+    const { text, taskId } = parsed.data;
+    return c.json(chat.send(c.req.param("repoId") ?? "", text, taskId), 202);
   });
 
   routes.post("/actions/:actionId/applied", (c) =>

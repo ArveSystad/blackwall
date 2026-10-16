@@ -2,20 +2,22 @@ import type { Task } from "@blackwall/shared";
 import { cn } from "../../lib/utils";
 import { Markdown } from "../Markdown";
 import { Button } from "../ui/button";
+import { focusChat } from "../../chat";
+import { modKeyLabel } from "../../keyboard";
 import { Kbd } from "../ui/kbd";
 import { Textarea } from "../ui/textarea";
-import { answerGate, approvePlan, focusInputBar, type PlanComment } from "./actions";
+import { approvePlan, type PlanComment } from "./actions";
 import type { TaskAction } from "./use-task-action";
 
 /**
  * The plan, with Approve plan and Request changes while it waits on the
- * user. Approval stays disabled while grill questions are open. A GitHub
+ * user; Request changes moves to the chat, where the change requests are
+ * typed. Approval stays disabled while grill questions are open. A GitHub
  * issue task can also comment on its issue when the plan is approved.
  */
 export function PlanPanel({
   task,
   action,
-  draft,
   openQuestions,
   comment,
   onComment,
@@ -23,7 +25,6 @@ export function PlanPanel({
 }: {
   task: Task;
   action: TaskAction;
-  draft: string;
   openQuestions: number;
   comment: PlanComment;
   onComment: (comment: PlanComment) => void;
@@ -79,18 +80,7 @@ export function PlanPanel({
             <Button
               className="flex-1 justify-center"
               disabled={!atApproval || action.pending}
-              onClick={() => {
-                if (!draft.trim()) {
-                  focusInputBar();
-                  return;
-                }
-                void answerGate(
-                  action,
-                  task,
-                  { decision: "revise", message: draft.trim() },
-                  "Request changes",
-                );
-              }}
+              onClick={focusChat}
             >
               Request changes
               <Kbd>R</Kbd>
@@ -108,7 +98,7 @@ export function PlanPanel({
           <span className="text-center text-[11.5px] text-muted-foreground">
             {atQuestions
               ? `Approve unlocks once ${openQuestions === 1 ? "the open question is" : `all ${openQuestions} open questions are`} answered and the reviewers have seen the revised plan.`
-              : "Type the requested changes in the input bar below; the planner re-plans with them."}
+              : `Describe the requested changes in the chat; its "Request changes · planner" button (${modKeyLabel("⇧↵")}) sends them to the planner.`}
           </span>
         </div>
       )}

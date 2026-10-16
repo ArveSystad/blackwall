@@ -172,14 +172,12 @@ export function GrillPanel({
   task,
   questions,
   action,
-  draft,
   planComment,
   onPlanComment,
 }: {
   task: Task;
   questions: readonly GrillQuestion[];
   action: TaskAction;
-  draft: string;
   planComment: PlanComment;
   onPlanComment: (comment: PlanComment) => void;
 }) {
@@ -244,7 +242,6 @@ export function GrillPanel({
         <PlanPanel
           task={task}
           action={action}
-          draft={draft}
           openQuestions={counts.open}
           comment={planComment}
           onComment={onPlanComment}

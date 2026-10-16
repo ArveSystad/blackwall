@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   stepSchema,
+  chatActionProposalSchema,
   chatReplyJsonSchema,
   chatReplySchema,
+  chatSendInputSchema,
   chatStateSchema,
+  taskResumeInputSchema,
   assignedIssuesSchema,
   repoIssuesSchema,
   deliveryConfirmationSchema,
@@ -890,13 +893,40 @@ describe("chat schemas", () => {
     const actions = [
       { kind: "create-task", title: "Add tests", description: "Cover the parser" },
       { kind: "message-task", taskId: "t1", message: "Keep the API stable" },
+      { kind: "answer-question", taskId: "t1", questionId: "q1", answer: "Zip" },
       { kind: "stop-task", taskId: "t1" },
       { kind: "resume-task", taskId: "t2" },
+      { kind: "resume-task", taskId: "t2", message: "Use the v2 client" },
     ];
     expect(chatReplySchema.parse({ reply: "Done", actions }).actions).toEqual(actions);
     const overlong = { kind: "create-task", title: "x".repeat(121), description: "d" };
     expect(chatReplySchema.safeParse({ reply: "", actions: [overlong] }).success).toBe(false);
     expect(JSON.stringify(chatReplyJsonSchema())).toContain('"anyOf"');
+  });
+
+  it("rejects extra keys and blank answers or guidance on actions", () => {
+    const parses = (action: unknown) => chatActionProposalSchema.safeParse(action).success;
+    const answer = { kind: "answer-question", taskId: "t1", questionId: "q1", answer: "Zip" };
+    expect(parses({ ...answer, answer: "  " })).toBe(false);
+    expect(parses({ ...answer, questionId: undefined })).toBe(false);
+    expect(parses({ ...answer, note: "x" })).toBe(false);
+    expect(parses({ kind: "resume-task", taskId: "t1", message: " " })).toBe(false);
+    expect(parses({ kind: "resume-task", taskId: "t1", note: "x" })).toBe(false);
+  });
+
+  it("takes an optional task id with a chat message", () => {
+    expect(chatSendInputSchema.parse({ text: " Why? " })).toEqual({ text: "Why?" });
+    expect(chatSendInputSchema.parse({ text: "Why?", taskId: "t1" })).toEqual({
+      text: "Why?",
+      taskId: "t1",
+    });
+    expect(chatSendInputSchema.safeParse({ text: "Why?", taskId: "" }).success).toBe(false);
+  });
+
+  it("takes optional guidance when resuming a task", () => {
+    expect(taskResumeInputSchema.parse({})).toEqual({});
+    expect(taskResumeInputSchema.parse({ message: " Retry " })).toEqual({ message: "Retry" });
+    expect(taskResumeInputSchema.safeParse({ message: "" }).success).toBe(false);
   });
 
   it("accepts a stored action with its id and applied time", () => {

@@ -12,6 +12,8 @@ import {
   chatWidthBounds,
   clampChatWidth,
   clearNeedsConfirm,
+  composerRoute,
+  composerShortcut,
   freshIds,
   isClearCommand,
   needsCardId,
@@ -214,6 +216,28 @@ describe("actionAvailability", () => {
     expect(check(action({ kind: "resume-task", taskId: failed.id })).kind).toBe("available");
     expect(check(action({ kind: "resume-task", taskId: running.id })).kind).toBe("unavailable");
   });
+
+  it("answers questions only for a task at the questions gate", () => {
+    const answer = (taskId: string) =>
+      action({ kind: "answer-question", taskId, questionId: "q1", answer: "Zip" });
+    expect(check(answer(atQuestions.id))).toEqual({ kind: "available" });
+    expect(check(answer(atPlan.id))).toMatchObject({ kind: "unavailable" });
+    expect(check(answer(running.id))).toMatchObject({ kind: "unavailable" });
+  });
+
+  it("resumes with guidance, except a task stopped at a gate", () => {
+    const stoppedAtGate = makeTask({ repoId: "r1", status: "interrupted", gate: "plan-approval" });
+    const guided = (taskId: string) => action({ kind: "resume-task", taskId, message: "Use v2" });
+    const all = [...tasks, stoppedAtGate];
+    expect(actionAvailability(guided(failed.id), all, "r1")).toEqual({ kind: "available" });
+    expect(actionAvailability(guided(stoppedAtGate.id), all, "r1")).toEqual({
+      kind: "unavailable",
+      reason: "Resume puts this task back at its gate; message it there",
+    });
+    expect(
+      actionAvailability(action({ kind: "resume-task", taskId: stoppedAtGate.id }), all, "r1"),
+    ).toEqual({ kind: "available" });
+  });
 });
 
 describe("chatActionSummary", () => {
@@ -252,6 +276,96 @@ describe("chatActionSummary", () => {
     expect(
       chatActionSummary(action({ kind: "stop-task", taskId: "t-gone" }), undefined).title,
     ).toBe("t-gone");
+  });
+
+  it("shows the answer to a question and the guidance of a resume", () => {
+    const task = makeTask({ title: "Export", status: "needs-you", gate: "questions" });
+    expect(
+      chatActionSummary(
+        action({ kind: "answer-question", taskId: task.id, questionId: "q1", answer: "Zip" }),
+        task,
+      ),
+    ).toEqual({ label: "Answer question", title: "Export", detail: "Zip" });
+    const failed = makeTask({ title: "Login", status: "failed" });
+    const interrupted = makeTask({ title: "Login", status: "interrupted" });
+    const guided = action({ kind: "resume-task", taskId: failed.id, message: "Use v2" });
+    expect(chatActionSummary(guided, failed)).toEqual({
+      label: "Retry with guidance",
+      title: "Login",
+      detail: "Use v2",
+    });
+    expect(chatActionSummary(guided, interrupted).label).toBe("Resume with guidance");
+  });
+});
+
+describe("composerRoute", () => {
+  it("sends to the gate's reader when the gate takes a message", () => {
+    expect(composerRoute(makeTask({ status: "needs-you", gate: "plan-approval" }))).toEqual({
+      label: "Request changes · planner",
+      kind: "gate",
+    });
+    expect(composerRoute(makeTask({ status: "needs-you", gate: "finish" }))).toEqual({
+      label: "Send back · implementer",
+      kind: "gate",
+    });
+    expect(composerRoute(makeTask({ status: "needs-you", gate: "questions" }))).toBeNull();
+  });
+
+  it("resumes a failed or interrupted task with the draft, but not one stopped at a gate", () => {
+    expect(composerRoute(makeTask({ status: "failed" }))).toEqual({
+      label: "Retry with this",
+      kind: "resume",
+    });
+    expect(composerRoute(makeTask({ status: "interrupted" }))).toEqual({
+      label: "Resume with this",
+      kind: "resume",
+    });
+    expect(composerRoute(makeTask({ status: "interrupted", gate: "plan-approval" }))).toBeNull();
+  });
+
+  it("has no direct send for running, queued or done tasks, or without a task", () => {
+    for (const status of ["running", "queued", "done"] as const) {
+      expect(composerRoute(makeTask({ status }))).toBeNull();
+    }
+    expect(composerRoute(undefined)).toBeNull();
+  });
+});
+
+describe("composerShortcut", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  function key(overrides: Partial<KeyboardEvent> = {}) {
+    return {
+      key: "Enter",
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+      ...overrides,
+    } as KeyboardEvent;
+  }
+
+  it("tells Ctrl+Shift+Enter from Ctrl+Enter off macOS", () => {
+    vi.stubGlobal("navigator", { platform: "Win32" });
+    expect(composerShortcut(key({ ctrlKey: true, shiftKey: true }))).toBe("direct");
+    expect(composerShortcut(key({ ctrlKey: true }))).toBe("send");
+    expect(composerShortcut(key({ metaKey: true }))).toBeNull();
+  });
+
+  it("tells ⌘⇧↵ from ⌘↵ on macOS", () => {
+    vi.stubGlobal("navigator", { platform: "MacIntel" });
+    expect(composerShortcut(key({ metaKey: true, shiftKey: true }))).toBe("direct");
+    expect(composerShortcut(key({ metaKey: true }))).toBe("send");
+    expect(composerShortcut(key({ ctrlKey: true }))).toBeNull();
+  });
+
+  it("ignores Enter, Shift+Enter, Alt and other keys", () => {
+    vi.stubGlobal("navigator", { platform: "Win32" });
+    expect(composerShortcut(key())).toBeNull();
+    expect(composerShortcut(key({ shiftKey: true }))).toBeNull();
+    expect(composerShortcut(key({ ctrlKey: true, altKey: true }))).toBeNull();
+    expect(composerShortcut(key({ ctrlKey: true, shiftKey: true, altKey: true }))).toBeNull();
+    expect(composerShortcut(key({ ctrlKey: true, key: "k" }))).toBeNull();
   });
 });
 
@@ -294,6 +408,20 @@ describe("needsCardId", () => {
     expect(needsCardId([assistant("m1", [applied, gone, open])], tasks, "r1")).toBe(open.id);
     expect(needsCardId([assistant("m1", [applied, gone])], tasks, "r1")).toBeNull();
     expect(needsCardId([], tasks, "r1")).toBeNull();
+  });
+
+  it("counts an available answer card too", () => {
+    const atQuestions = makeTask({ repoId: "r1", status: "needs-you", gate: "questions" });
+    const stopCard = action({ kind: "stop-task", taskId: atPlan.id });
+    const answer = action({
+      kind: "answer-question",
+      taskId: atQuestions.id,
+      questionId: "q1",
+      answer: "Zip",
+    });
+    expect(needsCardId([assistant("m1", [stopCard, answer])], [...tasks, atQuestions], "r1")).toBe(
+      answer.id,
+    );
   });
 });
 

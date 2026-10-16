@@ -1363,9 +1363,12 @@ export const gateResponseInputSchema = z.object({
 });
 export type GateResponseInput = z.input<typeof gateResponseInputSchema>;
 
-/** Extra instructions typed into a task's input bar. */
-export const taskMessageInputSchema = z.object({ text: z.string().trim().min(1) });
-export type TaskMessageInput = z.infer<typeof taskMessageInputSchema>;
+/**
+ * `POST /api/tasks/:id/resume` body (optional). `message`: guidance for the
+ * agent steps that failed or stopped; refused for a task stopped at a gate.
+ */
+export const taskResumeInputSchema = z.object({ message: z.string().trim().min(1).optional() });
+export type TaskResumeInput = z.infer<typeof taskResumeInputSchema>;
 
 // ---------------------------------------------------------------------------
 // Runs, steps and events
@@ -1688,8 +1691,9 @@ export function summaryOutputJsonSchema(): Record<string, unknown> {
 /**
  * An action the chat agent proposes; nothing happens until the user applies
  * it. `create-task` adds a free-text backlog item; `message-task` answers a
- * task waiting at a gate; `stop-task` and `resume-task` stop or resume a task.
- * A plain union on `kind`, so its JSON Schema is an `anyOf`, which every CLI's
+ * task waiting at a gate; `answer-question` answers one of a task's open grill
+ * questions; `stop-task` and `resume-task` stop or resume a task, the latter
+ * with optional guidance for the steps that failed or stopped. A plain union on `kind`, so its JSON Schema is an `anyOf`, which every CLI's
  * structured output accepts.
  */
 export const chatActionProposalSchema = z.union([
@@ -1707,8 +1711,22 @@ export const chatActionProposalSchema = z.union([
       message: z.string().trim().min(1),
     })
     .strict(),
+  z
+    .object({
+      kind: z.literal("answer-question"),
+      taskId: z.string().min(1),
+      questionId: z.string().min(1),
+      answer: z.string().trim().min(1),
+    })
+    .strict(),
   z.object({ kind: z.literal("stop-task"), taskId: z.string().min(1) }).strict(),
-  z.object({ kind: z.literal("resume-task"), taskId: z.string().min(1) }).strict(),
+  z
+    .object({
+      kind: z.literal("resume-task"),
+      taskId: z.string().min(1),
+      message: z.string().trim().min(1).optional(),
+    })
+    .strict(),
 ]);
 export type ChatActionProposal = z.infer<typeof chatActionProposalSchema>;
 export type ChatActionKind = ChatActionProposal["kind"];
@@ -1763,8 +1781,15 @@ export type ChatState = z.infer<typeof chatStateSchema>;
 /** The chat message that starts the conversation over. */
 export const CHAT_CLEAR_COMMAND = "/clear";
 
-/** `POST /api/repos/:repoId/chat` body; {@link CHAT_CLEAR_COMMAND} starts over. */
-export const chatSendInputSchema = z.object({ text: z.string().trim().min(1) });
+/**
+ * `POST /api/repos/:repoId/chat` body; {@link CHAT_CLEAR_COMMAND} starts over.
+ * `taskId`: the task the user is looking at; ignored unless it is an
+ * unarchived task of the repo.
+ */
+export const chatSendInputSchema = z.object({
+  text: z.string().trim().min(1),
+  taskId: z.string().min(1).optional(),
+});
 export type ChatSendInput = z.infer<typeof chatSendInputSchema>;
 
 /** Whether an agent CLI is installed, detected at startup via `<cli> --version`. */

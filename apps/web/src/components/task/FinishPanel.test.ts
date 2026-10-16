@@ -25,7 +25,6 @@ function render(task: Task): string {
         plan,
         findings: [],
         action,
-        draft: "",
         loadPicks: () => undefined,
         onPicksChange: () => {},
       }),

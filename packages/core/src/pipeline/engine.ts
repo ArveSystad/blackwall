@@ -179,6 +179,8 @@ export interface StageContext {
   readonly visit: number;
   /** The user's message from the gate that led here (e.g. requested plan changes). */
   readonly instructions: string | undefined;
+  /** The user's guidance from a resume; reaches only the agent steps that failed or stopped. */
+  readonly guidance: string | undefined;
   /** Aborted on shutdown. */
   readonly signal: AbortSignal;
   readonly repositories: Repositories;
@@ -241,6 +243,8 @@ interface Pending {
   instructions?: string;
   /** Continue the latest visit of the stage instead of starting a new one. */
   resuming?: boolean;
+  /** The user's guidance from a resume, for the steps that failed or stopped. */
+  guidance?: string;
 }
 
 export type PipelineEngine = ReturnType<typeof createPipelineEngine>;
@@ -391,6 +395,7 @@ export function createPipelineEngine({
     visit: number,
     instructions: string | undefined,
     signal: AbortSignal,
+    guidance?: string,
   ): StageContext {
     const ctx = {
       task,
@@ -400,6 +405,7 @@ export function createPipelineEngine({
       round,
       visit,
       instructions,
+      guidance,
       signal,
       repositories: r,
       publish,
@@ -440,6 +446,13 @@ export function createPipelineEngine({
     // lost it; a failed one starts afresh.
     const resumeSessionId =
       earlier?.status === "interrupted" && earlier.sessionId ? earlier.sessionId : undefined;
+    // Guidance from a resume reaches only the steps that failed or stopped.
+    const guided =
+      ctx.guidance && (earlier?.status === "failed" || earlier?.status === "interrupted")
+        ? ctx.guidance
+        : undefined;
+    const withGuidance = (prompt: string) =>
+      guided ? `${prompt}\n\n## Guidance from the user\n\n${guided}` : prompt;
     const started = { status: "running" as const, startedAt: new Date(), finishedAt: null };
     let step = earlier
       ? saveStep(earlier.id, { ...started, error: null })
@@ -467,7 +480,7 @@ export function createPipelineEngine({
       let eventsHadCost = false;
       const agentRun = adapter.run({
         cwd: worktree,
-        prompt: resumeSessionId ? RESUME_PROMPT : input.prompt,
+        prompt: withGuidance(resumeSessionId ? RESUME_PROMPT : input.prompt),
         systemPrompt: inv.systemPrompt,
         permissions: inv.permissions,
         signal,
@@ -671,19 +684,21 @@ export function createPipelineEngine({
       let stage = task.stage ?? FIRST_STAGE;
       let round = hints.round ?? currentRound(run);
       let instructions = hints.instructions;
+      let guidance = hints.guidance;
       let resuming = hints.resuming ?? false;
 
       for (;;) {
         if (signal.aborted) throw new InterruptedError();
         if (task.stage !== stage) task = saveTask(taskId, { stage });
         const visit = chooseVisit(run, stage, resuming);
-        const ctx = stageContext(task, run, stage, round, visit, instructions, signal);
+        const ctx = stageContext(task, run, stage, round, visit, instructions, signal, guidance);
         const handler = stages[stage] as (ctx: StageContext) => Promise<StageResults[Stage]>;
         const result = await handler(ctx);
         if (signal.aborted) throw new InterruptedError();
         task = ctx.task;
         resuming = false;
         instructions = undefined;
+        guidance = undefined;
 
         let next: Transition = afterStage(stage, result, position(task, round));
         // A force-fix the user clicked after the last Aggregate (say, while
@@ -1231,9 +1246,11 @@ export function createPipelineEngine({
      * succeeded in that stage's visit keep their results; interrupted steps
      * continue their CLI sessions with `--resume <sessionId>`, or start afresh
      * if the CLI lost the session. A task stopped while it waited at a gate
-     * goes straight back to that gate, without running anything.
+     * goes straight back to that gate, without running anything. `message`
+     * is the user's guidance for the agent steps that failed or stopped; it is
+     * refused for a task stopped at a gate, which takes messages at the gate.
      */
-    resume(taskId: string): Task {
+    resume(taskId: string, message?: string): Task {
       const task = getTask(taskId);
       if (task.status !== "interrupted" && task.status !== "failed") {
         throw new TaskStateError(
@@ -1242,9 +1259,14 @@ export function createPipelineEngine({
       }
       // Only a stop at a gate leaves an interrupted task with its gate.
       if (task.status === "interrupted" && task.gate !== null) {
+        if (message) {
+          throw new TaskStateError(
+            `Task ${taskId} goes back to its ${task.gate} gate on resume; message it there instead`,
+          );
+        }
         return saveTask(taskId, { status: "needs-you", error: null });
       }
-      pending.set(taskId, { resuming: true });
+      pending.set(taskId, { resuming: true, ...(message ? { guidance: message } : {}) });
       const queued = saveTask(taskId, { status: "queued", error: null });
       enqueueTask(queued);
       return queued;

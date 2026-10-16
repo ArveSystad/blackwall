@@ -8,7 +8,7 @@ import {
 } from "@blackwall/shared";
 import { useSyncExternalStore } from "react";
 import { messageRoute } from "./components/task/actions";
-import { isPlainKey, isTypingTarget, useWindowKeydown } from "./keyboard";
+import { isModKey, isPlainKey, isTypingTarget, useWindowKeydown } from "./keyboard";
 import { canStop } from "./task-view";
 
 /**
@@ -26,6 +26,8 @@ export const CHAT_SIDEBAR_WIDTH = 352;
 export const CHAT_MAIN_MIN_WIDTH = 360;
 /** One arrow key press on the resize handle. */
 export const CHAT_WIDTH_STEP = 16;
+/** The composer's textarea. */
+export const CHAT_INPUT_ID = "chat-input";
 
 export interface ChatLayout {
   open: boolean;
@@ -97,6 +99,15 @@ export function toggleChat(): boolean {
   const open = !chatLayout().open;
   setChatOpen(open);
   return open;
+}
+
+/** Puts the cursor in the chat's composer, opening the panel first when it is closed. */
+export function focusChat(): void {
+  if (!chatLayout().open) {
+    setChatOpen(true);
+    return;
+  }
+  document.getElementById(CHAT_INPUT_ID)?.focus();
 }
 
 /** Stores the preferred width, from dragging or the keyboard; never from a window resize. */
@@ -232,6 +243,44 @@ export function canSendChat(text: string, busy: boolean): boolean {
   return !busy || isClearCommand(text);
 }
 
+/**
+ * `"direct"` for ⌘⇧↵ on macOS and Ctrl+Shift+Enter elsewhere, `"send"` for ⌘↵ / Ctrl+Enter
+ * (no Alt either way); null for other keys.
+ */
+export function composerShortcut(event: KeyboardEvent): "direct" | "send" | null {
+  if (event.key !== "Enter" || !isModKey(event)) return null;
+  return event.shiftKey ? "direct" : "send";
+}
+
+/** Whether a task was stopped while it waited at a gate: resume puts it back there. */
+function stoppedAtGate(task: Pick<Task, "status" | "gate">): boolean {
+  return task.status === "interrupted" && task.gate !== null;
+}
+
+/** Where the composer's direct send goes for the focused task, bypassing the agent. */
+export interface ComposerRoute {
+  label: string;
+  /** `gate`: the draft answers the task's gate; `resume`: it resumes the task with the draft as guidance. */
+  kind: "gate" | "resume";
+}
+
+/**
+ * The composer's direct send for the focused task: the gate's message route, or resuming a failed
+ * or interrupted task with the draft as guidance. Null when the task takes no direct send.
+ */
+export function composerRoute(
+  task: Pick<Task, "status" | "gate" | "mode"> | undefined,
+): ComposerRoute | null {
+  if (!task) return null;
+  const route = messageRoute(task);
+  if (route) return { label: `${route.send} · ${route.to}`, kind: "gate" };
+  if (task.status === "failed") return { label: "Retry with this", kind: "resume" };
+  if (task.status === "interrupted" && !stoppedAtGate(task)) {
+    return { label: "Resume with this", kind: "resume" };
+  }
+  return null;
+}
+
 /** Clearing asks first only while an answer is running, since it stops that answer. */
 export function clearNeedsConfirm(busy: boolean): boolean {
   return busy;
@@ -270,14 +319,25 @@ export function actionAvailability(
             ? "This task's gate takes no message"
             : "A task takes messages only while it waits for you at a gate",
       };
+    case "answer-question":
+      return task.status === "needs-you" && task.gate === "questions"
+        ? { kind: "available" }
+        : { kind: "unavailable", reason: "This task is not waiting on answers to its questions" };
     case "stop-task":
       return canStop(task)
         ? { kind: "available" }
         : { kind: "unavailable", reason: "Only a queued, running or waiting task can be stopped" };
     case "resume-task":
-      return task.status === "interrupted" || task.status === "failed"
-        ? { kind: "available" }
-        : { kind: "unavailable", reason: "Only an interrupted or failed task can be resumed" };
+      if (task.status !== "interrupted" && task.status !== "failed") {
+        return { kind: "unavailable", reason: "Only an interrupted or failed task can be resumed" };
+      }
+      if (action.message && stoppedAtGate(task)) {
+        return {
+          kind: "unavailable",
+          reason: "Resume puts this task back at its gate; message it there",
+        };
+      }
+      return { kind: "available" };
   }
 }
 
@@ -303,16 +363,27 @@ export function chatActionSummary(action: ChatAction, task: Task | undefined): C
         detail: action.message,
       };
     }
+    case "answer-question":
+      return {
+        label: "Answer question",
+        title: task?.title ?? action.taskId,
+        detail: action.answer,
+      };
     case "stop-task":
       return { label: "Stop task", title: task?.title ?? action.taskId };
     case "resume-task":
-      return { label: "Resume task", title: task?.title ?? action.taskId };
+      if (!action.message) return { label: "Resume task", title: task?.title ?? action.taskId };
+      return {
+        label: task?.status === "failed" ? "Retry with guidance" : "Resume with guidance",
+        title: task?.title ?? action.taskId,
+        detail: action.message,
+      };
   }
 }
 
 /**
  * The one card that gets the magenta needs button: the first available, unapplied `message-task`
- * of the newest assistant message. Null when there is none.
+ * or `answer-question` of the newest assistant message. Null when there is none.
  */
 export function needsCardId(
   messages: readonly ChatMessage[],
@@ -321,7 +392,9 @@ export function needsCardId(
 ): string | null {
   const newest = messages.findLast((m) => m.role === "assistant");
   const card = newest?.actions.find(
-    (a) => a.kind === "message-task" && actionAvailability(a, tasks, repoId).kind === "available",
+    (a) =>
+      (a.kind === "message-task" || a.kind === "answer-question") &&
+      actionAvailability(a, tasks, repoId).kind === "available",
   );
   return card?.id ?? null;
 }

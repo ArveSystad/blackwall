@@ -41,8 +41,9 @@ export function approvePlan(action: TaskAction, task: Task, comment: PlanComment
   );
 }
 
-export function resume(action: TaskAction, task: Task) {
-  return action.run("Resume", () => resumeTask(task.id));
+/** Resumes an interrupted or failed task; `message` is guidance for the steps that failed or stopped. */
+export function resume(action: TaskAction, task: Task, message?: string) {
+  return action.run("Resume", () => resumeTask(task.id, message));
 }
 
 /** Stops a queued, running or waiting task; Resume continues it later. */
@@ -68,11 +69,6 @@ export function fixCi(action: TaskAction, task: Task) {
 /** Runs a fix round on the new comments on the task's pull request; it stops at Finish to push again. */
 export function fixPrComments(action: TaskAction, task: Task) {
   return action.run("Fetch comments and fix", () => fixPrCommentsRequest(task.id));
-}
-
-/** Puts the cursor in the input bar, where change requests and instructions are typed. */
-export function focusInputBar(): void {
-  document.getElementById("task-input-bar")?.focus();
 }
 
 export interface MessageRoute {

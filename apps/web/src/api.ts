@@ -309,9 +309,15 @@ export function respondToGate(taskId: string, input: GateResponseInput): Promise
   return request(`${taskPath(taskId)}/gate`, taskSchema, { method: "POST", body: input });
 }
 
-/** Re-queues an interrupted or failed task. */
-export function resumeTask(taskId: string): Promise<Task> {
-  return request(`${taskPath(taskId)}/resume`, taskSchema, { method: "POST" });
+/**
+ * Re-queues an interrupted or failed task; `message` is guidance for the
+ * steps that failed or stopped.
+ */
+export function resumeTask(taskId: string, message?: string): Promise<Task> {
+  return request(`${taskPath(taskId)}/resume`, taskSchema, {
+    method: "POST",
+    ...(message ? { body: { message } } : {}),
+  });
 }
 
 /** Archives a done task: it leaves the Inbox and the backlog lists. */
@@ -526,10 +532,14 @@ export function getChat(repoId: string): Promise<ChatState> {
 
 /**
  * Sends a chat message; the answer arrives as `chat.upserted`. `/clear` starts
- * over; any other text answers 409 while the chat still answers.
+ * over; any other text answers 409 while the chat still answers. `taskId` is
+ * the task the user is looking at, which the agent then knows in full.
  */
-export function sendChat(repoId: string, text: string): Promise<ChatState> {
-  return request(chatPath(repoId), chatStateSchema, { method: "POST", body: { text } });
+export function sendChat(repoId: string, text: string, taskId?: string): Promise<ChatState> {
+  return request(chatPath(repoId), chatStateSchema, {
+    method: "POST",
+    body: { text, ...(taskId ? { taskId } : {}) },
+  });
 }
 
 /** Records that a proposed action was applied, so its card stays done; 404 once the chat is cleared. */

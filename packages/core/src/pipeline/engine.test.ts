@@ -1066,6 +1066,155 @@ describe("stop and delete", () => {
   });
 });
 
+describe("resume with guidance", () => {
+  const GUIDANCE = "Use the v2 client";
+  const guided = (prompt: string) => `${prompt}\n\n## Guidance from the user\n\n${GUIDANCE}`;
+  const carries = (options: AgentRunOptions) => options.prompt.includes("Guidance from the user");
+
+  it("adds the guidance to an interrupted step's resume prompt, and not to the next stage", async () => {
+    const seeded = seedTask();
+    let hang = true;
+    const h = harness((stage) =>
+      stage === "inform" && hang ? { hang: true, sessionId: "inform-1" } : {},
+    );
+    h.engine.enqueue(seeded.id);
+    await vi.waitFor(() => expect(lastStep(seeded.id)?.sessionId).toBe("inform-1"));
+    await h.engine.stop(seeded.id);
+    const callsBefore = h.calls.length;
+
+    hang = false;
+    h.engine.resume(seeded.id, GUIDANCE);
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "plan-approval" });
+    const [resumed, ...later] = h.calls.slice(callsBefore);
+    expect(resumed!.options).toMatchObject({
+      resumeSessionId: "inform-1",
+      prompt: guided(RESUME_PROMPT),
+    });
+    expect(later.length).toBeGreaterThan(0);
+    expect(later.some((c) => carries(c.options))).toBe(false);
+  });
+
+  it("adds the guidance to a failed step's fresh prompt", async () => {
+    const seeded = seedTask();
+    let fail = true;
+    const h = harness((stage) => (stage === "inform" && fail ? { fail: "model overloaded" } : {}));
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id).status).toBe("failed");
+
+    fail = false;
+    h.engine.resume(seeded.id, GUIDANCE);
+    await settle(h.engine);
+    const informs = h.calls.filter((c) => c.stage === "inform");
+    expect(informs).toHaveLength(2);
+    expect(carries(informs[0]!.options)).toBe(false);
+    expect(informs[1]!.options.prompt).toBe(guided(informs[0]!.options.prompt));
+    expect(informs[1]!.options.resumeSessionId).toBeUndefined();
+  });
+
+  it("keeps the guidance on the fresh start after a lost session", async () => {
+    const seeded = seedTask();
+    let hang = true;
+    const h = harness((stage, options) => {
+      if (stage === "inform" && hang) return { hang: true, sessionId: "inform-1" };
+      if (options.resumeSessionId === "inform-1") return { missingSession: true };
+      return {};
+    });
+    h.engine.enqueue(seeded.id);
+    await vi.waitFor(() => expect(lastStep(seeded.id)?.sessionId).toBe("inform-1"));
+    await h.engine.stop(seeded.id);
+    const original = h.calls[0]!.options.prompt;
+    const callsBefore = h.calls.length;
+
+    hang = false;
+    h.engine.resume(seeded.id, GUIDANCE);
+    await settle(h.engine);
+    const [resumed, fresh] = h.calls.slice(callsBefore);
+    expect(resumed!.options.prompt).toBe(guided(RESUME_PROMPT));
+    expect(fresh!.options.resumeSessionId).toBeUndefined();
+    expect(fresh!.options.prompt).toBe(guided(original));
+  });
+
+  it("gives the guidance to every reviewer that failed, and none that succeeded", async () => {
+    const reviewTask = () => seedTask({ mode: "review", origin: prOrigin() });
+
+    // Both reviewers fail: both get it on resume.
+    const both = reviewTask();
+    let failing = true;
+    const h = harness((stage) =>
+      stage === "code-review" && failing ? { fail: "reviewer crashed" } : {},
+    );
+    h.engine.enqueue(both.id);
+    await settle(h.engine);
+    expect(task(both.id).status).toBe("failed");
+    let callsBefore = h.calls.length;
+    failing = false;
+    h.engine.resume(both.id, GUIDANCE);
+    await settle(h.engine);
+    const retried = h.calls.slice(callsBefore).filter((c) => c.stage === "code-review");
+    expect(retried).toHaveLength(2);
+    expect(retried.every((c) => carries(c.options))).toBe(true);
+
+    // One fails, one succeeds: only the failed one runs again, with the guidance.
+    const one = reviewTask();
+    let reviews = 0;
+    const g = harness((stage) => {
+      if (stage !== "code-review") return {};
+      reviews += 1;
+      return reviews === 2 ? { fail: "reviewer crashed" } : { structured: { findings: [] } };
+    });
+    g.engine.enqueue(one.id);
+    await settle(g.engine);
+    expect(task(one.id).status).toBe("failed");
+    callsBefore = g.calls.length;
+    g.engine.resume(one.id, GUIDANCE);
+    await settle(g.engine);
+    const rerun = g.calls.slice(callsBefore).filter((c) => c.stage === "code-review");
+    expect(rerun).toHaveLength(1);
+    expect(carries(rerun[0]!.options)).toBe(true);
+  });
+
+  it("leaves new steps of the resumed visit without the guidance", async () => {
+    const defaults = createDefaultStages();
+    const stages: StageHandlers = {
+      ...defaults,
+      inform: async (ctx) => {
+        const result = await defaults.inform(ctx);
+        await ctx.runAgent({ agentId: ctx.task.agents.planner!, prompt: "Side note", fresh: true });
+        return result;
+      },
+    };
+    const seeded = seedTask();
+    let fail = true;
+    const h = harness((stage) => (stage === "inform" && fail ? { fail: "model overloaded" } : {}), {
+      stages,
+    });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id).status).toBe("failed");
+    const callsBefore = h.calls.length;
+
+    fail = false;
+    h.engine.resume(seeded.id, GUIDANCE);
+    await settle(h.engine);
+    const [inform, side] = h.calls.slice(callsBefore);
+    expect(carries(inform!.options)).toBe(true);
+    expect(side!.options.prompt).toBe("Side note");
+  });
+
+  it("refuses guidance for a task stopped at a gate", async () => {
+    const seeded = seedTask();
+    const h = harness();
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    await h.engine.stop(seeded.id);
+    expect(() => h.engine.resume(seeded.id, GUIDANCE)).toThrow(TaskStateError);
+    expect(task(seeded.id)).toMatchObject({ status: "interrupted", gate: "plan-approval" });
+    expect(h.engine.resume(seeded.id)).toMatchObject({ status: "needs-you" });
+  });
+});
+
 describe("issue comments at plan approval", () => {
   const issueOrigin = {
     kind: "github-issue" as const,

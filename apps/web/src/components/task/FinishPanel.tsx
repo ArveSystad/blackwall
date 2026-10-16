@@ -250,7 +250,6 @@ export function Outbound({
   plan,
   findings,
   action,
-  draft,
   loadPicks,
   onPicksChange,
 }: {
@@ -258,7 +257,6 @@ export function Outbound({
   plan: DeliveryPlan;
   findings: readonly Finding[];
   action: TaskAction;
-  draft: string;
   /** The picks before the plan was refetched, to carry over (see `carryPicks`). */
   loadPicks: () => ReviewPicks | undefined;
   onPicksChange: (picks: ReviewPicks) => void;
@@ -435,12 +433,7 @@ export function Outbound({
               variant="ghost"
               disabled={busy}
               onClick={() =>
-                void answerGate(
-                  action,
-                  task,
-                  { decision: "revise", ...(draft.trim() ? { message: draft.trim() } : {}) },
-                  "Back to code review",
-                )
+                void answerGate(action, task, { decision: "revise" }, "Back to code review")
               }
             >
               One more fix round
@@ -606,12 +599,10 @@ export function FinishPanel({
   task,
   data,
   action,
-  draft,
 }: {
   task: Task;
   data: TaskData;
   action: TaskAction;
-  draft: string;
 }) {
   const atGate = task.status === "needs-you" && (task.gate === "finish" || isReviewTriage(task));
   const plan = useQuery({ ...taskDeliveryQuery(task.id), enabled: atGate });
@@ -684,7 +675,6 @@ export function FinishPanel({
               plan={plan.data}
               findings={data.findings.data ?? []}
               action={action}
-              draft={draft}
               loadPicks={loadPicks}
               onPicksChange={savePicks}
             />

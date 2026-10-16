@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildSystemPrompt,
+  CHAT_FOCUS_CHARS,
   CHAT_HISTORY_ENTRY_CHARS,
   chatStatePrompt,
   chatSystemPrompt,
@@ -142,7 +143,13 @@ describe("chat prompts", () => {
   it("gives the chat the read-only rules and every action kind", () => {
     const prompt = chatSystemPrompt();
     expect(prompt).toContain("You are read-only.");
-    for (const kind of ["create-task", "message-task", "stop-task", "resume-task"]) {
+    for (const kind of [
+      "create-task",
+      "message-task",
+      "answer-question",
+      "stop-task",
+      "resume-task",
+    ]) {
       expect(prompt).toContain(`\`${kind}\``);
     }
   });
@@ -158,12 +165,14 @@ describe("chat prompts", () => {
           status: "needs-you",
           stage: "inform",
           gate: "plan-approval",
+          error: null,
           shortSummary: null,
         },
       ],
       backlog: [],
       text: "What is waiting?",
     });
+    expect(prompt).not.toContain("## Focused task");
     expect(prompt).toContain(
       "- `t1` Add dark mode · origin free-text · status needs-you · stage inform · gate plan-approval",
     );
@@ -192,5 +201,75 @@ describe("chat prompts", () => {
     expect(prompt).toContain(`**Assistant:** ${"x".repeat(CHAT_HISTORY_ENTRY_CHARS - 1)}…\n`);
     expect(prompt).not.toContain("x".repeat(CHAT_HISTORY_ENTRY_CHARS));
     expect(prompt.endsWith("## Message\n\nNext?")).toBe(true);
+  });
+
+  const failedTask = {
+    id: "t2",
+    title: "Fix login",
+    origin: { kind: "free-text" as const },
+    mode: null,
+    status: "failed" as const,
+    stage: "implement" as const,
+    gate: null,
+    error: "pnpm install failed:\n  ENOTFOUND registry",
+    shortSummary: null,
+  };
+  const grillTask = {
+    ...failedTask,
+    id: "t3",
+    title: "Add export",
+    status: "needs-you" as const,
+    stage: "plan-review" as const,
+    gate: "questions" as const,
+    error: null,
+  };
+
+  it("lists the error of failed tasks and the open questions per task", () => {
+    const prompt = chatStatePrompt({
+      tasks: [failedTask, grillTask, { ...failedTask, id: "t4", status: "done" as const }],
+      backlog: [],
+      questions: { t3: [{ id: "q1", question: "Zip or tar?" }] },
+      text: "Status?",
+    });
+    expect(prompt).toContain(
+      "- `t2` Fix login · origin free-text · status failed · stage implement · gate none · error: pnpm install failed: ENOTFOUND registry",
+    );
+    expect(prompt).toContain("gate questions\n  - question `q1`: Zip or tar?");
+    // Only failed and interrupted tasks show their error.
+    expect(prompt.match(/error:/g)).toHaveLength(1);
+    expect(prompt).not.toContain("## Focused task");
+  });
+
+  it("gives the focused task in full before the message, capping its plan", () => {
+    const plan = "p".repeat(CHAT_FOCUS_CHARS + 10);
+    const question = { id: "q1", question: "Zip or tar?" };
+    const prompt = chatStatePrompt({
+      tasks: [failedTask, grillTask],
+      backlog: [],
+      questions: { t3: [question] },
+      focus: { task: { ...grillTask, plan }, questions: [question] },
+      text: "Which should I pick?",
+    });
+    const focus = prompt.indexOf("## Focused task");
+    expect(focus).toBeGreaterThan(prompt.indexOf("### Backlog"));
+    expect(focus).toBeLessThan(prompt.indexOf("## Message"));
+    const section = prompt.slice(focus);
+    expect(section).toContain('"this task" means it');
+    expect(section).toContain(
+      "- id `t3`\n- title Add export\n- status needs-you · stage plan-review · gate questions",
+    );
+    expect(section).toContain(`### Plan\n\n${"p".repeat(CHAT_FOCUS_CHARS - 1)}…`);
+    expect(section).not.toContain("p".repeat(CHAT_FOCUS_CHARS));
+    expect(section).toContain("### Open questions for the user\n\n- `q1` Zip or tar?");
+    expect(section).not.toContain("### Error");
+
+    const failed = chatStatePrompt({
+      tasks: [failedTask],
+      backlog: [],
+      focus: { task: { ...failedTask, plan: null }, questions: [] },
+      text: "Why?",
+    });
+    expect(failed).toContain("### Error\n\npnpm install failed:\n  ENOTFOUND registry");
+    expect(failed).not.toContain("### Plan");
   });
 });

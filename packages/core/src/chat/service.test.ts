@@ -38,6 +38,7 @@ function createService(options: { historyLimit?: number } = {}): ChatService {
     adapters: { claude: adapter, copilot: adapter },
     repos: r.repos,
     tasks: r.tasks,
+    questions: r.grillQuestions,
     backlogItems: r.backlogItems,
     messages: r.chatMessages,
     modelFor: () => "planner-model",
@@ -124,6 +125,56 @@ describe("chat service", () => {
     expect(prompt).not.toContain("Old work");
     expect(prompt).not.toContain("Foreign");
     expect(prompt.endsWith("What is going on?")).toBe(true);
+    expect(prompt).not.toContain("## Focused task");
+  });
+
+  it("gives the task the user is looking at in full", async () => {
+    const failed = addTask("Fix login", repoId);
+    r.tasks.update(failed.id, {
+      status: "failed",
+      error: "pnpm install failed: ENOTFOUND",
+      plan: "## Plan\nSwap the hash",
+    });
+
+    chat.send(repoId, "Why did this fail?", failed.id);
+    await idle();
+    const prompt = adapter.calls[0]!.options.prompt;
+    const focus = prompt.slice(prompt.indexOf("## Focused task"));
+    expect(focus).toContain(`- id \`${failed.id}\``);
+    expect(focus).toContain("### Error\n\npnpm install failed: ENOTFOUND");
+    expect(focus).toContain("### Plan\n\n## Plan\nSwap the hash");
+  });
+
+  it("ignores a focused task of another repo, an archived one or an unknown id", async () => {
+    const foreign = addTask("Foreign task", otherRepoId);
+    const archived = addTask("Old work", repoId);
+    r.tasks.update(archived.id, { archivedAt: new Date() });
+    for (const id of [foreign.id, archived.id, "nope"]) {
+      chat.send(repoId, "Why?", id);
+      await idle();
+    }
+    for (const call of adapter.calls) {
+      expect(call.options.prompt).not.toContain("## Focused task");
+    }
+  });
+
+  it("lists the open questions of a task at the questions gate", async () => {
+    const grilled = addTask("Add export", repoId);
+    r.tasks.update(grilled.id, { status: "needs-you", stage: "plan-review", gate: "questions" });
+    const open = r.grillQuestions.create({ taskId: grilled.id, question: "Zip or tar?" });
+    r.grillQuestions.markNeedsHuman(open.id);
+    const done = r.grillQuestions.create({ taskId: grilled.id, question: "Which folder?" });
+    r.grillQuestions.markNeedsHuman(done.id);
+    r.grillQuestions.answer(done.id, "exports/", "user");
+    r.grillQuestions.create({ taskId: grilled.id, question: "Planner's to answer" });
+
+    chat.send(repoId, "What should I answer?", grilled.id);
+    await idle();
+    const prompt = adapter.calls[0]!.options.prompt;
+    expect(prompt).toContain(`  - question \`${open.id}\`: Zip or tar?`);
+    expect(prompt).toContain(`### Open questions for the user\n\n- \`${open.id}\` Zip or tar?`);
+    expect(prompt).not.toContain("Which folder?");
+    expect(prompt).not.toContain("Planner's to answer");
   });
 
   it("stores proposed actions with their own ids, unapplied, and keeps message ids stable", async () => {

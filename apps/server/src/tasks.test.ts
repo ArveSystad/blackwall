@@ -343,7 +343,28 @@ describe("pipeline task routes", () => {
     const res = await request(`/api/tasks/${task.id}/resume`, { method: "POST" });
     expect(res.status).toBe(200);
     expect(taskSchema.parse(await res.json()).status).toBe("queued");
-    expect(pipeline.resume).toHaveBeenCalledWith(task.id);
+    expect(pipeline.resume).toHaveBeenCalledWith(task.id, undefined);
+  });
+
+  it("resumes a task with guidance, and rejects an invalid body", async () => {
+    const task = seedTask();
+    repositories.tasks.update(task.id, { status: "failed" });
+    const res = await request(`/api/tasks/${task.id}/resume`, {
+      method: "POST",
+      body: { message: " Use the v2 API " },
+    });
+    expect(res.status).toBe(200);
+    expect(pipeline.resume).toHaveBeenCalledWith(task.id, "Use the v2 API");
+
+    vi.mocked(pipeline.resume).mockClear();
+    const blank = await request(`/api/tasks/${task.id}/resume`, {
+      method: "POST",
+      body: { message: "  " },
+    });
+    expect(blank.status).toBe(400);
+    const extra = await request(`/api/tasks/${task.id}/resume`, { method: "POST", body: "nope" });
+    expect(extra.status).toBe(400);
+    expect(pipeline.resume).not.toHaveBeenCalled();
   });
 
   it("archives a done task: 200, 409 unless done, 404 when unknown", async () => {

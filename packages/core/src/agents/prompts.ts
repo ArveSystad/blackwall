@@ -4,6 +4,7 @@ import {
   type Agent,
   type AgentCli,
   type BacklogItem,
+  type GrillQuestion,
   type PermissionProfile,
   type Stage,
   type Task,
@@ -191,24 +192,39 @@ export function chatSystemPrompt(): string {
     "",
     "## Actions contract",
     "",
-    "Each message starts with a fresh `Blackwall state` block listing the repo's tasks and backlog items. It is the only source of task ids.",
+    "Each message starts with a fresh `Blackwall state` block listing the repo's tasks, their open questions and the backlog items. It is the only source of task and question ids.",
     "Reply with one JSON object: `reply` is your markdown answer, `actions` lists actions you propose. Nothing happens until the user applies one.",
     "",
     `- \`create-task\` \`{ title, description }\`: add a task to the repo's backlog. A title of at most ${MAX_TITLE_CHARS} characters; a description an engineer could plan from.`,
     "- `message-task` `{ taskId, message }`: instructions for a task waiting at a gate (status `needs-you`). Running tasks only read messages at a gate, so never propose it for a task that is not at one.",
+    "- `answer-question` `{ taskId, questionId, answer }`: answer one open question of a task at the `questions` gate. Answering the last one continues the task.",
     "- `stop-task` `{ taskId }`: stop a `queued`, `running` or `needs-you` task.",
-    "- `resume-task` `{ taskId }`: resume an `interrupted` or `failed` task.",
+    "- `resume-task` `{ taskId, message? }`: resume an `interrupted` or `failed` task. `message` is guidance for the agent steps that failed or stopped. Leave it out for a task stopped at a gate (interrupted with a gate): resume puts it back at its gate, so message it there instead.",
     "",
-    "Use only task ids from the state block and never invent tasks. Propose actions only when the user asks for them or they clearly help;",
+    "Use only task and question ids from the state block and never invent tasks. Propose actions only when the user asks for them or they clearly help;",
     "otherwise reply with an empty `actions` list.",
+    "",
+    "## Focused task",
+    "",
+    'When the message comes with a `Focused task` section, the user is looking at that task: "this task" means it.',
+    "When a task failed or was interrupted, explain its error first, then propose `resume-task` with guidance that addresses it, or `message-task` when it waits at a gate.",
   ].join("\n");
 }
 
 /** A task as the chat's state block lists it. */
 export type ChatStateTask = Pick<
   Task,
-  "id" | "title" | "origin" | "mode" | "status" | "stage" | "gate" | "shortSummary"
+  "id" | "title" | "origin" | "mode" | "status" | "stage" | "gate" | "error" | "shortSummary"
 >;
+
+/** An open question waiting on the user, as the chat's prompt lists it. */
+export type ChatStateQuestion = Pick<GrillQuestion, "id" | "question">;
+
+/** The task the user is looking at, given in full in the chat's prompt. */
+export interface ChatFocus {
+  task: ChatStateTask & Pick<Task, "plan">;
+  questions: readonly ChatStateQuestion[];
+}
 
 /** A backlog item as the chat's state block lists it. */
 export type ChatStateBacklogItem = Pick<BacklogItem, "id" | "title" | "status" | "freeText">;
@@ -219,6 +235,37 @@ const STATE_EXCERPT_CHARS = 200;
 function excerpt(text: string): string {
   const flat = text.replace(/\s+/g, " ").trim();
   return flat.length > STATE_EXCERPT_CHARS ? `${flat.slice(0, STATE_EXCERPT_CHARS - 1)}…` : flat;
+}
+
+/** Longest error or plan the focused task section carries. */
+export const CHAT_FOCUS_CHARS = 4000;
+
+function capped(text: string): string {
+  const trimmed = text.trim();
+  return trimmed.length > CHAT_FOCUS_CHARS ? `${trimmed.slice(0, CHAT_FOCUS_CHARS - 1)}…` : trimmed;
+}
+
+function focusSection({ task, questions }: ChatFocus): string[] {
+  return [
+    "## Focused task",
+    "",
+    'The user is looking at this task; "this task" means it.',
+    "",
+    `- id \`${task.id}\``,
+    `- title ${task.title}`,
+    `- status ${task.status} · stage ${task.stage ?? "none"} · gate ${task.gate ?? "none"}`,
+    "",
+    ...(task.error ? ["### Error", "", capped(task.error), ""] : []),
+    ...(task.plan ? ["### Plan", "", capped(task.plan), ""] : []),
+    ...(questions.length > 0
+      ? [
+          "### Open questions for the user",
+          "",
+          ...questions.map((q) => `- \`${q.id}\` ${q.question.trim()}`),
+          "",
+        ]
+      : []),
+  ];
 }
 
 /** Longest earlier chat message carried into a fresh session's prompt. */
@@ -241,31 +288,43 @@ function historyEntry({ role, text }: ChatHistoryEntry): string {
 
 /**
  * One chat message's prompt: a fresh `Blackwall state` block with the repo's
- * unarchived tasks and backlog items, then the user's text. A turn that starts
- * a new CLI session also gets the earlier conversation, each message truncated
- * to {@link CHAT_HISTORY_ENTRY_CHARS}.
+ * unarchived tasks (with the error of failed and interrupted ones, and the
+ * open questions per task in `questions`) and backlog items, then the user's
+ * text. A `focus` task adds a `Focused task` section with its error, plan and
+ * open questions in full. A turn that starts a new CLI session also gets the
+ * earlier conversation, each message truncated to
+ * {@link CHAT_HISTORY_ENTRY_CHARS}.
  */
 export function chatStatePrompt({
   tasks,
   backlog,
   text,
+  questions = {},
+  focus,
   history = [],
 }: {
   tasks: readonly ChatStateTask[];
   backlog: readonly ChatStateBacklogItem[];
   text: string;
+  /** Open questions waiting on the user, by task id. */
+  questions?: Readonly<Record<string, readonly ChatStateQuestion[]>>;
+  focus?: ChatFocus;
   history?: readonly ChatHistoryEntry[];
 }): string {
-  const taskLines = tasks.map((t) =>
+  const taskLines = tasks.flatMap((t) => [
     [
       `- \`${t.id}\` ${t.title}`,
       `origin ${t.origin.kind}${t.mode ? ` (${t.mode})` : ""}`,
       `status ${t.status}`,
       `stage ${t.stage ?? "none"}`,
       `gate ${t.gate ?? "none"}`,
+      ...((t.status === "failed" || t.status === "interrupted") && t.error
+        ? [`error: ${excerpt(t.error)}`]
+        : []),
       ...(t.shortSummary ? [`summary: ${excerpt(t.shortSummary)}`] : []),
     ].join(" · "),
-  );
+    ...(questions[t.id] ?? []).map((q) => `  - question \`${q.id}\`: ${excerpt(q.question)}`),
+  ]);
   const backlogLines = backlog.map((i) =>
     [
       `- \`${i.id}\` ${i.title}`,
@@ -287,6 +346,7 @@ export function chatStatePrompt({
     ...(history.length > 0
       ? ["## Earlier conversation", "", ...history.flatMap((h) => [historyEntry(h), ""])]
       : []),
+    ...(focus ? focusSection(focus) : []),
     "## Message",
     "",
     text,

@@ -19,6 +19,7 @@ import {
   grillAnswerInputSchema,
   MAX_TITLE_CHARS,
   newTaskInputSchema,
+  taskResumeInputSchema,
   type ActiveAgentStep,
   type AgentCli,
   type AgentClis,
@@ -422,8 +423,25 @@ export function taskRoutes(
   }
 
   if (pipeline) {
-    /** Re-queues an interrupted or failed task; interrupted steps resume their CLI sessions. */
-    routes.post("/:id/resume", (c) => c.json<Task>(pipeline.resume(c.req.param("id"))));
+    /**
+     * Re-queues an interrupted or failed task; interrupted steps resume their
+     * CLI sessions. An optional `{ message }` body is guidance for the steps
+     * that failed or stopped.
+     */
+    routes.post("/:id/resume", async (c) => {
+      const body = await c.req.text();
+      let json: unknown;
+      try {
+        json = body.trim() ? JSON.parse(body) : {};
+      } catch {
+        json = undefined;
+      }
+      const input = taskResumeInputSchema.safeParse(json);
+      if (!input.success) {
+        return c.json({ error: input.error.issues.map((i) => i.message).join("; ") }, 400);
+      }
+      return c.json<Task>(pipeline.resume(c.req.param("id"), input.data.message));
+    });
 
     /** Archives a done task (409 otherwise): it leaves the Inbox and the backlog lists. */
     routes.post("/:id/archive", (c) => c.json<Task>(pipeline.archive(c.req.param("id"))));

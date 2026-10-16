@@ -72,7 +72,13 @@ describe("chat routes", () => {
   it("accepts a message for the background answer", async () => {
     const res = await request("r1/chat", { method: "POST", body: { text: " Hi " } });
     expect(res.status).toBe(202);
-    expect(chat.send).toHaveBeenCalledWith("r1", "Hi");
+    expect(chat.send).toHaveBeenCalledWith("r1", "Hi", undefined);
+  });
+
+  it("forwards the task the user is looking at", async () => {
+    const res = await request("r1/chat", { method: "POST", body: { text: "Why?", taskId: "t1" } });
+    expect(res.status).toBe(202);
+    expect(chat.send).toHaveBeenCalledWith("r1", "Why?", "t1");
   });
 
   it("rejects empty text, unknown repos and messages while answering, but not /clear", async () => {

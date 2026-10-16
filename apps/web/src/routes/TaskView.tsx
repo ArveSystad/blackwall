@@ -13,21 +13,15 @@ import { DiffPanel, DiffStat, type DiffDrafts } from "../components/task/DiffPan
 import { FindingsPanel } from "../components/task/FindingsPanel";
 import { FinishPanel } from "../components/task/FinishPanel";
 import { GrillPanel } from "../components/task/GrillPanel";
-import { InputBar } from "../components/task/InputBar";
 import { OutputPanel } from "../components/task/OutputPanel";
-import {
-  approvePlan,
-  focusInputBar,
-  resume,
-  stop,
-  type PlanComment,
-} from "../components/task/actions";
+import { approvePlan, resume, stop, type PlanComment } from "../components/task/actions";
 import { DeleteTaskDialog } from "../components/task/DeleteTaskDialog";
 import { PlanPanel } from "../components/task/PlanPanel";
 import { TaskBanner } from "../components/task/TaskBanner";
 import { TaskHeader } from "../components/task/TaskHeader";
 import { useTaskAction } from "../components/task/use-task-action";
 import { useTaskData, type TaskData } from "../components/task/use-task-data";
+import { focusChat } from "../chat";
 import { uiStageIndex } from "../inbox";
 import { isPlainKey, isTypingTarget, useEscapeTo, useWindowKeydown } from "../keyboard";
 import { cn } from "../lib/utils";
@@ -153,7 +147,6 @@ function MissingWorktreeNotice({ taskId }: { taskId: string }) {
 function TaskScreen({ task }: { task: Task }) {
   const data = useTaskData(task);
   const action = useTaskAction(task);
-  const [draft, setDraft] = useState("");
   const [tab, setTab] = useState<TaskTab>(() => defaultTab(task));
   const [deleting, setDeleting] = useState(false);
   // Opt-in, so it starts unticked each time the task reaches plan approval.
@@ -204,7 +197,7 @@ function TaskScreen({ task }: { task: Task }) {
       void approvePlan(action, task, planComment);
     } else if (key === "r" && atApproval) {
       setTab("plan");
-      focusInputBar();
+      focusChat();
     } else if (key === "r" && (task.status === "interrupted" || task.status === "failed")) {
       void resume(action, task);
     } else if (key === "s" && canStop(task)) {
@@ -225,7 +218,6 @@ function TaskScreen({ task }: { task: Task }) {
           <PlanPanel
             task={task}
             action={action}
-            draft={draft}
             openQuestions={openQuestions}
             comment={planComment}
             onComment={setPlanComment}
@@ -238,7 +230,6 @@ function TaskScreen({ task }: { task: Task }) {
             task={task}
             questions={data.questions.data ?? []}
             action={action}
-            draft={draft}
             planComment={planComment}
             onPlanComment={setPlanComment}
           />
@@ -280,7 +271,7 @@ function TaskScreen({ task }: { task: Task }) {
           />
         );
       case "finish":
-        return <FinishPanel task={task} data={data} action={action} draft={draft} />;
+        return <FinishPanel task={task} data={data} action={action} />;
     }
   }
 
@@ -297,7 +288,6 @@ function TaskScreen({ task }: { task: Task }) {
         task={task}
         action={action}
         counts={counts}
-        draft={draft}
         planComment={planComment}
         tab={current}
         onTab={setTab}
@@ -331,7 +321,6 @@ function TaskScreen({ task }: { task: Task }) {
           {panel(current)}
         </Tabs.Content>
       </Tabs.Root>
-      <InputBar task={task} action={action} draft={draft} onDraft={setDraft} />
       {deleting && <DeleteTaskDialog task={task} onClose={() => setDeleting(false)} />}
     </div>
   );
@@ -363,7 +352,7 @@ function useEscapeToBacklog() {
   });
 }
 
-/** Main pane for one task: header, needs-you banner, the section tabs and the input bar. */
+/** Main pane for one task: header, needs-you banner and the section tabs. */
 export function TaskView({ taskId }: { taskId: string }) {
   const task = useQuery(taskQuery(taskId));
   useLeaveWhenDeleted(taskId);
