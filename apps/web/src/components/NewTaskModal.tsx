@@ -10,6 +10,7 @@ import {
   type OriginKind,
   type PrMode,
   type PullRequestLookup,
+  type RepoView,
   type RoleAgents,
   type Task,
   type TaskOrigin,
@@ -25,7 +26,7 @@ import {
   lookupPullRequest,
   updateBacklogItem,
 } from "../api";
-import { dependencyChoices } from "../backlog";
+import { dependencyChoices, referenceRepoChoice, type ReferenceRepoPick } from "../backlog";
 import { useWithCredential } from "../credentials";
 import { originKey, statusLabel } from "../inbox";
 import { isModKey, isPlainKey, isTypingTarget, modKeyLabel, useWindowKeydown } from "../keyboard";
@@ -350,6 +351,52 @@ function DependsOnField({
   );
 }
 
+function ReferenceReposField({
+  repos,
+  repoId,
+  value,
+  onChange,
+}: {
+  repos: readonly RepoView[];
+  repoId: string;
+  value: readonly string[];
+  onChange: (value: string[]) => void;
+}) {
+  const otherRepos = repos.filter((other) => other.id !== repoId);
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className={fieldLabel} id="new-task-reference-repos-label">
+        Reference repos <span className="font-normal text-faint">optional</span>
+      </span>
+      <div
+        role="group"
+        aria-labelledby="new-task-reference-repos-label"
+        className="flex flex-wrap gap-1"
+      >
+        {otherRepos.length === 0 && (
+          <span className="text-meta text-faint">No other repos registered.</span>
+        )}
+        {otherRepos.map((other) => (
+          <CheckChip
+            key={other.id}
+            size="sm"
+            className="max-w-72"
+            checked={value.includes(other.id)}
+            onCheckedChange={(checked) =>
+              onChange(checked ? [...value, other.id] : value.filter((id) => id !== other.id))
+            }
+          >
+            <span className="truncate">{other.name}</span>
+          </CheckChip>
+        ))}
+      </div>
+      <span className="text-[11.5px] text-muted-foreground">
+        Read by this task's planner and reviewers, never written. Implementers stay in the worktree.
+      </span>
+    </div>
+  );
+}
+
 function NewTaskForm({
   defaults,
   item,
@@ -400,6 +447,10 @@ function NewTaskForm({
   const [triageMode, setTriageMode] = useState<TriageMode>(item?.triageMode ?? "intervene");
   const [title, setTitle] = useState(item?.title ?? "");
   const [dependsOn, setDependsOn] = useState<string[]>(item?.dependsOn ?? []);
+  // The reference repos the user picked, for the repo they were picked in; null follows the repo's.
+  const [referencePick, setReferencePick] = useState<ReferenceRepoPick | null>(() =>
+    item?.referenceRepoIds ? { repoId: item.repoId, ids: item.referenceRepoIds } : null,
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -433,6 +484,10 @@ function NewTaskForm({
   const cli: AgentCli = (repos.data ?? []).find((r) => r.id === repoId)?.defaultCli ?? "claude";
   // Stored choices survive a repo change; only those that still differ are sent.
   const overrides = activeOverrides(agentClis, cli, taskAgentIds(roles));
+  const { ids: referenceIds, override: refOverride } = referenceRepoChoice(
+    (repos.data ?? []).find((r) => r.id === repoId),
+    referencePick,
+  );
 
   const backlogList = useQuery({ ...backlogQuery(repoId ?? ""), enabled: !!repoId });
   const runner = useQuery({ ...backlogRunnerQuery(repoId ?? ""), enabled: !!repoId && !item });
@@ -491,6 +546,7 @@ function NewTaskForm({
         dependsOn: chosenDeps,
         agents: roles,
         agentClis: overrides,
+        referenceRepoIds: refOverride,
         triageMode,
       });
       await queryClient.invalidateQueries({ queryKey: queryKeys.backlog(edited.repoId) });
@@ -526,6 +582,7 @@ function NewTaskForm({
             freeText,
             agents: roles,
             agentClis: overrides,
+            referenceRepoIds: refOverride,
             triageMode,
             dependsOn: chosenDeps,
             start: true,
@@ -866,6 +923,14 @@ function NewTaskForm({
             <span className="text-meta text-faint">Pick a repository first.</span>
           </div>
         )}
+        {repoId && repos.data && (
+          <ReferenceReposField
+            repos={repos.data}
+            repoId={repoId}
+            value={referenceIds}
+            onChange={(ids) => setReferencePick({ repoId, ids })}
+          />
+        )}
 
         {kind !== "free-text" && (
           <Field
@@ -926,6 +991,7 @@ function NewTaskForm({
             onReset={() => {
               setRoles(defaults);
               setAgentClis({});
+              setReferencePick(null);
             }}
             cli={cli}
             agentClis={agentClis}

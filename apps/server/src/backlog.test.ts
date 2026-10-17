@@ -1,4 +1,5 @@
 import {
+  checkReferenceRepoIds,
   MissingCredentialError,
   createQuotaTracker,
   createRepositories,
@@ -22,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.js";
 import { tokenCookieName } from "./auth.js";
 import { backlogRoutes, promoteBacklogItem } from "./backlog.js";
+import { errorResponse } from "./errors.js";
 import type { NewTaskServices, TaskPipeline } from "./tasks.js";
 
 let opened: OpenedDatabase;
@@ -41,7 +43,10 @@ beforeEach(() => {
   createTask = vi.fn((values) => repositories.tasks.create({ ...values, status: "queued" }));
   settings = createSettingsService({ settings: repositories.settings, tags: repositories.tags });
   newTask = {
-    repos: { use: (id) => repositories.repos.get(id)! },
+    repos: {
+      use: (id) => repositories.repos.get(id)!,
+      checkReferenceRepos: (id, ids) => checkReferenceRepoIds(repositories.repos, id, ids),
+    },
     resolveRoles: (overrides = {}) => ({ planner: "a-default", ...overrides }),
     resolveClis,
   };
@@ -276,6 +281,53 @@ describe("backlog routes", () => {
       agentClis: { "a-impl": "claude" },
     });
   });
+
+  it("promotes an item without reference repos on the repo's list as of promotion", async () => {
+    const lib = repositories.repos.create({ path: "/code/lib", name: "lib" });
+    const item = await create({});
+    expect(item.referenceRepoIds).toBeNull();
+    repositories.repos.update(repoId, { referenceRepoIds: [lib.id] });
+
+    const res = await request(`/${item.id}/run`, { method: "POST" });
+    expect(taskSchema.parse(await res.json()).referenceRepoIds).toEqual([lib.id]);
+  });
+
+  it("stores an item's reference repos and promotes it with them", async () => {
+    const lib = repositories.repos.create({ path: "/code/lib", name: "lib" });
+    const api = repositories.repos.create({ path: "/code/api", name: "api" });
+    repositories.repos.update(repoId, { referenceRepoIds: [lib.id] });
+    const item = await create({ referenceRepoIds: [api.id] });
+    expect(item.referenceRepoIds).toEqual([api.id]);
+
+    const cleared = await request(`/${item.id}`, {
+      method: "PATCH",
+      body: { referenceRepoIds: [] },
+    });
+    expect(backlogItemSchema.parse(await cleared.json()).referenceRepoIds).toEqual([]);
+
+    const res = await request(`/${item.id}/run`, { method: "POST" });
+    expect(taskSchema.parse(await res.json()).referenceRepoIds).toEqual([]);
+  });
+
+  it("rejects reference repos that are unknown, repeated or the repo itself", async () => {
+    const lib = repositories.repos.create({ path: "/code/lib", name: "lib" });
+    const item = await create({});
+    events = [];
+    // The app maps the thrown InvalidRepoError to a 400.
+    app = new Hono().onError(errorResponse).route("/", app);
+    for (const referenceRepoIds of [["missing"], [repoId], [lib.id, lib.id]]) {
+      const created = await request("", {
+        method: "POST",
+        body: { origin: { kind: "free-text" }, freeText: "x", referenceRepoIds },
+      });
+      expect(created.status).toBe(400);
+      const patched = await request(`/${item.id}`, { method: "PATCH", body: { referenceRepoIds } });
+      expect(patched.status).toBe(400);
+    }
+    expect(await list()).toHaveLength(1);
+    expect(repositories.backlogItems.get(item.id)?.referenceRepoIds).toBeNull();
+    expect(events).toEqual([]);
+  });
 });
 
 describe("new backlog item titles", () => {
@@ -509,6 +561,7 @@ describe("stacked pull requests", () => {
       mode: "work",
       agents: { implementer: "a-impl" },
       agentClis: { "a-impl": "copilot" },
+      referenceRepoIds: [],
       triageMode: "pause",
     });
     expect(item.mode).toBe("work");
@@ -527,6 +580,7 @@ describe("stacked pull requests", () => {
         status: "waiting",
         agents: { implementer: "a-impl" },
         agentClis: { "a-impl": "copilot" },
+        referenceRepoIds: [],
         triageMode: "pause",
         dependsOn: [],
       });

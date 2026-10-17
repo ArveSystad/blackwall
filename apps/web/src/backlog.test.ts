@@ -8,6 +8,7 @@ import {
   moveItem,
   nextBacklogItem,
   pendingCount,
+  referenceRepoChoice,
   reorderIds,
   repoStatusLine,
   rowAction,
@@ -16,6 +17,43 @@ import {
   type RunnerStatusInput,
 } from "./backlog";
 import { makeBacklogItem, makeTask } from "./test-fixtures";
+
+describe("referenceRepoChoice", () => {
+  const repo = { id: "app", referenceRepoIds: ["lib", "api"] };
+
+  it("shows the repo's list and sends null until the user picks", () => {
+    expect(referenceRepoChoice(repo, null)).toEqual({ ids: ["lib", "api"], override: null });
+    expect(referenceRepoChoice(undefined, null)).toEqual({ ids: [], override: null });
+  });
+
+  it("sends a pick that differs from the repo's list", () => {
+    expect(referenceRepoChoice(repo, { repoId: "app", ids: ["lib"] })).toEqual({
+      ids: ["lib"],
+      override: ["lib"],
+    });
+    expect(referenceRepoChoice(repo, { repoId: "app", ids: [] })).toEqual({
+      ids: [],
+      override: [],
+    });
+  });
+
+  it("sends null for a pick with the repo's own ids in any order", () => {
+    expect(referenceRepoChoice(repo, { repoId: "app", ids: ["api", "lib"] }).override).toBeNull();
+  });
+
+  it("drops a pick made in another repo", () => {
+    expect(referenceRepoChoice(repo, { repoId: "other", ids: ["app"] })).toEqual({
+      ids: ["lib", "api"],
+      override: null,
+    });
+  });
+
+  it("shows an edited item's override", () => {
+    const item = makeBacklogItem({ repoId: "app", referenceRepoIds: ["api"] });
+    const pick = item.referenceRepoIds && { repoId: item.repoId, ids: item.referenceRepoIds };
+    expect(referenceRepoChoice(repo, pick)).toEqual({ ids: ["api"], override: ["api"] });
+  });
+});
 
 describe("pendingCount", () => {
   it("counts items not yet promoted", () => {

@@ -210,6 +210,29 @@ describe("backlog items", () => {
     expect(r.backlogItems.get(a.id)).toBeUndefined();
   });
 
+  it("round-trips the reference repos override, null by default", () => {
+    const repo = r.repos.create({ path: "/code/app", name: "app" });
+    const item = r.backlogItems.insert({
+      repoId: repo.id,
+      title: "A",
+      origin: { kind: "free-text" },
+    });
+    expect(item.referenceRepoIds).toBeNull();
+    const listed = r.backlogItems.insert({
+      repoId: repo.id,
+      title: "B",
+      origin: { kind: "free-text" },
+      referenceRepoIds: ["lib"],
+    });
+    expect(r.backlogItems.get(listed.id)?.referenceRepoIds).toEqual(["lib"]);
+
+    expect(r.backlogItems.update(item.id, { referenceRepoIds: [] }).referenceRepoIds).toEqual([]);
+    expect(
+      r.backlogItems.update(listed.id, { referenceRepoIds: null }).referenceRepoIds,
+    ).toBeNull();
+    expect(r.backlogItems.get(listed.id)?.referenceRepoIds).toBeNull();
+  });
+
   it("links the promoted task and unlinks it when the task goes", () => {
     const task = seedTask();
     const item = r.backlogItems.insert({

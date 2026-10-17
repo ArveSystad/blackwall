@@ -462,4 +462,40 @@ describe("openDatabase", () => {
     expect(["high", "normal0", "normal2", "low"].map(position)).toEqual([0, 1, 2, 3]);
     expect(position("other")).toBe(0);
   });
+
+  it("copies each repo's reference repos onto its tasks, and leaves backlog items following the repo", () => {
+    // Build a database at the migration before per-task reference repos.
+    const oldMigrations = join(dir, "..", "migrations-0023");
+    cpSync(MIGRATIONS_DIR, oldMigrations, { recursive: true });
+    const journalPath = join(oldMigrations, "meta", "_journal.json");
+    const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
+      entries: { tag: string }[];
+    };
+    journal.entries = journal.entries.slice(
+      0,
+      journal.entries.findIndex((e) => e.tag === "0024_task_reference_repos"),
+    );
+    expect(journal.entries.at(-1)?.tag).toBe("0023_agent_trust");
+    writeFileSync(journalPath, JSON.stringify(journal));
+
+    mkdirSync(dir, { recursive: true });
+    const sqlite = new Database(join(dir, DB_FILENAME));
+    migrate(drizzle(sqlite), { migrationsFolder: oldMigrations });
+    sqlite.exec(`
+      insert into repos (id, path, name, reference_repo_ids, created_at, updated_at)
+        values ('app', '/code/app', 'app', '["lib"]', 0, 0), ('lib', '/code/lib', 'lib', '[]', 0, 0);
+      insert into tasks (id, title, origin, repo_id, created_at, updated_at)
+        values ('t1', 'In app', '{"kind":"free-text"}', 'app', 0, 0),
+               ('t2', 'In lib', '{"kind":"free-text"}', 'lib', 1, 1);
+      insert into backlog_items (id, repo_id, title, origin, created_at, updated_at)
+        values ('b1', 'app', 'Later', '{"kind":"free-text"}', 0, 0);
+    `);
+    sqlite.close();
+
+    opened = openDatabase(dir);
+    const r = createRepositories(opened.db);
+    expect(r.tasks.get("t1")?.referenceRepoIds).toEqual(["lib"]);
+    expect(r.tasks.get("t2")?.referenceRepoIds).toEqual([]);
+    expect(r.backlogItems.get("b1")?.referenceRepoIds).toBeNull();
+  });
 });

@@ -535,10 +535,9 @@ describe("pipeline engine", () => {
     await h.engine.shutdown();
   });
 
-  it("lets the planner read the repo's reference repos, but not the implementer", async () => {
-    const seeded = seedTask();
+  it("lets the planner read the task's reference repos, but not the implementer", async () => {
     const lib = r.repos.create({ path: tmpdir(), name: "lib" });
-    r.repos.update(seeded.repoId, { referenceRepoIds: [lib.id] });
+    const seeded = seedTask({ referenceRepoIds: [lib.id] });
     const h = harness();
     h.engine.enqueue(seeded.id);
     await settle(h.engine);
@@ -551,6 +550,19 @@ describe("pipeline engine", () => {
     const implement = h.calls.find((c) => c.stage === "implement")!;
     expect(implement.options.permissions.readDirs).toEqual([]);
     expect(implement.options.systemPrompt).not.toContain("## Reference repos");
+    await h.engine.shutdown();
+  });
+
+  it("reads the task's reference repos, not the repo's", async () => {
+    const seeded = seedTask({ referenceRepoIds: [] });
+    const lib = r.repos.create({ path: tmpdir(), name: "lib" });
+    r.repos.update(seeded.repoId, { referenceRepoIds: [lib.id] });
+    const h = harness();
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    const inform = h.calls.find((c) => c.stage === "inform")!;
+    expect(inform.options.permissions.readDirs).toEqual([]);
+    expect(inform.options.systemPrompt).not.toContain("## Reference repos");
     await h.engine.shutdown();
   });
 

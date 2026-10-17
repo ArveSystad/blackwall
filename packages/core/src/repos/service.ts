@@ -91,21 +91,45 @@ export interface ReferenceRepo {
 }
 
 /**
- * The repo's reference repos, looked up again on every call so a changed list
- * applies to the next step. Unknown repos, folders that no longer exist and the
- * repo itself are skipped.
+ * The reference repos in `ids`, looked up again on every call so a deleted repo
+ * or folder is dropped from the next step. Unknown repos, folders that no longer
+ * exist and the repo itself are skipped.
  */
-export function referenceReposOf(
+export function referenceReposFrom(
   repos: Pick<Repositories["repos"], "get">,
   repoId: string,
+  ids: readonly string[],
 ): ReferenceRepo[] {
   const refs: ReferenceRepo[] = [];
-  for (const refId of repos.get(repoId)?.referenceRepoIds ?? []) {
+  for (const refId of ids) {
     if (refId === repoId) continue;
     const ref = repos.get(refId);
     if (ref && existsSync(ref.path)) refs.push({ name: ref.name, path: ref.path });
   }
   return refs;
+}
+
+/**
+ * The repo's current reference repos, looked up again on every call so a
+ * changed list applies to the next call; resolved as {@link referenceReposFrom}.
+ */
+export function referenceReposOf(
+  repos: Pick<Repositories["repos"], "get">,
+  repoId: string,
+): ReferenceRepo[] {
+  return referenceReposFrom(repos, repoId, repos.get(repoId)?.referenceRepoIds ?? []);
+}
+
+/** Rejects user-picked reference repo ids that name the repo itself or an unknown repo. */
+export function checkReferenceRepoIds(
+  repos: Pick<Repositories["repos"], "get">,
+  repoId: string,
+  ids: readonly string[],
+): void {
+  for (const refId of ids) {
+    if (refId === repoId) throw new InvalidRepoError("A repo can't be its own reference repo");
+    if (!repos.get(refId)) throw new InvalidRepoError(`Reference repo ${refId} not found`);
+  }
 }
 
 function invalid(error: { issues: readonly { message: string }[] }): InvalidRepoError {
@@ -196,6 +220,11 @@ export function createRepoService({ repos, connections }: RepoServiceOptions) {
 
     use,
 
+    /** Throws `InvalidRepoError` when `ids` name the repo itself or an unknown repo. */
+    checkReferenceRepos(repoId: string, ids: readonly string[]): void {
+      checkReferenceRepoIds(repos, repoId, ids);
+    },
+
     /** Registers one git repo. Omitted check commands are suggested from its build files. */
     async add(input: RepoInput): Promise<Repo> {
       const parsed = repoInputSchema.safeParse(input);
@@ -245,10 +274,7 @@ export function createRepoService({ repos, connections }: RepoServiceOptions) {
         trustProjectMcp,
         trustProjectHooks,
       } = parsed.data;
-      for (const refId of referenceRepoIds ?? []) {
-        if (refId === id) throw new InvalidRepoError("A repo can't be its own reference repo");
-        if (!repos.get(refId)) throw new InvalidRepoError(`Reference repo ${refId} not found`);
-      }
+      checkReferenceRepoIds(repos, id, referenceRepoIds ?? []);
       return repos.update(id, {
         ...(name === undefined ? {} : { name }),
         ...(checkCommands === undefined ? {} : { checkCommands }),

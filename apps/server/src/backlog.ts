@@ -1,4 +1,5 @@
 import {
+  checkReferenceRepoIds,
   createsDependencyCycle,
   MissingCredentialError,
   sortBacklog,
@@ -83,7 +84,8 @@ export function promoteBacklogItem(
   if (!current || current.status === "promoted") {
     throw new Error("The item was already promoted to a task");
   }
-  const { title, origin, mode, repoId, freeText, agents, agentClis, triageMode } = current;
+  const { title, origin, mode, repoId, freeText, agents, agentClis, referenceRepoIds, triageMode } =
+    current;
   const task = queueTask(pipeline, newTask, {
     title,
     origin,
@@ -92,6 +94,7 @@ export function promoteBacklogItem(
     freeText,
     agents,
     agentClis,
+    referenceRepoIds,
     triageMode,
   });
   backlogItems.markPromoted(item.id, task.id);
@@ -163,6 +166,7 @@ export function addStackSiblings(
       freeText: "",
       agents: main.agents,
       agentClis: main.agentClis,
+      referenceRepoIds: main.referenceRepoIds,
       triageMode: main.triageMode,
       dependsOn: [],
     })),
@@ -281,6 +285,9 @@ export function backlogRoutes(
     if (foreign.length > 0) {
       return c.json({ error: `Unknown dependencies in this repo: ${foreign.join(", ")}` }, 400);
     }
+    if (input.data.referenceRepoIds) {
+      checkReferenceRepoIds(repos, repoId, input.data.referenceRepoIds);
+    }
     const { start, startComment, ...parsed } = input.data;
     // Only the server links a PR to its stack.
     const values = { ...parsed, origin: withoutStack(parsed.origin) };
@@ -365,6 +372,9 @@ export function backlogRoutes(
       if (createsDependencyCycle(items, item.id, dependsOn)) {
         return c.json({ error: "The dependencies would form a cycle" }, 400);
       }
+    }
+    if (input.data.referenceRepoIds) {
+      checkReferenceRepoIds(repos, item.repoId, input.data.referenceRepoIds);
     }
     const updated = backlogItems.update(item.id, input.data);
     changed(item.repoId);

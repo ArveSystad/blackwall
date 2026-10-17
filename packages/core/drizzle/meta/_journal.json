@@ -169,6 +169,13 @@
       "when": 1792156282554,
       "tag": "0023_agent_trust",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1792245984512,
+      "tag": "0024_task_reference_repos",
+      "breakpoints": true
     }
   ]
 }

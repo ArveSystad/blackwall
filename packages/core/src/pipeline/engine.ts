@@ -33,7 +33,7 @@ import type { QuotaTracker } from "../agents/quota.js";
 import type { Repositories } from "../db/repositories.js";
 import { describeGitError } from "../git/errors.js";
 import { GitError, sameSnapshot, type GitService } from "../git/service.js";
-import { referenceReposOf, type ReferenceRepo } from "../repos/service.js";
+import { referenceReposFrom, type ReferenceRepo } from "../repos/service.js";
 import { MAX_CI_FAILURES, type CiWatcher } from "./ci.js";
 import {
   DELIVERY_CONFLICT_EVENT,
@@ -99,6 +99,7 @@ export type NewTaskValues = Pick<
   | "agents"
   | "cli"
   | "agentClis"
+  | "referenceRepoIds"
   | "triageMode"
 >;
 
@@ -520,7 +521,7 @@ export function createPipelineEngine({
       input.agentId,
       input.asStage ?? stage,
       cli,
-      referenceReposOf(r.repos, ctx.task.repoId),
+      referenceReposFrom(r.repos, ctx.task.repoId, ctx.task.referenceRepoIds),
       trust,
     );
     const adapter = adapters[cli];

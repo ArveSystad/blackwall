@@ -1,6 +1,7 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  checkReferenceRepoIds,
   FindingNotFoundError,
   MissingCredentialError,
   TaskNotFoundError,
@@ -677,7 +678,10 @@ describe("new tasks", () => {
       pipeline,
       taskServices: {
         newTask: {
-          repos: { use: (id) => repositories.repos.get(id)! },
+          repos: {
+            use: (id) => repositories.repos.get(id)!,
+            checkReferenceRepos: (id, ids) => checkReferenceRepoIds(repositories.repos, id, ids),
+          },
           resolveRoles: (overrides = {}) => ({ planner: "a-default", ...overrides }),
           resolveClis,
           originTitle,
@@ -765,6 +769,32 @@ describe("new tasks", () => {
     expect(taskSchema.parse(await plain.json())).toMatchObject({ cli: "claude", agentClis: {} });
   });
 
+  it("copies the repo's reference repos onto the task unless the form picked others", async () => {
+    const lib = repositories.repos.create({ path: "/code/lib", name: "lib" });
+    repositories.repos.update(repoId, { referenceRepoIds: [lib.id] });
+    const body = { origin: { kind: "free-text" }, repoId, freeText: "Add dark mode" };
+
+    const plain = await request("/api/tasks", { method: "POST", body });
+    expect(plain.status).toBe(201);
+    expect(taskSchema.parse(await plain.json()).referenceRepoIds).toEqual([lib.id]);
+
+    const none = await request("/api/tasks", {
+      method: "POST",
+      body: { ...body, referenceRepoIds: [] },
+    });
+    expect(none.status).toBe(201);
+    expect(taskSchema.parse(await none.json()).referenceRepoIds).toEqual([]);
+
+    for (const referenceRepoIds of [["missing"], [repoId], [lib.id, lib.id]]) {
+      const bad = await request("/api/tasks", {
+        method: "POST",
+        body: { ...body, referenceRepoIds },
+      });
+      expect(bad.status).toBe(400);
+    }
+    expect(pipeline.createTask).toHaveBeenCalledTimes(2);
+  });
+
   it("titles a free text task from its first line and validates the form", async () => {
     const res = await request("/api/tasks", {
       method: "POST",
@@ -831,7 +861,10 @@ describe("new tasks", () => {
         pipeline,
         taskServices: {
           newTask: {
-            repos: { use: (id) => repositories.repos.get(id)! },
+            repos: {
+              use: (id) => repositories.repos.get(id)!,
+              checkReferenceRepos: (id, ids) => checkReferenceRepoIds(repositories.repos, id, ids),
+            },
             resolveRoles: (overrides = {}) => ({ ...overrides }),
             resolveClis,
             originTitle,

@@ -77,7 +77,7 @@ export interface TaskRouteStores {
 
 /** What creating a task needs besides the pipeline. */
 export interface NewTaskServices {
-  repos: Pick<RepoService, "use">;
+  repos: Pick<RepoService, "use" | "checkReferenceRepos">;
   /** The role defaults with the form's choices on top. */
   resolveRoles: (overrides?: RoleAgents) => RoleAgents;
   /** The form's per-agent CLI choices for agents in `roles` that differ from `cli`. */
@@ -150,8 +150,13 @@ export async function titleFor(
   return fallbackTitle(origin, freeText);
 }
 
-/** A titled task as the form describes it; its CLI comes from the repo when it is queued. */
-export type QueuedTaskInput = Omit<NewTaskValues, "cli">;
+/**
+ * A titled task as the form describes it; its CLI comes from the repo when it
+ * is queued, and so do its reference repos when the form chose none (null).
+ */
+export type QueuedTaskInput = Omit<NewTaskValues, "cli" | "referenceRepoIds"> & {
+  referenceRepoIds: string[] | null;
+};
 
 /** A parsed new task form: what `POST /api/tasks` and backlog promotion both start from. */
 export type ParsedNewTaskInput = Omit<QueuedTaskInput, "title"> & {
@@ -178,6 +183,9 @@ export async function createTaskFromInput(
 ): Promise<Task> {
   const { origin, freeText, startComment, assignToMe } = input;
   newTask.repos.use(input.repoId);
+  if (input.referenceRepoIds) {
+    newTask.repos.checkReferenceRepos(input.repoId, input.referenceRepoIds);
+  }
   const title = input.title ?? (await titleFor(origin, freeText, newTask.originTitle));
   if (startComment) await postStartComment(newTask, origin, startComment);
   if (assignToMe) await assignIssueToUser(newTask, origin);
@@ -230,7 +238,9 @@ export async function assignIssueToUser(
 /**
  * Queues a titled task without awaiting anything: checks the repo is usable,
  * puts the given agents on top of the role defaults, and runs them on the
- * repo's default CLI except where the input chose another one.
+ * repo's default CLI except where the input chose another one. The task keeps
+ * the input's reference repos, or else the repo's current ones; the ids are
+ * not checked here, so stale ones are skipped when the agents run.
  */
 export function queueTask(
   pipeline: Pick<TaskPipeline, "createTask">,
@@ -251,6 +261,7 @@ export function queueTask(
     agents,
     cli,
     agentClis,
+    referenceRepoIds: input.referenceRepoIds ?? repo.referenceRepoIds,
     triageMode,
   });
 }

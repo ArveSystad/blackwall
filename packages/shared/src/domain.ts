@@ -492,6 +492,11 @@ export const repoInputSchema = z.object({
 });
 export type RepoInput = z.input<typeof repoInputSchema>;
 
+/** A list of reference repo ids, as the user picks them. */
+const referenceRepoIdsSchema = z
+  .array(id)
+  .refine((ids) => new Set(ids).size === ids.length, "Each repo can be listed only once");
+
 /** Body for editing a repo. The path is fixed once registered. */
 export const repoUpdateSchema = z.object({
   name: name.optional(),
@@ -502,9 +507,7 @@ export const repoUpdateSchema = z.object({
   defaultBranch: branchNameSchema.optional(),
   favorite: z.boolean().optional(),
   watchCi: z.boolean().optional(),
-  referenceRepoIds: repoSchema.shape.referenceRepoIds
-    .refine((ids) => new Set(ids).size === ids.length, "Each repo can be listed only once")
-    .optional(),
+  referenceRepoIds: referenceRepoIdsSchema.optional(),
   agentTrust: agentTrustLevelSchema.optional(),
   trustProjectMcp: z.boolean().optional(),
   trustProjectHooks: z.boolean().optional(),
@@ -907,6 +910,11 @@ export const taskSchema = z
     cli: agentCliSchema,
     /** Agents run on another CLI than `cli`, chosen on the new task form. */
     agentClis: agentClisSchema,
+    /**
+     * Repos the read-only agents may read: the repo's reference repos when the
+     * task was created, or the form's choice.
+     */
+    referenceRepoIds: z.array(id),
     deliveryTargets: z.array(deliveryTargetSchema),
     /** True while the confirmed delivery actions run at finish (or a Review PR's review posts); the task stays `needs-you` at its gate meanwhile. */
     delivering: z.boolean(),
@@ -1016,6 +1024,8 @@ export const newTaskInputSchema = z
     agents: roleAgentsSchema.default({}),
     /** Agents to run on another CLI than the repo's default. */
     agentClis: agentClisSchema.default({}),
+    /** Reference repos for the task; null uses the repo's. */
+    referenceRepoIds: referenceRepoIdsSchema.nullable().default(null),
     triageMode: triageModeSchema.default("intervene"),
     /**
      * GitHub issue tasks only: a comment the user confirmed, posted on the
@@ -1070,6 +1080,8 @@ export const backlogItemSchema = z
     agents: roleAgentsSchema,
     /** Agents to run on another CLI than the repo's default once promoted. */
     agentClis: agentClisSchema,
+    /** Reference repos for the task once promoted; null follows the repo's until then. */
+    referenceRepoIds: z.array(id).nullable(),
     triageMode: triageModeSchema,
     /** Manual order in the repo's backlog. */
     position: z.int(),
@@ -1111,6 +1123,8 @@ export const newBacklogItemInputSchema = z
     freeText: z.string().default(""),
     agents: roleAgentsSchema.default({}),
     agentClis: agentClisSchema.default({}),
+    /** Null follows the repo's reference repos until the item is promoted. */
+    referenceRepoIds: referenceRepoIdsSchema.nullable().default(null),
     triageMode: triageModeSchema.default("intervene"),
     dependsOn: backlogDependsOn.default([]),
     /** Not stored: whether to promote the item at once when the runner would. */
@@ -1137,6 +1151,7 @@ export const updateBacklogItemInputSchema = z.object({
   status: z.enum(["waiting", "paused"]).optional(),
   agents: roleAgentsSchema.optional(),
   agentClis: agentClisSchema.optional(),
+  referenceRepoIds: referenceRepoIdsSchema.nullable().optional(),
   triageMode: triageModeSchema.optional(),
 });
 export type UpdateBacklogItemInput = z.infer<typeof updateBacklogItemInputSchema>;

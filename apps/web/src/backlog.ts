@@ -154,6 +154,28 @@ export function dependencyChoices(
   });
 }
 
+/** Reference repos the user picked on the new task form, for the repo they picked them in. */
+export interface ReferenceRepoPick {
+  repoId: string;
+  ids: string[];
+}
+
+/**
+ * What the form's "Reference repos" chips show for `repo` and what it sends.
+ * A pick made in another repo no longer applies, so the chips fall back to the
+ * repo's own list. The override is null when the shown list holds the repo's
+ * own ids (in any order), so the item keeps following the repo until promoted.
+ */
+export function referenceRepoChoice(
+  repo: Pick<Repo, "id" | "referenceRepoIds"> | undefined,
+  pick: ReferenceRepoPick | null,
+): { ids: string[]; override: string[] | null } {
+  const own = repo?.referenceRepoIds ?? [];
+  const ids = pick && repo && pick.repoId === repo.id ? pick.ids : own;
+  const same = ids.length === own.length && ids.every((id) => own.includes(id));
+  return { ids, override: same ? null : ids };
+}
+
 export type BacklogItemState =
   | { kind: "next" }
   | { kind: "waiting" }

@@ -178,6 +178,11 @@ export const tasks = sqliteTable(
       .$type<AgentClis>()
       .notNull()
       .default(sql`'{}'`),
+    /** The repo's reference repos when the task was created, or the form's choice. */
+    referenceRepoIds: text("reference_repo_ids", { mode: "json" })
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'`),
     deliveryTargets: text("delivery_targets", { mode: "json" })
       .$type<DeliveryTarget[]>()
       .notNull()
@@ -231,6 +236,8 @@ export const backlogItems = sqliteTable(
       .$type<AgentClis>()
       .notNull()
       .default(sql`'{}'`),
+    /** Reference repos once promoted; null follows the repo's until then. */
+    referenceRepoIds: text("reference_repo_ids", { mode: "json" }).$type<string[] | null>(),
     triageMode: text("triage_mode", { enum: TRIAGE_MODES }).notNull().default("intervene"),
     /** Manual order in the repo's backlog. */
     position: integer("position").notNull().default(0),

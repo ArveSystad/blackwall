@@ -34,6 +34,7 @@ import {
   grillQuestionSchema,
   isGatingSeverity,
   isUserComment,
+  newBacklogItemInputSchema,
   newTaskInputSchema,
   parseFollowUps,
   planAnswersOutputJsonSchema,
@@ -52,6 +53,7 @@ import {
   settingsSchema,
   stagePermissionProfile,
   taskSchema,
+  updateBacklogItemInputSchema,
   type CiState,
   type TaskCi,
 } from "./domain.js";
@@ -76,6 +78,7 @@ const task = {
   agents: { planner: "a1", codeReviewers: ["a2", "a3"] },
   cli: "copilot",
   agentClis: { a2: "claude" },
+  referenceRepoIds: ["r2"],
   deliveryTargets: ["push-branch", "open-pr", "jira-comment"],
   delivering: false,
   freeText: "",
@@ -309,8 +312,19 @@ describe("newTaskInputSchema", () => {
       freeText: "Add dark mode",
       agents: {},
       agentClis: {},
+      referenceRepoIds: null,
       triageMode: "intervene",
     });
+  });
+
+  it("takes reference repos, each once", () => {
+    const base = { origin: { kind: "free-text" }, repoId: "r1", freeText: "x" };
+    expect(newTaskInputSchema.parse({ ...base, referenceRepoIds: [] }).referenceRepoIds).toEqual(
+      [],
+    );
+    expect(newTaskInputSchema.safeParse({ ...base, referenceRepoIds: ["r2", "r2"] }).success).toBe(
+      false,
+    );
   });
 
   it("requires a description for free-text tasks", () => {
@@ -373,6 +387,27 @@ describe("newTaskInputSchema", () => {
         assignToMe: false,
       }).success,
     ).toBe(true);
+  });
+});
+
+describe("backlog item inputs", () => {
+  it("follow the repo's reference repos unless given, each once", () => {
+    const base = { origin: { kind: "free-text" }, freeText: "x" };
+    expect(newBacklogItemInputSchema.parse(base).referenceRepoIds).toBeNull();
+    expect(newBacklogItemInputSchema.parse({ ...base, referenceRepoIds: ["r2"] })).toMatchObject({
+      referenceRepoIds: ["r2"],
+    });
+    expect(
+      newBacklogItemInputSchema.safeParse({ ...base, referenceRepoIds: ["r2", "r2"] }).success,
+    ).toBe(false);
+
+    expect(updateBacklogItemInputSchema.parse({})).not.toHaveProperty("referenceRepoIds");
+    expect(updateBacklogItemInputSchema.parse({ referenceRepoIds: null }).referenceRepoIds).toBe(
+      null,
+    );
+    expect(updateBacklogItemInputSchema.safeParse({ referenceRepoIds: ["r2", "r2"] }).success).toBe(
+      false,
+    );
   });
 });
 

@@ -14,7 +14,9 @@ import {
   RepoNotFoundError,
   RepoPushError,
   StaleRepoError,
+  checkReferenceRepoIds,
   createRepoService,
+  referenceReposFrom,
   referenceReposOf,
   type RepoService,
 } from "./service.js";
@@ -330,6 +332,35 @@ describe("reference repos", () => {
     expect(referenceReposOf(r.repos, app.id)).toEqual([{ name: "lib", path: lib.path }]);
     expect(referenceReposOf(r.repos, lib.id)).toEqual([]);
     expect(referenceReposOf(r.repos, "missing")).toEqual([]);
+  });
+
+  it("resolves a given list the same way, whatever the repo's own list says", async () => {
+    const app = await service.add({ path: gitRepo(["app"]) });
+    const lib = await service.add({ path: gitRepo(["lib"]) });
+    const api = await service.add({ path: gitRepo(["api"]) });
+    const goneDir = gitRepo(["gone"]);
+    const gone = await service.add({ path: goneDir });
+    service.update(app.id, { referenceRepoIds: [api.id] });
+    rmSync(goneDir, { recursive: true, force: true });
+
+    expect(referenceReposFrom(r.repos, app.id, [lib.id, gone.id, app.id, "missing"])).toEqual([
+      { name: "lib", path: lib.path },
+    ]);
+    expect(referenceReposFrom(r.repos, app.id, [])).toEqual([]);
+  });
+
+  it("checks a picked list: other registered repos only", async () => {
+    const app = await service.add({ path: gitRepo(["app"]) });
+    const lib = await service.add({ path: gitRepo(["lib"]) });
+    expect(() => checkReferenceRepoIds(r.repos, app.id, [lib.id])).not.toThrow();
+    expect(() => checkReferenceRepoIds(r.repos, app.id, [])).not.toThrow();
+    expect(() => checkReferenceRepoIds(r.repos, app.id, [app.id])).toThrow(
+      /its own reference repo/,
+    );
+    expect(() => checkReferenceRepoIds(r.repos, app.id, ["missing"])).toThrow(
+      /Reference repo missing not found/,
+    );
+    expect(() => service.checkReferenceRepos(app.id, ["missing"])).toThrow(InvalidRepoError);
   });
 });
 
