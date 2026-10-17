@@ -410,15 +410,23 @@ export function getPullRequestComments(taskId: string): Promise<PullRequestComme
   return request(`${taskPath(taskId)}/pr-comments`, pullRequestCommentsSchema);
 }
 
-/** The images an implementer saved to `.blackwall/artifacts/`, newest first. */
+/** The files an implementer saved to `.blackwall/artifacts/`, newest first. */
 export function listArtifacts(taskId: string): Promise<TaskArtifact[]> {
   return request(`${taskPath(taskId)}/artifacts`, taskArtifactSchema.array());
 }
 
-/** An artifact's image URL; `?v=` changes when the file does, so a re-taken screenshot isn't cached. */
+/** An artifact's URL; `?v=` changes when the file does, so a re-saved file isn't cached. */
 export function artifactUrl(taskId: string, artifact: Pick<TaskArtifact, "path" | "modifiedAt">) {
   const path = artifact.path.split("/").map(encodeURIComponent).join("/");
   return `${taskPath(taskId)}/artifacts/${path}?v=${artifact.modifiedAt.getTime()}`;
+}
+
+/** A text artifact's contents, for its preview. */
+export async function getArtifactText(
+  taskId: string,
+  artifact: Pick<TaskArtifact, "path" | "modifiedAt">,
+): Promise<string> {
+  return (await send(artifactUrl(taskId, artifact), {})).text();
 }
 
 /** Where the task's worktree is and whether it still exists (it may not after an import). */

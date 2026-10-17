@@ -2,10 +2,12 @@ import {
   DEFAULT_GITHUB_ISSUES_REFRESH_SECONDS,
   type GeneralSettings,
   type SearchScope,
+  type TaskArtifact,
 } from "@blackwall/shared";
 import { QueryClient, keepPreviousData, queryOptions } from "@tanstack/react-query";
 import {
   ApiError,
+  getArtifactText,
   getBacklogRunner,
   getChat,
   getQuota,
@@ -56,6 +58,9 @@ export const queryKeys = {
   taskBranchDiff: (taskId: string) => ["tasks", taskId, "branch-diff"] as const,
   taskPrComments: (taskId: string) => ["tasks", taskId, "pr-comments"] as const,
   taskArtifacts: (taskId: string) => ["tasks", taskId, "artifacts"] as const,
+  /** Under the artifacts prefix, so their invalidation covers it; the mtime keys each version. */
+  taskArtifactText: (taskId: string, path: string, modifiedAtMs: number) =>
+    ["tasks", taskId, "artifacts", "text", path, modifiedAtMs] as const,
   taskWorktree: (taskId: string) => ["tasks", taskId, "worktree"] as const,
   taskDelivery: (taskId: string) => ["tasks", taskId, "delivery"] as const,
   runSteps: (runId: string) => ["runs", runId, "steps"] as const,
@@ -164,6 +169,16 @@ export const taskArtifactsQuery = (taskId: string) =>
   queryOptions({
     queryKey: queryKeys.taskArtifacts(taskId),
     queryFn: () => listArtifacts(taskId),
+  });
+
+/** A text artifact's contents, for its card's preview. */
+export const taskArtifactTextQuery = (
+  taskId: string,
+  artifact: Pick<TaskArtifact, "path" | "modifiedAt">,
+) =>
+  queryOptions({
+    queryKey: queryKeys.taskArtifactText(taskId, artifact.path, artifact.modifiedAt.getTime()),
+    queryFn: () => getArtifactText(taskId, artifact),
   });
 
 export const taskWorktreeQuery = (taskId: string) =>

@@ -1,6 +1,13 @@
 import type { StaleRepo } from "@blackwall/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, StaleRepoError, artifactUrl, listConnections, socketUrl } from "./api";
+import {
+  ApiError,
+  StaleRepoError,
+  artifactUrl,
+  getArtifactText,
+  listConnections,
+  socketUrl,
+} from "./api";
 
 describe("socketUrl", () => {
   it("uses ws: on http", () => {
@@ -52,5 +59,33 @@ describe("API errors", () => {
     expect(error).not.toBeInstanceOf(StaleRepoError);
     expect(error).toBeInstanceOf(ApiError);
     expect((error as ApiError).message).toBe("Gone");
+  });
+});
+
+describe("getArtifactText", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const artifact = { path: "docs/notes.md", modifiedAt: new Date(1_700_000_000_000) };
+
+  it("fetches the artifact's URL and returns its text", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response("# Notes"));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await getArtifactText("t1", artifact)).toBe("# Notes");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/api/tasks/t1/artifacts/docs/notes.md?v=1700000000000",
+    );
+  });
+
+  it("throws the server's error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(JSON.stringify({ error: "Artifact docs/notes.md not found" }), {
+          status: 404,
+        }),
+      ),
+    );
+    const error = await getArtifactText("t1", artifact).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 404, message: "Artifact docs/notes.md not found" });
   });
 });

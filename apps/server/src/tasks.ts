@@ -106,7 +106,7 @@ export interface TaskRouteServices {
   branchDiff?: TaskBranchDiff;
   /** The inline review threads already on a PR task's pull request; failures come back as `error`. */
   prComments?: (task: Task) => Promise<PullRequestComments>;
-  /** Images implementers saved to a task's worktree. */
+  /** Files implementers saved to a task's worktree. */
   artifacts?: TaskArtifacts;
 }
 
@@ -279,7 +279,7 @@ export function queueTask(
  * `/done-times` when each done task was resolved. With the services, `/diffs` shows the branch's changes per fix
  * round, `/branch-diff` the whole branch's diff to comment on,
  * `/pr-comments` the review threads already on a PR task's pull request, and
- * `/artifacts` lists and serves the images an implementer saved.
+ * `/artifacts` lists and serves the files an implementer saved.
  */
 export function taskRoutes(
   { tasks, grillQuestions, findings, runs, steps, stepEvents }: TaskRouteStores,
@@ -409,7 +409,7 @@ export function taskRoutes(
   }
 
   if (artifacts) {
-    /** The images saved to `.blackwall/artifacts/` in the task's worktree, newest first. */
+    /** The files saved to `.blackwall/artifacts/` in the task's worktree, newest first. */
     routes.get("/:id/artifacts", async (c) => {
       const id = c.req.param("id");
       const task = tasks.get(id);
@@ -417,7 +417,10 @@ export function taskRoutes(
       return c.json<TaskArtifact[]>(await artifacts.list(task));
     });
 
-    /** One artifact's bytes; untrusted, so with a fixed image type and `nosniff`. */
+    /**
+     * One artifact's bytes. Untrusted, so only as a raster image, `text/plain`
+     * or an octet-stream download, always with `nosniff` and a sandboxing CSP.
+     */
     routes.get("/:id/artifacts/:path{.+}", async (c) => {
       const id = c.req.param("id");
       const task = tasks.get(id);
@@ -425,8 +428,12 @@ export function taskRoutes(
       const path = c.req.param("path");
       const file = await artifacts.read(task, path);
       if (!file) return c.json({ error: `Artifact ${path} not found` }, 404);
+      const name = encodeURIComponent(path.slice(path.lastIndexOf("/") + 1));
+      const disposition = file.kind === "file" ? "attachment" : "inline";
       return c.body(new Uint8Array(file.body), 200, {
         "Content-Type": file.contentType,
+        "Content-Disposition": `${disposition}; filename*=UTF-8''${name}`,
+        "Content-Security-Policy": "default-src 'none'; sandbox",
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "no-cache",
       });

@@ -1347,12 +1347,23 @@ export type PullRequestComments = z.infer<typeof pullRequestCommentsSchema>;
 /** Scratch folder in a task's worktree; ignored by its own `.gitignore`. */
 export const SCRATCH_DIR = ".blackwall";
 
-/** An image an implementer saved to `.blackwall/artifacts/` in the task's worktree. */
+/** Largest artifact served; bigger files are listed but can't be opened. */
+export const MAX_ARTIFACT_BYTES = 20 * 1024 * 1024;
+
+/**
+ * How an artifact is served, by extension: `image` inline as a raster image,
+ * `text` inline as `text/plain`, and `file` as a download.
+ */
+export const artifactKindSchema = z.enum(["image", "text", "file"]);
+export type ArtifactKind = z.infer<typeof artifactKindSchema>;
+
+/** A file an implementer saved to `.blackwall/artifacts/` in the task's worktree. */
 export const taskArtifactSchema = z.object({
   /** Relative to the artifacts folder, `/`-separated. */
   path: z.string(),
   size: z.int().nonnegative(),
   modifiedAt: timestamp,
+  kind: artifactKindSchema,
 });
 export type TaskArtifact = z.infer<typeof taskArtifactSchema>;
 

@@ -692,12 +692,33 @@ describe("new tasks", () => {
         branchDiff,
         artifacts: {
           list: async () => [
-            { path: "ui/home.png", size: 3, modifiedAt: new Date("2026-01-02T03:04:05Z") },
+            {
+              path: "ui/home.png",
+              size: 3,
+              modifiedAt: new Date("2026-01-02T03:04:05Z"),
+              kind: "image",
+            },
           ],
-          read: async (_task, path) =>
-            path === "ui/home.png"
-              ? { body: Buffer.from([1, 2, 3]), contentType: "image/png" }
-              : null,
+          read: async (_task, path) => {
+            if (path === "ui/home.png") {
+              return { body: Buffer.from([1, 2, 3]), contentType: "image/png", kind: "image" };
+            }
+            if (path === "docs/notes.md") {
+              return {
+                body: Buffer.from("# Notes"),
+                contentType: "text/plain; charset=utf-8",
+                kind: "text",
+              };
+            }
+            if (path === "bundle.zip") {
+              return {
+                body: Buffer.from("zip"),
+                contentType: "application/octet-stream",
+                kind: "file",
+              };
+            }
+            return null;
+          },
         },
       },
     }).app;
@@ -1020,7 +1041,12 @@ describe("new tasks", () => {
     const task = repositories.tasks.create({ title: "T", origin: { kind: "free-text" }, repoId });
     const res = await request(`/api/tasks/${task.id}/artifacts`);
     expect(taskArtifactSchema.array().parse(await res.json())).toEqual([
-      { path: "ui/home.png", size: 3, modifiedAt: new Date("2026-01-02T03:04:05Z") },
+      {
+        path: "ui/home.png",
+        size: 3,
+        modifiedAt: new Date("2026-01-02T03:04:05Z"),
+        kind: "image",
+      },
     ]);
     expect((await request("/api/tasks/nope/artifacts")).status).toBe(404);
   });
@@ -1046,15 +1072,40 @@ describe("new tasks", () => {
     expect(branchDiff).toHaveBeenCalledTimes(2);
   });
 
-  it("serves an artifact as an image with nosniff, 404 when missing", async () => {
+  it("serves an artifact as an image with nosniff and a sandbox CSP, 404 when missing", async () => {
     const task = repositories.tasks.create({ title: "T", origin: { kind: "free-text" }, repoId });
     const res = await request(`/api/tasks/${task.id}/artifacts/ui/home.png?v=1`);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/png");
+    expect(res.headers.get("content-disposition")).toBe("inline; filename*=UTF-8''home.png");
+    expect(res.headers.get("content-security-policy")).toBe("default-src 'none'; sandbox");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("cache-control")).toBe("no-cache");
     expect([...new Uint8Array(await res.arrayBuffer())]).toEqual([1, 2, 3]);
     expect((await request(`/api/tasks/${task.id}/artifacts/ui/other.png`)).status).toBe(404);
     expect((await request("/api/tasks/nope/artifacts/ui/home.png")).status).toBe(404);
+  });
+
+  it("serves a text artifact inline as text/plain", async () => {
+    const task = repositories.tasks.create({ title: "T", origin: { kind: "free-text" }, repoId });
+    const res = await request(`/api/tasks/${task.id}/artifacts/docs/notes.md`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+    expect(res.headers.get("content-disposition")).toBe("inline; filename*=UTF-8''notes.md");
+    expect(res.headers.get("content-security-policy")).toBe("default-src 'none'; sandbox");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(await res.text()).toBe("# Notes");
+  });
+
+  it("serves any other artifact as an octet-stream attachment", async () => {
+    const task = repositories.tasks.create({ title: "T", origin: { kind: "free-text" }, repoId });
+    const res = await request(`/api/tasks/${task.id}/artifacts/bundle.zip`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("application/octet-stream");
+    expect(res.headers.get("content-disposition")).toBe("attachment; filename*=UTF-8''bundle.zip");
+    expect(res.headers.get("content-security-policy")).toBe("default-src 'none'; sandbox");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(await res.text()).toBe("zip");
   });
 });
 

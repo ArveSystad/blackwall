@@ -188,7 +188,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     case "step.upserted":
       void client.invalidateQueries({ queryKey: queryKeys.runSteps(event.payload.step.runId) });
       void client.invalidateQueries({ queryKey: queryKeys.activeAgents });
-      // A step can write screenshots, and the step carries no task id.
+      // A step can write artifacts, and the step carries no task id.
       void client.invalidateQueries({
         predicate: (query) => query.queryKey[0] === "tasks" && query.queryKey[2] === "artifacts",
       });

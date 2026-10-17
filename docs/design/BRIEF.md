@@ -285,8 +285,10 @@ The tabs:
   - Files in plain green and red.
   - "Step through" walks hunk by hunk ("Hunk 3 of 9 · file 2 of 4", Previous ← / Next →). The user
     can comment on a hunk and "Send 2 comments and run a fix round".
-- **Artifacts**: screenshots the implementer saved to `.blackwall/artifacts/`. The empty state is
-  "Nothing captured yet. …".
+- **Artifacts**: files (screenshots, notes, logs, archives…) the implementer saved to
+  `.blackwall/artifacts/`, as a grid of cards. Images preview, text and code show their top as
+  plain text (Markdown rendered), and other files show an extension badge and download. The empty
+  state is "Nothing captured yet. …".
 - **Checks**: one block per round ("Round 1", "3/4 passed"), with rows that are "Passed",
   "Timed out" or "Exit 1".
 - **Finish**:

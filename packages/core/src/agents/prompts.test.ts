@@ -41,7 +41,7 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("`.blackwall/artifacts/`");
   });
 
-  it("tells only implementers about screenshots", () => {
+  it("tells only implementers about artifacts", () => {
     const prompt = buildSystemPrompt({
       agent,
       stage: "code-review",
