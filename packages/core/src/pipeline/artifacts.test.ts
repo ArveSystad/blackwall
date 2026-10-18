@@ -14,7 +14,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAX_ARTIFACT_BYTES, type Task } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ARTIFACTS_DIR, createTaskArtifacts, ensureScratchDir } from "./artifacts.js";
+import {
+  ARTIFACTS_DIR,
+  type ArtifactContent,
+  createTaskArtifacts,
+  ensureScratchDir,
+} from "./artifacts.js";
 
 let root: string;
 let worktree: string;
@@ -39,6 +44,13 @@ function write(path: string, content: string | Buffer, mtime?: Date): void {
   mkdirSync(join(full, ".."), { recursive: true });
   writeFileSync(full, content);
   if (mtime) utimesSync(full, mtime, mtime);
+}
+
+/** An artifact's bytes, draining the stream of a downloadable file. */
+async function bytesOf(content: ArtifactContent | null): Promise<Buffer | undefined> {
+  if (!content) return undefined;
+  if (content.kind !== "file") return content.body;
+  return Buffer.concat(await content.stream().toArray());
 }
 
 /** Whether this OS lets the test create symlinks (Windows needs a privilege). */
@@ -94,6 +106,7 @@ describe("task artifacts", () => {
       body: Buffer.from([1, 2, 3]),
       contentType: "image/png",
       kind: "image",
+      size: 3,
     });
     expect(await artifacts.read(taskIn(worktree), "shots/missing.png")).toBeNull();
     expect(await artifacts.read(taskIn(null), "shots/home.PNG")).toBeNull();
@@ -108,6 +121,7 @@ describe("task artifacts", () => {
       body: Buffer.from("# hi"),
       contentType: "text/plain; charset=utf-8",
       kind: "text",
+      size: 4,
     });
     expect(await artifacts.read(task, "icon.svg")).toMatchObject({
       contentType: "text/plain; charset=utf-8",
@@ -124,13 +138,19 @@ describe("task artifacts", () => {
     write("report.pdf", "pdf");
     write("noext", "x");
     const task = taskIn(worktree);
-    expect(await artifacts.read(task, "bundle.zip")).toEqual({
-      body: Buffer.from("zip"),
-      contentType: "application/octet-stream",
+    const bundle = await artifacts.read(task, "bundle.zip");
+    expect(bundle).toMatchObject({
       kind: "file",
+      contentType: "application/octet-stream",
+      size: 3,
     });
-    expect(await artifacts.read(task, "report.pdf")).toMatchObject({ kind: "file" });
-    expect(await artifacts.read(task, "noext")).toMatchObject({ kind: "file" });
+    expect((await bytesOf(bundle))?.toString()).toBe("zip");
+    const report = await artifacts.read(task, "report.pdf");
+    expect(report).toMatchObject({ kind: "file" });
+    expect((await bytesOf(report))?.toString()).toBe("pdf");
+    const noext = await artifacts.read(task, "noext");
+    expect(noext).toMatchObject({ kind: "file" });
+    expect((await bytesOf(noext))?.toString()).toBe("x");
   });
 
   it("refuses dotfiles", async () => {
@@ -141,14 +161,30 @@ describe("task artifacts", () => {
     expect(await artifacts.read(task, ".cache/notes.md")).toBeNull();
   });
 
-  it("refuses files over the size cap", async () => {
+  it("refuses images and text over the size cap", async () => {
+    for (const [name, size] of [
+      ["big.png", MAX_ARTIFACT_BYTES + 1],
+      ["big.log", MAX_ARTIFACT_BYTES + 1],
+      ["max.png", MAX_ARTIFACT_BYTES],
+    ] as const) {
+      write(name, "");
+      truncateSync(join(dir, name), size);
+    }
+    const task = taskIn(worktree);
+    expect(await artifacts.read(task, "big.png")).toBeNull();
+    expect(await artifacts.read(task, "big.log")).toBeNull();
+    expect((await bytesOf(await artifacts.read(task, "max.png")))?.length).toBe(MAX_ARTIFACT_BYTES);
+  });
+
+  it("streams files over the cap", async () => {
     write("big.zip", "");
     truncateSync(join(dir, "big.zip"), MAX_ARTIFACT_BYTES + 1);
-    write("max.zip", "");
-    truncateSync(join(dir, "max.zip"), MAX_ARTIFACT_BYTES);
-    const task = taskIn(worktree);
-    expect(await artifacts.read(task, "big.zip")).toBeNull();
-    expect((await artifacts.read(task, "max.zip"))?.body.length).toBe(MAX_ARTIFACT_BYTES);
+    const file = await artifacts.read(taskIn(worktree), "big.zip");
+    expect(file).toMatchObject({ kind: "file", size: MAX_ARTIFACT_BYTES + 1 });
+    if (file?.kind !== "file") throw new Error("expected a file");
+    let bytes = 0;
+    for await (const chunk of file.stream()) bytes += (chunk as Buffer).length;
+    expect(bytes).toBe(MAX_ARTIFACT_BYTES + 1);
   });
 
   it("refuses paths outside the folder", async () => {

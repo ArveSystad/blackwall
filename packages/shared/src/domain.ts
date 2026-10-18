@@ -1347,7 +1347,10 @@ export type PullRequestComments = z.infer<typeof pullRequestCommentsSchema>;
 /** Scratch folder in a task's worktree; ignored by its own `.gitignore`. */
 export const SCRATCH_DIR = ".blackwall";
 
-/** Largest artifact served; bigger files are listed but can't be opened. */
+/**
+ * Largest image or text artifact served inline; bigger ones are listed but
+ * can't be opened. Other files stream as downloads with no cap.
+ */
 export const MAX_ARTIFACT_BYTES = 20 * 1024 * 1024;
 
 /**

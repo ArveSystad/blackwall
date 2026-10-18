@@ -1,5 +1,6 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Readable } from "node:stream";
 import {
   checkReferenceRepoIds,
   FindingNotFoundError,
@@ -701,20 +702,27 @@ describe("new tasks", () => {
           ],
           read: async (_task, path) => {
             if (path === "ui/home.png") {
-              return { body: Buffer.from([1, 2, 3]), contentType: "image/png", kind: "image" };
+              return {
+                body: Buffer.from([1, 2, 3]),
+                contentType: "image/png",
+                kind: "image",
+                size: 3,
+              };
             }
             if (path === "docs/notes.md") {
               return {
                 body: Buffer.from("# Notes"),
                 contentType: "text/plain; charset=utf-8",
                 kind: "text",
+                size: 7,
               };
             }
             if (path === "bundle.zip") {
               return {
-                body: Buffer.from("zip"),
                 contentType: "application/octet-stream",
                 kind: "file",
+                size: 3,
+                stream: () => Readable.from([Buffer.from("zip")]),
               };
             }
             return null;
@@ -1103,8 +1111,10 @@ describe("new tasks", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("application/octet-stream");
     expect(res.headers.get("content-disposition")).toBe("attachment; filename*=UTF-8''bundle.zip");
+    expect(res.headers.get("content-length")).toBe("3");
     expect(res.headers.get("content-security-policy")).toBe("default-src 'none'; sandbox");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("cache-control")).toBe("no-cache");
     expect(await res.text()).toBe("zip");
   });
 });

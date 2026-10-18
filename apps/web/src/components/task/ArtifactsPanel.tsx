@@ -70,7 +70,7 @@ function ArtifactCard({
   now: Date;
 }) {
   const { path, modifiedAt, size, kind } = artifact;
-  const tooLarge = size > MAX_ARTIFACT_BYTES;
+  const tooLarge = kind !== "file" && size > MAX_ARTIFACT_BYTES;
   const textPreview = kind === "text" && size <= TEXT_PREVIEW_BYTES;
   return (
     <div className="bw-chamfer flex min-w-0 flex-col overflow-hidden bg-card [--bw-chamfer-line:var(--border)]">

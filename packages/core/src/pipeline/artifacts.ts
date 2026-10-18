@@ -1,5 +1,6 @@
-import { mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
+import { type FileHandle, mkdir, open, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import type { Readable } from "node:stream";
 import {
   type ArtifactKind,
   MAX_ARTIFACT_BYTES,
@@ -114,10 +115,20 @@ function isSafeRelativePath(path: string): boolean {
 }
 
 /**
+ * An artifact ready to serve: images and text as their bytes, other files as
+ * a stream. The `stream` factory owns an open file handle and must be called
+ * exactly once; the stream closes the handle when it ends or is destroyed.
+ */
+export type ArtifactContent =
+  | { kind: "image" | "text"; contentType: string; size: number; body: Buffer }
+  | { kind: "file"; contentType: string; size: number; stream: () => Readable };
+
+/**
  * The files an implementer saved to `.blackwall/artifacts/` in a task's
  * worktree. The files are untrusted agent output: they are never read through
- * a symlink or above {@link MAX_ARTIFACT_BYTES}, dotfiles are skipped, and
- * each gets a type from {@link artifactKindOf} that can't run as script.
+ * a symlink, images and text above {@link MAX_ARTIFACT_BYTES} are refused and
+ * other files stream, dotfiles are skipped, and each gets a type from
+ * {@link artifactKindOf} that can't run as script.
  */
 export function createTaskArtifacts() {
   return {
@@ -144,22 +155,35 @@ export function createTaskArtifacts() {
       return artifacts.sort((a, b) => b.modifiedAt.getTime() - a.modifiedAt.getTime());
     },
 
-    /** One artifact's bytes and how to serve them, or null when it is missing, unsafe or too large. */
-    async read(
-      task: Task,
-      path: string,
-    ): Promise<{ body: Buffer; contentType: string; kind: ArtifactKind } | null> {
+    /**
+     * One artifact and how to serve it, or null when it is missing, unsafe, or
+     * an image or text file over the cap. Other files come as a stream.
+     */
+    async read(task: Task, path: string): Promise<ArtifactContent | null> {
       if (!task.worktreePath || !isSafeRelativePath(path)) return null;
+      let handle: FileHandle | undefined;
+      let keepOpen = false;
       try {
         const dir = await realpath(join(task.worktreePath, ARTIFACTS_DIR));
         const file = await realpath(join(dir, path));
         // Any symlink on the way resolves elsewhere: refuse it.
         if (file !== resolve(dir, path)) return null;
-        const info = await stat(file);
-        if (!info.isFile() || info.size > MAX_ARTIFACT_BYTES) return null;
-        return { body: await readFile(file), ...artifactKindOf(path) };
+        // Size and bytes come from the same open file.
+        handle = await open(file, "r");
+        const info = await handle.stat();
+        if (!info.isFile()) return null;
+        const { kind, contentType } = artifactKindOf(path);
+        if (kind === "file") {
+          const opened = handle;
+          keepOpen = true;
+          return { kind, contentType, size: info.size, stream: () => opened.createReadStream() };
+        }
+        if (info.size > MAX_ARTIFACT_BYTES) return null;
+        return { kind, contentType, size: info.size, body: await handle.readFile() };
       } catch {
         return null;
+      } finally {
+        if (handle && !keepOpen) await handle.close().catch(() => {});
       }
     },
   };

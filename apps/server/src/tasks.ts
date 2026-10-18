@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { Readable } from "node:stream";
 import {
   DeliveryError,
   InvalidGateResponseError,
@@ -420,6 +421,7 @@ export function taskRoutes(
     /**
      * One artifact's bytes. Untrusted, so only as a raster image, `text/plain`
      * or an octet-stream download, always with `nosniff` and a sandboxing CSP.
+     * Downloads are streamed, so they have no size cap.
      */
     routes.get("/:id/artifacts/:path{.+}", async (c) => {
       const id = c.req.param("id");
@@ -430,13 +432,18 @@ export function taskRoutes(
       if (!file) return c.json({ error: `Artifact ${path} not found` }, 404);
       const name = encodeURIComponent(path.slice(path.lastIndexOf("/") + 1));
       const disposition = file.kind === "file" ? "attachment" : "inline";
-      return c.body(new Uint8Array(file.body), 200, {
+      const headers = {
         "Content-Type": file.contentType,
         "Content-Disposition": `${disposition}; filename*=UTF-8''${name}`,
         "Content-Security-Policy": "default-src 'none'; sandbox",
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "no-cache",
-      });
+      };
+      if (file.kind === "file") {
+        const body = Readable.toWeb(file.stream()) as unknown as ReadableStream;
+        return c.body(body, 200, { ...headers, "Content-Length": String(file.size) });
+      }
+      return c.body(new Uint8Array(file.body), 200, headers);
     });
   }
 
