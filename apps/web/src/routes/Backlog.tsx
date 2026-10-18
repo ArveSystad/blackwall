@@ -1061,25 +1061,6 @@ export function Backlog({
               ) : (
                 <p className="m-0 px-1.5 text-label text-faint">No archived tasks</p>
               ))}
-            {sections.items.length > 0 && (
-              <p className="m-0 flex flex-wrap items-center gap-x-3 gap-y-1 px-1.5 text-label text-faint">
-                <span>
-                  <Kbd>J</Kbd> <Kbd>K</Kbd> move
-                </span>
-                <span>
-                  <Kbd>Alt ↑</Kbd> <Kbd>Alt ↓</Kbd> reorder
-                </span>
-                <span>
-                  <Kbd>↵</Kbd> open
-                </span>
-                <span>
-                  <Kbd>P</Kbd> pause
-                </span>
-                <span>
-                  <Kbd>Del</Kbd> delete
-                </span>
-              </p>
-            )}
           </>
         )}
       </div>
