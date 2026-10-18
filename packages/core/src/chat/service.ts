@@ -23,7 +23,7 @@ import {
 } from "../agents/prompts.js";
 import type { Repositories } from "../db/repositories.js";
 import { TaskNotFoundError, TaskStateError } from "../pipeline/engine.js";
-import { referenceReposOf, RepoNotFoundError } from "../repos/service.js";
+import { referenceReposFrom, referenceReposOf, RepoNotFoundError } from "../repos/service.js";
 
 /** A message sent while the chat still answers the previous one. Maps to 409 like a task state conflict. */
 export class ChatBusyError extends TaskStateError {
@@ -117,8 +117,9 @@ function message(role: ChatMessage["role"], text: string, actions: ChatAction[] 
  * and loaded on first use. A task's conversation always focuses that task
  * (archived ones too); the repo's never has a focused task. Each message runs
  * the repo's default CLI once, headless and read-only in the repo's checkout,
- * or in the focused task's worktree when it has one on disk, continuing the
- * conversation's CLI session; when that session cannot
+ * or in the focused task's worktree when it has one on disk, and may read the
+ * task's reference repos (the repo's in the repo's conversation), continuing
+ * the conversation's CLI session; when that session cannot
  * be resumed or ran in another directory, the prompt carries the last
  * `historyLimit` messages instead. The agent answers with a markdown reply
  * and proposed actions; the user applies those through the existing endpoints
@@ -278,7 +279,10 @@ export function createChatService({
         .flatMap((m) => (m.role === "error" ? [] : [{ role: m.role, text: m.text }]))
         .slice(-historyLimit);
       const model = modelFor(cli);
-      const refs = referenceReposOf(repos, repo.id);
+      // A task's conversation reads the task's own reference repos, like its agents; the repo's reads the repo's.
+      const refs = focusTask
+        ? referenceReposFrom(repos, focusTask.repoId, focusTask.referenceRepoIds)
+        : referenceReposOf(repos, repo.id);
 
       const attempt = async (resumeSessionId?: string): Promise<AgentResult> => {
         const run = adapter.run({

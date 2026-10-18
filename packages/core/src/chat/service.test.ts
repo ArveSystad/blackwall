@@ -123,6 +123,38 @@ describe("chat service", () => {
     expect(options?.systemPrompt).not.toContain("/code/other");
   });
 
+  it("reads the task's own reference repos in its chat, not the repo's", async () => {
+    const lib = r.repos.create({ path: tmpdir(), name: "lib" });
+    const docs = r.repos.create({ path: worktree, name: "docs" });
+    r.repos.update(repoId, { referenceRepoIds: [lib.id] });
+    const task = r.tasks.create({
+      title: "Write guide",
+      origin: { kind: "free-text" },
+      repoId,
+      freeText: "Do Write guide",
+      agents: {},
+      status: "running",
+      referenceRepoIds: [docs.id],
+    });
+    const bare = addTask("No refs", repoId);
+
+    chat.send(repoId, "What does docs say?", task.id);
+    await idle(repoId, task.id);
+    const inTask = adapter.calls[0]?.options;
+    expect(inTask?.permissions.readDirs).toEqual([worktree]);
+    expect(inTask?.systemPrompt).toContain(`- docs: ${worktree}`);
+    expect(inTask?.systemPrompt).not.toContain("- lib:");
+
+    chat.send(repoId, "And lib?");
+    await idle();
+    expect(adapter.calls[1]?.options.permissions.readDirs).toEqual([tmpdir()]);
+
+    // A task without reference repos reads none, even though the repo has some.
+    chat.send(repoId, "Anything?", bare.id);
+    await idle(repoId, bare.id);
+    expect(adapter.calls[2]?.options.permissions.readDirs).toEqual([]);
+  });
+
   it("lists only this repo's unarchived tasks and backlog in the prompt", async () => {
     const mine = addTask("Add dark mode", repoId);
     const archived = addTask("Old work", repoId);
