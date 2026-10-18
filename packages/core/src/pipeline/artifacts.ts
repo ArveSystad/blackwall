@@ -168,6 +168,8 @@ export function createTaskArtifacts() {
         const file = await realpath(join(dir, path));
         // Any symlink on the way resolves elsewhere: refuse it.
         if (file !== resolve(dir, path)) return null;
+        // Refuse special files before opening: opening a FIFO blocks.
+        if (!(await stat(file)).isFile()) return null;
         // Size and bytes come from the same open file.
         handle = await open(file, "r");
         const info = await handle.stat();
