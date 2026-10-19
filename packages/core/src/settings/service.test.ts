@@ -3,7 +3,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createAgentService } from "../agents/service.js";
 import { openDatabase, type OpenedDatabase } from "../db/database.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
-import { InvalidSettingsError, createSettingsService, type SettingsService } from "./service.js";
+import {
+  InvalidSettingsError,
+  createSettingsService,
+  repoBacklogRunnerKey,
+  type SettingsService,
+} from "./service.js";
 
 let opened: OpenedDatabase;
 let r: Repositories;
@@ -119,6 +124,7 @@ describe("repo backlog runner", () => {
       enabled: true,
       haltedTaskId: null,
       haltedAt: null,
+      autonomous: false,
     });
     service.setRepoBacklogRunnerEnabled("r1", false);
     const at = new Date("2026-10-09T10:00:00Z");
@@ -127,12 +133,40 @@ describe("repo backlog runner", () => {
       enabled: false,
       haltedTaskId: "t1",
       haltedAt: at,
+      autonomous: false,
     });
     expect(service.repoBacklogRunner("r2").enabled).toBe(true);
     expect(service.setRepoBacklogHalt("r1", null)).toEqual({
       enabled: false,
       haltedTaskId: null,
       haltedAt: null,
+      autonomous: false,
     });
+  });
+
+  it("switches autonomous mode per repo, keeping the switch and halt", () => {
+    const at = new Date("2026-10-09T10:00:00Z");
+    service.setRepoBacklogRunnerEnabled("r1", false);
+    service.setRepoBacklogHalt("r1", "t1", at);
+    expect(service.setRepoBacklogAutonomous("r1", true)).toEqual({
+      enabled: false,
+      haltedTaskId: "t1",
+      haltedAt: at,
+      autonomous: true,
+    });
+    expect(service.repoBacklogRunner("r1").autonomous).toBe(true);
+    expect(service.repoBacklogRunner("r2").autonomous).toBe(false);
+    // Turning the runner on again keeps autonomy.
+    expect(service.setRepoBacklogRunnerEnabled("r1", true).autonomous).toBe(true);
+    expect(service.setRepoBacklogAutonomous("r1", false).autonomous).toBe(false);
+  });
+
+  it("reads a stored row from before autonomous mode as not autonomous", () => {
+    r.settings.set(repoBacklogRunnerKey("r1"), {
+      enabled: false,
+      haltedTaskId: null,
+      haltedAt: null,
+    });
+    expect(service.repoBacklogRunner("r1")).toMatchObject({ enabled: false, autonomous: false });
   });
 });

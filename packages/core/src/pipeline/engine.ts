@@ -11,7 +11,9 @@ import {
   type AgentCli,
   type AgentTrust,
   type DeliveryConfirmation,
+  type DeliveryConfirmationInput,
   type DeliveryPlan,
+  type DeliveryTarget,
   type DiffCommentsInput,
   type DiffCommentsResult,
   type Finding,
@@ -66,6 +68,7 @@ import {
   type StepUsageColumns,
 } from "./usage.js";
 import {
+  NO_HUMAN_ANSWER,
   ciFailureFinding,
   commitKey,
   commitMessage,
@@ -198,6 +201,8 @@ export interface StageContext {
   /** Aborted on shutdown. */
   readonly signal: AbortSignal;
   readonly repositories: Repositories;
+  /** No human is in the loop: the planner answers every grill question itself. */
+  readonly autonomous: boolean;
   /**
    * Runs one agent as a step of this stage, persisting and broadcasting its
    * events as they stream. On resume, a step that already succeeded in this
@@ -279,6 +284,41 @@ export interface PipelineEngineOptions {
    * by design. Without the port there is none either (tests only).
    */
   worktreeGuard?: Pick<GitService, "snapshotWorktree" | "restoreWorktree">;
+  /**
+   * Whether agents make every decision for the task (its repo is autonomous
+   * and the task came from the repo's backlog). Read live at each gate; off
+   * by default.
+   */
+  autonomous?: (task: Task) => boolean;
+}
+
+/** The only delivery actions autonomous mode takes: nothing leaves the machine. */
+export const LOCAL_DELIVERY: readonly DeliveryTarget[] = ["merge-main", "create-tasks"];
+
+/**
+ * The finish confirmation autonomous mode gives a delivery plan: the local
+ * merge when due, and every offered follow-up, never a push, PR or comment.
+ * Null when the plan offers only outbound code routes (no local merge), so
+ * the task waits at finish for the user.
+ */
+export function localDelivery(plan: DeliveryPlan): DeliveryConfirmationInput | null {
+  const offered = new Set(plan.actions.map((a) => a.kind));
+  const done = new Set<string>(plan.completed);
+  const outboundCode = offered.has("push-branch") || offered.has("open-pr");
+  if (outboundCode && !offered.has("merge-main")) return null;
+  const actions: DeliveryTarget[] = [];
+  if (offered.has("merge-main") && !done.has("merge-main")) actions.push("merge-main");
+  const createTasks = plan.actions.find((a) => a.kind === "create-tasks");
+  const followUpIndexes =
+    createTasks && createTasks.items.length > 0 && !done.has("create-tasks")
+      ? createTasks.items.map((_, index) => index)
+      : [];
+  if (followUpIndexes.length > 0) actions.push("create-tasks");
+  return {
+    actions: actions.filter((a) => LOCAL_DELIVERY.includes(a)),
+    squash: false,
+    followUpIndexes,
+  };
 }
 
 /** A read-only agent step under Trusted left the worktree changed; the harness put it back. */
@@ -343,9 +383,12 @@ export function createPipelineEngine({
   prFeedback,
   prBranchOwned,
   worktreeGuard,
+  autonomous = () => false,
 }: PipelineEngineOptions) {
   const scheduler = createScheduler({ maxPerRepo: maxTasksPerRepo });
   const drives = new Map<string, Promise<void>>();
+  /** Autonomous gate answers in flight after a drive (see {@link autopilot}). */
+  const autopilots = new Set<Promise<void>>();
   const controllers = new Map<string, AbortController>();
   const pending = new Map<string, Pending>();
   /** Tasks whose delivery is in flight; a second confirmation must not run it twice. */
@@ -514,6 +557,7 @@ export function createPipelineEngine({
       guidance,
       signal,
       repositories: r,
+      autonomous: autonomous(task),
       publish,
       updateTask(patch: TaskPatch): Task {
         ctx.task = saveTask(task.id, patch);
@@ -1008,6 +1052,11 @@ export function createPipelineEngine({
           drives.delete(id);
           scheduler.release(id);
           pump();
+          const piloted = autopilot(id).catch((error: unknown) =>
+            log(`Task ${id}: autonomous mode failed: ${errorMessage(error)}`),
+          );
+          autopilots.add(piloted);
+          void piloted.finally(() => autopilots.delete(piloted));
         });
       drives.set(id, done);
     }
@@ -1218,6 +1267,51 @@ export function createPipelineEngine({
     }
   }
 
+  /**
+   * Autonomous mode: answers the gate a `needs-you` work task waits on as an
+   * agent would, through {@link respond} so every check still applies. Open
+   * questions get {@link NO_HUMAN_ANSWER}; plan approval and triage are
+   * approved; finish delivers locally only (see {@link localDelivery}).
+   * Escalations, and finishes with only outbound routes, wait for the user.
+   */
+  async function autopilot(taskId: string): Promise<void> {
+    if (stopped) return;
+    const task = r.tasks.get(taskId);
+    if (!task || task.status !== "needs-you" || task.delivering || !task.gate) return;
+    if (pipelineKind(task.mode) !== "work" || !autonomous(task)) return;
+    if (delivering.has(taskId) || commenting.has(taskId)) return;
+    const gate = task.gate;
+    switch (gate) {
+      case "questions": {
+        for (const q of r.grillQuestions.listByTask(taskId)) {
+          if (!q.needsHuman || q.answer !== null) continue;
+          const question = r.grillQuestions.answer(q.id, NO_HUMAN_ANSWER, "agent");
+          publish({ type: "grill.upserted", payload: { question } });
+        }
+        await respond(taskId, { gate, decision: "approve" });
+        break;
+      }
+      case "plan-approval":
+      case "triage":
+        await respond(taskId, { gate, decision: "approve" });
+        break;
+      case "finish": {
+        const confirmation = localDelivery(
+          await delivery.plan(task, completedDeliveries(latestRun(taskId))),
+        );
+        if (!confirmation) {
+          log(`Task ${taskId}: autonomous finish left for the user (no local merge offered)`);
+          return;
+        }
+        await respond(taskId, { gate, decision: "approve", delivery: confirmation });
+        break;
+      }
+      case "escalation":
+        return;
+    }
+    log(`Task ${taskId}: autonomous ${gate} approve`);
+  }
+
   return {
     /** Creates a task from the new task form and queues it to start when a slot is free. */
     createTask(values: NewTaskValues): Task {
@@ -1237,6 +1331,20 @@ export function createPipelineEngine({
     },
 
     respond,
+
+    /**
+     * Runs autonomous mode on every task of the repo waiting at a gate: those
+     * that reached it before autonomy was switched on, or before a restart.
+     * Errors are logged per task.
+     */
+    async autopilotRepo(repoId: string): Promise<void> {
+      const waiting = r.tasks.list().filter((t) => t.repoId === repoId && t.status === "needs-you");
+      for (const task of waiting) {
+        await autopilot(task.id).catch((error: unknown) =>
+          log(`Task ${task.id}: autonomous mode failed: ${errorMessage(error)}`),
+        );
+      }
+    },
 
     /**
      * What finishing the task would do, each action with its exact target,
@@ -1621,9 +1729,11 @@ export function createPipelineEngine({
       await Promise.all(drives.values());
     },
 
-    /** Resolves when no task is running (tests). */
+    /** Resolves when no task is running and no autonomous answer is pending (tests). */
     async idle(): Promise<void> {
-      while (drives.size > 0) await Promise.all(drives.values());
+      while (drives.size > 0 || autopilots.size > 0) {
+        await Promise.all([...drives.values(), ...autopilots]);
+      }
     },
 
     /** Ids of running tasks and of tasks waiting for a slot. */

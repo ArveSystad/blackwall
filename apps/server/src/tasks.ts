@@ -64,6 +64,7 @@ export type TaskPipeline = Pick<
   | "deliveryPlan"
   | "fixCi"
   | "fixPrComments"
+  | "autopilotRepo"
 >;
 
 export interface TaskRouteStores {

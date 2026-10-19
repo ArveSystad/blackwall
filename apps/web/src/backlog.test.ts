@@ -252,7 +252,12 @@ describe("rowAction", () => {
 
 describe("runnerStatus", () => {
   const now = new Date("2026-10-08T12:00:00Z");
-  const runner: RepoBacklogRunner = { enabled: true, haltedTaskId: null, haltedAt: null };
+  const runner: RepoBacklogRunner = {
+    enabled: true,
+    haltedTaskId: null,
+    haltedAt: null,
+    autonomous: false,
+  };
   const settings = {
     backlogRunner: true,
     maxTasksPerRepo: 3,

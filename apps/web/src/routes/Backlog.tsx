@@ -101,21 +101,30 @@ const RUNNER_TONES: Record<RunnerStatus["tone"], { text: string; dot: string }> 
   halted: { text: "text-failed", dot: "bg-failed" },
 };
 
-/** Says why the runner is or isn't promoting something; switches it per repo and resumes a halt. */
+/**
+ * Says why the runner is or isn't promoting something; switches it and
+ * autonomous mode per repo (autonomy only after a confirmation) and resumes a halt.
+ */
 function RunnerBar({
   repoId,
   status,
   enabled,
+  autonomous,
+  defaultBranch,
   globalOn,
 }: {
   repoId: string;
   status: RunnerStatus | null;
   enabled: boolean | undefined;
+  autonomous: boolean | undefined;
+  /** The repo's default branch, named in the autonomy confirmation. */
+  defaultBranch: string;
   globalOn: boolean;
 }) {
   const queryClient = useQueryClient();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
 
   async function act(action: () => Promise<unknown>) {
     setPending(true);
@@ -156,6 +165,11 @@ function RunnerBar({
           )}
           <span className={cn("font-semibold", tone.text)}>{status.label}</span>
           <span className="truncate text-foreground">{status.detail}</span>
+          {autonomous && (
+            <span className="font-semibold whitespace-nowrap text-magenta">
+              Autonomous · local only
+            </span>
+          )}
           {status.haltedTaskId && (
             <Link
               to="/tasks/$taskId"
@@ -195,11 +209,49 @@ function RunnerBar({
             disabled={pending}
             onChange={(event) => {
               const next = event.target.checked;
-              void act(() => setBacklogRunner(repoId, next));
+              void act(() => setBacklogRunner(repoId, { enabled: next }));
             }}
           />
           Run this repo&apos;s backlog
         </label>
+      )}
+      {autonomous !== undefined && (
+        <label
+          className="bw-chamfer bw-chamfer-pill bw-chamfer-has-focus inline-flex h-6 cursor-pointer items-center gap-1.5 px-1.5 text-body text-foreground"
+          title="Agents make every decision for this repo's backlog tasks; local only"
+        >
+          <input
+            type="checkbox"
+            className="focus:outline-none"
+            checked={autonomous}
+            disabled={pending}
+            onChange={(event) => {
+              // Switching on asks first; switching off applies at once.
+              if (event.target.checked) setConfirming(true);
+              else void act(() => setBacklogRunner(repoId, { autonomous: false }));
+            }}
+          />
+          Autonomous
+        </label>
+      )}
+      {confirming && (
+        <ConfirmDialog
+          title="Go autonomous"
+          confirmLabel="Go autonomous"
+          confirmVariant="destructive"
+          onClose={() => setConfirming(false)}
+          onConfirm={async () => {
+            await setBacklogRunner(repoId, { autonomous: true });
+            await queryClient.invalidateQueries({ queryKey: queryKeys.backlogRunner(repoId) });
+          }}
+        >
+          Agents will answer their own questions, approve plans and triage, merge finished work into
+          the local {defaultBranch} and create follow-up tasks, with no review.{" "}
+          <strong>Local only:</strong> it never pushes branches, opens pull requests or posts
+          anywhere, because PRs and their reviews would stop the autonomy. Local {defaultBranch}{" "}
+          will get ahead of origin until you push. Escalations, and tasks whose only finish is
+          outbound (issue, Jira or PR origins), still wait for you.
+        </ConfirmDialog>
       )}
     </div>
   );
@@ -855,6 +907,8 @@ export function Backlog({
         repoId={repoId}
         status={status}
         enabled={runner.data?.enabled}
+        autonomous={runner.data?.autonomous}
+        defaultBranch={repo?.defaultBranch ?? "main"}
         globalOn={settings.data?.backlogRunner ?? true}
       />
 

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  repoBacklogRunnerSchema,
+  repoBacklogRunnerUpdateSchema,
   stepSchema,
   chatActionProposalSchema,
   chatReplyJsonSchema,
@@ -387,6 +389,20 @@ describe("newTaskInputSchema", () => {
         assignToMe: false,
       }).success,
     ).toBe(true);
+  });
+});
+
+describe("repo backlog runner", () => {
+  it("is not autonomous unless switched on", () => {
+    expect(repoBacklogRunnerSchema.parse({}).autonomous).toBe(false);
+    expect(repoBacklogRunnerSchema.parse({ autonomous: true }).autonomous).toBe(true);
+  });
+
+  it("takes an update that sets the switch, autonomy or both", () => {
+    expect(repoBacklogRunnerUpdateSchema.parse({ autonomous: true })).toEqual({ autonomous: true });
+    expect(repoBacklogRunnerUpdateSchema.parse({ enabled: false })).toEqual({ enabled: false });
+    expect(repoBacklogRunnerUpdateSchema.safeParse({}).success).toBe(false);
+    expect(repoBacklogRunnerUpdateSchema.safeParse({ autonomous: "yes" }).success).toBe(false);
   });
 });
 

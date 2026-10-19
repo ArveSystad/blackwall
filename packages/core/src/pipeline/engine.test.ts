@@ -8,6 +8,8 @@ import {
   MAX_GRILL_ROUNDS,
   TASK_STOPPED_ERROR,
   type AgentCli,
+  type DeliveryAction,
+  type DeliveryPlan,
   type ReviewFinding,
   type ServerEvent,
   type Stage,
@@ -30,6 +32,7 @@ import {
   TaskNotFoundError,
   TaskStateError,
   createPipelineEngine,
+  localDelivery,
   type StageHandlers,
 } from "./engine.js";
 import { createFakeAdapter, type FakeScript } from "./fake-adapter.js";
@@ -49,7 +52,13 @@ import type { CheckOutcome, CheckRunner } from "./checks.js";
 import type { PullRequestFeedback, PullRequestFeedbackThread } from "./pr-feedback.js";
 import type { WorkspaceSync } from "./workspace.js";
 import { InvalidGateResponseError } from "./transitions.js";
-import { commitKey, commitMessage, createDefaultStages, diffCommentFinding } from "./stages.js";
+import {
+  NO_HUMAN_ANSWER,
+  commitKey,
+  commitMessage,
+  createDefaultStages,
+  diffCommentFinding,
+} from "./stages.js";
 
 let dir: string;
 let opened: OpenedDatabase;
@@ -150,6 +159,8 @@ function harness(
     worktreeGuard,
     syncWorkspace,
     log = () => undefined,
+    autonomous,
+    planActions = [],
   }: {
     stages?: StageHandlers;
     maxPerRepo?: number;
@@ -166,6 +177,9 @@ function harness(
     worktreeGuard?: Pick<GitService, "snapshotWorktree" | "restoreWorktree">;
     syncWorkspace?: (task: Task) => Promise<WorkspaceSync | null>;
     log?: (message: string) => void;
+    autonomous?: (task: Task) => boolean;
+    /** The delivery actions offered at finish (none by default). */
+    planActions?: DeliveryAction[];
   } = {},
 ): Harness {
   const agents = agentService();
@@ -194,7 +208,7 @@ function harness(
       })),
     delivery: {
       plan: async (_task, completed) => ({
-        actions: [],
+        actions: planActions,
         squash: null,
         completed: completed.filter((c) => c !== "squash"),
       }),
@@ -215,6 +229,7 @@ function harness(
     ...(prBranchOwned ? { prBranchOwned } : {}),
     ...(worktreeGuard ? { worktreeGuard } : {}),
     ...(syncWorkspace ? { syncWorkspace } : {}),
+    ...(autonomous ? { autonomous } : {}),
     publish: (event) => events.push(event),
     log,
   });
@@ -4327,5 +4342,217 @@ describe("read-only backstop under Trusted", () => {
     await settle(h.engine);
     // No backstop under Locked: the file the summarizer planted stays (Locked's flags stop it).
     expect(existsSync(join(repo, "extra.txt"))).toBe(true);
+  });
+});
+
+describe("autonomous mode", () => {
+  const merge: DeliveryAction = { kind: "merge-main", branch: "agent/x", into: "main" };
+  const push: DeliveryAction = { kind: "push-branch", branch: "agent/x", remote: "origin" };
+  const pr: DeliveryAction = {
+    kind: "open-pr",
+    host: "github.com",
+    owner: "acme",
+    repo: "app",
+    head: "agent/x",
+    base: "main",
+    title: "Fix login",
+    body: "",
+  };
+  const createTasks: DeliveryAction = {
+    kind: "create-tasks",
+    items: [1, 2].map((n) => ({
+      title: `Task ${n}`,
+      description: `Do ${n}`,
+      repoId: "r1",
+      repoName: "app",
+    })),
+  };
+  const recording = async (ctx: DeliveryContext) => {
+    for (const action of ctx.confirmation.actions) ctx.record({ action, detail: action });
+  };
+
+  it("runs a task to done, merging locally and creating follow-ups, never pushing", async () => {
+    const h = harness(() => ({}), {
+      autonomous: () => true,
+      // A GitHub remote: the push and PR are offered next to the local merge.
+      planActions: [merge, push, pr, createTasks],
+      deliver: recording,
+    });
+    const seeded = seedTask();
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+
+    expect(task(seeded.id)).toMatchObject({
+      status: "done",
+      deliveryTargets: ["merge-main", "create-tasks"],
+    });
+    expect(h.deliveries).toHaveLength(1);
+    expect(h.deliveries[0]!.confirmation).toMatchObject({
+      actions: ["merge-main", "create-tasks"],
+      squash: false,
+      followUpIndexes: [0, 1],
+    });
+  });
+
+  it("finishes with no actions when nothing local is offered", async () => {
+    const h = harness(() => ({}), { autonomous: () => true, deliver: recording });
+    const seeded = seedTask();
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "done", deliveryTargets: [] });
+    expect(h.deliveries[0]!.confirmation.actions).toEqual([]);
+  });
+
+  it("passes a paused triage", async () => {
+    let reviews = 0;
+    const h = harness(
+      (stage) =>
+        stage === "code-review"
+          ? { structured: { findings: reviews++ === 0 ? [highFinding] : [] } }
+          : {},
+      { autonomous: () => true, planActions: [merge], deliver: recording },
+    );
+    const seeded = seedTask({ triageMode: "pause" });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "done", deliveryTargets: ["merge-main"] });
+    expect(h.calls.filter((c) => c.stage === "implement")).toHaveLength(2);
+  });
+
+  it("leaves an escalation to the user", async () => {
+    const h = harness(
+      (stage) => (stage === "code-review" ? { structured: { findings: [highFinding] } } : {}),
+      { autonomous: () => true, planActions: [merge] },
+    );
+    const seeded = seedTask();
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "escalation" });
+    expect(h.deliveries).toEqual([]);
+  });
+
+  it("leaves a finish that offers only a push and PR to the user", async () => {
+    const h = harness(() => ({}), { autonomous: () => true, planActions: [push, pr] });
+    const seeded = seedTask();
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
+    expect(h.deliveries).toEqual([]);
+  });
+
+  it("changes nothing when the task is not autonomous", async () => {
+    const h = harness(() => ({}), { autonomous: () => false, planActions: [merge] });
+    const seeded = seedTask();
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "plan-approval" });
+  });
+
+  it("has the planner answer every question, the user's included", async () => {
+    let grills = 0;
+    const h = harness(
+      (stage) => {
+        if (stage === "plan-review" && grills++ === 0) {
+          return {
+            structured: {
+              questions: [
+                { question: "Lock after how many tries?", needsHuman: true },
+                { question: "Which file?", needsHuman: false },
+              ],
+            },
+          };
+        }
+        if (stage === "plan-answers") {
+          return {
+            structured: {
+              answers: [
+                { question: 1, answer: "Five" },
+                { question: 2, answer: null },
+              ],
+              plan: "revised plan",
+            },
+          };
+        }
+        return {};
+      },
+      { autonomous: () => true },
+    );
+    const seeded = seedTask();
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+
+    expect(task(seeded.id).status).toBe("done");
+    expect(r.grillQuestions.listByTask(seeded.id)).toMatchObject([
+      { needsHuman: true, answer: "Five", answeredBy: "agent" },
+      { answer: NO_HUMAN_ANSWER, answeredBy: "agent" },
+    ]);
+    const answers = h.calls.find((c) => c.stage === "plan-answers")!.options.prompt;
+    expect(answers).toContain("No human is in the loop");
+  });
+
+  it("moves on tasks already waiting at a gate when autonomy is switched on", async () => {
+    let on = false;
+    let grills = 0;
+    const h = harness(
+      (stage) => {
+        if (stage === "plan-review" && grills++ === 0) {
+          return { structured: { questions: [{ question: "Lock?", needsHuman: true }] } };
+        }
+        return {};
+      },
+      // One at a time: both tasks share the test's worktree.
+      { autonomous: () => on, planActions: [merge], deliver: recording, maxPerRepo: 1 },
+    );
+    const asking = seedTask();
+    h.engine.enqueue(asking.id);
+    await settle(h.engine);
+    expect(task(asking.id)).toMatchObject({ status: "needs-you", gate: "questions" });
+    const approving = seedTask({ title: "Other", branch: "agent/other" });
+    h.engine.enqueue(approving.id);
+    await settle(h.engine);
+    expect(task(approving.id)).toMatchObject({ status: "needs-you", gate: "plan-approval" });
+
+    on = true;
+    await h.engine.autopilotRepo(asking.repoId);
+    await settle(h.engine);
+
+    expect(r.grillQuestions.listByTask(asking.id)).toMatchObject([
+      { answer: NO_HUMAN_ANSWER, answeredBy: "agent" },
+    ]);
+    expect(h.calls.filter((c) => c.stage === "plan-review")).toHaveLength(3);
+    for (const id of [asking.id, approving.id]) {
+      expect(task(id)).toMatchObject({ status: "done", deliveryTargets: ["merge-main"] });
+    }
+  });
+});
+
+describe("localDelivery", () => {
+  it("keeps only the local merge and the follow-ups", () => {
+    const plan = (actions: DeliveryAction[], completed: DeliveryPlan["completed"] = []) => ({
+      actions,
+      squash: null,
+      completed,
+    });
+    const merge: DeliveryAction = { kind: "merge-main", branch: "b", into: "main" };
+    const push: DeliveryAction = { kind: "push-branch", branch: "b", remote: "origin" };
+    const comment: DeliveryAction = { kind: "issue-comment", url: "u", body: "b" };
+    const follow: DeliveryAction = {
+      kind: "create-tasks",
+      items: [{ title: "t", description: "d", repoId: "r", repoName: "app" }],
+    };
+    expect(localDelivery(plan([merge, push, follow]))).toEqual({
+      actions: ["merge-main", "create-tasks"],
+      squash: false,
+      followUpIndexes: [0],
+    });
+    // A retry skips what was done.
+    expect(localDelivery(plan([merge, follow], ["merge-main"]))).toEqual({
+      actions: ["create-tasks"],
+      squash: false,
+      followUpIndexes: [0],
+    });
+    // No commits leave no code route: only the follow-ups; the comment is never posted.
+    expect(localDelivery(plan([comment, follow]))).toMatchObject({ actions: ["create-tasks"] });
+    expect(localDelivery(plan([push, comment, follow]))).toBeNull();
   });
 });

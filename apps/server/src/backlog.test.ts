@@ -31,6 +31,7 @@ let repositories: Repositories;
 let app: Hono;
 let events: ServerEvent[];
 let createTask: ReturnType<typeof vi.fn<TaskPipeline["createTask"]>>;
+let autopilotRepo: ReturnType<typeof vi.fn<TaskPipeline["autopilotRepo"]>>;
 let repoId: string;
 let settings: ReturnType<typeof createSettingsService>;
 let newTask: NewTaskServices;
@@ -41,6 +42,7 @@ beforeEach(() => {
   repoId = repositories.repos.create({ path: "/code/app", name: "app" }).id;
   events = [];
   createTask = vi.fn((values) => repositories.tasks.create({ ...values, status: "queued" }));
+  autopilotRepo = vi.fn(async () => undefined);
   settings = createSettingsService({ settings: repositories.settings, tags: repositories.tags });
   newTask = {
     repos: {
@@ -65,7 +67,7 @@ function mount() {
       },
       {
         broadcast: (event) => events.push(event),
-        pipeline: { createTask },
+        pipeline: { createTask, autopilotRepo },
         newTask,
         runner: settings,
       },
@@ -703,7 +705,28 @@ describe("backlog runner routes", () => {
       enabled: true,
       haltedTaskId: null,
       haltedAt: null,
+      autonomous: false,
     });
+  });
+
+  it("switches autonomous mode on, moving on tasks already at a gate, and off", async () => {
+    const on = await request("/runner", { method: "PATCH", body: { autonomous: true } });
+    expect(await runnerState(on)).toMatchObject({ enabled: true, autonomous: true });
+    expect(settings.repoBacklogRunner(repoId).autonomous).toBe(true);
+    expect(autopilotRepo).toHaveBeenCalledExactlyOnceWith(repoId);
+    expect(events).toEqual([{ type: "backlog.changed", payload: { repoId } }]);
+
+    const off = await request("/runner", { method: "PATCH", body: { autonomous: false } });
+    expect(await runnerState(off)).toMatchObject({ autonomous: false });
+    expect(autopilotRepo).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a runner update with nothing or the wrong type to set", async () => {
+    for (const body of [{}, { autonomous: "yes" }]) {
+      expect((await request("/runner", { method: "PATCH", body })).status).toBe(400);
+    }
+    expect(settings.repoBacklogRunner(repoId).autonomous).toBe(false);
+    expect(autopilotRepo).not.toHaveBeenCalled();
   });
 
   it("switches the repo's runner off and announces it", async () => {

@@ -202,6 +202,10 @@ function questionsByVisit(
   });
 }
 
+/** The answer recorded for a question no one answered in autonomous mode. */
+export const NO_HUMAN_ANSWER =
+  "No human in the loop; the planner proceeds with the plan as written.";
+
 const openHumanQuestions = (questions: readonly GrillQuestion[]) =>
   questions.filter((q) => q.needsHuman && q.answer === null).length;
 
@@ -316,8 +320,14 @@ async function planReview(ctx: StageContext): Promise<StageResults["plan-review"
       section("Already answered", history.map(describeQuestion).join("\n")),
       section("Reviewers' questions", numbered),
       [
-        "Answer each question not marked (for the user) from the repository, by its number.",
-        "Answer null when only the user can decide; do not guess product or scope decisions.",
+        ...(ctx.autonomous
+          ? [
+              "No human is in the loop: answer every question by its number, including those marked (for the user), from the repository and your best judgement. Never answer null.",
+            ]
+          : [
+              "Answer each question not marked (for the user) from the repository, by its number.",
+              "Answer null when only the user can decide; do not guess product or scope decisions.",
+            ]),
         "Then revise the plan with your answers.",
         'Reply with a JSON object `{ "answers": [{ "question": 1, "answer": "…" }], "plan": "<the full revised plan in markdown>" }`.',
       ].join("\n"),
@@ -329,13 +339,16 @@ async function planReview(ctx: StageContext): Promise<StageResults["plan-review"
 
   const answers = new Map(parsed.data.answers.map((a) => [a.question, a.answer]));
   round.forEach((q, i) => {
-    // Questions flagged for a human are the user's to decide, never the planner's.
-    if (q.needsHuman) return;
+    // Questions flagged for a human are the user's to decide, never the planner's,
+    // unless the repo is autonomous: then the planner decides everything.
+    if (q.needsHuman && !ctx.autonomous) return;
     const answer = answers.get(i + 1) ?? null;
     const saved =
-      answer === null
-        ? repositories.grillQuestions.markNeedsHuman(q.id)
-        : repositories.grillQuestions.answer(q.id, answer, "agent");
+      answer !== null
+        ? repositories.grillQuestions.answer(q.id, answer, "agent")
+        : ctx.autonomous
+          ? repositories.grillQuestions.answer(q.id, NO_HUMAN_ANSWER, "agent")
+          : repositories.grillQuestions.markNeedsHuman(q.id);
     ctx.publish({ type: "grill.upserted", payload: { question: saved } });
   });
   ctx.updateTask({ plan: parsed.data.plan });

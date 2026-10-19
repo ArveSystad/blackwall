@@ -73,6 +73,7 @@ export function createSettingsService({ settings, tags }: SettingsServiceOptions
       enabled: value.enabled,
       haltedTaskId: value.haltedTaskId,
       haltedAt: value.haltedAt?.toISOString() ?? null,
+      autonomous: value.autonomous,
     });
     return repoBacklogRunner(repoId);
   }
@@ -110,6 +111,11 @@ export function createSettingsService({ settings, tags }: SettingsServiceOptions
     /** Switches a repo's backlog runner on or off. */
     setRepoBacklogRunnerEnabled(repoId: string, enabled: boolean): RepoBacklogRunner {
       return saveRepoBacklogRunner(repoId, { ...repoBacklogRunner(repoId), enabled });
+    },
+
+    /** Switches a repo's autonomous mode on or off (local only; see the schema). */
+    setRepoBacklogAutonomous(repoId: string, autonomous: boolean): RepoBacklogRunner {
+      return saveRepoBacklogRunner(repoId, { ...repoBacklogRunner(repoId), autonomous });
     },
 
     /** Halts a repo's backlog runner on a failed backlog task, or clears the halt (`null`). */

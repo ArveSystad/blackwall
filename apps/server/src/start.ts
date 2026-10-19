@@ -204,6 +204,10 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       prFeedback: github.pullRequestFeedback,
       prBranchOwned: github.prBranchOwned,
       worktreeGuard: git,
+      // Autonomous mode covers the repo's backlog tasks only, read live at each gate.
+      autonomous: (task) =>
+        settings.repoBacklogRunner(task.repoId).autonomous &&
+        repositories.backlogItems.list(task.repoId).some((item) => item.taskId === task.id),
     });
     // Runs before the database closes: kills the agent CLIs and marks their steps interrupted.
     shutdown.onShutdown(() => pipeline.shutdown());
@@ -302,6 +306,8 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
     // CI watches a previous process left pending resume, or time out.
     void ciWatcher.recover();
     backlogRunner.start();
+    // Autonomous repos' tasks left waiting at a gate by the previous process move on.
+    for (const repo of repositories.repos.list()) void pipeline.autopilotRepo(repo.id);
     return {
       launchUrl,
       port: actualPort,

@@ -37,10 +37,14 @@ export interface BacklogRouteStores {
   tasks: Pick<Repositories["tasks"], "get" | "list">;
 }
 
-/** The global backlog runner setting, and a repo's backlog runner switch and halt. */
+/** The global backlog runner setting, and a repo's backlog runner switch, autonomy and halt. */
 export type BacklogRunnerSettings = Pick<
   SettingsService,
-  "general" | "repoBacklogRunner" | "setRepoBacklogRunnerEnabled" | "setRepoBacklogHalt"
+  | "general"
+  | "repoBacklogRunner"
+  | "setRepoBacklogRunnerEnabled"
+  | "setRepoBacklogAutonomous"
+  | "setRepoBacklogHalt"
 >;
 
 /** The backlog routes' stores, plus the backlog runner's hooks. */
@@ -54,8 +58,11 @@ export interface BacklogRouteOptions extends BacklogRouteStores {
 export interface BacklogRouteServices {
   /** Sends an event to every connected client. */
   broadcast: (event: ServerEvent) => void;
-  /** Promotion ("run now"); omit to leave the run route out. */
-  pipeline?: Pick<TaskPipeline, "createTask">;
+  /**
+   * Promotion ("run now"; omit to leave the run route out), and the autonomous
+   * sweep when a repo's autonomy is switched on.
+   */
+  pipeline?: Pick<TaskPipeline, "createTask" | "autopilotRepo">;
   newTask?: NewTaskServices;
   runner?: BacklogRunnerSettings;
 }
@@ -251,9 +258,15 @@ export function backlogRoutes(
         await c.req.json().catch(() => undefined),
       );
       if (!input.success) return badRequest(c, input.error);
-      const state = runner.setRepoBacklogRunnerEnabled(repoId, input.data.enabled);
+      const { enabled, autonomous } = input.data;
+      const wasAutonomous = runner.repoBacklogRunner(repoId).autonomous;
+      if (enabled !== undefined) runner.setRepoBacklogRunnerEnabled(repoId, enabled);
+      if (autonomous !== undefined) runner.setRepoBacklogAutonomous(repoId, autonomous);
+      // Tasks already waiting at a gate move on without the user; a finish may
+      // take a while to deliver, so the response does not wait for it.
+      if (autonomous && !wasAutonomous) void pipeline?.autopilotRepo(repoId);
       changed(repoId);
-      return c.json<RepoBacklogRunner>(state);
+      return c.json<RepoBacklogRunner>(runner.repoBacklogRunner(repoId));
     });
 
     /** Clears a halt so the runner moves on with the backlog. */

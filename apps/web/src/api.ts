@@ -87,6 +87,7 @@ import {
   type PullRequestLookup,
   type QuotaState,
   type RepoBacklogRunner,
+  type RepoBacklogRunnerUpdate,
   type RepoIssues,
   type ResolveConnectionInput,
   type Repo,
@@ -596,10 +597,13 @@ export function getBacklogRunner(repoId: string): Promise<RepoBacklogRunner> {
   return request(`${backlogPath(repoId)}/runner`, repoBacklogRunnerSchema);
 }
 
-export function setBacklogRunner(repoId: string, enabled: boolean): Promise<RepoBacklogRunner> {
+export function setBacklogRunner(
+  repoId: string,
+  patch: RepoBacklogRunnerUpdate,
+): Promise<RepoBacklogRunner> {
   return request(`${backlogPath(repoId)}/runner`, repoBacklogRunnerSchema, {
     method: "PATCH",
-    body: { enabled },
+    body: patch,
   });
 }
 

@@ -1175,11 +1175,23 @@ export const repoBacklogRunnerSchema = z.object({
   /** The failed backlog task that halted the runner; null when not halted. */
   haltedTaskId: id.nullable().default(null),
   haltedAt: timestamp.nullable().default(null),
+  /**
+   * Agents make every decision for the repo's backlog tasks: they answer
+   * their own questions, approve plans and triage, and finish by merging
+   * into the local default branch and creating follow-ups. Local only: it
+   * never pushes, opens PRs or posts anywhere. Off by default.
+   */
+  autonomous: z.boolean().default(false),
 });
 export type RepoBacklogRunner = z.infer<typeof repoBacklogRunnerSchema>;
 
-/** `PATCH /api/repos/:repoId/backlog/runner` body. */
-export const repoBacklogRunnerUpdateSchema = z.object({ enabled: z.boolean() });
+/** `PATCH /api/repos/:repoId/backlog/runner` body: at least one field. */
+export const repoBacklogRunnerUpdateSchema = z
+  .object({ enabled: z.boolean().optional(), autonomous: z.boolean().optional() })
+  .refine(
+    (input) => input.enabled !== undefined || input.autonomous !== undefined,
+    "Set enabled or autonomous",
+  );
 export type RepoBacklogRunnerUpdate = z.infer<typeof repoBacklogRunnerUpdateSchema>;
 
 /** An agent CLI's usage limit: paused until its quota resets, or null when usable. */
