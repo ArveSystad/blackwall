@@ -327,7 +327,8 @@ There is **no input bar** in the task view. You steer a task from the chat (see 
   PR").
   - The origin field changes with the origin: "ABC-123 or https://acme.atlassian.net/browse/ABC-123",
     a PR or issue URL, or "What should the agents do? The first line becomes the title.".
-  - Then come "Repository", "Title", "Depends on", "Context", "Agents" (per-role chips and selects,
+  - Then come "Repository", "Title", "Depends on" (a filterable multi-pick dropdown), "Reference
+    repos" (a filterable multi-pick dropdown), "Context", "Agents" (per-role chips and selects,
     "Advanced" for a per-agent CLI, "Reset to defaults") and "Triage".
   - The footer hint is "Starts now: this repo's backlog runs.".
 - **What you can do**: "Create task" (`⌘↵`), "Cancel", `Esc`.

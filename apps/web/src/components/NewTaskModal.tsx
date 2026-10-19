@@ -63,7 +63,7 @@ import {
   taskAgentIds,
 } from "../task-view";
 import { AgentTile } from "./AgentTile";
-import { CheckIcon, CloseIcon, SpinnerIcon, WarnIcon } from "./icons";
+import { CheckIcon, CloseIcon, SpinnerIcon, StarIcon, WarnIcon } from "./icons";
 import { ORIGINS, PR_MODE_LABELS } from "./origins";
 import { RepoMenuItems } from "./RepoMenuItems";
 import { Segmented } from "./Segmented";
@@ -73,6 +73,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } f
 import { ErrorText, Field, fieldLabel } from "./ui/field";
 import { Input } from "./ui/input";
 import { Kbd } from "./ui/kbd";
+import { MultiSelectMenu } from "./ui/multi-select-menu";
 import { Select } from "./ui/select";
 import { SelectMenu, SelectMenuContent, SelectMenuTrigger } from "./ui/select-menu";
 import { Textarea } from "./ui/textarea";
@@ -325,25 +326,21 @@ function DependsOnField({
       <span className={fieldLabel} id="backlog-depends-label">
         Depends on <span className="font-normal text-faint">optional</span>
       </span>
-      <div role="group" aria-labelledby="backlog-depends-label" className="flex flex-wrap gap-1">
-        {choices.length === 0 && (
-          <span className="text-meta text-faint">No other items in this backlog.</span>
-        )}
-        {choices.map(({ item: choice, task }) => (
-          <CheckChip
-            key={choice.id}
-            size="sm"
-            className="max-w-72"
-            checked={value.includes(choice.id)}
-            onCheckedChange={(checked) =>
-              onChange(checked ? [...value, choice.id] : value.filter((id) => id !== choice.id))
-            }
-          >
-            <span className="truncate">{choice.title}</span>
-            {task && <span className="text-faint">· {statusLabel(task)}</span>}
-          </CheckChip>
-        ))}
-      </div>
+      {choices.length === 0 ? (
+        <span className="text-meta text-faint">No other items in this backlog.</span>
+      ) : (
+        <MultiSelectMenu
+          id="backlog-depends"
+          aria-labelledby="backlog-depends-label"
+          options={choices.map((choice) => ({ id: choice.item.id, ...choice }))}
+          value={value}
+          onChange={onChange}
+          optionText={(choice) => choice.item.title}
+          trailing={({ task }) => task && <span className="text-faint">· {statusLabel(task)}</span>}
+          placeholder="None"
+          filterPlaceholder="Filter items…"
+        />
+      )}
       <span className="text-[11.5px] text-muted-foreground">
         The runner starts this item only once these are done, including tasks already running.
       </span>
@@ -368,28 +365,27 @@ function ReferenceReposField({
       <span className={fieldLabel} id="new-task-reference-repos-label">
         Reference repos <span className="font-normal text-faint">optional</span>
       </span>
-      <div
-        role="group"
-        aria-labelledby="new-task-reference-repos-label"
-        className="flex flex-wrap gap-1"
-      >
-        {otherRepos.length === 0 && (
-          <span className="text-meta text-faint">No other repos registered.</span>
-        )}
-        {otherRepos.map((other) => (
-          <CheckChip
-            key={other.id}
-            size="sm"
-            className="max-w-72"
-            checked={value.includes(other.id)}
-            onCheckedChange={(checked) =>
-              onChange(checked ? [...value, other.id] : value.filter((id) => id !== other.id))
-            }
-          >
-            <span className="truncate">{other.name}</span>
-          </CheckChip>
-        ))}
-      </div>
+      {otherRepos.length === 0 ? (
+        <span className="text-meta text-faint">No other repos registered.</span>
+      ) : (
+        // The server sorts favourites first.
+        <MultiSelectMenu
+          id="new-task-reference-repos"
+          aria-labelledby="new-task-reference-repos-label"
+          options={otherRepos}
+          value={value}
+          onChange={onChange}
+          optionText={(other) => other.name}
+          renderOption={(other) => (
+            <>
+              {other.favorite && <StarIcon size="sm" className="fill-current text-primary" />}
+              <span className="truncate">{other.name}</span>
+            </>
+          )}
+          placeholder="None"
+          filterPlaceholder="Filter repos…"
+        />
+      )}
       <span className="text-[11.5px] text-muted-foreground">
         Read by this task's planner and reviewers, never written. Implementers stay in the worktree.
       </span>

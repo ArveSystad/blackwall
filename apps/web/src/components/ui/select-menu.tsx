@@ -7,6 +7,17 @@ import { CheckIcon, ChevronDownIcon } from "../icons";
 export const SelectMenu = SelectPrimitive.Root;
 export const SelectMenuGroup = SelectPrimitive.Group;
 
+/** Shared with `MultiSelectMenu`, so both dropdowns look alike. */
+export const selectTriggerClass =
+  "bw-chamfer bw-chamfer-focus inline-flex h-[30px] w-full cursor-pointer items-center justify-between gap-2 bg-card px-2 text-body text-foreground-strong outline-none [--bw-chamfer-line:var(--border-strong)] disabled:cursor-not-allowed disabled:opacity-45 data-[placeholder]:text-muted-foreground [&>span]:flex [&>span]:min-w-0 [&>span]:items-center [&>span]:gap-1.5";
+/** The unclipped popup, which casts the pop shadow; size it with the primitive's own variables. */
+export const selectContentClass = "bw-no-drag z-50 drop-shadow-pop";
+/** The chamfered panel inside the popup. */
+export const selectPanelClass =
+  "bw-chamfer flex max-h-[inherit] flex-col overflow-hidden bg-popover p-1";
+export const selectItemClass =
+  "bw-chamfer flex cursor-pointer items-center gap-2 px-2 py-1.5 text-body outline-none select-none [--bw-chamfer-line:transparent] data-[disabled]:cursor-not-allowed data-[disabled]:opacity-45 data-[highlighted]:bg-muted data-[state=checked]:text-foreground-strong";
+
 /**
  * The closed menu, styled as an input; shows the selected item's text and a chevron, or
  * `placeholder` while the value is empty.
@@ -17,13 +28,7 @@ export function SelectMenuTrigger({
   ...props
 }: ComponentProps<typeof SelectPrimitive.Trigger> & { placeholder?: ReactNode }) {
   return (
-    <SelectPrimitive.Trigger
-      className={cn(
-        "bw-chamfer bw-chamfer-focus inline-flex h-[30px] w-full cursor-pointer items-center justify-between gap-2 bg-card px-2 text-body text-foreground-strong outline-none [--bw-chamfer-line:var(--border-strong)] disabled:cursor-not-allowed disabled:opacity-45 data-[placeholder]:text-muted-foreground [&>span]:flex [&>span]:min-w-0 [&>span]:items-center [&>span]:gap-1.5",
-        className,
-      )}
-      {...props}
-    >
+    <SelectPrimitive.Trigger className={cn(selectTriggerClass, className)} {...props}>
       <SelectPrimitive.Value placeholder={placeholder} />
       <SelectPrimitive.Icon asChild>
         <ChevronDownIcon size="sm" className="shrink-0 text-muted-foreground" />
@@ -44,13 +49,14 @@ export function SelectMenuContent({
         position="popper"
         sideOffset={4}
         className={cn(
-          "bw-no-drag z-50 max-h-[var(--radix-select-content-available-height)] min-w-[var(--radix-select-trigger-width)] drop-shadow-pop",
+          selectContentClass,
+          "max-h-[var(--radix-select-content-available-height)] min-w-[var(--radix-select-trigger-width)]",
           className,
         )}
         {...props}
       >
         {/* clip-path drops box-shadow, so the unclipped Content casts the pop around this panel. */}
-        <div className="bw-chamfer flex max-h-[inherit] flex-col overflow-hidden bg-popover p-1">
+        <div className={selectPanelClass}>
           <SelectPrimitive.Viewport>{children}</SelectPrimitive.Viewport>
         </div>
       </SelectPrimitive.Content>
@@ -66,13 +72,7 @@ export function SelectMenuItem({
   ...props
 }: ComponentProps<typeof SelectPrimitive.Item> & { trailing?: ReactNode }) {
   return (
-    <SelectPrimitive.Item
-      className={cn(
-        "bw-chamfer flex cursor-pointer items-center gap-2 px-2 py-1.5 text-body outline-none select-none [--bw-chamfer-line:transparent] data-[disabled]:cursor-not-allowed data-[disabled]:opacity-45 data-[highlighted]:bg-muted data-[state=checked]:text-foreground-strong",
-        className,
-      )}
-      {...props}
-    >
+    <SelectPrimitive.Item className={cn(selectItemClass, className)} {...props}>
       <span className="flex size-4 shrink-0 items-center justify-center">
         <SelectPrimitive.ItemIndicator>
           <CheckIcon size="sm" />
