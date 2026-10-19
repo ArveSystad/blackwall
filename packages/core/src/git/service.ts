@@ -530,17 +530,22 @@ export function createGitService({
    * Rebases `branch` onto `onto` in the worktree, after aborting a rebase a
    * crash left behind. Conflicts go to `resolveConflict`; without it, or when
    * it fails or leaves the rebase unfinished, the rebase is aborted, the branch
-   * checked out again and the conflicting files reported.
+   * checked out again and the conflicting files reported. With `upstream`,
+   * only the commits after it are replayed (`git rebase --onto <onto> <upstream>`).
    */
   async function rebaseOnto(
     worktree: string,
     branch: string,
     onto: string,
     resolveConflict: FinishInput["resolve"],
+    upstream?: string,
   ): Promise<RebaseResult> {
     await restoreBranch(worktree, branch);
     try {
-      await runGit(worktree, ["rebase", "--quiet", onto]);
+      await runGit(
+        worktree,
+        upstream ? ["rebase", "--quiet", "--onto", onto, upstream] : ["rebase", "--quiet", onto],
+      );
       return { status: "rebased", resolved: [] };
     } catch (error) {
       if (!(error instanceof GitError)) throw error;
@@ -562,6 +567,30 @@ export function createGitService({
       }
       return { status: "rebased", resolved: outcome.resolved };
     }
+  }
+
+  /**
+   * Of the merge bases of HEAD with `refs`, the one nearest HEAD (fewest
+   * commits since it); refs that do not resolve are skipped. `undefined` when
+   * none does.
+   */
+  async function nearestBase(
+    worktree: string,
+    refs: readonly string[],
+  ): Promise<string | undefined> {
+    let nearest: { base: string; count: number } | undefined;
+    for (const ref of refs) {
+      let base: string;
+      try {
+        base = await runGit(worktree, ["merge-base", "HEAD", ref]);
+      } catch (error) {
+        if (error instanceof GitError) continue;
+        throw error;
+      }
+      const count = Number(await runGit(worktree, ["rev-list", "--count", `${base}..HEAD`]));
+      if (!nearest || count < nearest.count) nearest = { base, count };
+    }
+    return nearest?.base;
   }
 
   /**
@@ -745,7 +774,10 @@ export function createGitService({
      * and the conflicting files are reported; nothing is changed. A resolver
      * that leaves the rebase unfinished (stopped, or quit with HEAD detached)
      * is reported the same way, with the branch checked out again. A rebase a
-     * crash left behind is aborted first. Never pushes.
+     * crash left behind is aborted first. Never pushes. When `into` has moved
+     * on and the branch was built on `<remote>/<into>`, only the task's own
+     * commits (those after the nearer fork point) are replayed, so the remote's
+     * commits are not copied onto `into` a second time.
      */
     async finishIntoMain({
       repoPath,
@@ -755,7 +787,10 @@ export function createGitService({
       resolve: resolveConflict,
     }: FinishInput): Promise<FinishResult> {
       assertUnprotected(branch, into);
-      const rebased = await rebaseOnto(worktreePath, branch, into, resolveConflict);
+      const upstream = (await succeeds(worktreePath, ["merge-base", "--is-ancestor", into, "HEAD"]))
+        ? undefined
+        : await nearestBase(worktreePath, [into, `${remote}/${into}`]);
+      const rebased = await rebaseOnto(worktreePath, branch, into, resolveConflict, upstream);
       if (rebased.status === "conflict") return rebased;
       const { resolved } = rebased;
 
@@ -831,6 +866,60 @@ export function createGitService({
         if (error instanceof GitError) return null;
         throw error;
       }
+    },
+
+    /**
+     * Fetches only the remote's `branch` (the repo's default branch) into its
+     * remote-tracking ref. Never moves a local branch, never prunes, never
+     * forces: a rewritten remote branch fails the fetch. Throws
+     * {@link GitError} on failure.
+     */
+    async fetchDefault(worktreePath: string, branch: string): Promise<void> {
+      await runGit(worktreePath, [
+        "fetch",
+        "--quiet",
+        "--no-prune",
+        remote,
+        `refs/heads/${branch}:refs/remotes/${remote}/${branch}`,
+      ]);
+    },
+
+    /**
+     * Fast-forwards the task `branch`, checked out in the worktree, to
+     * `<remote>/<defaultBranch>` when the local default branch is an ancestor of
+     * it, else to the local default branch. Only a clean worktree whose branch
+     * has no commits of its own is moved (`git merge --ff-only`); returns the new
+     * HEAD and the ref it moved to, or `null` when nothing moved. Never
+     * rebases, forces or pushes, and refuses protected branches.
+     */
+    async fastForwardTo(
+      worktreePath: string,
+      branch: string,
+      defaultBranch: string,
+    ): Promise<{ sha: string; onto: string } | null> {
+      assertUnprotected(branch, defaultBranch);
+      if ((await currentBranch(worktreePath)) !== shortBranch(branch)) return null;
+      if (await runGit(worktreePath, ["status", "--porcelain"])) return null;
+      const tracking = `${remote}/${defaultBranch}`;
+      const onto =
+        (await succeeds(worktreePath, [
+          "show-ref",
+          "--verify",
+          "--quiet",
+          `refs/remotes/${tracking}`,
+        ])) &&
+        (await succeeds(worktreePath, ["merge-base", "--is-ancestor", defaultBranch, tracking]))
+          ? tracking
+          : defaultBranch;
+      for (const base of [onto, defaultBranch]) {
+        const own = await runGit(worktreePath, ["rev-list", "--count", `${base}..HEAD`]);
+        if (Number(own) !== 0) return null;
+      }
+      if ((await headSha(worktreePath)) === (await runGit(worktreePath, ["rev-parse", onto]))) {
+        return null;
+      }
+      await runGit(worktreePath, ["merge", "--ff-only", "--quiet", onto]);
+      return { sha: await headSha(worktreePath), onto };
     },
 
     /**

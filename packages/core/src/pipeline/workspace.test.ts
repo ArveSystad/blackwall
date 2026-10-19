@@ -1,8 +1,12 @@
 import type { Repo, Task } from "@blackwall/shared";
 import { describe, expect, it, vi } from "vitest";
-import type { CreateWorktreeInput, RemoveWorktreeInput } from "../git/service.js";
+import { GitError, type CreateWorktreeInput, type RemoveWorktreeInput } from "../git/service.js";
 import { worktreePathFor } from "../git/branches.js";
-import { createWorkspacePreparer, createWorkspaceRemover } from "./workspace.js";
+import {
+  createWorkspacePreparer,
+  createWorkspaceRemover,
+  createWorkspaceSyncer,
+} from "./workspace.js";
 
 const repo = { id: "r1", path: "/code/app", name: "app", defaultBranch: "main" } as Repo;
 
@@ -254,5 +258,82 @@ describe("createWorkspaceRemover", () => {
       worktreePath: "/wt",
       mainBranch: "main",
     });
+  });
+});
+
+describe("createWorkspaceSyncer", () => {
+  const develop = { ...repo, defaultBranch: "develop" };
+
+  function syncer(remote: string | null = "git@github.com:acme/app.git") {
+    const remoteUrl = vi.fn(async () => remote);
+    const fetchDefault = vi.fn(async () => undefined);
+    const fastForwardTo = vi.fn(async () => ({ sha: "abc", onto: "origin/develop" }));
+    const sync = createWorkspaceSyncer({
+      git: { remoteUrl, fetchDefault, fastForwardTo },
+      repos: { get: (id) => (id === develop.id ? develop : undefined) },
+    });
+    return { sync, remoteUrl, fetchDefault, fastForwardTo };
+  }
+
+  const started = (origin: Task["origin"]) =>
+    task({ origin, branch: "feature/x", worktreePath: "/wt/app" });
+
+  it("fetches the default branch, then fast-forwards free-text, Jira and GitHub issue tasks", async () => {
+    const origins: Task["origin"][] = [
+      { kind: "free-text" },
+      { kind: "jira-issue", key: "ABC-1", connectionId: null },
+      {
+        kind: "github-issue",
+        url: "https://github.com/acme/app/issues/7",
+        owner: "acme",
+        repo: "app",
+        number: 7,
+        connectionId: null,
+      },
+    ];
+    for (const origin of origins) {
+      const { sync, fetchDefault, fastForwardTo } = syncer();
+      await expect(sync(started(origin))).resolves.toEqual({
+        fetchError: null,
+        fastForward: { sha: "abc", onto: "origin/develop" },
+      });
+      expect(fetchDefault).toHaveBeenCalledWith("/wt/app", "develop");
+      expect(fastForwardTo).toHaveBeenCalledWith("/wt/app", "feature/x", "develop");
+      expect(fetchDefault.mock.invocationCallOrder[0]).toBeLessThan(
+        fastForwardTo.mock.invocationCallOrder[0]!,
+      );
+    }
+  });
+
+  it("skips the fetch without a remote", async () => {
+    const { sync, fetchDefault, fastForwardTo } = syncer(null);
+    await sync(started({ kind: "free-text" }));
+    expect(fetchDefault).not.toHaveBeenCalled();
+    expect(fastForwardTo).toHaveBeenCalled();
+  });
+
+  it("reports a failed fetch and still fast-forwards", async () => {
+    const { sync, fetchDefault, fastForwardTo } = syncer();
+    fetchDefault.mockRejectedValue(new GitError(["fetch"], "fatal: unable to access", 128));
+    const result = await sync(started({ kind: "free-text" }));
+    expect(result?.fetchError).toEqual(expect.any(String));
+    expect(result?.fetchError).not.toBe("");
+    expect(fastForwardTo).toHaveBeenCalled();
+  });
+
+  it("never moves PR branches or tasks without a worktree", async () => {
+    const { sync, remoteUrl, fastForwardTo } = syncer();
+    const pr = {
+      kind: "github-pr" as const,
+      url: "https://github.com/acme/app/pull/7",
+      owner: "acme",
+      repo: "app",
+      number: 7,
+      connectionId: null,
+    };
+    await expect(sync(started(pr))).resolves.toBeNull();
+    await expect(sync(task({ origin: { kind: "free-text" } }))).resolves.toBeNull();
+    expect(remoteUrl).not.toHaveBeenCalled();
+    expect(fastForwardTo).not.toHaveBeenCalled();
   });
 });

@@ -1,7 +1,8 @@
 import type { Task } from "@blackwall/shared";
 import type { Repositories } from "../db/repositories.js";
 import { branchForTask, worktreePathFor } from "../git/branches.js";
-import type { GitService } from "../git/service.js";
+import { describeGitError } from "../git/errors.js";
+import { GitError, type GitService } from "../git/service.js";
 import type { PreparedWorkspace } from "./engine.js";
 
 export interface WorkspacePreparerOptions {
@@ -56,6 +57,55 @@ export function createWorkspacePreparer({
         : { kind: "new", base: repo.defaultBranch },
     });
     return { branch, worktreePath, baseBranch: baseBranch ?? null };
+  };
+}
+
+const errorMessage = (error: unknown) =>
+  error instanceof GitError
+    ? describeGitError(error)
+    : error instanceof Error
+      ? error.message
+      : String(error);
+
+export interface WorkspaceSyncerOptions {
+  git: Pick<GitService, "remoteUrl" | "fetchDefault" | "fastForwardTo">;
+  repos: Pick<Repositories["repos"], "get">;
+}
+
+/** What {@link createWorkspaceSyncer} did to a task's branch. */
+export interface WorkspaceSync {
+  /** Why fetching the remote default branch failed, or `null` when it worked or was skipped. */
+  fetchError: string | null;
+  /** Where the branch was fast-forwarded to, or `null` when it was left alone. */
+  fastForward: { sha: string; onto: string } | null;
+}
+
+/**
+ * Brings a task branch up to date before new work starts: fetches the repo's
+ * default branch from `origin` when the repo has one (best effort; a failure
+ * is reported, not thrown), then fast-forwards a clean branch with no commits
+ * of its own to `origin/<default>`, or to the local default branch when that
+ * is not an ancestor of it. PR tasks work on the PR's branch and are never
+ * moved; tasks without a worktree or repo return `null`. Never pushes or moves
+ * the default branch.
+ */
+export function createWorkspaceSyncer({ git, repos }: WorkspaceSyncerOptions) {
+  return async (task: Task): Promise<WorkspaceSync | null> => {
+    if (task.origin.kind === "github-pr" || !task.worktreePath || !task.branch) return null;
+    const repo = repos.get(task.repoId);
+    if (!repo) return null;
+    let fetchError: string | null = null;
+    if ((await git.remoteUrl(task.worktreePath)) !== null) {
+      try {
+        await git.fetchDefault(task.worktreePath, repo.defaultBranch);
+      } catch (error) {
+        fetchError = errorMessage(error);
+      }
+    }
+    return {
+      fetchError,
+      fastForward: await git.fastForwardTo(task.worktreePath, task.branch, repo.defaultBranch),
+    };
   };
 }
 

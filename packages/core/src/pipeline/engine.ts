@@ -33,7 +33,7 @@ import type { QuotaTracker } from "../agents/quota.js";
 import type { Repositories } from "../db/repositories.js";
 import { describeGitError } from "../git/errors.js";
 import { GitError, sameSnapshot, type GitService } from "../git/service.js";
-import { referenceReposFrom, type ReferenceRepo } from "../repos/service.js";
+import { defaultBranchOf, referenceReposFrom, type ReferenceRepo } from "../repos/service.js";
 import { MAX_CI_FAILURES, type CiWatcher } from "./ci.js";
 import {
   DELIVERY_CONFLICT_EVENT,
@@ -48,6 +48,7 @@ import {
   type MergeConflict,
 } from "./delivery.js";
 import { blockingFindings } from "./findings.js";
+import type { WorkspaceSync } from "./workspace.js";
 import {
   MAX_PR_COMMENT_FINDINGS,
   prConversationFinding,
@@ -237,6 +238,12 @@ export interface PipelineEngineOptions {
   /** Creates the task's worktree before its first stage. */
   prepareWorkspace: (task: Task) => Promise<PreparedWorkspace>;
   /**
+   * Fetches the repo's remote default branch and fast-forwards a task branch
+   * with no commits of its own to it before new work starts (Inform, Plan
+   * review, the first Implement round). Failures are logged, never fatal.
+   */
+  syncWorkspace?: (task: Task) => Promise<WorkspaceSync | null>;
+  /**
    * Removes a deleted task's worktree and, unless it works on an existing PR
    * branch, its local branch. Called only for tasks that have a worktree.
    */
@@ -315,6 +322,7 @@ export function createPipelineEngine({
   adapters,
   stages,
   prepareWorkspace,
+  syncWorkspace,
   removeWorkspace = async () => undefined,
   beforeDelete,
   delivery,
@@ -839,6 +847,30 @@ export function createPipelineEngine({
 
       let stage = task.stage ?? FIRST_STAGE;
       let round = hints.round ?? currentRound(run);
+      // New work starts on the newest default branch; later stages keep HEAD
+      // where it is, as their review ranges depend on it.
+      if (
+        syncWorkspace &&
+        !hints.resuming &&
+        pipelineKind(task.mode) === "work" &&
+        (stage === "inform" || stage === "plan-review" || (stage === "implement" && round === 0))
+      ) {
+        try {
+          const synced = await syncWorkspace(task);
+          if (synced?.fetchError) {
+            log(
+              `Task ${taskId}: could not fetch origin's ${defaultBranchOf(r.repos, task.repoId)}; using the local branch: ${synced.fetchError}`,
+            );
+          }
+          if (synced?.fastForward) {
+            const { onto, sha } = synced.fastForward;
+            log(`Task ${taskId}: ${task.branch} fast-forwarded to ${onto} at ${sha}`);
+          }
+        } catch (error) {
+          log(`Task ${taskId}: could not bring its branch up to date: ${errorMessage(error)}`);
+        }
+        task = getTask(taskId);
+      }
       let instructions = hints.instructions;
       let guidance = hints.guidance;
       let resuming = hints.resuming ?? false;

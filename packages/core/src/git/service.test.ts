@@ -983,6 +983,212 @@ describe("push", () => {
   });
 });
 
+/** Another clone pushes a commit per subject to origin's main; returns the new remote tip. */
+function originMoves(...subjects: string[]): string {
+  const other = join(root, `other-${Math.random().toString(36).slice(2)}`);
+  git(root, "clone", "--quiet", origin, other);
+  git(other, "config", "user.name", "Other");
+  git(other, "config", "user.email", "other@example.com");
+  git(other, "config", "commit.gpgsign", "false");
+  for (const subject of subjects)
+    commit(other, `${subject.replace(/\W+/g, "-")}.txt`, `${subject}\n`, subject);
+  git(other, "push", "--quiet", "origin", "main");
+  return git(other, "rev-parse", "HEAD");
+}
+
+describe("fetchDefault", () => {
+  it("updates origin/main only, leaving local main and the main checkout alone", async () => {
+    const path = worktreePathFor(repo, "f1");
+    await service.createWorktree({
+      repoPath: repo,
+      worktreePath: path,
+      branch: "agent/f1",
+      checkout: { kind: "new" },
+    });
+    const localMain = git(repo, "rev-parse", "main");
+    const remoteTip = originMoves("origin work");
+
+    await service.fetchDefault(path, "main");
+
+    expect(git(repo, "rev-parse", "refs/remotes/origin/main")).toBe(remoteTip);
+    expect(git(repo, "rev-parse", "main")).toBe(localMain);
+    expect(git(repo, "status", "--porcelain")).toBe("");
+    expect(git(path, "rev-parse", "HEAD")).toBe(localMain);
+  });
+
+  it("throws without a remote", async () => {
+    git(repo, "remote", "remove", "origin");
+    await expect(service.fetchDefault(repo, "main")).rejects.toBeInstanceOf(GitError);
+  });
+
+  it("throws when the remote main was rewritten", async () => {
+    originMoves("will be rewritten");
+    await service.fetchDefault(repo, "main");
+    const other = join(root, "rewriter");
+    git(root, "clone", "--quiet", origin, other);
+    git(other, "config", "user.name", "Other");
+    git(other, "config", "user.email", "other@example.com");
+    git(other, "config", "commit.gpgsign", "false");
+    git(other, "reset", "--quiet", "--hard", "HEAD~1");
+    commit(other, "rewrite.txt", "rewrite\n", "rewritten");
+    git(other, "push", "--quiet", "--force", "origin", "main");
+    const before = git(repo, "rev-parse", "refs/remotes/origin/main");
+
+    await expect(service.fetchDefault(repo, "main")).rejects.toBeInstanceOf(GitError);
+    expect(git(repo, "rev-parse", "refs/remotes/origin/main")).toBe(before);
+  });
+});
+
+describe("fastForwardTo", () => {
+  async function task(id: string) {
+    const path = worktreePathFor(repo, id);
+    await service.createWorktree({
+      repoPath: repo,
+      worktreePath: path,
+      branch: `agent/${id}`,
+      checkout: { kind: "new" },
+    });
+    return path;
+  }
+
+  it("moves the branch to origin/main when the remote is ahead, leaving local main", async () => {
+    const path = await task("ff1");
+    const localMain = git(repo, "rev-parse", "main");
+    const remoteTip = originMoves("origin work");
+    await service.fetchDefault(path, "main");
+
+    await expect(service.fastForwardTo(path, "agent/ff1", "main")).resolves.toEqual({
+      sha: remoteTip,
+      onto: "origin/main",
+    });
+    expect(git(path, "rev-parse", "HEAD")).toBe(remoteTip);
+    expect(git(repo, "rev-parse", "main")).toBe(localMain);
+  });
+
+  it("uses local main when it is ahead of origin/main", async () => {
+    const path = await task("ff2");
+    const localTip = commit(repo, "local.txt", "local\n", "local work");
+
+    await expect(service.fastForwardTo(path, "agent/ff2", "main")).resolves.toEqual({
+      sha: localTip,
+      onto: "main",
+    });
+  });
+
+  it("uses local main when it diverged from origin/main", async () => {
+    const path = await task("ff3");
+    originMoves("origin work");
+    await service.fetchDefault(path, "main");
+    const localTip = commit(repo, "local.txt", "local\n", "local work");
+
+    await expect(service.fastForwardTo(path, "agent/ff3", "main")).resolves.toEqual({
+      sha: localTip,
+      onto: "main",
+    });
+  });
+
+  it("uses local main when there is no origin/main", async () => {
+    git(repo, "remote", "remove", "origin");
+    const path = await task("ff4");
+    const localTip = commit(repo, "local.txt", "local\n", "local work");
+
+    await expect(service.fastForwardTo(path, "agent/ff4", "main")).resolves.toEqual({
+      sha: localTip,
+      onto: "main",
+    });
+  });
+
+  it("leaves a branch with its own commits alone", async () => {
+    const path = await task("ff5");
+    const own = commit(path, "own.txt", "own\n", "own work");
+    commit(repo, "local.txt", "local\n", "local work");
+
+    await expect(service.fastForwardTo(path, "agent/ff5", "main")).resolves.toBeNull();
+    expect(git(path, "rev-parse", "HEAD")).toBe(own);
+  });
+
+  it("leaves a dirty worktree alone, keeping its changes", async () => {
+    const path = await task("ff6");
+    const head = git(path, "rev-parse", "HEAD");
+    commit(repo, "local.txt", "local\n", "local work");
+    write(path, "README.md", "edited\n");
+
+    await expect(service.fastForwardTo(path, "agent/ff6", "main")).resolves.toBeNull();
+    expect(git(path, "rev-parse", "HEAD")).toBe(head);
+    expect(readFileSync(join(path, "README.md"), "utf8")).toBe("edited\n");
+  });
+
+  it("returns null when the branch is already at the target", async () => {
+    const path = await task("ff7");
+    await expect(service.fastForwardTo(path, "agent/ff7", "main")).resolves.toBeNull();
+  });
+
+  it("ignores a self-ignored .blackwall folder", async () => {
+    const path = await task("ff8");
+    mkdirSync(join(path, ".blackwall"));
+    write(join(path, ".blackwall"), ".gitignore", "*\n");
+    write(join(path, ".blackwall"), "notes.md", "notes\n");
+    const localTip = commit(repo, "local.txt", "local\n", "local work");
+
+    await expect(service.fastForwardTo(path, "agent/ff8", "main")).resolves.toEqual({
+      sha: localTip,
+      onto: "main",
+    });
+  });
+
+  it("refuses a protected branch", async () => {
+    await expect(service.fastForwardTo(repo, "main", "main")).rejects.toBeInstanceOf(
+      ProtectedBranchError,
+    );
+  });
+});
+
+describe("finishIntoMain after a fast-forward to origin/main", () => {
+  async function syncedTask(id: string) {
+    const path = worktreePathFor(repo, id);
+    await service.createWorktree({
+      repoPath: repo,
+      worktreePath: path,
+      branch: `agent/${id}`,
+      checkout: { kind: "new" },
+    });
+    originMoves("origin one", "origin two");
+    await service.fetchDefault(path, "main");
+    await service.fastForwardTo(path, `agent/${id}`, "main");
+    commit(path, "feature.txt", "feature\n", "task work");
+    return path;
+  }
+
+  it("moves main through origin's commits and the task's", async () => {
+    const path = await syncedTask("o1");
+
+    const result = await service.finishIntoMain({
+      repoPath: repo,
+      worktreePath: path,
+      branch: "agent/o1",
+    });
+
+    expect(result.status).toBe("merged");
+    expect(log(repo, "main")).toEqual(["task work", "origin two", "origin one", "initial"]);
+    expect(git(repo, "merge-base", "--is-ancestor", "origin/main", "main")).toBe("");
+  });
+
+  it("replays only the task's commits when local main moved meanwhile", async () => {
+    const path = await syncedTask("o2");
+    commit(repo, "other.txt", "other\n", "another task");
+
+    const result = await service.finishIntoMain({
+      repoPath: repo,
+      worktreePath: path,
+      branch: "agent/o2",
+    });
+
+    expect(result.status).toBe("merged");
+    // origin's commits are not copied onto the diverged local main.
+    expect(log(repo, "main")).toEqual(["task work", "another task", "initial"]);
+  });
+});
+
 describe("remoteUrl", () => {
   it("reads origin's current URL, or null when there is none", async () => {
     git(repo, "remote", "remove", "origin");

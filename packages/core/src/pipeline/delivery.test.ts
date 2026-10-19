@@ -248,6 +248,26 @@ describe("free-text tasks", () => {
     expect(run(task.worktreePath!, "rev-parse", "HEAD")).toBe(head);
   });
 
+  it("squashes from origin/main when the branch was fast-forwarded past local main", async () => {
+    const { task, run: runRow } = await seed({ branch: "agent/t1" }, { commits: 0 });
+    const other = join(root, "other");
+    run(root, "clone", "--quiet", originPath, other);
+    run(other, "config", "user.name", "Other");
+    run(other, "config", "user.email", "other@example.com");
+    run(other, "config", "commit.gpgsign", "false");
+    commit(other, "origin.txt", "origin\n", "origin work");
+    run(other, "push", "--quiet", "origin", "main");
+    await git.fetchDefault(task.worktreePath!, "main");
+    await git.fastForwardTo(task.worktreePath!, "agent/t1", "main");
+    for (let i = 0; i < 2; i += 1) commit(task.worktreePath!, `f${i}.txt`, `${i}\n`);
+    const { deliverer: d } = deliverer();
+
+    // Only the task's two commits, not origin's, are squashed.
+    expect((await d.plan(task, [])).squash).toMatchObject({ commits: 2 });
+    await deliver(d, task, runRow, { actions: ["merge-main"], squash: true });
+    expect(subjects(repoPath, "main")).toEqual(["chore: Fix login", "origin work", "initial"]);
+  });
+
   it("squashes with the task title as a chore when there is no squash message", async () => {
     const { task } = await seed({ branch: "agent/t1", squashMessage: null });
     const { deliverer: d } = deliverer();

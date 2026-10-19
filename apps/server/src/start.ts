@@ -27,6 +27,7 @@ import {
   createTaskDiffs,
   createWorkspacePreparer,
   createWorkspaceRemover,
+  createWorkspaceSyncer,
   detectClis,
   openDatabase,
   sqliteOf,
@@ -176,6 +177,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
         branchFor: firstBranchFor(jira.branchFor, github.branchFor),
         baseBranchFor: github.baseBranchFor,
       }),
+      syncWorkspace: createWorkspaceSyncer({ git, repos: repositories.repos }),
       removeWorkspace: createWorkspaceRemover({ git, repos: repositories.repos }),
       // Uses the chat only once a task is deleted, after the chat below exists.
       beforeDelete: (taskId) => chat.forgetTask(taskId),

@@ -47,6 +47,7 @@ import {
 } from "./delivery.js";
 import type { CheckOutcome, CheckRunner } from "./checks.js";
 import type { PullRequestFeedback, PullRequestFeedbackThread } from "./pr-feedback.js";
+import type { WorkspaceSync } from "./workspace.js";
 import { InvalidGateResponseError } from "./transitions.js";
 import { commitKey, commitMessage, createDefaultStages, diffCommentFinding } from "./stages.js";
 
@@ -147,6 +148,8 @@ function harness(
     prepareWorkspace,
     prBranchOwned,
     worktreeGuard,
+    syncWorkspace,
+    log = () => undefined,
   }: {
     stages?: StageHandlers;
     maxPerRepo?: number;
@@ -161,6 +164,8 @@ function harness(
     prepareWorkspace?: (task: Task) => Promise<{ branch: string; worktreePath: string }>;
     prBranchOwned?: (task: Task, signal: AbortSignal) => Promise<boolean>;
     worktreeGuard?: Pick<GitService, "snapshotWorktree" | "restoreWorktree">;
+    syncWorkspace?: (task: Task) => Promise<WorkspaceSync | null>;
+    log?: (message: string) => void;
   } = {},
 ): Harness {
   const agents = agentService();
@@ -209,8 +214,9 @@ function harness(
     ...(prFeedback ? { prFeedback } : {}),
     ...(prBranchOwned ? { prBranchOwned } : {}),
     ...(worktreeGuard ? { worktreeGuard } : {}),
+    ...(syncWorkspace ? { syncWorkspace } : {}),
     publish: (event) => events.push(event),
-    log: () => undefined,
+    log,
   });
   return { engine, calls, events, delivered, deliveries };
 }
@@ -845,6 +851,107 @@ function stepsOf(taskId: string) {
 function lastStep(taskId: string) {
   return stepsOf(taskId).at(-1)!;
 }
+
+describe("bringing the branch up to date", () => {
+  /** Records the stage each sync ran before. */
+  function syncer(result: WorkspaceSync | null = null) {
+    const synced: string[] = [];
+    const syncWorkspace = vi.fn(async (t: Task) => {
+      synced.push(t.stage ?? "inform");
+      return result;
+    });
+    return { synced, syncWorkspace };
+  }
+
+  it("syncs when a work task starts and when its plan is approved, not in fix rounds", async () => {
+    const seeded = seedTask();
+    const { synced, syncWorkspace } = syncer();
+    let reviews = 0;
+    const h = harness(
+      (stage) =>
+        stage === "code-review"
+          ? { structured: { findings: reviews++ === 0 ? [highFinding] : [] } }
+          : {},
+      { syncWorkspace },
+    );
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(synced).toEqual(["inform"]);
+
+    await h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" });
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
+    // A fix round ran, but only the first Implement round synced.
+    expect(h.calls.filter((c) => c.stage === "implement")).toHaveLength(2);
+    expect(synced).toEqual(["inform", "implement"]);
+  });
+
+  it("does not sync a resumed drive", async () => {
+    const seeded = seedTask();
+    const { synced, syncWorkspace } = syncer();
+    let fail = true;
+    const h = harness((stage) => (stage === "inform" && fail ? { fail: "model overloaded" } : {}), {
+      syncWorkspace,
+    });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id).status).toBe("failed");
+
+    fail = false;
+    h.engine.resume(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "plan-approval" });
+    expect(synced).toHaveLength(1);
+  });
+
+  it("never syncs a Review PR task", async () => {
+    const seeded = seedTask({ mode: "review", origin: prOrigin() });
+    const { syncWorkspace } = syncer();
+    const h = harness(
+      (stage) => (stage === "code-review" ? { structured: { findings: [] } } : {}),
+      { syncWorkspace },
+    );
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(syncWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("logs a fetch failure and a fast-forward, and carries on", async () => {
+    const seeded = seedTask();
+    const logs: string[] = [];
+    const { syncWorkspace } = syncer({
+      fetchError: "network unreachable",
+      fastForward: { sha: "abc123", onto: "main" },
+    });
+    const h = harness(() => ({}), { syncWorkspace, log: (m) => logs.push(m) });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "plan-approval" });
+    expect(logs).toContain(
+      `Task ${seeded.id}: could not fetch origin's main; using the local branch: network unreachable`,
+    );
+    expect(logs).toContain(
+      `Task ${seeded.id}: agent/${seeded.id} fast-forwarded to main at abc123`,
+    );
+  });
+
+  it("logs a sync that throws, and carries on", async () => {
+    const seeded = seedTask();
+    const logs: string[] = [];
+    const syncWorkspace = vi.fn(async () => {
+      throw new Error("worktree locked");
+    });
+    const h = harness(() => ({}), { syncWorkspace, log: (m) => logs.push(m) });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "plan-approval" });
+    expect(logs).toContain(
+      `Task ${seeded.id}: could not bring its branch up to date: worktree locked`,
+    );
+  });
+});
 
 describe("stop and delete", () => {
   it("stops a running task, kills its agent and resumes the same session", async () => {
@@ -2456,7 +2563,8 @@ describe("code review panel and triage", () => {
     expect(prompts[0]).toContain("`git diff base h0`): everything this branch changes");
     expect(prompts[2]).toContain("+round 1 h1");
     expect(prompts[2]).toContain("`git diff h0 h1`): fix round 1");
-    expect(reviewGit.mergeBase).toHaveBeenCalledTimes(1);
+    // One fork point lookup, trying main and origin/main.
+    expect(reviewGit.mergeBase).toHaveBeenCalledTimes(2);
     // Each visit records its range on a harness step.
     const ranges = stepsOf(seeded.id)
       .filter((s) => s.stage === "code-review" && s.agentId === null)

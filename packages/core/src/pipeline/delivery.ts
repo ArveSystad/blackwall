@@ -21,6 +21,7 @@ import {
   commitMessage,
   commitWithRewrites,
   conventionalType,
+  forkPoint,
   withoutLeftovers,
 } from "./stages.js";
 import { InvalidGateResponseError, pipelineKind } from "./transitions.js";
@@ -241,16 +242,12 @@ export function createDeliverer({
    */
   async function squashBase(task: Task, worktree: string): Promise<string | undefined> {
     const main = defaultBranchOf(r.repos, task.repoId);
-    const refs =
-      task.origin.kind === "github-pr" ? [`origin/${task.branch}`] : [main, `origin/${main}`];
-    for (const ref of refs) {
-      try {
-        return await git.mergeBase(worktree, ref);
-      } catch {
-        // Try the next ref.
-      }
+    if (task.origin.kind !== "github-pr") return forkPoint(task, git, worktree, main);
+    try {
+      return await git.mergeBase(worktree, `origin/${task.branch}`);
+    } catch {
+      return undefined;
     }
-    return undefined;
   }
 
   /**

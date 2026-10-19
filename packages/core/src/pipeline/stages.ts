@@ -741,7 +741,7 @@ export interface ReviewDiffRange {
 }
 
 /** What Code review needs from git to find the round's diff. */
-export type ReviewGit = Pick<GitService, "headSha" | "mergeBase" | "diff">;
+export type ReviewGit = Pick<GitService, "headSha" | "mergeBase" | "diff" | "commitsSince">;
 
 /** Diffs beyond this many characters are cut in the reviewer prompt. */
 const MAX_REVIEW_DIFF_CHARS = 150_000;
@@ -756,21 +756,37 @@ function storedRange(ctx: StageContext, step: Step): ReviewDiffRange | undefined
 
 /**
  * Where the task branch forked from the repo's default branch `mainBranch`:
- * the local one first for branches the harness created from it, the remote
- * one first for PR branches. PR branches fork from their PR's base branch
- * first, which in a stack is the PR below, falling back to the default branch.
+ * the nearer of the local and remote default branch for branches the harness
+ * created (one fast-forwarded to `origin/<mainBranch>` sits ahead of the local
+ * one), the remote one first for PR branches. PR branches fork from their PR's
+ * base branch first, which in a stack is the PR below, falling back to the
+ * default branch.
  */
 export async function forkPoint(
   task: Task,
-  git: ReviewGit,
+  git: Pick<GitService, "mergeBase" | "commitsSince">,
   worktree: string,
   mainBranch: string,
 ): Promise<string | undefined> {
   const remote = `origin/${mainBranch}`;
-  const refs =
-    task.origin.kind === "github-pr"
-      ? [...(task.baseBranch ? [`origin/${task.baseBranch}`] : []), remote, mainBranch]
-      : [mainBranch, remote];
+  if (task.origin.kind !== "github-pr") {
+    const bases: string[] = [];
+    for (const ref of [mainBranch, remote]) {
+      try {
+        bases.push(await git.mergeBase(worktree, ref));
+      } catch {
+        // Skip a ref that does not resolve.
+      }
+    }
+    const [local, other] = bases;
+    if (local === undefined || other === undefined || local === other) return local;
+    const [localCount, otherCount] = [
+      await git.commitsSince(worktree, local),
+      await git.commitsSince(worktree, other),
+    ];
+    return otherCount < localCount ? other : local;
+  }
+  const refs = [...(task.baseBranch ? [`origin/${task.baseBranch}`] : []), remote, mainBranch];
   for (const ref of refs) {
     try {
       return await git.mergeBase(worktree, ref);

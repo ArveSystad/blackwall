@@ -19,6 +19,7 @@ function fakeGit(head: string): ReviewGit {
     headSha: async () => head,
     mergeBase: async () => "fork",
     diff: async (_worktree, from, to) => `diff ${from}..${to}`,
+    commitsSince: async () => 0,
   };
 }
 
@@ -131,6 +132,26 @@ describe("branch diff", () => {
     );
     expect((await createTaskDiffs({ repositories: r, git: developGit })(task))[0]?.from).toBe(
       "develop-fork",
+    );
+  });
+
+  it("forks from the nearer of the local and remote default branch", async () => {
+    const task = seedTask();
+    r.repos.update(task.repoId, { defaultBranch: "develop" });
+    const forks: Record<string, string> = { develop: "old-local", "origin/develop": "remote-tip" };
+    const commits: Record<string, number> = { "old-local": 5, "remote-tip": 1 };
+    const aheadGit: ReviewGit = {
+      ...fakeGit("c1"),
+      mergeBase: async (_worktree, ref) => forks[ref]!,
+      commitsSince: async (_worktree, base) => commits[base]!,
+    };
+    expect((await createBranchDiff({ git: aheadGit, repositories: r })(task))?.from).toBe(
+      "remote-tip",
+    );
+
+    commits["old-local"] = 0;
+    expect((await createBranchDiff({ git: aheadGit, repositories: r })(task))?.from).toBe(
+      "old-local",
     );
   });
 });
