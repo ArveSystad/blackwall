@@ -1,6 +1,7 @@
 import {
   findingSchema,
   type DeliveryAction,
+  type DeliveryPlan,
   type Finding,
   type PullRequestThread,
   type StepEvent,
@@ -38,6 +39,7 @@ import {
   effectiveModel,
   findingLocation,
   gateBanner,
+  initialTicks,
   hunkFindings,
   hunkThreads,
   isBlocking,
@@ -60,6 +62,7 @@ import {
   stepModel,
   subagentStatus,
   TASK_TABS,
+  toggleTick,
   toolTarget,
   unplacedThreads,
   visibleFindings,
@@ -1006,11 +1009,70 @@ describe("runs and steps", () => {
   });
 });
 
+describe("finish ticks", () => {
+  const merge: DeliveryAction = { kind: "merge-main", branch: "agent/t1", into: "main" };
+  const push: DeliveryAction = { kind: "push-branch", branch: "feat/x", remote: "origin" };
+  const pr: DeliveryAction = {
+    kind: "open-pr",
+    host: "github.com",
+    owner: "acme",
+    repo: "app",
+    head: "feat/x",
+    base: "main",
+    title: "X",
+    body: "B",
+  };
+  const comment: DeliveryAction = { kind: "jira-comment", key: "ABC-1", url: null, body: "B" };
+  const plan = (actions: DeliveryAction[], completed: DeliveryPlan["completed"] = []) => ({
+    actions,
+    squash: null,
+    completed,
+  });
+  const all = ["merge-main", "push-branch", "open-pr"] as const;
+
+  it("ticks the local merge over the PR route, and everything else", () => {
+    expect([...initialTicks(plan([merge, push, pr]))]).toEqual(["merge-main"]);
+    expect([...initialTicks(plan([push, pr, comment]))]).toEqual([
+      "push-branch",
+      "open-pr",
+      "jira-comment",
+    ]);
+    expect([...initialTicks(plan([push, pr], ["push-branch"]))]).toEqual(["open-pr"]);
+  });
+
+  it("keeps the local merge and the PR route exclusive", () => {
+    expect([...toggleTick(new Set(["merge-main"]), "push-branch", true, all)]).toEqual([
+      "push-branch",
+    ]);
+    expect([...toggleTick(new Set(["merge-main"]), "open-pr", true, all)].sort()).toEqual([
+      "open-pr",
+      "push-branch",
+    ]);
+    expect([...toggleTick(new Set(["push-branch", "open-pr"]), "merge-main", true, all)]).toEqual([
+      "merge-main",
+    ]);
+    expect([...toggleTick(new Set(["push-branch", "open-pr"]), "push-branch", false, all)]).toEqual(
+      [],
+    );
+    expect([...toggleTick(new Set(["push-branch", "open-pr"]), "open-pr", false, all)]).toEqual([
+      "push-branch",
+    ]);
+    // A PR whose push already went through ticks no push.
+    expect([...toggleTick(new Set(), "open-pr", true, ["open-pr"])]).toEqual(["open-pr"]);
+  });
+});
+
 describe("finish", () => {
   it("names each action exactly", () => {
     expect(
       deliveryActionCopy({ kind: "push-branch", branch: "feature/x", remote: "origin" }, 0),
     ).toEqual({ title: "Push branch", target: "feature/x → origin" });
+    expect(
+      deliveryActionCopy(
+        { kind: "push-branch", branch: "feat/x", remote: "origin", from: "agent/t1" },
+        0,
+      ),
+    ).toEqual({ title: "Push branch", target: "agent/t1 as feat/x → origin" });
     expect(
       deliveryActionCopy({ kind: "pr-review", url: "https://x/pull/1", findingIds: [] }, 1).title,
     ).toBe("Post review with 1 comment");

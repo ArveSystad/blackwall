@@ -2755,8 +2755,11 @@ describe("summarize and finish", () => {
           commitsSince: unused,
           squash: unused,
           push: unused,
-          remoteUrl: unused,
+          // No remote: a free-text task is offered only the local merge.
+          remoteUrl: async () => null,
           finishIntoMain: unused,
+          branchExists: unused,
+          renameBranch: unused,
         },
         repositories: r,
         ports: {
@@ -2847,6 +2850,21 @@ describe("summarize and finish", () => {
     expect(r.stepEvents.list(step.id).map((e) => e.payload)).toEqual([
       { action: "merge-main", detail: "merge-main" },
     ]);
+  });
+
+  it("saves the branch delivery renamed for a pull request", async () => {
+    const h = harness(() => ({}), {
+      deliver: async (ctx) => {
+        ctx.renameBranch?.("feat/x");
+      },
+    });
+    const seeded = await atFinish(h);
+    await h.engine.respond(seeded.id, {
+      gate: "finish",
+      decision: "approve",
+      delivery: { actions: ["push-branch"] },
+    });
+    expect(task(seeded.id).branch).toBe("feat/x");
   });
 
   it("confirms nothing when the finish approval lists no actions", async () => {

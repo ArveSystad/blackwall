@@ -11,11 +11,18 @@ import {
 } from "@blackwall/shared";
 import { MissingCredentialError } from "../connections/service.js";
 import type { Repositories } from "../db/repositories.js";
+import { prBranchName } from "../git/branches.js";
 import { describeGitError } from "../git/errors.js";
 import { GitError, type GitService } from "../git/service.js";
 import { defaultBranchOf } from "../repos/service.js";
 import { createFollowUpTasks, resolveFollowUps } from "./follow-ups.js";
-import { commitKey, commitMessage, commitWithRewrites, withoutLeftovers } from "./stages.js";
+import {
+  commitKey,
+  commitMessage,
+  commitWithRewrites,
+  conventionalType,
+  withoutLeftovers,
+} from "./stages.js";
 import { InvalidGateResponseError, pipelineKind } from "./transitions.js";
 
 /** A confirmed delivery action failed. The message is safe to show the user. */
@@ -101,7 +108,15 @@ export interface DeliveryPorts {
 
 export type DeliveryGit = Pick<
   GitService,
-  "isProtected" | "mergeBase" | "commitsSince" | "squash" | "push" | "remoteUrl" | "finishIntoMain"
+  | "isProtected"
+  | "mergeBase"
+  | "commitsSince"
+  | "squash"
+  | "push"
+  | "remoteUrl"
+  | "finishIntoMain"
+  | "branchExists"
+  | "renameBranch"
 >;
 
 /** What the engine hands delivery when the user confirms. */
@@ -126,6 +141,8 @@ export interface DeliveryContext {
   rewriteCommitMessage?(rejected: string, output: string): Promise<string>;
   /** Saves the squash message that landed, when it differs from the planned one. */
   saveSquashMessage?(message: string): void;
+  /** Saves the task's new branch name, right after a free-text task's branch is renamed for its PR. */
+  renameBranch?(branch: string): void;
 }
 
 /** Plans and performs the finish actions; the engine calls it at the delivery gate. */
@@ -149,6 +166,9 @@ export interface DelivererOptions {
 
 /** Actions that send or merge the branch's code; dropped when the branch has no commits. */
 const CODE_ACTIONS: readonly DeliveryTarget[] = ["push-branch", "open-pr", "merge-main"];
+
+/** Prefix of a free-text task's branch until it is renamed for a pull request. */
+const TEMP_BRANCH_PREFIX = "agent/";
 
 /** Findings a Review PR task offers for posting: everything still active, ignored ones excepted. */
 export function postableFindings(findings: readonly Finding[]): Finding[] {
@@ -193,9 +213,11 @@ export function conflictResolutionPrompt(
  * transitions), a GitHub issue task does the same with a PR body that ends
  * `Closes owner/repo#n`. PR bodies and comments carry the short summary,
  * falling back to the full one without the findings left open for tasks
- * summarized without it. A free-text task rebases onto the repo's local default
- * branch, resolving conflicts with the implementer, and fast-forwards it (it is
- * never pushed); PRs target that branch too. A
+ * summarized without it. A free-text task either rebases onto the repo's local
+ * default branch, resolving conflicts with the implementer, and fast-forwards it,
+ * or, with a GitHub/GHE remote, renames its `agent/` branch to `feat/<slug>` (or
+ * `fix/…`), pushes it and opens a PR; never both, and once pushed it is never
+ * merged locally. PRs target the default branch too. A
  * Review PR task posts the selected findings
  * as a review, approving the PR only when the user opts in. Any task with follow-ups the summarizer proposed also offers
  * `create-tasks`, last, which adds the picked ones to their repos' backlogs
@@ -271,7 +293,54 @@ export function createDeliverer({
     return cwd ? git.remoteUrl(cwd) : null;
   }
 
-  async function actions(task: Task): Promise<DeliveryAction[]> {
+  /**
+   * The branch a free-text task opens its pull request from: its own once
+   * renamed, else {@link prBranchName}, suffixed `-2`, `-3`, … past a branch
+   * that exists locally or as a remote-tracking branch.
+   */
+  async function freeTextPrBranch(task: Task, cwd: string): Promise<string> {
+    const branch = task.branch!;
+    if (!branch.startsWith(TEMP_BRANCH_PREFIX)) return branch;
+    const bug =
+      conventionalType(commitMessage(task.squashMessage ?? task.title, undefined)) === "fix";
+    const name = prBranchName({ title: task.title, bug, taskId: task.id });
+    let candidate = name;
+    for (let n = 2; await git.branchExists(cwd, candidate); n += 1) candidate = `${name}-${n}`;
+    return candidate;
+  }
+
+  /**
+   * A free-text task's actions: the local merge or, with a GitHub/GHE remote,
+   * a push and PR against the default branch. Once the branch was pushed (in
+   * this run or by an earlier delivery), only the push and PR.
+   */
+  async function freeTextActions(
+    task: Task,
+    completed: readonly DeliveryStep[],
+    main: string,
+    body: string,
+  ): Promise<DeliveryAction[]> {
+    const branch = task.branch!;
+    const pushed =
+      completed.includes("push-branch") || task.deliveryTargets.includes("push-branch");
+    const remoteUrl = await liveRemote(task);
+    const slug = remoteUrl ? ports.parseRemote(remoteUrl) : undefined;
+    const merge: DeliveryAction[] = pushed ? [] : [{ kind: "merge-main", branch, into: main }];
+    if (!remoteUrl || !slug) return merge;
+    const cwd = task.worktreePath ?? r.repos.get(task.repoId)?.path;
+    const head = pushed || !cwd ? branch : await freeTextPrBranch(task, cwd);
+    if (git.isProtected(head, main)) return merge;
+    const from = branch.startsWith(TEMP_BRANCH_PREFIX) && head !== branch ? { from: branch } : {};
+    const pr: DeliveryAction[] = task.deliveryTargets.includes("open-pr")
+      ? []
+      : [{ kind: "open-pr", ...slug, head, base: main, title: prTitle(task), body }];
+    return [...merge, { kind: "push-branch", branch: head, remote: remoteUrl, ...from }, ...pr];
+  }
+
+  async function actions(
+    task: Task,
+    completed: readonly DeliveryStep[],
+  ): Promise<DeliveryAction[]> {
     const { origin, branch } = task;
     if (pipelineKind(task.mode) === "review") {
       if (origin.kind !== "github-pr") return [];
@@ -280,9 +349,9 @@ export function createDeliverer({
     }
     if (!branch) return [];
     const main = defaultBranchOf(r.repos, task.repoId);
-    if (origin.kind === "free-text") return [{ kind: "merge-main", branch, into: main }];
     const body =
       task.shortSummary?.trim() || (task.summary && withoutLeftovers(task.summary)) || task.title;
+    if (origin.kind === "free-text") return freeTextActions(task, completed, main, body);
     const remoteUrl = await liveRemote(task);
     // The harness never pushes a protected branch, so it is not offered.
     const push: DeliveryAction[] =
@@ -345,7 +414,7 @@ export function createDeliverer({
 
   async function plan(task: Task, completed: readonly DeliveryStep[]): Promise<DeliveryPlan> {
     const review = pipelineKind(task.mode) === "review";
-    let offered = await actions(task);
+    let offered = await actions(task, completed);
     const codeStarted = CODE_ACTIONS.some((a) => completed.includes(a));
     if (!review && task.origin.kind !== "github-pr" && !codeStarted && !(await hasCommits(task))) {
       offered = offered.filter((a) => !CODE_ACTIONS.includes(a.kind));
@@ -366,12 +435,29 @@ export function createDeliverer({
     { actions: offered, squash }: DeliveryPlan,
     confirmation: DeliveryConfirmation,
     completed: readonly DeliveryStep[],
+    task: Task,
   ): void {
     const kinds = new Set(offered.map((a) => a.kind));
     for (const action of confirmation.actions) {
       if (!kinds.has(action)) {
         throw new InvalidGateResponseError(`${action} is not a delivery action for this task`);
       }
+    }
+    const merging = confirmation.actions.includes("merge-main");
+    if (
+      merging &&
+      (completed.includes("push-branch") || task.deliveryTargets.includes("push-branch"))
+    ) {
+      throw new InvalidGateResponseError(
+        "The branch was pushed; finish it through the pull request",
+      );
+    }
+    if (
+      task.origin.kind === "free-text" &&
+      merging &&
+      (confirmation.actions.includes("push-branch") || confirmation.actions.includes("open-pr"))
+    ) {
+      throw new InvalidGateResponseError("Merge locally or open a pull request, not both");
     }
     if (confirmation.squash && !squash && !completed.includes("squash")) {
       throw new InvalidGateResponseError("There is nothing to squash");
@@ -417,7 +503,7 @@ export function createDeliverer({
   async function deliver(ctx: DeliveryContext) {
     const { task, confirmation, completed, record } = ctx;
     const planned = await plan(task, completed);
-    check(planned, confirmation, completed);
+    check(planned, confirmation, completed, task);
     const worktree = task.worktreePath;
     const target = <K extends DeliveryAction["kind"]>(kind: K) =>
       planned.actions.find((a): a is Extract<DeliveryAction, { kind: K }> => a.kind === kind)!;
@@ -440,7 +526,7 @@ export function createDeliverer({
   }
 
   async function perform(
-    { task, confirmation, resolveConflicts }: DeliveryContext,
+    { task, confirmation, resolveConflicts, renameBranch }: DeliveryContext,
     action: DeliveryTarget,
     target: <K extends DeliveryAction["kind"]>(kind: K) => Extract<DeliveryAction, { kind: K }>,
   ): Promise<string> {
@@ -460,7 +546,13 @@ export function createDeliverer({
     if (!worktree) throw new DeliveryError("The task has no worktree");
     switch (action) {
       case "push-branch": {
-        const { branch, remote } = target("push-branch");
+        const { branch, remote, from } = target("push-branch");
+        const main = defaultBranchOf(r.repos, task.repoId);
+        if (from && from !== branch) {
+          // A free-text task's temp branch takes its PR name before it leaves the machine.
+          await git.renameBranch(worktree, from, branch, main);
+          renameBranch?.(branch);
+        }
         const into = `origin/${branch}`;
         // Only a branch that is ours on the remote (the PR head, or pushed before) takes in its new commits.
         const integrate =
@@ -468,7 +560,7 @@ export function createDeliverer({
         const result = await git.push(
           worktree,
           branch,
-          defaultBranchOf(r.repos, task.repoId),
+          main,
           integrate
             ? { integrate: { resolve: ({ files }) => resolveConflicts({ branch, into, files }) } }
             : {},

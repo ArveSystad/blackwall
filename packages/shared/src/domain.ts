@@ -98,6 +98,8 @@ export const GRILL_ANSWERERS = ["agent", "user"] as const;
  * perform these themselves; the harness does, and only the ones the user
  * confirmed. `merge-main` is the free-text finish (rebase onto local main,
  * then fast-forward it); it never leaves the machine and main is never pushed.
+ * A free-text task does either `merge-main` or `push-branch` + `open-pr`,
+ * never both, and never `merge-main` once its branch was pushed.
  * `issue-comment` comments on a GitHub issue task's issue. `create-tasks`
  * creates the selected follow-up tasks as independent waiting backlog items;
  * local only. It runs last, so follow-ups branch from a main that already has
@@ -1388,7 +1390,13 @@ export type TaskWorktree = z.infer<typeof taskWorktreeSchema>;
  */
 export const deliveryActionSchema = z.discriminatedUnion("kind", [
   /** Push the task branch to `remote` under the same name. Never main. */
-  z.object({ kind: z.literal("push-branch"), branch: z.string(), remote: z.string() }),
+  z.object({
+    kind: z.literal("push-branch"),
+    branch: z.string(),
+    remote: z.string(),
+    /** Local branch renamed to `branch` before the push (free-text tasks opening a PR). */
+    from: z.string().optional(),
+  }),
   /** Open a pull request on GitHub/GHE from `head` into `base`. */
   z.object({
     kind: z.literal("open-pr"),

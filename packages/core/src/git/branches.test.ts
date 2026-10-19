@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { branchForTask, slugify, worktreePathFor } from "./branches.js";
+import { branchForTask, prBranchName, slugify, worktreePathFor } from "./branches.js";
 
 describe("slugify", () => {
   it("lower-cases, hyphenates and strips accents", () => {
@@ -39,6 +39,30 @@ describe("branchForTask", () => {
 
   it("uses agent/<task-id> for free-text tasks", () => {
     expect(branchForTask({ kind: "free-text", taskId: "t_42" })).toBe("agent/t_42");
+  });
+});
+
+describe("prBranchName", () => {
+  const task = { title: "Fix login", taskId: "0123456789abcdef" };
+
+  it("names the branch feat/ or fix/", () => {
+    expect(prBranchName({ ...task, bug: false })).toBe("feat/fix-login");
+    expect(prBranchName({ ...task, bug: true })).toBe("fix/fix-login");
+  });
+
+  it("cuts the slug at 30 characters on a word boundary", () => {
+    const title = "Show the weekly report totals per team member";
+    expect(prBranchName({ ...task, title, bug: false })).toBe("feat/show-the-weekly-report-totals");
+  });
+
+  it("strips accents and Norwegian letters", () => {
+    expect(prBranchName({ ...task, title: "Rød bil på Ærø, café", bug: false })).toBe(
+      "feat/rod-bil-pa-aero-cafe",
+    );
+  });
+
+  it("falls back to the task id when the title has no slug", () => {
+    expect(prBranchName({ ...task, title: "!!!", bug: true })).toBe("fix/01234567");
   });
 });
 

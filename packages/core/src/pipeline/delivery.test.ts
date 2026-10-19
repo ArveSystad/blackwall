@@ -280,6 +280,151 @@ describe("free-text tasks", () => {
     expect(subjects(repoPath, "develop")).toEqual(["edit f1.txt", "edit f0.txt", "initial"]);
     expect(subjects(repoPath, "main")).toEqual(["main moved", "initial"]);
   });
+
+  describe("with a GitHub remote", () => {
+    const github = "https://github.com/acme/app.git";
+    const pr = {
+      kind: "open-pr",
+      host: "github.com",
+      owner: "acme",
+      repo: "app",
+      head: "feat/fix-login",
+      base: "main",
+      title: "Fix login",
+      body: "Logins reject wrong passwords.",
+    };
+
+    it("offers the local merge, or a push as feat/<slug> and a PR", async () => {
+      const { task } = await seed({ branch: "agent/t1" }, { remoteUrl: github });
+      const { deliverer: d } = deliverer();
+      expect((await d.plan(task, [])).actions).toEqual([
+        { kind: "merge-main", branch: "agent/t1", into: "main" },
+        { kind: "push-branch", branch: "feat/fix-login", remote: github, from: "agent/t1" },
+        pr,
+      ]);
+    });
+
+    it("names a bugfix's branch fix/<slug>", async () => {
+      const { task } = await seed(
+        { branch: "agent/t1", squashMessage: "fix: login" },
+        { remoteUrl: github },
+      );
+      const { deliverer: d } = deliverer();
+      expect((await d.plan(task, [])).actions[1]).toMatchObject({ branch: "fix/fix-login" });
+    });
+
+    it("suffixes the branch name past an existing branch", async () => {
+      run(repoPath, "branch", "feat/fix-login");
+      const { task } = await seed({ branch: "agent/t1" }, { remoteUrl: github });
+      const { deliverer: d } = deliverer();
+      const { actions } = await d.plan(task, []);
+      expect(actions[1]).toMatchObject({ branch: "feat/fix-login-2", from: "agent/t1" });
+      expect(actions[2]).toMatchObject({ head: "feat/fix-login-2" });
+    });
+
+    it("renames the branch, pushes it and opens the PR, leaving main alone", async () => {
+      const { task, run: runRow } = await seed({ branch: "agent/t1" }, { remoteUrl: github });
+      const main = run(repoPath, "rev-parse", "main");
+      const { deliverer: d, ports } = deliverer();
+      const renameBranch = vi.fn();
+      const outcomes: DeliveryOutcome[] = [];
+
+      await d.deliver({
+        task,
+        run: runRow,
+        confirmation: deliveryConfirmationSchema.parse({ actions: ["push-branch", "open-pr"] }),
+        completed: [],
+        record: (o) => outcomes.push(o),
+        resolveConflicts: () => Promise.reject(new Error("no resolver")),
+        renameBranch,
+      });
+
+      expect(outcomes.map((o) => o.action)).toEqual(["push-branch", "open-pr"]);
+      expect(run(task.worktreePath!, "symbolic-ref", "--short", "HEAD")).toBe("feat/fix-login");
+      expect(run(originPath, "rev-parse", "refs/heads/feat/fix-login")).toBe(
+        run(task.worktreePath!, "rev-parse", "HEAD"),
+      );
+      expect(renameBranch).toHaveBeenCalledWith("feat/fix-login");
+      expect(ports.openPullRequest).toHaveBeenCalledWith(
+        task,
+        expect.objectContaining({ head: "feat/fix-login", base: "main" }),
+      );
+      expect(run(repoPath, "rev-parse", "main")).toBe(main);
+    });
+
+    it("refuses merging and opening a PR together before doing anything", async () => {
+      const { task, run: runRow } = await seed({ branch: "agent/t1" }, { remoteUrl: github });
+      const { deliverer: d, ports } = deliverer();
+      const head = run(task.worktreePath!, "rev-parse", "HEAD");
+
+      await expect(
+        deliver(d, task, runRow, { actions: ["merge-main", "push-branch"], squash: true }),
+      ).rejects.toThrow("Merge locally or open a pull request, not both");
+      expect(run(task.worktreePath!, "rev-parse", "HEAD")).toBe(head);
+      expect(run(task.worktreePath!, "symbolic-ref", "--short", "HEAD")).toBe("agent/t1");
+      expect(ports.openPullRequest).not.toHaveBeenCalled();
+    });
+
+    it("retries only the PR once the push went through, never the merge", async () => {
+      const { task, run: runRow } = await seed({ branch: "agent/t1" }, { remoteUrl: github });
+      const failing = deliverer(
+        fakePorts({
+          openPullRequest: vi.fn(async () => {
+            throw new Error("github.com: rate limited");
+          }),
+        }),
+      );
+      const outcomes: DeliveryOutcome[] = [];
+      await expect(
+        failing.deliverer.deliver({
+          task,
+          run: runRow,
+          confirmation: deliveryConfirmationSchema.parse({ actions: ["push-branch", "open-pr"] }),
+          completed: [],
+          record: (o) => outcomes.push(o),
+          resolveConflicts: () => Promise.reject(new Error("no resolver")),
+        }),
+      ).rejects.toThrow(DeliveryError);
+      expect(outcomes.map((o) => o.action)).toEqual(["push-branch"]);
+
+      const renamed = r.tasks.update(task.id, { branch: "feat/fix-login" });
+      const { deliverer: d, ports } = deliverer();
+      const plan = await d.plan(renamed, ["push-branch"]);
+      expect(plan.actions).toEqual([
+        { kind: "push-branch", branch: "feat/fix-login", remote: github },
+        pr,
+      ]);
+      expect(plan.completed).toEqual(["push-branch"]);
+
+      await expect(
+        deliver(d, renamed, runRow, { actions: ["merge-main"] }, ["push-branch"]),
+      ).rejects.toThrow(InvalidGateResponseError);
+      await deliver(d, renamed, runRow, { actions: ["open-pr"] }, ["push-branch"]);
+      expect(ports.openPullRequest).toHaveBeenCalledWith(
+        renamed,
+        expect.objectContaining({ head: "feat/fix-login" }),
+      );
+    });
+
+    it("offers only the push once an earlier delivery pushed and opened the PR", async () => {
+      const seeded = await seed({ branch: "feat/fix-login" }, { remoteUrl: github });
+      const task = r.tasks.update(seeded.task.id, { deliveryTargets: ["push-branch", "open-pr"] });
+      const { deliverer: d } = deliverer();
+      expect((await d.plan(task, [])).actions).toEqual([
+        { kind: "push-branch", branch: "feat/fix-login", remote: github },
+      ]);
+    });
+
+    it("still offers the merge for a branch renamed but never pushed", async () => {
+      const { task } = await seed({ branch: "feat/fix-login" }, { remoteUrl: github });
+      const { deliverer: d } = deliverer();
+      expect((await d.plan(task, [])).actions).toEqual([
+        { kind: "merge-main", branch: "feat/fix-login", into: "main" },
+        { kind: "push-branch", branch: "feat/fix-login", remote: github },
+        pr,
+      ]);
+    });
+  });
 });
 
 describe("Jira tasks", () => {

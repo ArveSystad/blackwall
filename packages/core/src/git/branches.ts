@@ -11,8 +11,14 @@ export type BranchSource =
   | { kind: "jira-issue"; key: string; title: string; issueType: string }
   /** GitHub issue: `feature/<number>-<slug>`, or `fix/…` when it has a `bug` label. */
   | { kind: "github-issue"; number: number; title: string; bug: boolean }
-  /** Free text: a temp branch `agent/<task-id>`. */
+  /**
+   * Free text: a temp branch `agent/<task-id>`, renamed to {@link prBranchName}
+   * when the user opens a pull request instead of merging locally.
+   */
   | { kind: "free-text"; taskId: string };
+
+/** Longest slug kept in a free-text task's pull request branch name. */
+export const PR_SLUG_LENGTH = 30;
 
 /**
  * Lower-case, hyphenated ASCII slug of a title: accents are stripped, every
@@ -57,6 +63,24 @@ export function branchForTask(source: BranchSource): string {
     case "free-text":
       return `agent/${source.taskId}`;
   }
+}
+
+/**
+ * The branch a free-text task is pushed as when it opens a pull request:
+ * `feat/<slug>`, or `fix/<slug>` for a bugfix, with the task id's first eight
+ * characters when the title has no slug.
+ */
+export function prBranchName({
+  title,
+  bug,
+  taskId,
+}: {
+  title: string;
+  bug: boolean;
+  taskId: string;
+}): string {
+  const slug = slugify(title, PR_SLUG_LENGTH) || taskId.slice(0, 8);
+  return `${bug ? "fix" : "feat"}/${slug}`;
 }
 
 /** Where a task's worktree lives: `../<repo>.worktrees/<task>` next to the repo. */

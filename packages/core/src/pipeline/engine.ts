@@ -790,6 +790,10 @@ export function createPipelineEngine({
         resolveConflicts,
         ...(rewriteCommitMessage ? { rewriteCommitMessage } : {}),
         saveSquashMessage: (squashMessage) => saveTask(task.id, { squashMessage }),
+        renameBranch: (branch) => {
+          saveTask(task.id, { branch });
+          scheduler.setBranch(task.id, branch);
+        },
       });
       if (step) saveStep(step.id, { status: "succeeded", finishedAt: new Date() });
     } catch (error) {

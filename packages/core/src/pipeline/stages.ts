@@ -407,6 +407,12 @@ function conventionalHeader(line: string): { prefix: string; description: string
   return { prefix: `${type.toLowerCase()}${scope}${bang}: `, description };
 }
 
+/** The lower-cased Conventional Commits type of a message's summary line, or undefined. */
+export function conventionalType(message: string): string | undefined {
+  const type = CONVENTIONAL_HEADER.exec(message.trim().split("\n")[0] ?? "")?.[1]?.toLowerCase();
+  return type && CONVENTIONAL_TYPES.includes(type) ? type : undefined;
+}
+
 /**
  * The summarizer's reply as a Conventional Commits message: unfenced and
  * trimmed, `chore: ` prefixed when the summary line has no valid type, and

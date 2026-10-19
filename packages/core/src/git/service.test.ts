@@ -275,6 +275,38 @@ describe("createWorktree", () => {
   });
 });
 
+describe("renameBranch and branchExists", () => {
+  it("renames the branch checked out in a worktree", async () => {
+    const path = worktreePathFor(repo, "t1");
+    await service.createWorktree({
+      repoPath: repo,
+      worktreePath: path,
+      branch: "agent/t1",
+      checkout: { kind: "new" },
+    });
+    await service.renameBranch(path, "agent/t1", "feat/fix-login");
+    expect(git(path, "symbolic-ref", "--short", "HEAD")).toBe("feat/fix-login");
+    expect(() => git(repo, "rev-parse", "--verify", "refs/heads/agent/t1")).toThrow();
+  });
+
+  it("refuses to rename from or to main", async () => {
+    await expect(service.renameBranch(repo, "main", "feat/x")).rejects.toThrow(
+      ProtectedBranchError,
+    );
+    await expect(service.renameBranch(repo, "feat/x", "main")).rejects.toThrow(
+      ProtectedBranchError,
+    );
+  });
+
+  it("finds local and remote-tracking branches without fetching", async () => {
+    git(repo, "branch", "feat/local");
+    git(repo, "update-ref", "refs/remotes/origin/feat/remote", "HEAD");
+    expect(await service.branchExists(repo, "feat/local")).toBe(true);
+    expect(await service.branchExists(repo, "feat/remote")).toBe(true);
+    expect(await service.branchExists(repo, "feat/none")).toBe(false);
+  });
+});
+
 describe("git lock files", () => {
   const indexLock = () => join(repo, ".git", "index.lock");
 

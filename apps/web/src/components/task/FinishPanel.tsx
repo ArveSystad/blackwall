@@ -24,7 +24,9 @@ import {
   confirmLabel,
   deliveryActionCopy,
   finishBusy,
+  initialTicks,
   isReviewTriage,
+  toggleTick,
 } from "../../task-view";
 import { CiBadge } from "../CiBadge";
 import { CheckIcon, FailedIcon, SpinnerIcon, WallIcon, WarnIcon } from "../icons";
@@ -263,9 +265,7 @@ export function Outbound({
   onPicksChange: (picks: ReviewPicks) => void;
 }) {
   const done = new Set(plan.completed);
-  const [ticked, setTicked] = useState<ReadonlySet<DeliveryTarget>>(
-    () => new Set(plan.actions.map((a) => a.kind).filter((k) => !done.has(k))),
-  );
+  const [ticked, setTicked] = useState<ReadonlySet<DeliveryTarget>>(() => initialTicks(plan));
   const [squash, setSquash] = useState(false);
   const review = plan.actions.find(
     (a): a is Extract<DeliveryAction, { kind: "pr-review" }> => a.kind === "pr-review",
@@ -322,12 +322,14 @@ export function Outbound({
   }, !busy);
 
   function toggle(kind: DeliveryTarget, on: boolean) {
-    setTicked((current) => {
-      const next = new Set(current);
-      if (on) next.add(kind);
-      else next.delete(kind);
-      return next;
-    });
+    setTicked((current) =>
+      toggleTick(
+        current,
+        kind,
+        on,
+        plan.actions.map((a) => a.kind),
+      ),
+    );
   }
 
   const offeredFindings = review?.findingIds.length ?? 0;

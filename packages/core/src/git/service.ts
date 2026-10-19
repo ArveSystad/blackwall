@@ -834,6 +834,34 @@ export function createGitService({
     },
 
     /**
+     * Whether `branch` exists locally or as a remote-tracking branch of the
+     * remote. Never fetches, so a remote branch not fetched yet is missed.
+     */
+    async branchExists(cwd: string, branch: string): Promise<boolean> {
+      for (const ref of [`refs/heads/${branch}`, `refs/remotes/${remote}/${branch}`]) {
+        if (await succeeds(cwd, ["show-ref", "--verify", "--quiet", ref])) return true;
+      }
+      return false;
+    },
+
+    /**
+     * Renames the branch checked out in the worktree (`git branch -m`), e.g. a
+     * free-text task's `agent/<task-id>` before its first push. Refuses
+     * `defaultBranch` (the repo's default branch), `main` and `master` on
+     * either side.
+     */
+    async renameBranch(
+      worktreePath: string,
+      from: string,
+      to: string,
+      defaultBranch?: string,
+    ): Promise<void> {
+      assertUnprotected(from, defaultBranch);
+      assertUnprotected(to, defaultBranch);
+      await runGit(worktreePath, ["branch", "-m", from, to]);
+    },
+
+    /**
      * Records the worktree at `path` as three tree objects: HEAD, the real index
      * (`git write-tree`) and the full working state, untracked non-ignored files
      * included, built in a temporary index so the real one is never touched.

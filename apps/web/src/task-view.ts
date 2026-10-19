@@ -8,6 +8,8 @@ import {
   type AgentCli,
   type AgentClis,
   type DeliveryAction,
+  type DeliveryPlan,
+  type DeliveryTarget,
   type Finding,
   type Gate,
   type GrillQuestion,
@@ -952,6 +954,47 @@ export interface ActionCopy {
   body?: string;
 }
 
+/** The actions of the pull request route, the alternative to a free-text task's local merge. */
+const PR_ROUTE: readonly DeliveryTarget[] = ["push-branch", "open-pr"];
+
+/**
+ * The actions ticked when the finish pane opens: every offered one not done
+ * yet, except that the local merge, when offered, wins over the PR route.
+ */
+export function initialTicks(plan: DeliveryPlan): Set<DeliveryTarget> {
+  const done = new Set(plan.completed);
+  const kinds = plan.actions.map((a) => a.kind).filter((k) => !done.has(k));
+  const merging = kinds.includes("merge-main");
+  return new Set(kinds.filter((k) => !(merging && PR_ROUTE.includes(k))));
+}
+
+/**
+ * Ticks or unticks `kind`, keeping the local merge and the PR route exclusive:
+ * either route unticks the other, a PR ticks the push it needs, and unticking
+ * the push unticks the PR.
+ */
+export function toggleTick(
+  ticked: ReadonlySet<DeliveryTarget>,
+  kind: DeliveryTarget,
+  on: boolean,
+  offeredKinds: readonly DeliveryTarget[],
+): Set<DeliveryTarget> {
+  const next = new Set(ticked);
+  if (!on) {
+    next.delete(kind);
+    if (kind === "push-branch") next.delete("open-pr");
+    return next;
+  }
+  next.add(kind);
+  if (kind === "merge-main") {
+    for (const k of PR_ROUTE) next.delete(k);
+  } else if (PR_ROUTE.includes(kind)) {
+    next.delete("merge-main");
+    if (kind === "open-pr" && offeredKinds.includes("push-branch")) next.add("push-branch");
+  }
+  return next;
+}
+
 /**
  * Names a delivery action exactly: what is sent, and where. `picked` counts
  * the findings (`pr-review`) or follow-ups (`create-tasks`) the user picked;
@@ -964,7 +1007,12 @@ export function deliveryActionCopy(
 ): ActionCopy {
   switch (action.kind) {
     case "push-branch":
-      return { title: "Push branch", target: `${action.branch} → ${action.remote}` };
+      return {
+        title: "Push branch",
+        target: action.from
+          ? `${action.from} as ${action.branch} → ${action.remote}`
+          : `${action.branch} → ${action.remote}`,
+      };
     case "open-pr":
       return {
         title: `Open pull request: ${action.title}`,
