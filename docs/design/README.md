@@ -48,4 +48,3 @@ The app (`apps/web/src`) wins wherever these differ. As of `295dafe`:
 - **Keyboard:** the inbox has no J/K or G N bindings (J/K move in the Backlog only), and there is no `O` or `?` binding.
 - **Screens with no mockup:** Backlog and Archive, Stats, Chat, Search palette, Review requests, Assigned issues, Active agents, and the home grid with agent dots.
 - **Agents:** OpenCode (`OC`, `--opencode`) sits beside CC and CP.
-- **Skills:** `.claude/skills/blackwall-design/SKILL.md` still lists radii 3/4/6/8/12, says Stats opens from the inbox header, describes the task view's input bar with seven tabs, describes Grill quick answers and an "approve anyway" link, says the chat opens without animation, and points to `claude-design.md` and `grill-result.md`, which do not exist. Use [BRIEF.md](BRIEF.md) instead.

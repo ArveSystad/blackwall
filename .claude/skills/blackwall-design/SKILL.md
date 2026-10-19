@@ -25,7 +25,7 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
 2. **Mockups:** `docs/design/*.dc.html`, one screen per file (see `docs/design/README.md`). They are
    reference for layout, density, copy and states. Do not port the template runtime (`{{holes}}`,
    `<sc-for>`, `<sc-if>`, `renderVals`); rebuild as React + Tailwind + shadcn/ui (Radix).
-3. **Brief:** `claude-design.md` (what and why). Product behaviour: `grill-result.md`.
+3. **Brief:** `docs/design/BRIEF.md` (current product, design and behaviour).
 
 If code and mockup disagree, the code tokens win for values and the mockup wins for intent. Flag the
 conflict instead of silently picking one.
@@ -136,35 +136,47 @@ Rules:
 ## Density and shape
 
 - Spacing uses a 4px base. Heights: table row 40, tab 36, button 28 (sm 24), input 30, chip 20.
-- Radii: tag 3, chip/kbd 4, button/input 6 (`--radius`), card 8, dialog 12 (but see the radii
-  exceptions below).
-- Radii exceptions (HUD chrome, `.bw-chamfer*` in `styles.css`): `btn-primary`, `btn-needs`,
-  `NeedsBanner` and every dialog panel are square, with the top-left and bottom-right corners cut by
-  8px. They have no radius and no CSS border: the frame line is an `::after`. Button focus is a 2px
-  inset line in the button's own foreground colour (`currentColor`: `--primary-fg` / `--needs-fg`),
-  never `--fg-strong` or cyan, which fall under 3:1 on the fills. The task header carries
-  `.bw-brackets`, four corner brackets that turn cyan on focus-within.
+- Corners (HUD chrome, `.bw-chamfer*` in `styles.css`): every `--radius*` token is 0
+  (`styles.css:260-265`), enforced by `corners.test.ts`. Nothing is rounded except true circles
+  (`rounded-full`).
+  - Rectangles are chamfered: the top-left and bottom-right corners are cut. `.bw-chamfer`,
+    `.bw-chamfer-fill` and `.bw-chamfer-box` cut 8px (`--bw-cut`); `.bw-chamfer-pill` cuts 5px for
+    pills, chips and tags; `.bw-chamfer-seg` cuts only the group's outer ends. Checkboxes and radios
+    are 3px-cut `.bw-chamfer-box` controls.
+  - Hosts have no CSS border or radius: the frame line is the `::after`, toned with
+    `--bw-chamfer-line`. `.bw-chamfer-box` draws a real border plus diagonals instead, for inputs,
+    textareas, selects and self-scrolling blocks.
+  - Focus is a 2px cyan frame line (`.bw-chamfer-focus`, `.bw-chamfer-focus-within`,
+    `.bw-chamfer-has-focus`; fields via `.bw-chamfer-box:focus`). The exception is
+    `btn-primary`/`btn-needs`: their focus line is 2px in their own foreground (`currentColor`:
+    `--primary-fg` / `--needs-fg`), never `--fg-strong` or cyan, which fall under 3:1 on the fills.
+  - The task header carries `.bw-brackets`, four corner brackets that turn cyan on focus-within.
 - Compact rows, little chrome. Use whitespace instead of a border wherever one would do. Never use
   left-border accent cards (the needs-you rail is the one sanctioned exception).
 
 ## Layout
 
+- **Top bar:** a global 44px bar (`TopBar.tsx`) over every page. Left: the wordmark, in a 352px
+  column that lines up with the inbox. Middle: the "Repo" picker, View backlog, the repo status line
+  and the path. Right: the quota chip, Search (`⌘K`), Chat, Theme, Stats and Settings.
 - **Shell:** inbox on the left (~352px), task view on the right. Settings replaces both panes with
   a settings nav, a list and an editor.
-- **Stats:** a full page at `/stats`, opened from the icon button next to the Settings cog in the
-  inbox header. Its top-left header (wordmark, theme toggle, "Inbox" back button with `Esc`) mirrors
-  Settings so the wordmark stays put. It shows tasks resolved, a tile per task type, repositories
+- **Stats:** a full page at `/stats`, opened from the top bar's Stats button. Its header has an
+  "Inbox" back button with `Esc`. It shows tasks resolved, a tile per task type, repositories
   touched and a per-day bar chart of the last 10 days.
 - **Inbox:** grouped Needs you → Running → Recent. Each card shows: origin icon + key (mono), relative
   time, 2-line title, needs-you reason (magenta), repo (mono), 6-pip stage indicator, agent tiles and
   a status badge.
 - **Task view:** header (origin link, mode chip, title, repo, branch, agents, stage stepper with
   review round), then the needs-you banner if any, then tabs (Context, Plan, Grill, Agent output,
-  Findings, Diff, Checks) with counts in mono, then content, then the input bar to steer agents.
+  Findings, Diff, Artifacts, Checks, Finish; `TAB_LABELS` in `task-view.ts`) with counts in mono, then
+  content. There is no input bar: steer agents from the chat composer's direct send (`⌘⇧↵`).
 - **Stages, always in this order:** Inform → Plan review → Implement → Checks → Code review → Finish.
-- **Grill:** a structured interview, not chat. Each question shows a number, a status chip, the
-  reviewer's identity, the planner's take, and quick answers with 1/2/3 key hints. Approve plan stays
-  disabled while any decision is open, with an explicit "approve anyway" link.
+- **Grill:** a structured interview, not chat. Each question card shows the Q-number, a status chip,
+  the asking reviewer (agent tile, name, model) and the answer, labelled You or Planner. A question
+  that needs you takes a typed answer ("Your answer", Answer with `⌘↵`), which goes back to the
+  planner. Approve plan stays disabled while any question is open (`PlanPanel.tsx`), with a hint
+  saying why. There is no approve-anyway path.
 - **Finish:** the outbound panel ("crosses the wall") lists every outward action as a pre-ticked
   checkbox showing exactly what is sent (branch → remote, PR title/base, comment text). Optional
   actions start unticked. One confirm button states the count, e.g. "Confirm and send 3 actions".
@@ -176,7 +188,9 @@ Rules:
   sidebar. It never overlays the page and never closes itself; below ~960px it stays at 250px and
   the main area shrinks. The left edge is a separator: an 8px hit area over a 1px `border` line that
   turns 2px cyan on hover, while dragging and on keyboard focus (with the focus ring); Left/Right
-  step 16px, Home/End jump to the bounds. Opening has no animation. Only messages appended while the
+  step 16px, Home/End jump to the bounds. The panel slides open and closed over 180ms (`.bw-chat`,
+  `CHAT_PANEL_MS` in `chat.ts`; change them together); it opens and closes at once under reduced
+  motion, or when the page loads with it already open. Only messages appended while the
   panel is open fade in (`animate-fade-in`, 150ms); history never does. States: loading, load
   error with Retry, empty, busy (a cyan activity line with the running pulse; Send is disabled
   except for `/clear`), send error inline. Clear (and a typed `/clear`) clears at once when idle,

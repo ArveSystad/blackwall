@@ -19,7 +19,7 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
 
 ## Sources of truth
 
-1. **Visual rules** (tokens, radii, magenta/violet semantics, the general keyboard map): follow
+1. **Visual rules** (tokens, chamfered corners, magenta/violet semantics, the general keyboard map): follow
    `.claude/skills/blackwall-design/SKILL.md`. This skill only adds what is specific to dialogs.
 2. **Code** wins over this skill and over task text. References:
    - `apps/web/src/components/ConfirmDialog.tsx`: every yes/no question.
