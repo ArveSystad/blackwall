@@ -116,14 +116,19 @@ export interface WorkspaceRemoverOptions {
 
 /**
  * Removes a deleted task's worktree and deletes its local branch. PR tasks
- * work on the PR's existing branch, so only their worktree goes. The repo's
- * default branch and other protected branches are refused by the git service.
+ * work on the PR's existing branch, so only their worktree goes; so does a
+ * delivered task's (`keepBranch`), whose branch may hold unpushed commits. The
+ * repo's default branch and other protected branches are refused by the git
+ * service.
  */
 export function createWorkspaceRemover({ git, repos }: WorkspaceRemoverOptions) {
-  return async (task: Task): Promise<void> => {
+  return async (task: Task, options?: { keepBranch?: boolean }): Promise<void> => {
     const repo = repos.get(task.repoId);
     if (!repo || !task.worktreePath) return;
-    const deleteBranch = task.origin.kind === "github-pr" || !task.branch ? undefined : task.branch;
+    const deleteBranch =
+      options?.keepBranch || task.origin.kind === "github-pr" || !task.branch
+        ? undefined
+        : task.branch;
     await git.removeWorktree({
       repoPath: repo.path,
       worktreePath: task.worktreePath,

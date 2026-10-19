@@ -356,7 +356,10 @@ export function stopTask(taskId: string): Promise<Task> {
   return request(`${taskPath(taskId)}/stop`, taskSchema, { method: "POST" });
 }
 
-/** Deletes an undelivered task with its worktree, local branch and history. */
+/**
+ * Deletes a task with its worktree and history; a delivered task keeps its
+ * local branch and everything it sent.
+ */
 export function deleteTask(taskId: string): Promise<void> {
   return requestEmpty(taskPath(taskId), { method: "DELETE" });
 }

@@ -290,9 +290,17 @@ export function canStop(task: Pick<Task, "status" | "delivering">): boolean {
   );
 }
 
-/** Done tasks not yet archived can be archived; archiving keeps them done. */
-export function canArchive(task: Pick<Task, "status" | "archivedAt">): boolean {
-  return task.status === "done" && task.archivedAt === null;
+/**
+ * Done tasks not yet archived can be archived, and so can delivered ones that
+ * failed or were stopped (say, in a Fix CI round); archiving keeps the status.
+ * (The server also takes a failed delivery attempt that already sent something.)
+ */
+export function canArchive(task: Pick<Task, "status" | "archivedAt" | "deliveryTargets">): boolean {
+  if (task.archivedAt !== null) return false;
+  if (task.status === "done") return true;
+  return (
+    (task.status === "failed" || task.status === "interrupted") && task.deliveryTargets.length > 0
+  );
 }
 
 /** An interrupted task the user stopped, as opposed to a shutdown or a usage limit. */
@@ -301,24 +309,23 @@ export function isStoppedByUser(task: Pick<Task, "status" | "error">): boolean {
 }
 
 /**
- * Why the task cannot be deleted, or null when it can: once anything was
- * delivered, the branch, PR or comments it sent would outlive it. (A failed
- * delivery attempt that already sent something is refused by the server.)
+ * What deleting the task removes, for the confirm dialog. A delivered task
+ * keeps its local branch and everything it sent.
  */
-export function deleteBlockedReason(task: Pick<Task, "deliveryTargets">): string | null {
-  return task.deliveryTargets.length > 0
-    ? "Already delivered, so it stays: what it sent cannot be taken back here."
-    : null;
-}
-
-/** What deleting the task removes, for the confirm dialog. */
 export function deleteTaskCopy(
-  task: Pick<Task, "status" | "origin" | "branch" | "worktreePath">,
+  task: Pick<Task, "status" | "origin" | "branch" | "worktreePath" | "deliveryTargets">,
 ): string {
   const stopFirst =
     task.status === "queued" || task.status === "running"
       ? "Stops the task, then removes "
       : "Removes ";
+  if (task.deliveryTargets.length > 0) {
+    if (!task.worktreePath)
+      return `${stopFirst}the task and all run history. What it delivered stays.`;
+    return task.branch
+      ? `${stopFirst}the worktree and all run history. The branch ${task.branch} stays, and so does what it delivered (pushed branch, pull request, comments).`
+      : `${stopFirst}the worktree and all run history. What it delivered stays.`;
+  }
   if (!task.worktreePath) return `${stopFirst}the task and all run history.`;
   if (task.origin.kind === "github-pr") {
     return `${stopFirst}the worktree and all run history. The PR branch${task.branch ? ` ${task.branch}` : ""} stays.`;

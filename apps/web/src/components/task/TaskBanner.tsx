@@ -1,18 +1,14 @@
 import { ciNeedsYou, IMPORT_INTERRUPTED_ERROR, type Task } from "@blackwall/shared";
+import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "../../lib/utils";
-import {
-  ciBanner,
-  deleteBlockedReason,
-  gateBanner,
-  isStoppedByUser,
-  type TaskTab,
-} from "../../task-view";
+import { queryKeys } from "../../query";
+import { canArchive, ciBanner, gateBanner, isStoppedByUser, type TaskTab } from "../../task-view";
 import { FailedIcon, PausedIcon, StopIcon } from "../icons";
 import { NeedsBanner } from "../NeedsBanner";
 import { Button } from "../ui/button";
 import { ErrorText } from "../ui/field";
 import { Kbd } from "../ui/kbd";
-import { answerGate, approvePlan, fixCi, resume, type PlanComment } from "./actions";
+import { answerGate, approvePlan, archive, fixCi, resume, type PlanComment } from "./actions";
 import type { TaskAction } from "./use-task-action";
 
 export interface BannerCounts {
@@ -118,7 +114,8 @@ function NeedsActions({
 
 /**
  * Needs-you banner (a gate, or failed CI on a done task with Fix CI), or the
- * interrupted / failed card with Resume. Nothing for other states.
+ * interrupted / failed card with Resume (and Archive once it delivered).
+ * Nothing for other states.
  */
 export function TaskBanner({
   task,
@@ -138,7 +135,17 @@ export function TaskBanner({
   onTab: (tab: TaskTab) => void;
   onDelete: () => void;
 }) {
+  const queryClient = useQueryClient();
   const error = action.error && <ErrorText>{action.error}</ErrorText>;
+
+  async function archiveTask() {
+    try {
+      await archive(action, task);
+    } finally {
+      // The task.upserted event may arrive after the response.
+      await queryClient.invalidateQueries({ queryKey: queryKeys.tasks, exact: true });
+    }
+  }
 
   if (task.status === "needs-you") {
     const copy = gateBanner(task, counts);
@@ -236,9 +243,19 @@ export function TaskBanner({
               </span>
             )}
           </div>
-          {stoppedByUser && deleteBlockedReason(task) === null && (
+          {stoppedByUser && (
             <Button variant="ghost" className="hover:text-destructive" onClick={onDelete}>
               Delete
+            </Button>
+          )}
+          {canArchive(task) && (
+            <Button
+              variant="ghost"
+              title="Move the task to the repo's archive"
+              disabled={action.pending}
+              onClick={() => void archiveTask()}
+            >
+              Archive
             </Button>
           )}
           <Button

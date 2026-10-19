@@ -296,7 +296,7 @@ describe("pipeline task routes", () => {
       delete: vi.fn(async (id: string) => {
         const task = repositories.tasks.get(id);
         if (!task) throw new TaskNotFoundError(id);
-        if (task.deliveryTargets.length > 0) throw new TaskStateError("already delivered");
+        if (task.delivering) throw new TaskStateError("delivering");
         repositories.tasks.delete(id);
       }),
       answerQuestion: vi.fn(async (id: string, questionId: string, input: { answer: string }) => ({
@@ -451,12 +451,12 @@ describe("pipeline task routes", () => {
     expect(pipeline.stop).toHaveBeenCalledWith(task.id);
   });
 
-  it("deletes a task: 204, 409 once delivered, 404 when unknown", async () => {
-    const delivered = seedTask();
+  it("deletes a task: 204, 409 while delivering, 404 when unknown", async () => {
+    const delivering = seedTask();
     const task = repositories.tasks.create({
       title: "Other",
       origin: { kind: "free-text" },
-      repoId: delivered.repoId,
+      repoId: delivering.repoId,
       freeText: "",
       agents: {},
     });
@@ -464,10 +464,14 @@ describe("pipeline task routes", () => {
     expect(res.status).toBe(204);
     expect(repositories.tasks.get(task.id)).toBeUndefined();
 
-    repositories.tasks.update(delivered.id, { status: "done", deliveryTargets: ["push-branch"] });
-    const refused = await request(`/api/tasks/${delivered.id}`, { method: "DELETE" });
+    repositories.tasks.update(delivering.id, {
+      status: "needs-you",
+      gate: "finish",
+      delivering: true,
+    });
+    const refused = await request(`/api/tasks/${delivering.id}`, { method: "DELETE" });
     expect(refused.status).toBe(409);
-    expect(repositories.tasks.get(delivered.id)).toBeDefined();
+    expect(repositories.tasks.get(delivering.id)).toBeDefined();
 
     expect((await request("/api/tasks/nope", { method: "DELETE" })).status).toBe(404);
   });

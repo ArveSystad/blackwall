@@ -1271,27 +1271,37 @@ describe("stop and delete", () => {
     expect(r.backlogItems.get(item.id)).toMatchObject({ status: "promoted", taskId: null });
   });
 
-  it("refuses to delete a delivered task", async () => {
-    const done = seedTask({ status: "done", deliveryTargets: ["push-branch"] });
-    const partial = seedTask({ status: "needs-you", gate: "finish" });
+  it("deletes a delivered task but keeps its branch", async () => {
+    const done = seedTask({
+      status: "failed",
+      deliveryTargets: ["push-branch"],
+      worktreePath: dir,
+    });
+    const partial = seedTask({ status: "needs-you", gate: "finish", worktreePath: dir });
     const run = r.runs.create(partial.id);
     const step = r.steps.create({ runId: run.id, stage: "summarize", agentId: null });
     r.stepEvents.append(step.id, DELIVERY_DONE_EVENT, { action: "push-branch", detail: "x" });
-    const squashed = seedTask({ status: "needs-you", gate: "finish" });
+    const squashed = seedTask({ status: "needs-you", gate: "finish", worktreePath: dir });
     const squashRun = r.runs.create(squashed.id);
     const squashStep = r.steps.create({ runId: squashRun.id, stage: "summarize", agentId: null });
     r.stepEvents.append(squashStep.id, DELIVERY_DONE_EVENT, { action: "squash", detail: "x" });
 
-    const beforeDelete = vi.fn(async () => undefined);
-    const h = harness(() => ({}), { beforeDelete });
-    await expect(h.engine.delete(done.id)).rejects.toThrow(TaskStateError);
-    await expect(h.engine.delete(partial.id)).rejects.toThrow(TaskStateError);
-    expect(beforeDelete).not.toHaveBeenCalled();
-    expect(r.tasks.get(done.id)).toBeDefined();
-    expect(r.tasks.get(partial.id)).toBeDefined();
-    // A squash alone never left the machine.
+    const removeWorkspace = vi.fn<(t: Task, options?: { keepBranch?: boolean }) => Promise<void>>(
+      async () => undefined,
+    );
+    const h = harness(() => ({}), { removeWorkspace });
+    await h.engine.delete(done.id);
+    await h.engine.delete(partial.id);
     await h.engine.delete(squashed.id);
-    expect(r.tasks.get(squashed.id)).toBeUndefined();
+    for (const id of [done.id, partial.id, squashed.id]) {
+      expect(r.tasks.get(id)).toBeUndefined();
+    }
+    expect(removeWorkspace.mock.calls.map(([t, options]) => [t.id, options])).toEqual([
+      [done.id, { keepBranch: true }],
+      [partial.id, { keepBranch: true }],
+      // A squash alone never left the machine.
+      [squashed.id, undefined],
+    ]);
   });
 });
 
@@ -1623,14 +1633,54 @@ describe("archive", () => {
     expect(h.events).toEqual([{ type: "task.upserted", payload: { task: archived } }]);
   });
 
-  it("refuses to archive a task that is not done", () => {
+  it("refuses to archive a task that is not done, unless delivered and stopped", () => {
     const h = harness();
     for (const status of ["failed", "interrupted", "needs-you", "running"] as const) {
       const seeded = seedTask({ status });
       expect(() => h.engine.archive(seeded.id)).toThrow(TaskStateError);
       expect(task(seeded.id).archivedAt).toBeNull();
     }
+    for (const status of ["needs-you", "running"] as const) {
+      const seeded = seedTask({ status, deliveryTargets: ["push-branch"] });
+      expect(() => h.engine.archive(seeded.id)).toThrow(TaskStateError);
+      expect(task(seeded.id).archivedAt).toBeNull();
+    }
     expect(() => h.engine.archive("nope")).toThrow(TaskNotFoundError);
+  });
+
+  it("archives a delivered task that failed or was interrupted", () => {
+    const h = harness();
+    const failed = seedTask({ status: "failed", deliveryTargets: ["open-pr"] });
+    const interrupted = seedTask({ status: "interrupted" });
+    const run = r.runs.create(interrupted.id);
+    const step = r.steps.create({ runId: run.id, stage: "summarize", agentId: null });
+    r.stepEvents.append(step.id, DELIVERY_DONE_EVENT, { action: "push-branch", detail: "x" });
+    expect(h.engine.archive(failed.id)).toMatchObject({
+      status: "failed",
+      archivedAt: expect.any(Date),
+    });
+    expect(h.engine.archive(interrupted.id)).toMatchObject({
+      status: "interrupted",
+      archivedAt: expect.any(Date),
+    });
+  });
+
+  it("resume unarchives an archived task", async () => {
+    const h = harness();
+    const failed = seedTask({
+      status: "failed",
+      deliveryTargets: ["push-branch"],
+      archivedAt: new Date(),
+    });
+    const atGate = seedTask({
+      status: "interrupted",
+      gate: "finish",
+      deliveryTargets: ["push-branch"],
+      archivedAt: new Date(),
+    });
+    expect(h.engine.resume(failed.id)).toMatchObject({ status: "queued", archivedAt: null });
+    expect(h.engine.resume(atGate.id)).toMatchObject({ status: "needs-you", archivedAt: null });
+    await settle(h.engine);
   });
 
   it("keeps the first archive time when archived twice", () => {
@@ -3201,6 +3251,23 @@ describe("summarize and finish", () => {
     await first;
     expect(h.deliveries).toHaveLength(1);
     expect(task(seeded.id)).toMatchObject({ status: "done", delivering: false });
+  });
+
+  it("refuses delete while delivering, and allows it once delivered", async () => {
+    let release: () => void = () => undefined;
+    const removeWorkspace = vi.fn(async () => undefined);
+    const h = harness(() => ({}), {
+      deliver: () => new Promise<void>((resolve) => (release = resolve)),
+      removeWorkspace,
+    });
+    const seeded = await atFinish(h);
+    const first = h.engine.respond(seeded.id, { gate: "finish", decision: "approve" });
+    await expect(h.engine.delete(seeded.id)).rejects.toThrow(TaskStateError);
+    expect(r.tasks.get(seeded.id)).toBeDefined();
+    release();
+    await first;
+    await h.engine.delete(seeded.id);
+    expect(r.tasks.get(seeded.id)).toBeUndefined();
   });
 
   it("posts a Review PR task's selected findings at triage", async () => {

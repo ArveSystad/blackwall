@@ -259,6 +259,18 @@ describe("createWorkspaceRemover", () => {
       mainBranch: "main",
     });
   });
+
+  it("keeps the branch when asked to", async () => {
+    const { remove, removeWorktree } = remover();
+    await remove(task({ origin: { kind: "free-text" }, branch: "agent/t1", worktreePath: "/wt" }), {
+      keepBranch: true,
+    });
+    expect(removeWorktree).toHaveBeenCalledWith({
+      repoPath: "/code/app",
+      worktreePath: "/wt",
+      mainBranch: "main",
+    });
+  });
 });
 
 describe("createWorkspaceSyncer", () => {

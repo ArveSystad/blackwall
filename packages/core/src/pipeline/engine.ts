@@ -250,9 +250,10 @@ export interface PipelineEngineOptions {
   syncWorkspace?: (task: Task) => Promise<WorkspaceSync | null>;
   /**
    * Removes a deleted task's worktree and, unless it works on an existing PR
-   * branch, its local branch. Called only for tasks that have a worktree.
+   * branch, its local branch. `keepBranch` keeps the local branch too (a
+   * delivered task's). Called only for tasks that have a worktree.
    */
-  removeWorkspace?: (task: Task) => Promise<void>;
+  removeWorkspace?: (task: Task, options?: { keepBranch?: boolean }) => Promise<void>;
   /** Ends anything else working in the task's worktree (its chat) before the worktree is removed. */
   beforeDelete?: (taskId: string) => Promise<void>;
   /** Plans and performs the delivery actions the user confirms at finish (or posts the review). */
@@ -1627,23 +1628,27 @@ export function createPipelineEngine({
             `Task ${taskId} goes back to its ${task.gate} gate on resume; message it there instead`,
           );
         }
-        return saveTask(taskId, { status: "needs-you", error: null });
+        return saveTask(taskId, { status: "needs-you", error: null, archivedAt: null });
       }
       pending.set(taskId, { resuming: true, ...(message ? { guidance: message } : {}) });
-      const queued = saveTask(taskId, { status: "queued", error: null });
+      const queued = saveTask(taskId, { status: "queued", error: null, archivedAt: null });
       enqueueTask(queued);
       return queued;
     },
 
     /**
-     * Archives a done task: it leaves the Inbox and the backlog lists but keeps
-     * its status, so backlog dependencies on it stay met. Archiving an archived
-     * task keeps its original `archivedAt`.
+     * Archives a done task, or a delivered one that failed or was interrupted
+     * (say, a stopped Fix CI round): it leaves the Inbox and the backlog lists
+     * but keeps its status, so backlog dependencies on a done task stay met.
+     * Archiving an archived task keeps its original `archivedAt`.
      */
     archive(taskId: string): Task {
       const task = getTask(taskId);
-      if (task.status !== "done") {
-        throw new TaskStateError(`Task ${taskId} is ${task.status}; only done tasks are archived`);
+      const stopped = task.status === "failed" || task.status === "interrupted";
+      if (task.status !== "done" && !(stopped && hasDelivered(task))) {
+        throw new TaskStateError(
+          `Task ${taskId} is ${task.status}; only done or delivered tasks are archived`,
+        );
       }
       if (task.archivedAt) return task;
       return saveTask(taskId, { archivedAt: new Date() });
@@ -1659,11 +1664,12 @@ export function createPipelineEngine({
 
     /**
      * Deletes a task with its worktree, its local branch (kept for PR tasks,
-     * which work on an existing branch) and its history. A queued or running
-     * task is stopped first. Refused while delivery runs, while a plan-approval
-     * issue comment posts, or once anything was delivered (progress comments
-     * on an issue don't count). Backlog items that promoted it keep `taskId: null`.
-     * `beforeDelete` runs once the task has stopped, before the worktree goes.
+     * which work on an existing branch) and its history. A delivered task
+     * keeps its local branch too, and everything it sent (pushed branch, pull
+     * request, comments) stays. A queued or running task is stopped first.
+     * Refused while delivery runs or while a plan-approval issue comment posts.
+     * Backlog items that promoted it keep `taskId: null`. `beforeDelete` runs
+     * once the task has stopped, before the worktree goes.
      */
     async delete(taskId: string): Promise<void> {
       const task = getTask(taskId);
@@ -1675,11 +1681,7 @@ export function createPipelineEngine({
           `Task ${taskId} is commenting on its issue; it cannot be deleted now`,
         );
       }
-      if (hasDelivered(task)) {
-        throw new TaskStateError(
-          `Task ${taskId} was already delivered; delete its branch or PR by hand instead`,
-        );
-      }
+      const delivered = hasDelivered(task);
       ci?.cancel(taskId);
       await stop(taskId);
       // A gate answer may have queued it again meanwhile.
@@ -1690,7 +1692,9 @@ export function createPipelineEngine({
       const settled = getTask(taskId);
       // A repo folder that is gone (say, after an import on another machine) has nothing to remove.
       const repo = r.repos.get(settled.repoId);
-      if (settled.worktreePath && repo && pathExists(repo.path)) await removeWorkspace(settled);
+      if (settled.worktreePath && repo && pathExists(repo.path)) {
+        await removeWorkspace(settled, delivered ? { keepBranch: true } : undefined);
+      }
       r.tasks.delete(taskId);
       publish({ type: "task.removed", payload: { taskId } });
     },

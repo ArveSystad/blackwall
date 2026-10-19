@@ -20,7 +20,6 @@ import {
   canStepThroughDiff,
   carryPicks,
   canStop,
-  deleteBlockedReason,
   diffCommentsRunFixRound,
   finishBusy,
   deleteTaskCopy,
@@ -1233,7 +1232,7 @@ describe("stop and delete", () => {
     expect(canStop(makeTask({ status: "done" }))).toBe(false);
   });
 
-  it("offers Archive only for done, unarchived tasks", () => {
+  it("offers Archive for done, or delivered and stopped, unarchived tasks", () => {
     expect(canArchive(makeTask({ status: "done" }))).toBe(true);
     expect(
       canArchive(makeTask({ status: "done", archivedAt: new Date("2026-10-08T12:00:00Z") })),
@@ -1242,6 +1241,15 @@ describe("stop and delete", () => {
     expect(canArchive(makeTask({ status: "interrupted" }))).toBe(false);
     expect(canArchive(makeTask({ status: "running" }))).toBe(false);
     expect(canArchive(makeTask({ status: "needs-you", gate: "finish" }))).toBe(false);
+    const delivered = { deliveryTargets: ["push-branch" as const] };
+    expect(canArchive(makeTask({ status: "failed", ...delivered }))).toBe(true);
+    expect(canArchive(makeTask({ status: "interrupted", ...delivered }))).toBe(true);
+    expect(
+      canArchive(
+        makeTask({ status: "failed", ...delivered, archivedAt: new Date("2026-10-08T12:00:00Z") }),
+      ),
+    ).toBe(false);
+    expect(canArchive(makeTask({ status: "running", ...delivered }))).toBe(false);
   });
 
   it("tells a user stop apart from a shutdown or usage limit", () => {
@@ -1252,12 +1260,18 @@ describe("stop and delete", () => {
     expect(isStoppedByUser(makeTask({ status: "interrupted", error: "usage limit" }))).toBe(false);
   });
 
-  it("blocks delete once something was delivered", () => {
-    expect(deleteBlockedReason(makeTask())).toBeNull();
-    expect(deleteBlockedReason(makeTask({ status: "done", deliveryTargets: [] }))).toBeNull();
+  it("says a delivered task keeps its branch and what it sent", () => {
+    const delivered = { deliveryTargets: ["open-pr" as const] };
     expect(
-      deleteBlockedReason(makeTask({ status: "done", deliveryTargets: ["push-branch"] })),
-    ).toMatch(/delivered/);
+      deleteTaskCopy(
+        makeTask({ status: "failed", ...delivered, branch: "agent/t1", worktreePath: "/wt" }),
+      ),
+    ).toBe(
+      "Removes the worktree and all run history. The branch agent/t1 stays, and so does what it delivered (pushed branch, pull request, comments).",
+    );
+    expect(deleteTaskCopy(makeTask({ status: "done", ...delivered }))).toBe(
+      "Removes the task and all run history. What it delivered stays.",
+    );
   });
 
   it("says what deleting removes", () => {

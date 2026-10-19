@@ -21,14 +21,7 @@ import { formatUptime } from "../../system-info";
 import { activeTimeMs, wallClockMs } from "../../timing";
 import { TRUST_NAMES, otherTrustLevels } from "../../trust";
 import { formatCost, formatTokens, sumUsage, usageTitle } from "../../usage";
-import {
-  agentClis,
-  canArchive,
-  canStop,
-  deleteBlockedReason,
-  originUrl,
-  taskAgentIds,
-} from "../../task-view";
+import { agentClis, canArchive, canStop, originUrl, taskAgentIds } from "../../task-view";
 import { AgentTile } from "../AgentTile";
 import { CiBadge } from "../CiBadge";
 import { DecryptText } from "../DecryptText";
@@ -121,8 +114,8 @@ function startedLabel(date: Date): string {
  * branch, agents, the tokens and cost used so far, the time spent once done (with the clock
  * paused while the task waited on you), the agents' trust (with a note when steps of
  * the latest run ran at another level), and the stage stepper with the review round, plus Stop
- * (while queued, running or waiting on you), Archive (when done), Unarchive (when archived)
- * and Delete (until something was delivered).
+ * (while queued, running or waiting on you), Archive (when done, or delivered and stopped or
+ * failed), Unarchive (when archived) and Delete.
  * While running, a cyan stream sweeps along the bottom border. Corner brackets frame it and turn
  * cyan while anything inside has focus.
  */
@@ -140,7 +133,6 @@ export function TaskHeader({
   action: TaskAction;
   onDelete: () => void;
 }) {
-  const blocked = deleteBlockedReason(task);
   const queryClient = useQueryClient();
   const repos = useQuery(reposQuery);
   const connections = useQuery(connectionsQuery);
@@ -221,19 +213,16 @@ export function TaskHeader({
             Unarchive
           </Button>
         )}
-        {/* A disabled button shows no tooltip of its own, so the wrapper carries why. */}
-        <span title={blocked ?? "Delete task"} className="inline-flex">
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            className="hover:text-destructive"
-            disabled={blocked !== null}
-            onClick={onDelete}
-            aria-label={blocked ? `Delete task: ${blocked}` : "Delete task"}
-          >
-            <TrashIcon size="sm" />
-          </Button>
-        </span>
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          className="hover:text-destructive"
+          title="Delete task"
+          onClick={onDelete}
+          aria-label="Delete task"
+        >
+          <TrashIcon size="sm" />
+        </Button>
         <StatusBadge status={task.status} label={statusLabel(task)} />
       </div>
       <div className="flex items-baseline gap-1.5">

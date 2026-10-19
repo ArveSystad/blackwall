@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { originKey, relativeTime, statusLabel } from "../inbox";
 import { cn } from "../lib/utils";
-import { CI_FAILED_REASON, deleteBlockedReason, GATE_REASONS } from "../task-view";
+import { CI_FAILED_REASON, GATE_REASONS } from "../task-view";
 import { AgentTile } from "./AgentTile";
 import { CiBadge } from "./CiBadge";
 import { TrashIcon, WarnIcon } from "./icons";
@@ -19,8 +19,8 @@ import { Button } from "./ui/button";
  * failed, get the magenta rail and wash, and say why they wait unless they
  * are finishing (delivering), when the pill reads "Finishing". A task that
  * pushed shows its CI as a small badge, and one whose agents run above Locked, or are forced
- * Locked, shows their trust. Undelivered tasks show a delete button on
- * hover or focus, in place of the time.
+ * Locked, shows their trust. Tasks show a delete button on hover or focus,
+ * in place of the time.
  */
 export function TaskCard({
   task,
@@ -40,7 +40,6 @@ export function TaskCard({
   const OriginIcon = ORIGIN_ICONS[task.origin.kind];
   const ciFailed = ciNeedsYou(task);
   const needsYou = task.status === "needs-you" || ciFailed;
-  const deletable = deleteBlockedReason(task) === null;
   const [deleting, setDeleting] = useState(false);
   return (
     <div className="group relative isolate">
@@ -68,10 +67,7 @@ export function TaskCard({
           <span className="mono text-[11.5px] text-muted-foreground">{originKey(task)}</span>
           <span className="flex-1" />
           <time
-            className={cn(
-              "text-label text-faint",
-              deletable && "group-focus-within:invisible group-hover:invisible",
-            )}
+            className="text-label text-faint group-focus-within:invisible group-hover:invisible"
             dateTime={task.updatedAt.toISOString()}
           >
             {relativeTime(task.updatedAt, now)}
@@ -115,18 +111,16 @@ export function TaskCard({
           <StatusBadge status={task.status} label={statusLabel(task)} />
         </span>
       </Link>
-      {deletable && (
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          className="invisible absolute top-1 right-1.5 group-focus-within:visible group-hover:visible hover:text-destructive"
-          onClick={() => setDeleting(true)}
-          aria-label={`Delete ${task.title}`}
-          title="Delete task"
-        >
-          <TrashIcon size="sm" />
-        </Button>
-      )}
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        className="invisible absolute top-1 right-1.5 group-focus-within:visible group-hover:visible hover:text-destructive"
+        onClick={() => setDeleting(true)}
+        aria-label={`Delete ${task.title}`}
+        title="Delete task"
+      >
+        <TrashIcon size="sm" />
+      </Button>
       {deleting && <DeleteTaskDialog task={task} onClose={() => setDeleting(false)} />}
     </div>
   );
