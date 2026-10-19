@@ -1,9 +1,10 @@
 import type { Agent, Step } from "@blackwall/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { useAgentLibrary } from "../../hooks";
+import { useAgentLibrary, useNow } from "../../hooks";
 import { cn } from "../../lib/utils";
 import { stepEventsQuery } from "../../query";
+import { formatUptime } from "../../system-info";
 import {
   AUTO_MODEL_LABEL,
   STAGE_LABELS,
@@ -14,6 +15,7 @@ import {
   subagentStatus,
   type TranscriptItem,
 } from "../../task-view";
+import { stepDurationMs } from "../../timing";
 import { TRUST_NAMES, globalConfigNote, loadedSkills } from "../../trust";
 import { formatCost, formatTokens, sumUsage, usageTitle } from "../../usage";
 import { AgentTile } from "../AgentTile";
@@ -214,6 +216,44 @@ function StepUsageLabel({ step }: { step: Step }) {
   );
 }
 
+function DurationLabel({
+  step,
+  now,
+  className,
+}: {
+  step: Step;
+  now: Date;
+  className?: string | undefined;
+}) {
+  const ms = stepDurationMs(step, now);
+  if (ms === null || step.startedAt === null) return null;
+  const title = `Started ${step.startedAt.toLocaleString()}${
+    step.finishedAt && step.status !== "running"
+      ? `\nFinished ${step.finishedAt.toLocaleString()}`
+      : ""
+  }`;
+  return (
+    <span className={cn("mono text-[11px] text-faint", className)} title={title}>
+      {formatUptime(ms / 1000)}
+    </span>
+  );
+}
+
+/** Only running steps tick, so finished labels don't re-render every second. */
+function RunningDuration({ step, className }: { step: Step; className?: string | undefined }) {
+  const now = useNow(1000);
+  return <DurationLabel step={step} now={now} className={className} />;
+}
+
+/** How long the step ran; live while it runs, nothing before it starts. */
+function StepDuration({ step, className }: { step: Step; className?: string }) {
+  return step.status === "running" ? (
+    <RunningDuration step={step} className={className} />
+  ) : (
+    <DurationLabel step={step} now={new Date()} className={className} />
+  );
+}
+
 function Transcript({
   taskId,
   step,
@@ -265,6 +305,7 @@ function Transcript({
           {STAGE_LABELS[step.stage]}
           {step.round > 0 && ` · round ${step.round}`}
         </span>
+        <StepDuration step={step} />
         {step.agentId !== null && <StepUsageLabel step={step} />}
         <StepTrustChip step={step} />
       </div>
@@ -359,6 +400,7 @@ export function OutputPanel({
               <span className="truncate">
                 {stepName(s, s.agentId ? agentMap.get(s.agentId) : undefined)}
               </span>
+              <StepDuration step={s} className="ml-auto shrink-0" />
             </button>
           );
         })}

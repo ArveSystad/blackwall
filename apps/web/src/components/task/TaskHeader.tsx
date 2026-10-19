@@ -5,11 +5,20 @@ import {
   type Step,
   type Task,
 } from "@blackwall/shared";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { originKey, relativeTime, statusLabel } from "../../inbox";
 import { useAgentLibrary } from "../../hooks";
-import { connectionsQuery, queryKeys, reposQuery, usageQuery } from "../../query";
+import {
+  connectionsQuery,
+  queryKeys,
+  reposQuery,
+  runStepsQuery,
+  taskRunsQuery,
+  usageQuery,
+} from "../../query";
+import { formatUptime } from "../../system-info";
+import { activeTimeMs, wallClockMs } from "../../timing";
 import { TRUST_NAMES, otherTrustLevels } from "../../trust";
 import { formatCost, formatTokens, sumUsage, usageTitle } from "../../usage";
 import {
@@ -74,6 +83,32 @@ function UsageChip({ taskId }: { taskId: string }) {
   );
 }
 
+/**
+ * Once the task is done, how long its steps ran across all runs. The clock pauses while the task
+ * waited on the user, so the gaps between steps are left out; the tooltip has the wall clock.
+ */
+function TimeSpentChip({ task }: { task: Task }) {
+  const done = task.status === "done";
+  const runs = useQuery({ ...taskRunsQuery(task.id), enabled: done });
+  const steps = useQueries({
+    queries: done ? (runs.data ?? []).map((run) => runStepsQuery(task.id, run.id)) : [],
+  });
+  if (!done || !runs.data || steps.some((q) => q.isPending)) return null;
+  const all = steps.flatMap((q) => q.data ?? []);
+  const active = activeTimeMs(all);
+  const wall = wallClockMs(all);
+  if (wall === null) return null;
+  return (
+    <Chip
+      tone="neutral"
+      title={`Clock paused while the task waited on you (plan approval, questions, finish gate). Counts only time steps were running, across all runs; parallel steps count once. Wall clock: ${formatUptime(wall / 1000)}`}
+    >
+      Time spent <span className="mono">{formatUptime(active / 1000)}</span>{" "}
+      <span className="text-faint">· excl. waiting on you</span>
+    </Chip>
+  );
+}
+
 function startedLabel(date: Date): string {
   const ago = relativeTime(date);
   if (ago === "now") return "Started just now";
@@ -83,7 +118,8 @@ function startedLabel(date: Date): string {
 
 /**
  * Task header: origin, title with a breadcrumb back to the repo's backlog,
- * branch, agents, the tokens and cost used so far, the agents' trust (with a note when steps of
+ * branch, agents, the tokens and cost used so far, the time spent once done (with the clock
+ * paused while the task waited on you), the agents' trust (with a note when steps of
  * the latest run ran at another level), and the stage stepper with the review round, plus Stop
  * (while queued, running or waiting on you), Archive (when done), Unarchive (when archived)
  * and Delete (until something was delivered).
@@ -229,6 +265,7 @@ export function TaskHeader({
         {task.ci && <CiBadge ci={task.ci} />}
         <AgentSummary task={task} agents={agentMap} />
         <UsageChip taskId={task.id} />
+        <TimeSpentChip task={task} />
         {trust && <TrustBadge trust={trust} />}
         {otherLevels.length > 0 && (
           <span className="text-faint">
