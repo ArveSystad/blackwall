@@ -38,11 +38,11 @@ import { ORIGINS } from "../origins";
 import { Segmented } from "../Segmented";
 import { TrustBadge } from "../TrustBadge";
 import { Button } from "../ui/button";
-import { CheckChip } from "../ui/check-chip";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "../ui/dialog";
 import { ErrorText, Field, fieldLabel } from "../ui/field";
 import { Input } from "../ui/input";
 import { Kbd } from "../ui/kbd";
+import { MultiSelectMenu } from "../ui/multi-select-menu";
 import { Textarea } from "../ui/textarea";
 import { Empty, SaveBar, SectionHeader } from "./parts";
 
@@ -507,30 +507,27 @@ function RepoEditor({
           <span className={fieldLabel} id="repo-reference-repos-label">
             Reference repos <span className="font-normal text-faint">optional</span>
           </span>
-          <div
-            role="group"
-            aria-labelledby="repo-reference-repos-label"
-            className="flex flex-wrap gap-1"
-          >
-            {otherRepos.length === 0 && (
-              <span className="text-meta text-faint">No other repos registered.</span>
-            )}
-            {otherRepos.map((other) => (
-              <CheckChip
-                key={other.id}
-                size="sm"
-                className="max-w-72"
-                checked={referenceRepoIds.includes(other.id)}
-                onCheckedChange={(checked) =>
-                  setReferenceRepoIds((ids) =>
-                    checked ? [...ids, other.id] : ids.filter((id) => id !== other.id),
-                  )
-                }
-              >
-                <span className="truncate">{other.name}</span>
-              </CheckChip>
-            ))}
-          </div>
+          {otherRepos.length === 0 ? (
+            <span className="text-meta text-faint">No other repos registered.</span>
+          ) : (
+            // The server sorts favourites first.
+            <MultiSelectMenu
+              id="repo-reference-repos"
+              aria-labelledby="repo-reference-repos-label"
+              options={otherRepos}
+              value={referenceRepoIds}
+              onChange={setReferenceRepoIds}
+              optionText={(other) => other.name}
+              renderOption={(other) => (
+                <>
+                  {other.favorite && <StarIcon size="sm" className="fill-current text-primary" />}
+                  <span className="truncate">{other.name}</span>
+                </>
+              )}
+              placeholder="None"
+              filterPlaceholder="Filter repos…"
+            />
+          )}
           <span className="text-[11.5px] text-muted-foreground">
             Read by planners, reviewers and chat, never written. Implementers stay in the worktree.
           </span>
