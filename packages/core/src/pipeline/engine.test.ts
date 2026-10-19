@@ -4184,7 +4184,10 @@ describe("read-only backstop under Trusted", () => {
 
   afterEach(() => rmSync(repo, { recursive: true, force: true }));
 
-  function backstopHarness(script: (stage: Call, options: AgentRunOptions) => FakeScript) {
+  function backstopHarness(
+    script: (stage: Call, options: AgentRunOptions) => FakeScript,
+    worktreeGuard: Pick<GitService, "snapshotWorktree" | "restoreWorktree"> = realGit,
+  ) {
     return harness(
       (stage, options) => {
         if (stage === "implement") writeFileSync(join(repo, "login.ts"), "if (a === b) {}\n");
@@ -4193,7 +4196,7 @@ describe("read-only backstop under Trusted", () => {
       {
         stages: createDefaultStages({ git: realGit }),
         prepareWorkspace: async (t) => ({ branch: `agent/${t.id}`, worktreePath: repo }),
-        worktreeGuard: realGit,
+        worktreeGuard,
       },
     );
   }
@@ -4273,6 +4276,43 @@ describe("read-only backstop under Trusted", () => {
     );
     expect(existsSync(join(repo, "pwned.txt"))).toBe(false);
     expect(git("status", "--porcelain").trim()).toBe("");
+  });
+
+  it("never runs the guard on a worktree twice at once while the panel reviews", async () => {
+    let running = 0;
+    let overlapped = false;
+    const exclusive =
+      <A extends unknown[], T>(fn: (...args: A) => Promise<T>) =>
+      async (...args: A): Promise<T> => {
+        overlapped ||= running > 0;
+        running++;
+        try {
+          return await fn(...args);
+        } finally {
+          running--;
+        }
+      };
+    const h = backstopHarness(
+      (stage) => {
+        if (stage === "code-review") {
+          writeFileSync(join(repo, "pwned.txt"), "x\n");
+          return { structured: { findings: [] } };
+        }
+        return {};
+      },
+      {
+        snapshotWorktree: exclusive(realGit.snapshotWorktree),
+        restoreWorktree: exclusive(realGit.restoreWorktree),
+      },
+    );
+    const seeded = await approvedTrusted(h);
+    expect(overlapped).toBe(false);
+    const reviewSteps = stepsOf(seeded.id).filter(
+      (s) => s.stage === "code-review" && s.agentId !== null,
+    );
+    expect(reviewSteps.length).toBeGreaterThan(1);
+    expect(reviewSteps.some((s) => s.status === "failed")).toBe(true);
+    expect(existsSync(join(repo, "pwned.txt"))).toBe(false);
   });
 
   it("leaves Locked read-only steps alone", async () => {

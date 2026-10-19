@@ -289,6 +289,14 @@ export class WorktreeChangedError extends Error {
   }
 }
 
+type WorktreeSnapshot = Awaited<ReturnType<GitService["snapshotWorktree"]>>;
+
+/** A guarded step's hold on its worktree's shared baseline; released once its check is done. */
+interface SharedBaseline {
+  snapshot: Promise<WorktreeSnapshot>;
+  release: () => void;
+}
+
 /** In-memory hints for a task's next drive; lost on restart, which only costs a re-run. */
 interface Pending {
   round?: number;
@@ -355,6 +363,48 @@ export function createPipelineEngine({
   const fixingCi = new Set<string>();
   /** Tasks fetching their PR's comments for a fix round; Fix CI and a second fetch are refused meanwhile. */
   const fixingPrComments = new Set<string>();
+  /**
+   * The last worktree guard call queued per worktree. Parallel read-only steps
+   * (the review panel) share a worktree, and their snapshots and restores must
+   * not run git on its index at the same time.
+   */
+  const guardQueues = new Map<string, Promise<unknown>>();
+  const guarded = <T>(worktree: string, fn: () => Promise<T>): Promise<T> => {
+    const run = (guardQueues.get(worktree) ?? Promise.resolve()).then(fn, fn);
+    const settled = run.catch(() => undefined);
+    guardQueues.set(worktree, settled);
+    void settled.then(() => {
+      if (guardQueues.get(worktree) === settled) guardQueues.delete(worktree);
+    });
+    return run;
+  };
+  /**
+   * The snapshot guarded steps running at once on a worktree all check against:
+   * the one taken when the first of them started. A step starting later would
+   * otherwise take a sibling's change as its baseline and put it back.
+   */
+  const guardBaselines = new Map<string, { snapshot: Promise<WorktreeSnapshot>; users: number }>();
+  const shareBaseline = (
+    worktree: string,
+    take: () => Promise<WorktreeSnapshot>,
+  ): SharedBaseline => {
+    let shared = guardBaselines.get(worktree);
+    if (!shared) {
+      shared = { snapshot: guarded(worktree, take), users: 0 };
+      guardBaselines.set(worktree, shared);
+    }
+    shared.users++;
+    const entry = shared;
+    return {
+      snapshot: entry.snapshot,
+      release: () => {
+        entry.users--;
+        if (entry.users === 0 && guardBaselines.get(worktree) === entry) {
+          guardBaselines.delete(worktree);
+        }
+      },
+    };
+  };
   let stopped = false;
 
   function getTask(id: string): Task {
@@ -619,17 +669,34 @@ export function createPipelineEngine({
       worktreeGuard && inv.permissions.profile === "read-only" && trust.level === "trusted"
         ? worktreeGuard
         : undefined;
-    let before: Awaited<ReturnType<GitService["snapshotWorktree"]>> | undefined;
+    let before: WorktreeSnapshot | undefined;
+    let baseline: SharedBaseline | undefined;
+    // The check and the restore run as one queued call, so a parallel step's
+    // check never sees the worktree half put back. Called once per lease.
     const keepWorktree = async (): Promise<void> => {
-      if (!guard || !before) return;
-      const after = await guard.snapshotWorktree(worktree);
-      if (sameSnapshot(before, after)) return;
-      await guard.restoreWorktree(worktree, before);
-      throw new WorktreeChangedError();
+      const held = baseline;
+      baseline = undefined;
+      if (!guard || !held) return;
+      try {
+        if (!before) return;
+        const snapshot = before;
+        const changed = await guarded(worktree, async () => {
+          const after = await guard.snapshotWorktree(worktree);
+          if (sameSnapshot(snapshot, after)) return false;
+          await guard.restoreWorktree(worktree, snapshot);
+          return true;
+        });
+        if (changed) throw new WorktreeChangedError();
+      } finally {
+        held.release();
+      }
     };
 
     try {
-      if (guard) before = await guard.snapshotWorktree(worktree);
+      if (guard) {
+        baseline = shareBaseline(worktree, () => guard.snapshotWorktree(worktree));
+        before = await baseline.snapshot;
+      }
       let result: AgentResult;
       try {
         result = await attempt(resumeSessionId);
