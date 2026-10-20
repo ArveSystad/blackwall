@@ -26,6 +26,7 @@ import {
   createSystemService,
   createTaskArtifacts,
   createVoiceCommandService,
+  createVoiceModelDownloads,
   createVoiceService,
   createTaskDiffs,
   createWorkspacePreparer,
@@ -256,10 +257,13 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
     };
     // Set once the server listens; voice turns start only after that.
     let port = config.port;
+    const modelsDir = join(config.dataDir, "models");
     const voice = createVoiceService({
-      modelsDir: join(config.dataDir, "models"),
+      modelsDir,
       modelId: () => settings.general().voiceModel,
     });
+    const voiceDownloads = createVoiceModelDownloads({ modelsDir, publish });
+    shutdown.onShutdown(() => voiceDownloads.shutdown());
     const voiceCommands = createVoiceCommandService({
       adapters,
       repos: repositories.repos,
@@ -357,6 +361,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       search: createSearch(database.db),
       voice,
       voiceCommands,
+      voiceDownloads,
       shutdown,
     });
     broadcast = send;

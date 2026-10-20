@@ -23,6 +23,7 @@ import {
   listClis,
   listArtifacts,
   getTaskWorktree,
+  getVoiceDownload,
   getVoiceState,
   getVoiceStatus,
   listDiffs,
@@ -94,8 +95,10 @@ export const queryKeys = {
   quota: ["quota"] as const,
   /** A repo's chat (`taskId` null) or a task's own; written in place by `chat.upserted`. */
   chat: (repoId: string, taskId?: string | null) => ["chat", repoId, taskId ?? null] as const,
-  /** Whether the server can transcribe; saving the voice model invalidates it. */
+  /** Whether the server can transcribe; saving the voice model or a finished download invalidates it. */
   voiceStatus: ["voice", "status"] as const,
+  /** The speech model download; written in place by `voice.download`. */
+  voiceDownload: ["voice", "download"] as const,
   /** Voice control's last command and draft; written in place by `voice.upserted`. */
   voice: ["voice", "state"] as const,
   reviewRequests: ["review-requests"] as const,
@@ -251,6 +254,13 @@ export const voiceStatusQuery = queryOptions({
   queryKey: queryKeys.voiceStatus,
   queryFn: getVoiceStatus,
   staleTime: 60_000,
+});
+
+/** Written in place by `voice.download`, so it never goes stale once loaded. */
+export const voiceDownloadQuery = queryOptions({
+  queryKey: queryKeys.voiceDownload,
+  queryFn: getVoiceDownload,
+  staleTime: Infinity,
 });
 
 /** Written in place by `voice.upserted`, so it never goes stale once loaded. */

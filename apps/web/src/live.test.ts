@@ -325,6 +325,37 @@ describe("applyServerEvent", () => {
     expect(client.getQueryState(queryKeys.tasks)?.isInvalidated).toBe(false);
   });
 
+  it("writes the voice download in place, and rechecks the status once done", () => {
+    const status = {
+      available: false,
+      model: "moonshine-tiny-en" as const,
+      reason: "Voice model not installed",
+      installed: [],
+    };
+    const download = {
+      model: "moonshine-tiny-en" as const,
+      phase: "downloading" as const,
+      receivedBytes: 10,
+      totalBytes: 100,
+      error: null,
+    };
+    client.setQueryData(queryKeys.voiceStatus, status);
+    client.setQueryData(queryKeys.voice, { busy: false });
+    applyServerEvent(client, { type: "voice.download", payload: { download } });
+    expect(client.getQueryData(queryKeys.voiceDownload)).toEqual(download);
+    expect(client.getQueryState(queryKeys.voiceStatus)?.isInvalidated).toBe(false);
+
+    const failed = { ...download, phase: "failed" as const, error: "HTTP 404" };
+    applyServerEvent(client, { type: "voice.download", payload: { download: failed } });
+    expect(client.getQueryData(queryKeys.voiceDownload)).toEqual(failed);
+    expect(client.getQueryState(queryKeys.voiceStatus)?.isInvalidated).toBe(false);
+
+    const done = { ...download, phase: "done" as const };
+    applyServerEvent(client, { type: "voice.download", payload: { download: done } });
+    expect(client.getQueryState(queryKeys.voiceStatus)?.isInvalidated).toBe(true);
+    expect(client.getQueryState(queryKeys.voice)?.isInvalidated).toBe(false);
+  });
+
   it("drops every cached query after a data import", () => {
     client.setQueryData(queryKeys.tasks, [makeTask({ id: "t1" })]);
     client.setQueryData(queryKeys.backlog("r1"), []);

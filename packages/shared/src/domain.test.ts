@@ -65,6 +65,7 @@ import {
   VOICE_MODEL_IDS,
   VOICE_MODELS,
   voiceCommandInputSchema,
+  voiceDownloadInputSchema,
   type CiState,
   type TaskCi,
 } from "./domain.js";
@@ -573,6 +574,14 @@ describe("settings and inputs", () => {
       for (const file of Object.values(model.files)) expect(file).toMatch(/\S/);
       expect(model.archive).toMatch(/^sherpa-onnx-/);
     }
+  });
+
+  it("downloads a known voice model only", () => {
+    expect(voiceDownloadInputSchema.parse({ model: "whisper-small" })).toEqual({
+      model: "whisper-small",
+    });
+    expect(voiceDownloadInputSchema.safeParse({ model: "whisper-huge" }).success).toBe(false);
+    expect(voiceDownloadInputSchema.safeParse({}).success).toBe(false);
   });
 
   it("trims and caps a voice command", () => {

@@ -9,6 +9,7 @@ import {
   type StepEvent,
   type StepUsage,
   type Task,
+  type VoiceDownload,
   type VoiceState,
 } from "@blackwall/shared";
 import type { QueryClient } from "@tanstack/react-query";
@@ -257,6 +258,15 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       if (created && (before?.itemId !== created.itemId || before.taskId !== created.taskId)) {
         void client.invalidateQueries({ queryKey: queryKeys.backlog(created.repoId) });
         void client.invalidateQueries({ queryKey: queryKeys.tasks });
+      }
+      break;
+    }
+    case "voice.download": {
+      const { download } = event.payload;
+      client.setQueryData<VoiceDownload>(queryKeys.voiceDownload, download);
+      // The model is in place: the mic and Settings recheck whether voice is ready.
+      if (download.phase === "done") {
+        void client.invalidateQueries({ queryKey: queryKeys.voiceStatus });
       }
       break;
     }

@@ -1,7 +1,17 @@
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { VOICE_MODELS } from "../packages/shared/src/domain.ts";
+import { ensureBuilt } from "./start.js";
 import { ARCHIVES, DEFAULT_MODEL, modelDirFor } from "./voice-model.js";
+
+vi.mock("./start.js", () => ({ ensureBuilt: vi.fn() }));
+
+describe("importing the script", () => {
+  it("neither builds nor loads core's dist; only running it does", () => {
+    // The install code is imported dynamically in `main`, so these tests need no build.
+    expect(ensureBuilt).not.toHaveBeenCalled();
+  });
+});
 
 describe("modelDirFor", () => {
   it("unpacks into the data dir's models folder", () => {

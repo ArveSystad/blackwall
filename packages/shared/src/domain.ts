@@ -916,6 +916,9 @@ export type VoiceModelId = keyof typeof VOICE_MODELS;
 export const VOICE_MODEL_IDS = Object.keys(VOICE_MODELS) as [VoiceModelId, ...VoiceModelId[]];
 export const DEFAULT_VOICE_MODEL: VoiceModelId = "moonshine-tiny-en";
 export const voiceModelIdSchema = z.enum(VOICE_MODEL_IDS);
+/** Where sherpa-onnx publishes the speech model archives: `<releases>/<archive>.tar.bz2`. */
+export const VOICE_MODEL_RELEASES =
+  "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models";
 
 export const DEFAULT_MAX_TASKS_PER_REPO = 3;
 export const DEFAULT_MAX_BACKLOG_TASKS_PER_REPO = 1;
@@ -2306,8 +2309,36 @@ export const voiceStatusSchema = z.object({
   available: z.boolean(),
   model: voiceModelIdSchema,
   reason: z.string().nullable(),
+  /** Every model whose files are all in place, chosen or not. */
+  installed: z.array(voiceModelIdSchema),
 });
 export type VoiceStatus = z.infer<typeof voiceStatusSchema>;
+
+export const voiceDownloadPhaseSchema = z.enum([
+  "idle",
+  "downloading",
+  "unpacking",
+  "done",
+  "failed",
+]);
+export type VoiceDownloadPhase = z.infer<typeof voiceDownloadPhaseSchema>;
+
+/** `GET /api/voice/download`: the server's one speech model download, as every client sees it. */
+export const voiceDownloadSchema = z.object({
+  /** The model being or last downloaded; null before the first download. */
+  model: voiceModelIdSchema.nullable(),
+  phase: voiceDownloadPhaseSchema,
+  receivedBytes: z.number(),
+  /** The archive size from `content-length`; null when the server does not say. */
+  totalBytes: z.number().nullable(),
+  /** Why the download failed, in phase `failed`. */
+  error: z.string().nullable(),
+});
+export type VoiceDownload = z.infer<typeof voiceDownloadSchema>;
+
+/** `POST /api/voice/download` body: the model to download. */
+export const voiceDownloadInputSchema = z.object({ model: voiceModelIdSchema });
+export type VoiceDownloadInput = z.infer<typeof voiceDownloadInputSchema>;
 
 /** `POST /api/voice/transcribe` response. */
 export const voiceTranscriptSchema = z.object({ text: z.string() });

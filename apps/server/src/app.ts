@@ -19,6 +19,7 @@ import type {
   Search,
   SettingsService,
   SystemService,
+  VoiceModelDownloads,
   VoiceService,
 } from "@blackwall/core";
 import { Hono } from "hono";
@@ -83,6 +84,8 @@ export interface AppOptions {
   voice?: Pick<VoiceService, "status" | "transcribe">;
   /** Voice commands and the blackwall MCP server; omit to leave them out (e.g. in tests). */
   voiceCommands?: VoiceCommandRouteService & McpCommandService;
+  /** Speech model downloads from Settings → Voice; omit to leave them out (e.g. in tests). */
+  voiceDownloads?: Pick<VoiceModelDownloads, "state" | "start">;
 }
 
 function send(ws: { send(data: string): void }, event: ServerEvent): void {
@@ -117,6 +120,7 @@ export function createApp({
   search,
   voice,
   voiceCommands,
+  voiceDownloads,
 }: AppOptions): CreatedApp {
   const app = new Hono();
   const { upgradeWebSocket, injectWebSocket, wss } = createNodeWebSocket({ app });
@@ -177,6 +181,7 @@ export function createApp({
     voiceRoutes({
       ...(voice ? { voice } : {}),
       ...(voiceCommands ? { commands: voiceCommands } : {}),
+      ...(voiceDownloads ? { downloads: voiceDownloads } : {}),
     }),
   );
 

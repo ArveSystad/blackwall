@@ -9,6 +9,7 @@ import {
   stepEventSchema,
   stepSchema,
   taskSchema,
+  voiceDownloadSchema,
   voiceStateSchema,
 } from "./domain.js";
 
@@ -94,6 +95,8 @@ export const serverEventSchema = z.discriminatedUnion("type", [
   envelope("chat.upserted", z.object({ chat: chatStateSchema })),
   /** Voice control changed (a command's progress or reply, its draft, or what a submit created). */
   envelope("voice.upserted", z.object({ voice: voiceStateSchema })),
+  /** The speech model download moved on: its phase, or (throttled) the bytes received. */
+  envelope("voice.download", z.object({ download: voiceDownloadSchema })),
   /** A data import replaced every row; clients refetch everything. */
   envelope("data.imported", z.object({})),
 ]);

@@ -49,6 +49,7 @@ import {
   taskDoneTimeSchema,
   stepUsageSchema,
   taskSchema,
+  voiceDownloadSchema,
   voiceStateSchema,
   voiceStatusSchema,
   voiceTranscriptSchema,
@@ -114,6 +115,8 @@ import {
   type StepUsage,
   type TaskWorktree,
   type UpdateBacklogItemInput,
+  type VoiceDownload,
+  type VoiceModelId,
   type VoiceState,
   type VoiceStatus,
 } from "@blackwall/shared";
@@ -553,6 +556,19 @@ export function runBacklogItem(repoId: string, id: string): Promise<Task> {
 /** Whether the server can transcribe speech with the chosen model, and why not. */
 export function getVoiceStatus(): Promise<VoiceStatus> {
   return request("/api/voice/status", voiceStatusSchema);
+}
+
+/** The server's speech model download: which model, its phase and progress. */
+export function getVoiceDownload(): Promise<VoiceDownload> {
+  return request("/api/voice/download", voiceDownloadSchema);
+}
+
+/** Starts downloading a speech model on the server; answers 409 while one is downloading. */
+export function downloadVoiceModel(model: VoiceModelId): Promise<VoiceDownload> {
+  return request("/api/voice/download", voiceDownloadSchema, {
+    method: "POST",
+    body: { model },
+  });
 }
 
 /**

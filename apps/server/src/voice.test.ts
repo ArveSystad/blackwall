@@ -1,15 +1,20 @@
 import {
   RepoNotFoundError,
   VoiceBusyError,
+  VoiceDownloadBusyError,
   VoiceDraftConflictError,
   VoiceUnavailableError,
+  type VoiceModelDownloads,
   type VoiceService,
 } from "@blackwall/core";
 import {
   backlogItemSchema,
+  voiceDownloadSchema,
   voiceStateSchema,
   voiceStatusSchema,
   type BacklogItem,
+  type VoiceDownload,
+  type VoiceModelId,
   type VoiceState,
 } from "@blackwall/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -29,6 +34,14 @@ const idle: VoiceState = {
   error: null,
   draft: null,
   created: null,
+};
+
+const idleDownload: VoiceDownload = {
+  model: null,
+  phase: "idle",
+  receivedBytes: 0,
+  totalBytes: null,
+  error: null,
 };
 
 const item: BacklogItem = {
@@ -52,14 +65,29 @@ const item: BacklogItem = {
 };
 
 let voice: { [K in "status" | "transcribe"]: ReturnType<typeof vi.fn<VoiceService[K]>> };
+let downloads: {
+  [K in "state" | "start"]: ReturnType<typeof vi.fn<VoiceModelDownloads[K]>>;
+};
 let commands: {
   [K in keyof VoiceCommandRouteService]: ReturnType<typeof vi.fn<VoiceCommandRouteService[K]>>;
 };
 
 beforeEach(() => {
   voice = {
-    status: vi.fn(async () => ({ available: true, model: "moonshine-tiny-en", reason: null })),
+    status: vi.fn(async () => ({
+      available: true,
+      model: "moonshine-tiny-en",
+      reason: null,
+      installed: ["moonshine-tiny-en"],
+    })),
     transcribe: vi.fn(async () => "create a task"),
+  };
+  downloads = {
+    state: vi.fn(() => idleDownload),
+    start: vi.fn((model: VoiceModelId) => {
+      if (model === "whisper-small") throw new VoiceDownloadBusyError();
+      return { ...idleDownload, model, phase: "downloading" };
+    }),
   };
   commands = {
     state: vi.fn(() => idle),
@@ -79,13 +107,14 @@ beforeEach(() => {
 function request(
   path: string,
   init: { method?: string; body?: BodyInit; json?: unknown; type?: string } = {},
-  options: { withVoice?: boolean } = {},
+  options: { withVoice?: boolean; withDownloads?: boolean } = {},
 ) {
   const app = createApp({
     token: "test-token",
     getPort: () => port,
     ...(options.withVoice === false ? {} : { voice }),
     voiceCommands: { ...commands, authorize: () => null, callTool: vi.fn() },
+    ...(options.withDownloads === false ? {} : { voiceDownloads: downloads }),
   }).app;
   const type = init.type ?? (init.json !== undefined ? "application/json" : undefined);
   return app.request(`http://${host}/api/voice${path}`, {
@@ -109,9 +138,10 @@ describe("voice routes", () => {
       available: true,
       model: "moonshine-tiny-en",
       reason: null,
+      installed: ["moonshine-tiny-en"],
     });
     const none = await request("/status", {}, { withVoice: false });
-    expect(await none.json()).toMatchObject({ available: false });
+    expect(await none.json()).toMatchObject({ available: false, installed: [] });
   });
 
   it("transcribes raw float samples", async () => {
@@ -156,6 +186,41 @@ describe("voice routes", () => {
       { withVoice: false },
     );
     expect(none.status).toBe(503);
+  });
+
+  it("serves the download state", async () => {
+    const res = await request("/download");
+    expect(voiceDownloadSchema.parse(await res.json())).toEqual(idleDownload);
+  });
+
+  it("starts a download in the background", async () => {
+    const res = await request("/download", {
+      method: "POST",
+      json: { model: "moonshine-tiny-en" },
+    });
+    expect(res.status).toBe(202);
+    expect(await res.json()).toMatchObject({ model: "moonshine-tiny-en", phase: "downloading" });
+    expect(downloads.start).toHaveBeenCalledWith("moonshine-tiny-en");
+  });
+
+  it("refuses an unknown model and a download while one runs", async () => {
+    const post = (json: unknown) => request("/download", { method: "POST", json });
+    expect((await post({ model: "whisper-huge" })).status).toBe(400);
+    expect((await post({})).status).toBe(400);
+    const busy = await post({ model: "whisper-small" });
+    expect(busy.status).toBe(409);
+    expect(await busy.json()).toEqual({ error: "A voice model is already downloading" });
+    expect(downloads.start).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the download routes out without downloads", async () => {
+    expect((await request("/download", {}, { withDownloads: false })).status).toBe(404);
+    const post = await request(
+      "/download",
+      { method: "POST", json: { model: "moonshine-tiny-en" } },
+      { withDownloads: false },
+    );
+    expect(post.status).toBe(404);
   });
 
   it("serves the voice state", async () => {

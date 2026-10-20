@@ -4,6 +4,7 @@ import {
   ApiError,
   StaleRepoError,
   artifactUrl,
+  downloadVoiceModel,
   getArtifactText,
   listConnections,
   sendVoiceCommand,
@@ -108,6 +109,25 @@ describe("request bodies", () => {
     const body = init?.body as ArrayBuffer;
     expect(body.byteLength).toBe(3 * 4);
     expect(Array.from(new Float32Array(body))).toEqual(Array.from(all.subarray(1, 4)));
+  });
+
+  it("posts the voice model to download and parses the state", async () => {
+    const state = {
+      model: "whisper-small",
+      phase: "downloading",
+      receivedBytes: 0,
+      totalBytes: null,
+      error: null,
+    };
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(new Response(JSON.stringify(state), { status: 202 }));
+    vi.stubGlobal("fetch", fetch);
+    expect(await downloadVoiceModel("whisper-small")).toEqual(state);
+    const [path, init] = fetch.mock.calls[0]!;
+    expect(path).toBe("/api/voice/download");
+    expect(init?.method).toBe("POST");
+    expect(init?.body).toBe(JSON.stringify({ model: "whisper-small" }));
   });
 
   it("still sends JSON bodies as JSON", async () => {

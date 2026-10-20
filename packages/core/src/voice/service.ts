@@ -1,12 +1,13 @@
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
+  VOICE_MODEL_IDS,
   VOICE_MODELS,
   VOICE_SAMPLE_RATE,
   type VoiceModelId,
   type VoiceModelSpec,
   type VoiceStatus,
 } from "@blackwall/shared";
+import { isVoiceModelInstalled } from "./install.js";
 
 /** Voice cannot transcribe: the model is missing or the recognizer does not load. */
 export class VoiceUnavailableError extends Error {
@@ -103,10 +104,8 @@ export function createVoiceService({ modelsDir, modelId, load = loadSherpa }: Vo
 
   /** Why the model cannot transcribe, or null when it can. */
   async function unavailable(id: VoiceModelId): Promise<string | null> {
-    const spec: VoiceModelSpec = VOICE_MODELS[id];
-    const files: string[] = Object.values(spec.files);
-    if (files.some((file) => !existsSync(join(dirOf(id), file)))) {
-      return `Voice model not installed: run \`pnpm voice:model ${id}\``;
+    if (!isVoiceModelInstalled(modelsDir, id)) {
+      return `Voice model not installed: download it in Settings → Voice or run \`pnpm voice:model ${id}\``;
     }
     try {
       await loadAddon();
@@ -142,11 +141,12 @@ export function createVoiceService({ modelsDir, modelId, load = loadSherpa }: Vo
   }
 
   return {
-    /** Whether the chosen model can transcribe, and why not. */
+    /** Whether the chosen model can transcribe, and why not; and which models are installed. */
     async status(): Promise<VoiceStatus> {
       const model = modelId();
       const reason = await unavailable(model);
-      return { available: reason === null, model, reason };
+      const installed = VOICE_MODEL_IDS.filter((id) => isVoiceModelInstalled(modelsDir, id));
+      return { available: reason === null, model, reason, installed };
     },
 
     /**

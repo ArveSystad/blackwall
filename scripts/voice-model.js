@@ -1,13 +1,14 @@
 // `pnpm voice:model [model-id]`: downloads a sherpa-onnx speech model for voice control into
 // `<dataDir>/models/<archive>` (`BLACKWALL_HOME`, default `~/.blackwall`), the folder the server
-// reads it from. Defaults to the default model; skips a model that is already there.
-import { spawnSync } from "node:child_process";
-import { cpSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
-import { fileURLToPath } from "node:url";
+// reads it from. Defaults to the default model; skips a model that is already there. The install
+// runs through `@blackwall/core`'s `installVoiceModel`, the same code as Settings → Voice, loaded
+// from `packages/core/dist`; the workspace is built first if its output is missing or stale.
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { ensureBuilt } from "./start.js";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 /** Model id → release archive name. Mirrors `VOICE_MODELS` in `@blackwall/shared`. */
 export const ARCHIVES = {
@@ -15,7 +16,6 @@ export const ARCHIVES = {
   "whisper-small": "sherpa-onnx-whisper-small",
 };
 export const DEFAULT_MODEL = "moonshine-tiny-en";
-const RELEASES = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models";
 
 /** Where a model unpacks to, resolving the data dir as the server does. Throws on an unknown id. */
 export function modelDirFor(env, home, id) {
@@ -28,35 +28,45 @@ export function modelDirFor(env, home, id) {
   return join(env.BLACKWALL_HOME || join(home, ".blackwall"), "models", archive);
 }
 
+const MB = 1024 * 1024;
+
+/** Logs download progress at most once per 10%, or per 50 MB when the size is unknown. */
+function progressLogger() {
+  let logged = 0;
+  return (progress) => {
+    if (progress.phase === "unpacking") {
+      console.log("Unpacking…");
+      return;
+    }
+    const { receivedBytes, totalBytes } = progress;
+    const step = totalBytes
+      ? Math.floor((receivedBytes / totalBytes) * 10)
+      : Math.floor(receivedBytes / (50 * MB));
+    if (step <= logged) return;
+    logged = step;
+    const received = Math.round(receivedBytes / MB);
+    console.log(
+      totalBytes
+        ? `  ${received} of ${Math.round(totalBytes / MB)} MB (${step * 10}%)`
+        : `  ${received} MB`,
+    );
+  };
+}
+
 async function main(id = DEFAULT_MODEL) {
+  // Validates the id before any build.
   const target = modelDirFor(process.env, homedir(), id);
-  if (existsSync(target)) {
+  ensureBuilt();
+  // A file: URL, since Windows absolute paths are not valid import specifiers.
+  const { installVoiceModel, isVoiceModelInstalled, voiceModelUrl } = await import(
+    pathToFileURL(join(ROOT, "packages/core/dist/voice/install.js")).href
+  );
+  const modelsDir = dirname(target);
+  if (!isVoiceModelInstalled(modelsDir, id)) console.log(`Downloading ${voiceModelUrl(id)}`);
+  const result = await installVoiceModel({ modelsDir, id, onProgress: progressLogger() });
+  if (result === "already-installed") {
     console.log(`The ${id} model is already installed at ${target}`);
     return;
-  }
-  const archive = ARCHIVES[id];
-  const url = `${RELEASES}/${archive}.tar.bz2`;
-  // Downloads and unpacks in a fresh temp folder, so a failure leaves no half-installed model.
-  const temp = mkdtempSync(join(tmpdir(), "blackwall-voice-"));
-  try {
-    console.log(`Downloading ${url}`);
-    const res = await fetch(url);
-    if (!res.ok || !res.body) throw new Error(`Download failed: HTTP ${res.status} for ${url}`);
-    const file = `${archive}.tar.bz2`;
-    await pipeline(Readable.fromWeb(res.body), createWriteStream(join(temp, file)));
-    // Relative paths: GNU tar reads `C:\…` as a remote host.
-    const tar = spawnSync("tar", ["-xjf", file], { cwd: temp, stdio: "inherit" });
-    if (tar.status !== 0 || !existsSync(join(temp, archive))) {
-      throw new Error(
-        `Could not unpack ${file}${tar.error ? `: ${tar.error.message}` : ""}. ` +
-          "Unpacking needs tar with bzip2 support; on Linux, install bzip2 and try again.",
-      );
-    }
-    rmSync(join(temp, file));
-    mkdirSync(resolve(target, ".."), { recursive: true });
-    cpSync(join(temp, archive), target, { recursive: true });
-  } finally {
-    rmSync(temp, { recursive: true, force: true });
   }
   console.log(`Installed the ${id} model at ${target}`);
   if (id !== DEFAULT_MODEL) console.log("Select it in Settings → Voice.");

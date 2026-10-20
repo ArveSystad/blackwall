@@ -69,11 +69,13 @@ describe("voice service", () => {
     expect(await voice.status()).toEqual({
       available: false,
       model: "whisper-small",
-      reason: "Voice model not installed: run `pnpm voice:model whisper-small`",
+      reason:
+        "Voice model not installed: download it in Settings → Voice or run `pnpm voice:model whisper-small`",
+      installed: [],
     });
     await expect(voice.transcribe(new Float32Array(16))).rejects.toThrow(VoiceUnavailableError);
     install("whisper-small");
-    expect((await voice.status()).available).toBe(true);
+    expect(await voice.status()).toMatchObject({ available: true, installed: ["whisper-small"] });
   });
 
   it("is unavailable when the addon does not load, and remembers it", async () => {
@@ -91,6 +93,7 @@ describe("voice service", () => {
       available: false,
       model: "moonshine-tiny-en",
       reason: "Speech recognizer could not load: no prebuilt binary for this platform",
+      installed: ["moonshine-tiny-en"],
     });
     await expect(voice.transcribe(new Float32Array(16))).rejects.toThrow(
       "Speech recognizer could not load",

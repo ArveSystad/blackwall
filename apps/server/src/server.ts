@@ -10,6 +10,7 @@ import type {
   Search,
   SettingsService,
   SystemService,
+  VoiceModelDownloads,
   VoiceService,
 } from "@blackwall/core";
 import { TOKEN_QUERY_PARAM, type CliStatus, type ServerEvent } from "@blackwall/shared";
@@ -49,6 +50,7 @@ export interface StartOptions {
   search?: Pick<Search, "search">;
   voice?: Pick<VoiceService, "status" | "transcribe">;
   voiceCommands?: VoiceCommandRouteService & McpCommandService;
+  voiceDownloads?: Pick<VoiceModelDownloads, "state" | "start">;
   shutdown: Shutdown;
 }
 
@@ -83,6 +85,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     ...(options.search ? { search: options.search } : {}),
     ...(options.voice ? { voice: options.voice } : {}),
     ...(options.voiceCommands ? { voiceCommands: options.voiceCommands } : {}),
+    ...(options.voiceDownloads ? { voiceDownloads: options.voiceDownloads } : {}),
     ...(options.dev ? {} : { webDist: WEB_DIST }),
   });
 

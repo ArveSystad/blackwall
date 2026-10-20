@@ -1,7 +1,9 @@
 import {
+  VoiceDownloadBusyError,
   VoiceToolError,
   VoiceUnavailableError,
   type VoiceCommandService,
+  type VoiceModelDownloads,
   type VoiceService,
 } from "@blackwall/core";
 import {
@@ -10,7 +12,9 @@ import {
   VOICE_SAMPLE_RATE,
   newBacklogItemInputSchema,
   voiceCommandInputSchema,
+  voiceDownloadInputSchema,
   type BacklogItem,
+  type VoiceDownload,
   type VoiceState,
   type VoiceStatus,
   type VoiceTranscript,
@@ -29,6 +33,8 @@ export interface VoiceRouteOptions {
   voice?: Pick<VoiceService, "status" | "transcribe">;
   /** Voice commands; omit to leave the command and draft routes out. */
   commands?: VoiceCommandRouteService;
+  /** Speech model downloads; omit to leave the download routes out. */
+  downloads?: Pick<VoiceModelDownloads, "state" | "start">;
 }
 
 /** The largest clip, in bytes of 32-bit float samples. */
@@ -38,6 +44,7 @@ const UNAVAILABLE: VoiceStatus = {
   available: false,
   model: DEFAULT_VOICE_MODEL,
   reason: "Voice control is not set up on this server",
+  installed: [],
 };
 
 function badRequest(c: Context, error: { issues: { message: string }[] }) {
@@ -50,9 +57,11 @@ function badRequest(c: Context, error: { issues: { message: string }[] }) {
  * transcript to `/commands`, which a CLI turn acts on in the background (202);
  * progress, the reply and the New task draft arrive as `voice.upserted`. The
  * draft's own form submits through `/draft/:id/submit`, the same claim a voice
- * "confirm" takes, so the task is created once.
+ * "confirm" takes, so the task is created once. `POST /download` starts
+ * installing a speech model in the background (202; 409 while one runs), and
+ * its progress arrives as `voice.download`; `GET /download` is the state now.
  */
-export function voiceRoutes({ voice, commands }: VoiceRouteOptions): Hono {
+export function voiceRoutes({ voice, commands, downloads }: VoiceRouteOptions): Hono {
   const routes = new Hono();
 
   routes.get("/status", async (c) =>
@@ -79,6 +88,21 @@ export function voiceRoutes({ voice, commands }: VoiceRouteOptions): Hono {
       throw error;
     }
   });
+
+  if (downloads) {
+    routes.get("/download", (c) => c.json<VoiceDownload>(downloads.state()));
+
+    routes.post("/download", async (c) => {
+      const input = voiceDownloadInputSchema.safeParse(await c.req.json().catch(() => undefined));
+      if (!input.success) return badRequest(c, input.error);
+      try {
+        return c.json<VoiceDownload>(downloads.start(input.data.model), 202);
+      } catch (error) {
+        if (error instanceof VoiceDownloadBusyError) return c.json({ error: error.message }, 409);
+        throw error;
+      }
+    });
+  }
 
   if (commands) {
     routes.get("/", (c) => c.json<VoiceState>(commands.state()));
