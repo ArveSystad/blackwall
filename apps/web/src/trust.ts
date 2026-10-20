@@ -1,9 +1,13 @@
 import {
+  AGENT_CLIS,
+  REMOTE_COMMANDS,
+  SAFE_GIT_COMMANDS,
   TRUSTED_LOADS_GLOBAL_CONFIG,
   type AgentCli,
   type AgentTrust,
   type AgentTrustLevel,
   type Step,
+  type TrustForcedReason,
 } from "@blackwall/shared";
 import { CLI_NAMES } from "./settings-forms";
 
@@ -37,6 +41,193 @@ export function trustRisk(level: AgentTrustLevel): string[] {
 function globalConfigDir(cli: AgentCli): string {
   return cli === "copilot" ? "~/.copilot" : cli === "claude" ? "~/.claude" : "~/.config/opencode";
 }
+
+// The trust help dialog's copy. It describes `permissionsFor` and the adapters in
+// packages/core; update it when they change.
+
+/**
+ * The sub-agents an implementer may start, per CLI: see `CLAUDE_BUILTIN_SUBAGENTS`,
+ * `COPILOT_EXCLUDED_TOOLS` and `OPENCODE_BUILTIN_SUBAGENTS` in core's permissions.
+ */
+export const IMPLEMENTER_SUBAGENTS: Record<AgentCli, string> = {
+  claude: "only the Blackwall worker; built-in sub-agents are denied",
+  copilot:
+    "the Blackwall worker and Copilot's built-in sub-agents, which follow the same deny rules",
+  opencode: "only the Blackwall worker; built-in sub-agents are denied",
+};
+
+/**
+ * The sub-agents a read-only agent may start under Trusted, per CLI: see
+ * `CLAUDE_TRUSTED_TOOLS`, `COPILOT_EXCLUDED_TOOLS` and `TRUSTED_RULES` in core's
+ * permissions.
+ */
+export const READONLY_TRUSTED_SUBAGENTS: Record<AgentCli, string> = {
+  claude: "the repo's sub-agents, built-ins denied",
+  copilot: "none",
+  opencode: "none",
+};
+
+/** The two permission profiles every agent runs under, before trust is applied. */
+export const TRUST_PROFILES: {
+  name: string;
+  detail: string;
+  subagentsLabel: string;
+  subagents: Record<AgentCli, string>;
+}[] = [
+  {
+    name: "Read-only",
+    detail: `Planners, reviewers and chat. They read files and run ${SAFE_GIT_COMMANDS.join(", ")}; they never edit. No sub-agents under Locked.`,
+    subagentsLabel: "Sub-agents under Trusted",
+    subagents: READONLY_TRUSTED_SUBAGENTS,
+  },
+  {
+    name: "Implement",
+    detail: "Implementers. They read, edit and write files and run any shell command.",
+    subagentsLabel: "Sub-agents",
+    subagents: IMPLEMENTER_SUBAGENTS,
+  },
+];
+
+export const TRUST_PROFILE_NOTE = "Trust is applied on top of the profile.";
+
+/** Each CLI's allow-everything mode, which Unrestricted runs it in. */
+export const ALLOW_EVERYTHING_MODES: Record<AgentCli, string> = {
+  claude: "bypassPermissions",
+  copilot: "--allow-all",
+  opencode: "*: allow",
+};
+
+/** A per-CLI record as one line, CLIs with the same text grouped: `A: x; B, C: y`. */
+export function perCli(record: Record<AgentCli, string>): string {
+  const groups = new Map<string, AgentCli[]>();
+  for (const cli of AGENT_CLIS) {
+    groups.set(record[cli], [...(groups.get(record[cli]) ?? []), cli]);
+  }
+  return [...groups]
+    .map(([text, clis]) => `${clis.map((cli) => CLI_NAMES[cli]).join(", ")}: ${text}`)
+    .join("; ");
+}
+
+/** The help dialog's paragraphs on one level. */
+export function trustDetail(level: AgentTrustLevel): string[] {
+  if (level === "locked") {
+    return [
+      "Blackwall's sandbox only: no repo skills, sub-agents, MCP servers or hooks.",
+      "Agents stay in the worktree; read-only agents may also read the repo's reference repos.",
+      "No web fetch or search.",
+    ];
+  }
+  if (level === "unrestricted") {
+    return [
+      "No rules at all: per-agent allow and deny overrides are ignored too.",
+      `Each CLI runs in its allow-everything mode: ${AGENT_CLIS.map((cli) => `${CLI_NAMES[cli]} ${ALLOW_EVERYTHING_MODES[cli]}`).join(", ")}.`,
+      "Agents can push, change remotes, run any command and read anywhere.",
+    ];
+  }
+  return [
+    "Locked, plus the repo's own skills, sub-agents and instruction files (AGENTS.md, CLAUDE.md).",
+    `Read-only agents keep Locked's tool and command permissions. Sub-agents they can start: ${perCli(READONLY_TRUSTED_SUBAGENTS)}. ${CLI_NAMES.claude} read-only agents also run under a guard hook that holds their shell commands to the read-only list.`,
+    "Implementers can also start the repo's sub-agents, on every CLI.",
+    "The repo's MCP servers and hooks reach implementers only, and only when their checkboxes are on.",
+    ...TRUSTED_LOADS_GLOBAL_CONFIG.map(
+      (cli) =>
+        `${CLI_NAMES[cli]} also loads your own ${globalConfigDir(cli)} agents, skills and MCP servers.`,
+    ),
+  ];
+}
+
+/** One help-table cell: one text, or one per profile where they differ. */
+export type TrustCell = string | { readOnly: string; implement: string };
+
+/**
+ * What each level allows, for the help dialog's table. Mirrors `permissionsFor`,
+ * `TRUSTED_RULES`, `OPENCODE_DENIED` and `COPILOT_EXCLUDED_TOOLS` in core.
+ */
+export const TRUST_MATRIX: { capability: string; cells: Record<AgentTrustLevel, TrustCell> }[] = [
+  {
+    capability: "Edit and write files",
+    cells: {
+      locked: { readOnly: "no", implement: "yes" },
+      trusted: { readOnly: "no", implement: "yes" },
+      unrestricted: "yes",
+    },
+  },
+  {
+    capability: "Shell commands",
+    cells: {
+      locked: { readOnly: "safe git only", implement: "any except remote" },
+      trusted: "same as Locked",
+      unrestricted: "any",
+    },
+  },
+  {
+    capability: "Remote git and gh",
+    cells: { locked: "denied", trusted: "denied", unrestricted: "allowed" },
+  },
+  {
+    capability: "Sub-agents",
+    cells: {
+      locked: {
+        readOnly: "none",
+        implement: `Blackwall worker (${CLI_NAMES.copilot}: also its built-ins, same denies)`,
+      },
+      trusted: {
+        readOnly: perCli(READONLY_TRUSTED_SUBAGENTS),
+        implement: "Locked's plus the repo's sub-agents",
+      },
+      unrestricted: "any",
+    },
+  },
+  {
+    capability: "Repo skills, sub-agents, instruction files",
+    cells: { locked: "no", trusted: "yes", unrestricted: "yes" },
+  },
+  {
+    capability: "Repo MCP servers and hooks",
+    cells: {
+      locked: "no",
+      trusted: { readOnly: "no", implement: "when turned on" },
+      unrestricted: "yes",
+    },
+  },
+  {
+    capability: "Files outside the worktree",
+    cells: {
+      locked: { readOnly: "reference repos only", implement: "none" },
+      trusted: "same as Locked",
+      unrestricted: "anywhere",
+    },
+  },
+  {
+    capability: "Web fetch and search",
+    cells: { locked: "no", trusted: "no", unrestricted: "yes" },
+  },
+  {
+    capability: "Per-agent allow/deny overrides",
+    cells: { locked: "applied", trusted: "applied", unrestricted: "ignored" },
+  },
+];
+
+/** Commands denied to every agent under Locked and Trusted. */
+export function alwaysDeniedCommands(): readonly string[] {
+  return REMOTE_COMMANDS;
+}
+
+export const ALWAYS_DENIED_NOTE =
+  "Only Blackwall pushes, after you confirm. These rules bind every sub-agent too.";
+
+/** Why a task runs Locked although its repo is set higher, in the help dialog. */
+export const FORCED_LOCKED_HELP: Record<TrustForcedReason, string> = {
+  review: "Review PR tasks: they read code someone else wrote.",
+  "foreign-branch": "PR tasks whose PR, or a commit on its branch, isn't yours.",
+  "unchecked-branch":
+    "PR tasks whose branch isn't checked yet, or whose check failed or wasn't recorded.",
+};
+
+export const FORCED_LOCKED_NOTES = [
+  "Forcing only lowers a repo set above Locked.",
+  "The chat always runs Locked.",
+];
 
 /** The trust a task's agents run under, as its badge reads. */
 export function trustLabel(trust: AgentTrust): string {

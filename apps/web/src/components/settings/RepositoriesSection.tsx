@@ -33,7 +33,7 @@ import {
   sideList,
 } from "../classes";
 import { ConfirmDialog } from "../ConfirmDialog";
-import { GripIcon, PlusIcon, RepoIcon, StarIcon, WarnIcon } from "../icons";
+import { GripIcon, HelpIcon, PlusIcon, RepoIcon, StarIcon, WarnIcon } from "../icons";
 import { ORIGINS } from "../origins";
 import { Segmented } from "../Segmented";
 import { TrustBadge } from "../TrustBadge";
@@ -45,6 +45,7 @@ import { Kbd } from "../ui/kbd";
 import { MultiSelectMenu } from "../ui/multi-select-menu";
 import { Textarea } from "../ui/textarea";
 import { Empty, SaveBar, SectionHeader } from "./parts";
+import { TrustHelpDialog } from "./TrustHelpDialog";
 
 type AddMode = "one" | "scan";
 
@@ -180,6 +181,7 @@ function RepoEditor({
   const [trustProjectMcp, setTrustProjectMcp] = useState(repo.trustProjectMcp);
   const [trustProjectHooks, setTrustProjectHooks] = useState(repo.trustProjectHooks);
   const [confirmUnrestricted, setConfirmUnrestricted] = useState(false);
+  const [showTrustHelp, setShowTrustHelp] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -428,8 +430,18 @@ function RepoEditor({
         </label>
 
         <div className="flex flex-col gap-1.5">
-          <span className={fieldLabel} id="repo-agent-trust-label">
-            Agent trust
+          <span className="flex items-center gap-1">
+            <span className={fieldLabel} id="repo-agent-trust-label">
+              Agent trust
+            </span>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label="About agent trust levels"
+              onClick={() => setShowTrustHelp(true)}
+            >
+              <HelpIcon />
+            </Button>
           </span>
           <Segmented
             label="Agent trust"
@@ -583,6 +595,7 @@ function RepoEditor({
         onSave={() => void save()}
       />
 
+      {showTrustHelp && <TrustHelpDialog onClose={() => setShowTrustHelp(false)} />}
       {confirmUnrestricted && (
         <ConfirmDialog
           title={`Run ${repo.name}'s agents Unrestricted?`}

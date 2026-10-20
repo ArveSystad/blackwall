@@ -721,6 +721,29 @@ export const LOCKED_TRUST: AgentTrust = {
  */
 export const TRUSTED_LOADS_GLOBAL_CONFIG: readonly AgentCli[] = ["copilot"];
 
+/** Git commands a read-only agent may run: they only read history and the working tree. */
+export const SAFE_GIT_COMMANDS = ["git diff", "git log", "git show", "git status"] as const;
+
+/**
+ * Commands that reach a remote or change remote configuration, plus the git
+ * forms that could hide one (`git -C <dir> push`, `git -c alias.x=push x`, a
+ * configured alias). Denied for every profile: the harness alone pushes, after
+ * the user confirms.
+ */
+export const REMOTE_COMMANDS = [
+  "git push",
+  "git pull",
+  "git fetch",
+  "git remote",
+  "git clone",
+  "git ls-remote",
+  "git submodule",
+  "git config",
+  "git -C",
+  "git -c",
+  "gh",
+] as const;
+
 export const tagSchema = z.object({ name, position: z.int().nonnegative() });
 export type Tag = z.infer<typeof tagSchema>;
 

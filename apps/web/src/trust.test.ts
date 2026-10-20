@@ -1,7 +1,23 @@
-import { LOCKED_TRUST, TRUSTED_LOADS_GLOBAL_CONFIG, type AgentTrust } from "@blackwall/shared";
-import { describe, expect, it } from "vitest";
 import {
+  AGENT_CLIS,
+  AGENT_TRUST_LEVELS,
+  LOCKED_TRUST,
+  REMOTE_COMMANDS,
+  TRUSTED_LOADS_GLOBAL_CONFIG,
+  type AgentTrust,
+} from "@blackwall/shared";
+import { describe, expect, it } from "vitest";
+import { CLI_NAMES } from "./settings-forms";
+import {
+  ALLOW_EVERYTHING_MODES,
+  FORCED_LOCKED_HELP,
+  IMPLEMENTER_SUBAGENTS,
+  READONLY_TRUSTED_SUBAGENTS,
+  TRUST_MATRIX,
+  alwaysDeniedCommands,
   globalConfigNote,
+  perCli,
+  trustDetail,
   loadedSkills,
   loadsGlobalConfig,
   otherTrustLevels,
@@ -48,6 +64,86 @@ describe("trustRisk", () => {
     expect(trusted.some((line) => line.includes("~/.copilot"))).toBe(
       TRUSTED_LOADS_GLOBAL_CONFIG.includes("copilot"),
     );
+  });
+});
+
+describe("trust help", () => {
+  const row = (capability: string) => {
+    const found = TRUST_MATRIX.find((r) => r.capability === capability);
+    if (!found) throw new Error(`no row ${capability}`);
+    return found;
+  };
+
+  it("fills every table cell for every level", () => {
+    for (const { cells } of TRUST_MATRIX) {
+      for (const level of AGENT_TRUST_LEVELS) {
+        const cell = cells[level];
+        if (typeof cell === "string") {
+          expect(cell).not.toBe("");
+        } else {
+          expect(cell.readOnly).not.toBe("");
+          expect(cell.implement).not.toBe("");
+        }
+      }
+    }
+  });
+
+  it("denies remote commands except under Unrestricted", () => {
+    const { cells } = row("Remote git and gh");
+    expect(cells.locked).toBe("denied");
+    expect(cells.trusted).toBe("denied");
+    expect(cells.unrestricted).toBe("allowed");
+    expect(alwaysDeniedCommands()).toEqual(REMOTE_COMMANDS);
+    expect(alwaysDeniedCommands()).toContain("git push");
+    expect(alwaysDeniedCommands()).toContain("gh");
+  });
+
+  it("explains each level, with the global-config note and the allow-everything modes", () => {
+    for (const level of AGENT_TRUST_LEVELS) expect(trustDetail(level).length).toBeGreaterThan(0);
+    expect(trustDetail("trusted").some((line) => line.includes("~/.copilot"))).toBe(
+      TRUSTED_LOADS_GLOBAL_CONFIG.includes("copilot"),
+    );
+    const unrestricted = trustDetail("unrestricted").join("\n");
+    for (const mode of Object.values(ALLOW_EVERYTHING_MODES)) expect(unrestricted).toContain(mode);
+  });
+
+  it("has per-CLI copy for every CLI", () => {
+    for (const record of [
+      ALLOW_EVERYTHING_MODES,
+      IMPLEMENTER_SUBAGENTS,
+      READONLY_TRUSTED_SUBAGENTS,
+    ]) {
+      for (const cli of AGENT_CLIS) expect(record[cli]).not.toBe("");
+    }
+  });
+
+  it("describes which sub-agents each CLI allows", () => {
+    // Copilot implementers keep `task`, built-ins included; Claude and OpenCode deny the built-ins.
+    expect(IMPLEMENTER_SUBAGENTS.copilot).toMatch(/built-in sub-agents, which follow/);
+    expect(IMPLEMENTER_SUBAGENTS.claude).toMatch(/built-in sub-agents are denied/);
+    expect(IMPLEMENTER_SUBAGENTS.opencode).toMatch(/built-in sub-agents are denied/);
+    // Under Trusted only Claude's read-only agents get the repo's sub-agents.
+    expect(READONLY_TRUSTED_SUBAGENTS.claude).toMatch(/the repo's sub-agents/);
+    expect(READONLY_TRUSTED_SUBAGENTS.copilot).toBe("none");
+    expect(READONLY_TRUSTED_SUBAGENTS.opencode).toBe("none");
+  });
+
+  it("groups CLIs with the same text", () => {
+    expect(perCli({ claude: "a", copilot: "b", opencode: "b" })).toBe(
+      `${CLI_NAMES.claude}: a; ${CLI_NAMES.copilot}, ${CLI_NAMES.opencode}: b`,
+    );
+    const { cells } = row("Sub-agents");
+    expect(cells.locked).toMatchObject({ readOnly: "none" });
+    const trusted = cells.trusted;
+    if (typeof trusted === "string") throw new Error("expected a split cell");
+    expect(trusted.readOnly).toBe(perCli(READONLY_TRUSTED_SUBAGENTS));
+    for (const name of Object.values(CLI_NAMES)) expect(trusted.readOnly).toContain(name);
+  });
+
+  it("explains every reason trust is forced Locked", () => {
+    for (const reason of ["review", "foreign-branch", "unchecked-branch"] as const) {
+      expect(FORCED_LOCKED_HELP[reason]).not.toBe("");
+    }
   });
 });
 

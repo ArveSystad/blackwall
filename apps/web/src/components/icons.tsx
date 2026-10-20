@@ -66,6 +66,13 @@ export const WarnIcon = icon(
   </>,
 );
 
+export const HelpIcon = icon(
+  <>
+    <circle cx="8" cy="8" r="6" />
+    <path d="M6.3 6.2a1.8 1.8 0 1 1 2.5 1.7c-.5.2-.8.6-.8 1.1v.4M8 11.3v.01" />
+  </>,
+);
+
 export const JiraIcon = icon(
   <>
     <rect x="2.5" y="2.5" width="11" height="11" rx="2" />

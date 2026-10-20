@@ -70,7 +70,8 @@ Each repo has an agent trust level (`TrustBadge`): **Locked** (default sandbox, 
 **Trusted** (neutral chip; also loads the repo's own skills and agents), **Unrestricted** (red chip
 with a warn icon). A task that runs code the user did not write is forced Locked: "Locked (Review
 PR)", "Locked until the branch is checked", "Locked (others' commits on branch)". The chat always
-runs Locked.
+runs Locked. The `?` help dialog beside "Agent trust" in repo settings is the detailed reference;
+its copy lives in `apps/web/src/trust.ts`.
 
 ### Reference repos, CI and comments
 
@@ -368,8 +369,9 @@ A left nav with nine sections:
 1. **Connections**: GitHub and Jira Cloud hosts, with Test, "Set token", "Forget token" and Remove.
    Tokens show only as "Configured" or "Missing".
 2. **Repositories**: drag to reorder, ★ to pin. Per repo: default CLI, origin and branch, the
-   backlog cap, "Watch CI after push", "Agent trust" (Locked / Trusted / Unrestricted, with a
-   confirm "Allow everything"), reference repos and check commands.
+   backlog cap, "Watch CI after push", "Agent trust" (Locked / Trusted / Unrestricted, with a `?`
+   help dialog explaining each level and a confirm "Allow everything"), reference repos and check
+   commands.
 3. **Agent library**: a model per CLI, eligible stages, prompt, allow/deny overrides.
 4. **Tags**: the finding tag list.
 5. **Defaults**: the agent per role, and tasks per repo.

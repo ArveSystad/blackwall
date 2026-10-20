@@ -3,6 +3,8 @@ import {
   LOCKED_TRUST,
   OPENCODE_TOOLS,
   opencodeRuleSchema,
+  REMOTE_COMMANDS,
+  SAFE_GIT_COMMANDS,
   type AgentCli,
   type AgentTrust,
   type PermissionOverrides,
@@ -32,28 +34,7 @@ export interface AgentPermissions {
   trust: AgentTrust;
 }
 
-/** Git commands a read-only agent may run: they only read history and the working tree. */
-export const SAFE_GIT_COMMANDS = ["git diff", "git log", "git show", "git status"] as const;
-
-/**
- * Commands that reach a remote or change remote configuration, plus the git
- * forms that could hide one (`git -C <dir> push`, `git -c alias.x=push x`, a
- * configured alias). Denied for every profile: the harness alone pushes, after
- * the user confirms.
- */
-export const REMOTE_COMMANDS = [
-  "git push",
-  "git pull",
-  "git fetch",
-  "git remote",
-  "git clone",
-  "git ls-remote",
-  "git submodule",
-  "git config",
-  "git -C",
-  "git -c",
-  "gh",
-] as const;
+export { REMOTE_COMMANDS, SAFE_GIT_COMMANDS } from "@blackwall/shared";
 
 /**
  * Claude Code built-in tools available per profile (`--tools`); anything else is
@@ -78,7 +59,8 @@ const CLAUDE_TOOLS: Record<PermissionProfile, readonly string[]> = {
 /**
  * Claude Code tools added under Trusted: `Skill` for the repo's skills, and,
  * for read-only agents, `Agent` for the repo's sub-agents (implementers have it
- * already). The built-in sub-agents stay denied.
+ * already). The built-in sub-agents stay denied. Described to users by
+ * `READONLY_TRUSTED_SUBAGENTS` in `apps/web/src/trust.ts`.
  */
 const CLAUDE_TRUSTED_TOOLS: Record<PermissionProfile, readonly string[]> = {
   "read-only": ["Skill", "Agent"],
@@ -89,6 +71,7 @@ const CLAUDE_TRUSTED_TOOLS: Record<PermissionProfile, readonly string[]> = {
  * Claude Code's built-in sub-agent types (as listed in its `init` line), all
  * denied. Claude Code runs any sub-agent type without an allow rule, so an
  * `Agent(<name>)` allow alone does not keep implementers to the worker.
+ * Described to users by `IMPLEMENTER_SUBAGENTS` in `apps/web/src/trust.ts`.
  */
 const CLAUDE_BUILTIN_SUBAGENTS = [
   "general-purpose",
@@ -103,7 +86,8 @@ const CLAUDE_BUILTIN_SUBAGENTS = [
  * `task` tool (sub-agents) without asking, and a `--deny-tool=task` rule does
  * not stop it, so reviewers lose the tool itself. Implementers keep it: every
  * sub-agent, the harness-defined worker or a built-in one, inherits the run's
- * allow and deny rules.
+ * allow and deny rules. Described to users by `IMPLEMENTER_SUBAGENTS` in
+ * `apps/web/src/trust.ts`.
  */
 const COPILOT_EXCLUDED_TOOLS: Record<PermissionProfile, readonly string[]> = {
   "read-only": ["task"],
@@ -144,7 +128,8 @@ const OPENCODE_DENIED = ["webfetch", "websearch", "codesearch", "skill"] as cons
 
 /**
  * OpenCode's built-in sub-agents, all denied: they run on the parent's model,
- * and a user's bare `task` allow must not open them.
+ * and a user's bare `task` allow must not open them. Described to users by
+ * `IMPLEMENTER_SUBAGENTS` in `apps/web/src/trust.ts`.
  */
 const OPENCODE_BUILTIN_SUBAGENTS = ["general", "explore"] as const;
 
@@ -227,7 +212,8 @@ const NO_TRUSTED_RULES: TrustedRules = { allow: [], deny: [], lift: [] };
  * What Trusted changes in a profile's rules. The skill tool comes into reach,
  * and a read-only Claude agent, which gets `Agent` for the repo's sub-agents,
  * has the built-in sub-agents denied as implementers do. Every other deny of
- * the profile stays.
+ * the profile stays. Described to users by `READONLY_TRUSTED_SUBAGENTS` in
+ * `apps/web/src/trust.ts`.
  */
 const TRUSTED_RULES: Record<AgentCli, Record<PermissionProfile, TrustedRules>> = {
   claude: {
@@ -257,7 +243,8 @@ function unique(rules: readonly string[]): string[] {
  * (the reference repos) are kept only for the read-only profile, so only the
  * harness ever writes outside the worktree. Under Trusted the skill tool comes
  * into reach (see {@link TRUSTED_RULES}); under Unrestricted there are no rules
- * at all, overrides included.
+ * at all, overrides included. Update the help copy in `apps/web/src/trust.ts`
+ * when this changes.
  */
 export function permissionsFor(
   cli: AgentCli,
