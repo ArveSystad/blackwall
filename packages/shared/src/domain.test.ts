@@ -26,7 +26,10 @@ import {
   effectiveTrust,
   LOCKED_TRUST,
   agentPermissionOverridesSchema,
+  agentInputSchema,
   agentUpdateSchema,
+  AGENT_EFFORT_LEVELS,
+  effortFlagApplies,
   connectionInputSchema,
   connectionViewSchema,
   deliveryActionSchema,
@@ -821,6 +824,33 @@ describe("agents", () => {
     ).toEqual({ models: { opencode: "anthropic/claude-sonnet-5-5" } });
   });
 
+  it("accepts each CLI's own effort levels and rejects others", () => {
+    expect(agentUpdateSchema.parse({ efforts: { claude: " low " } })).toEqual({
+      efforts: { claude: "low" },
+    });
+    expect(agentUpdateSchema.parse({ efforts: { copilot: "xhigh" } })).toEqual({
+      efforts: { copilot: "xhigh" },
+    });
+    const turbo = agentUpdateSchema.safeParse({ efforts: { claude: "turbo" } });
+    expect(turbo.success).toBe(false);
+    expect(turbo.error?.issues[0]?.message).toMatch(/Allowed: low, medium, high, xhigh, max/);
+    // OpenCode has no effort setting, so no level is valid for it.
+    expect(AGENT_EFFORT_LEVELS.opencode).toEqual([]);
+    expect(agentUpdateSchema.safeParse({ efforts: { opencode: "low" } }).success).toBe(false);
+    expect(agentInputSchema.parse({ name: "A" }).efforts).toEqual({});
+  });
+
+  it("rejects an effort for a model its CLI takes none for", () => {
+    expect(effortFlagApplies("copilot", "auto")).toBe(false);
+    expect(effortFlagApplies("copilot", "claude-haiku-5.5")).toBe(true);
+    expect(effortFlagApplies("copilot", null)).toBe(true);
+    expect(effortFlagApplies("claude", "auto")).toBe(true);
+    const pair = { models: { copilot: "auto" }, efforts: { copilot: "low" } };
+    expect(agentUpdateSchema.safeParse(pair).success).toBe(false);
+    expect(agentInputSchema.safeParse({ name: "A", ...pair }).success).toBe(false);
+    expect(agentUpdateSchema.safeParse({ ...pair, efforts: {} }).success).toBe(true);
+  });
+
   it("checks OpenCode permission rules against OpenCode's grammar", () => {
     const opencode = (rules: string[]) =>
       agentPermissionOverridesSchema.safeParse({ opencode: { allow: rules, deny: rules } });
@@ -1168,6 +1198,7 @@ describe("stepSchema", () => {
     cli: "copilot",
     trust: "trusted",
     trustForced: false,
+    effort: null,
     round: 0,
     visit: 0,
     status: "succeeded",
@@ -1189,5 +1220,10 @@ describe("stepSchema", () => {
 
   it("rejects a negative token count", () => {
     expect(stepSchema.safeParse({ ...step, outputTokens: -1 }).success).toBe(false);
+  });
+
+  it("records the effort the step ran at, or null", () => {
+    expect(stepSchema.parse(step).effort).toBeNull();
+    expect(stepSchema.parse({ ...step, effort: "low" }).effort).toBe("low");
   });
 });

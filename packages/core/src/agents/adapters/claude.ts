@@ -1,3 +1,4 @@
+import { effortFlagApplies } from "@blackwall/shared";
 import {
   guardEnv,
   permissionArgs,
@@ -267,7 +268,7 @@ export function claudeArgs(
   options: Omit<AgentRunOptions, "cwd" | "prompt" | "signal">,
   project: ClaudeProject = {},
 ): string[] {
-  const { model, resumeSessionId, permissions, jsonSchema, maxTurns } = options;
+  const { model, effort, resumeSessionId, permissions, jsonSchema, maxTurns } = options;
   if (permissions.cli !== "claude") {
     throw new Error(`Permissions for ${permissions.cli} cannot run on Claude Code`);
   }
@@ -278,6 +279,7 @@ export function claudeArgs(
     "stream-json",
     "--verbose",
     ...(model ? ["--model", model] : []),
+    ...(effort && effortFlagApplies("claude", model) ? ["--effort", effort] : []),
     ...(resumeSessionId ? ["--resume", resumeSessionId] : []),
     ...(systemPrompt ? ["--append-system-prompt", systemPrompt] : []),
     ...(jsonSchema ? ["--json-schema", JSON.stringify(withoutDialect(jsonSchema))] : []),

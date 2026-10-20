@@ -563,6 +563,71 @@ export type PermissionOverrides = z.infer<typeof permissionOverridesSchema>;
 export const agentModelsSchema = z.partialRecord(agentCliSchema, z.string().trim().min(1));
 export type AgentModels = z.infer<typeof agentModelsSchema>;
 
+/**
+ * Reasoning effort levels each CLI accepts, in its own flag's syntax; an empty
+ * list means the CLI has no effort setting. Copilot also lists `none` and
+ * `minimal`, but Claude models on Copilot reject them, so they are left out.
+ */
+export const AGENT_EFFORT_LEVELS: Record<AgentCli, readonly string[]> = {
+  claude: ["low", "medium", "high", "xhigh", "max"],
+  copilot: ["low", "medium", "high", "xhigh", "max"],
+  opencode: [],
+};
+
+/**
+ * Model ids a CLI refuses an effort for: it exits instead of ignoring the
+ * flag. Copilot's `auto` router takes no reasoning effort.
+ */
+export const AGENT_EFFORT_UNSUPPORTED_MODELS: Partial<Record<AgentCli, RegExp>> = {
+  copilot: /^auto$/i,
+};
+
+/**
+ * Whether an effort may be passed to `cli` for `model` (null for the CLI's
+ * default model). False for models in {@link AGENT_EFFORT_UNSUPPORTED_MODELS}.
+ */
+export function effortFlagApplies(cli: AgentCli, model: string | null | undefined): boolean {
+  const unsupported = AGENT_EFFORT_UNSUPPORTED_MODELS[cli];
+  return !(model && unsupported?.test(model.trim()));
+}
+
+/** Reasoning effort per CLI; a CLI without an entry runs at its own default effort. */
+export const agentEffortsSchema = z
+  .partialRecord(agentCliSchema, z.string().trim().min(1))
+  .superRefine((efforts, ctx) => {
+    for (const cli of AGENT_CLIS) {
+      const effort = efforts[cli];
+      if (effort === undefined) continue;
+      const levels = AGENT_EFFORT_LEVELS[cli];
+      if (levels.includes(effort)) continue;
+      ctx.addIssue({
+        code: "custom",
+        path: [cli],
+        message:
+          levels.length === 0
+            ? `${cli} has no effort setting`
+            : `Invalid ${cli} effort "${effort}". Allowed: ${levels.join(", ")}`,
+      });
+    }
+  });
+export type AgentEfforts = z.infer<typeof agentEffortsSchema>;
+
+/** Rejects an effort paired with a model its CLI refuses an effort for. */
+function refineModelEfforts(
+  agent: { models?: AgentModels | undefined; efforts?: AgentEfforts | undefined },
+  ctx: z.RefinementCtx,
+): void {
+  for (const cli of AGENT_CLIS) {
+    const model = agent.models?.[cli];
+    if (agent.efforts?.[cli] === undefined || effortFlagApplies(cli, model)) continue;
+    ctx.addIssue({
+      code: "custom",
+      path: ["efforts", cli],
+      message: `${cli} model "${model}" takes no effort; leave the effort blank`,
+    });
+  }
+}
+
 /** OpenCode permission keys a rule may name; `bash` also takes a command glob. */
 export const OPENCODE_TOOLS = [
   "read",
@@ -622,6 +687,7 @@ export const agentSchema = z.object({
   id,
   name,
   models: agentModelsSchema,
+  efforts: agentEffortsSchema,
   /** Role prompt / persona. */
   prompt: z.string(),
   eligibleStages: z.array(stageSchema),
@@ -631,22 +697,29 @@ export const agentSchema = z.object({
 });
 export type Agent = z.infer<typeof agentSchema>;
 
-export const agentInputSchema = agentSchema.pick({ name: true }).extend({
-  models: agentModelsSchema.default({}),
-  prompt: agentSchema.shape.prompt.default(""),
-  eligibleStages: agentSchema.shape.eligibleStages.default([]),
-  permissionOverrides: agentPermissionOverridesSchema.default({}),
-});
+export const agentInputSchema = agentSchema
+  .pick({ name: true })
+  .extend({
+    models: agentModelsSchema.default({}),
+    efforts: agentEffortsSchema.default({}),
+    prompt: agentSchema.shape.prompt.default(""),
+    eligibleStages: agentSchema.shape.eligibleStages.default([]),
+    permissionOverrides: agentPermissionOverridesSchema.default({}),
+  })
+  .superRefine(refineModelEfforts);
 export type AgentInput = z.input<typeof agentInputSchema>;
 
 /** Body for editing an agent; omitted fields keep their value. */
-export const agentUpdateSchema = z.object({
-  name: agentSchema.shape.name.optional(),
-  models: agentModelsSchema.optional(),
-  prompt: agentSchema.shape.prompt.optional(),
-  eligibleStages: agentSchema.shape.eligibleStages.optional(),
-  permissionOverrides: agentPermissionOverridesSchema.optional(),
-});
+export const agentUpdateSchema = z
+  .object({
+    name: agentSchema.shape.name.optional(),
+    models: agentModelsSchema.optional(),
+    efforts: agentEffortsSchema.optional(),
+    prompt: agentSchema.shape.prompt.optional(),
+    eligibleStages: agentSchema.shape.eligibleStages.optional(),
+    permissionOverrides: agentPermissionOverridesSchema.optional(),
+  })
+  .superRefine(refineModelEfforts);
 export type AgentUpdate = z.infer<typeof agentUpdateSchema>;
 
 /** Pipeline roles an agent can fill; `RoleAgents` holds one entry per role. */
@@ -1604,6 +1677,11 @@ export const stepSchema = z.object({
   trust: agentTrustLevelSchema.nullable(),
   /** Whether that level was forced below the repo's setting (see {@link effectiveTrust}). */
   trustForced: z.boolean(),
+  /**
+   * Reasoning effort passed to the CLI when the step last ran; null for the
+   * CLI default, harness steps and older steps.
+   */
+  effort: z.string().nullable(),
   /** Fix round within the stage loop (0 for the first pass). */
   round: z.int().nonnegative(),
   /**

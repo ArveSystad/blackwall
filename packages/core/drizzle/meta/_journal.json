@@ -183,6 +183,13 @@
       "when": 1792499513080,
       "tag": "0025_repo_setup_commands",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1792503973400,
+      "tag": "0026_agent_efforts",
+      "breakpoints": true
     }
   ]
 }

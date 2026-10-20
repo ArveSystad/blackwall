@@ -83,6 +83,7 @@ export function ContextPanel({ task }: { task: Task }) {
                       const agent = agentMap.get(id);
                       const cli = agentCliFor(task, id);
                       const model = agent?.models[cli];
+                      const effort = agent?.efforts[cli];
                       return (
                         <span key={id} className="inline-flex items-center gap-1.5">
                           {agent && <AgentTile cli={cli} />}
@@ -90,6 +91,7 @@ export function ContextPanel({ task }: { task: Task }) {
                           {agent && (
                             <span className="mono text-[11px] text-faint">
                               {model || AUTO_MODEL_LABEL}
+                              {effort ? ` · ${effort}` : ""}
                             </span>
                           )}
                         </span>

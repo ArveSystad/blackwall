@@ -32,6 +32,7 @@ function makeStep(taskId: string, id: string, createdAt: string): ActiveAgentSte
     cli: "copilot",
     trust: null,
     trustForced: false,
+    effort: null,
     round: 0,
     visit: 0,
     status: "running",

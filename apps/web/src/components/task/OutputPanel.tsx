@@ -10,7 +10,10 @@ import {
   STAGE_LABELS,
   buildTranscript,
   defaultStepId,
+  effectiveEffort,
   effectiveModel,
+  effortLabel,
+  effortTitle,
   modelTitle,
   subagentStatus,
   type TranscriptItem,
@@ -271,6 +274,8 @@ function Transcript({
   const end = useRef<HTMLDivElement>(null);
   const count = events.data?.length ?? 0;
   const model = effectiveModel(events.data, agent, step.cli);
+  const effort = effectiveEffort(step, agent, step.cli);
+  const effortText = effortLabel(effort.effort);
   const skills = loadedSkills(events.data ?? []);
   const globalNote = globalConfigNote(step);
 
@@ -295,6 +300,14 @@ function Transcript({
             >
               {model.model ?? AUTO_MODEL_LABEL}
             </span>
+            {effortText && (
+              <span
+                className="mono text-[11px] text-faint"
+                title={effortTitle({ effort: effortText, source: effort.source })}
+              >
+                · {effortText}
+              </span>
+            )}
           </>
         ) : (
           <span className="font-semibold text-foreground-strong">

@@ -428,6 +428,10 @@ describe("agents and tags", () => {
     expect(r.agents.update(agent.id, { models: { claude: "opus" } }).models).toEqual({
       claude: "opus",
     });
+    expect(r.agents.get(agent.id)?.efforts).toEqual({});
+    expect(r.agents.update(agent.id, { efforts: { claude: "low" } }).efforts).toEqual({
+      claude: "low",
+    });
     expect(() => r.agents.update("missing", { models: {} })).toThrow(/not found/);
   });
 
@@ -595,6 +599,16 @@ describe("tasks, runs and steps", () => {
     });
     expect(r.steps.update(step.id, { trustForced: true }).trustForced).toBe(true);
     expect(r.steps.get(step.id)).toMatchObject({ trust: "locked", trustForced: true });
+  });
+
+  it("gives steps no effort until one is set, then round-trips it", () => {
+    const task = seedTask();
+    const run = r.runs.create(task.id);
+    const step = r.steps.create({ runId: run.id, stage: "inform" });
+    expect(step.effort).toBeNull();
+    expect(r.steps.update(step.id, { effort: "low" }).effort).toBe("low");
+    expect(r.steps.get(step.id)?.effort).toBe("low");
+    expect(r.steps.update(step.id, { effort: null }).effort).toBeNull();
   });
 
   it("has no CI until a watch stores it, then round-trips the JSON", () => {

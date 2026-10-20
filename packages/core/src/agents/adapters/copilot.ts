@@ -1,3 +1,4 @@
+import { effortFlagApplies } from "@blackwall/shared";
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -187,7 +188,10 @@ export function copilotPrompt(
   return inlinePrompt(options);
 }
 
-export interface CopilotArgsOptions extends Pick<AgentRunOptions, "cwd" | "model" | "permissions"> {
+export interface CopilotArgsOptions extends Pick<
+  AgentRunOptions,
+  "cwd" | "model" | "effort" | "permissions"
+> {
   /** Session to use: a fresh UUID for a new session, or the one to resume. */
   sessionId: string;
   resume: boolean;
@@ -210,6 +214,7 @@ export interface CopilotArgsOptions extends Pick<AgentRunOptions, "cwd" | "model
 export function copilotArgs({
   cwd,
   model,
+  effort,
   permissions,
   sessionId,
   resume,
@@ -225,6 +230,7 @@ export function copilotArgs({
     "-C",
     cwd,
     ...(model ? ["--model", model] : []),
+    ...(effort && effortFlagApplies("copilot", model) ? ["--reasoning-effort", effort] : []),
     ...(resume ? ["--resume", sessionId] : ["--session-id", sessionId]),
     ...(pluginDir ? ["--plugin-dir", pluginDir] : []),
     ...permissionArgs(permissions, { cwd, ...(mcpConfig ? { mcpConfig } : {}) }),
@@ -316,7 +322,17 @@ export function createCopilotAdapter({
   const runEnv = env || auth ? copilotEnv(auth, env) : undefined;
   return {
     cli: "copilot",
-    run({ cwd, prompt, systemPrompt, jsonSchema, resumeSessionId, model, permissions, signal }) {
+    run({
+      cwd,
+      prompt,
+      systemPrompt,
+      jsonSchema,
+      resumeSessionId,
+      model,
+      effort,
+      permissions,
+      signal,
+    }) {
       const sessionId = resumeSessionId ?? randomUUID();
       const start = (pluginDir?: string, mcpConfig?: string) => {
         const spawn = (input: string, resume: boolean) =>
@@ -330,6 +346,7 @@ export function createCopilotAdapter({
                 sessionId,
                 resume,
                 ...(model ? { model } : {}),
+                ...(effort ? { effort } : {}),
                 ...(pluginDir ? { pluginDir } : {}),
                 ...(mcpConfig ? { mcpConfig } : {}),
               }),

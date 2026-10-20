@@ -66,11 +66,15 @@ describe("agent routes", () => {
       method: "PATCH",
       body: {
         models: { claude: "sonnet" },
+        efforts: { claude: "low" },
         permissionOverrides: { claude: { allow: ["Bash(npm test:*)"] } },
       },
     });
     expect(patched.status).toBe(200);
-    expect(agentSchema.parse(await patched.json()).models).toEqual({ claude: "sonnet" });
+    expect(agentSchema.parse(await patched.json())).toMatchObject({
+      models: { claude: "sonnet" },
+      efforts: { claude: "low" },
+    });
 
     expect((await request(`/api/agents/${agent.id}`, { method: "DELETE" })).status).toBe(204);
     expect((await request(`/api/agents/${agent.id}`)).status).toBe(404);
@@ -82,6 +86,13 @@ describe("agent routes", () => {
       body: { name: "X", models: { codex: "o3" } },
     });
     expect(bad.status).toBe(400);
+    for (const efforts of [{ claude: "turbo" }, { opencode: "low" }]) {
+      const badEffort = await request("/api/agents", {
+        method: "POST",
+        body: { name: "X", efforts },
+      });
+      expect(badEffort.status).toBe(400);
+    }
     const duplicate = await request("/api/agents", {
       method: "POST",
       body: { name: "Planner" },

@@ -254,15 +254,24 @@ describe("merging the CLI twins of an earlier install", () => {
   });
 
   it("folds numbered twins into one base", () => {
-    const base = agent({ name: "Z", models: { claude: "opus" } });
-    const first = agent({ name: "Z (Copilot)", models: { copilot: "gpt-5", claude: "sonnet" } });
-    const second = agent({ name: "Z (Copilot 2)", models: { copilot: "gpt-4" } });
+    const base = agent({ name: "Z", models: { claude: "opus" }, efforts: { claude: "high" } });
+    const first = agent({
+      name: "Z (Copilot)",
+      models: { copilot: "gpt-5", claude: "sonnet" },
+      efforts: { copilot: "low", claude: "max" },
+    });
+    const second = agent({
+      name: "Z (Copilot 2)",
+      models: { copilot: "gpt-4" },
+      efforts: { copilot: "medium" },
+    });
     const t = task({ cli: "claude", agents: { codeReviewers: [first.id, second.id] } });
     const steps = [history(t.id, first.id, "copilot"), history(t.id, second.id, "copilot")];
     service.seed();
 
     expect(service.list().map((a) => a.name)).toEqual(["Z"]);
     expect(byName("Z").models).toEqual({ claude: "opus", copilot: "gpt-5" });
+    expect(byName("Z").efforts).toEqual({ claude: "high", copilot: "low" });
     expect(steps.map(({ step }) => r.steps.get(step.id)?.agentId)).toEqual([base.id, base.id]);
     expect(r.tasks.get(t.id)?.agents).toEqual({ codeReviewers: [base.id] });
   });
@@ -371,6 +380,7 @@ describe("agent CRUD", () => {
     const agent = service.create({ name: "Docs reviewer" });
     expect(agent).toMatchObject({
       models: {},
+      efforts: {},
       prompt: "",
       eligibleStages: [],
       permissionOverrides: {},
@@ -395,6 +405,23 @@ describe("agent CRUD", () => {
     expect(() => service.update(agent.id, { name: "B" })).toThrow(InvalidAgentError);
     expect(() => service.create({ name: " " })).toThrow(InvalidAgentError);
     expect(() => service.update("missing", { name: "C" })).toThrow(AgentNotFoundError);
+  });
+
+  it("saves efforts and rejects levels the CLI does not take", () => {
+    const agent = service.create({ name: "A", efforts: { claude: "low" } });
+    expect(agent.efforts).toEqual({ claude: "low" });
+    expect(service.update(agent.id, { efforts: { copilot: "high" } }).efforts).toEqual({
+      copilot: "high",
+    });
+    expect(() => service.update(agent.id, { efforts: { claude: "turbo" } })).toThrow(
+      /Allowed: low, medium/,
+    );
+    expect(() => service.update(agent.id, { efforts: { opencode: "low" } })).toThrow(
+      InvalidAgentError,
+    );
+    expect(() =>
+      service.update(agent.id, { models: { copilot: "auto" }, efforts: { copilot: "low" } }),
+    ).toThrow(InvalidAgentError);
   });
 
   it("rejects OpenCode rules outside OpenCode's grammar, saying what it expects", () => {
@@ -529,6 +556,13 @@ describe("invocation", () => {
     expect(onClaude).toMatchObject({ cli: "claude", model: "opus" });
     expect(onClaude.permissions.allow).toContain("Bash(npm test:*)");
     expect(onClaude.permissions.allow).not.toContain("shell(npm test)");
+  });
+
+  it("uses the agent's effort for the CLI it runs on", () => {
+    const reviewer = byName("Code-quality reviewer");
+    service.update(reviewer.id, { efforts: { claude: "low" } });
+    expect(service.invocation(reviewer.id, "code-review", "claude").effort).toBe("low");
+    expect(service.invocation(reviewer.id, "code-review", "copilot").effort).toBeNull();
   });
 
   it("lets read-only stages read the reference repos, but never implementers", () => {

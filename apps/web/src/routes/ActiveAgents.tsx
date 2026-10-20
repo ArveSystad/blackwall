@@ -14,7 +14,10 @@ import {
   AUTO_MODEL_LABEL,
   STAGE_LABELS,
   currentActivity,
+  effectiveEffort,
   effectiveModel,
+  effortLabel,
+  effortTitle,
   modelTitle,
 } from "../task-view";
 
@@ -35,6 +38,8 @@ function AgentRow({
   const events = useQuery(stepEventsQuery(step.taskId, step.id));
   const activity = events.data ? currentActivity(events.data) : null;
   const { model, source } = effectiveModel(events.data, agent, step.cli);
+  const effort = effectiveEffort(step, agent, step.cli);
+  const effortText = effortLabel(effort.effort);
   const since = step.startedAt ?? step.createdAt;
   return (
     <li className="bw-chamfer flex flex-col gap-1.5 bg-card px-3.5 py-2.5 [--bw-chamfer-line:var(--border)]">
@@ -51,6 +56,14 @@ function AgentRow({
         >
           {model ?? AUTO_MODEL_LABEL}
         </span>
+        {effortText && (
+          <span
+            className="mono text-label text-muted-foreground"
+            title={effortTitle({ effort: effortText, source: effort.source })}
+          >
+            · {effortText}
+          </span>
+        )}
         <span className="label text-cyan">{STAGE_LABELS[step.stage]}</span>
         {step.round > 0 && <span className="mono text-label text-faint">round {step.round}</span>}
         <span className="flex-1" />

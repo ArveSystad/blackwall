@@ -240,7 +240,7 @@ export function createOpencodeParser({
   };
 }
 
-export interface OpencodeArgsOptions extends Pick<AgentRunOptions, "cwd" | "model"> {
+export interface OpencodeArgsOptions extends Pick<AgentRunOptions, "cwd" | "model" | "effort"> {
   /** Session to continue; a new run lets OpenCode create one. */
   sessionId?: string;
 }
@@ -251,6 +251,8 @@ export interface OpencodeArgsOptions extends Pick<AgentRunOptions, "cwd" | "mode
  * limit. The run always uses the injected `blackwall` agent, whose permissions
  * come from config rather than flags. `--dir` is explicit because OpenCode
  * otherwise takes its directory from `PWD`, not from the process's cwd.
+ * `effort` is ignored: OpenCode has no confirmed effort setting (its
+ * `AGENT_EFFORT_LEVELS` entry is empty).
  */
 export function opencodeArgs({ cwd, model, sessionId }: OpencodeArgsOptions): string[] {
   return [

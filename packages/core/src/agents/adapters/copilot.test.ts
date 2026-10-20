@@ -335,6 +335,25 @@ describe("copilotArgs", () => {
     expect(args).toContain("--deny-tool=write");
   });
 
+  it("passes the effort after the model, and none when unset", () => {
+    const base = { cwd: "x", permissions: readOnly, sessionId: "s-1", resume: false };
+    const args = copilotArgs({ ...base, model: "claude-haiku-5.5", effort: "low" });
+    expect(args.slice(4, 8)).toEqual(["--model", "claude-haiku-5.5", "--reasoning-effort", "low"]);
+    expect(copilotArgs({ ...base, model: "gpt-5" })).not.toContain("--reasoning-effort");
+  });
+
+  it("skips the effort for a model Copilot takes none for", () => {
+    const args = copilotArgs({
+      cwd: "x",
+      permissions: readOnly,
+      sessionId: "s-1",
+      resume: true,
+      model: "auto",
+      effort: "low",
+    });
+    expect(args).not.toContain("--reasoning-effort");
+  });
+
   it("loads the plugin directory before the permission flags", () => {
     const args = copilotArgs({
       cwd: "x",
@@ -528,6 +547,18 @@ describe("createCopilotAdapter", () => {
     expect(args).toEqual(expect.arrayContaining(["--model", "gpt-5", "-C", cwd]));
     expect(args[args.indexOf("--session-id") + 1]).toMatch(/^[0-9a-f-]{36}$/);
     expect(session?.type === "session" && session.sessionId).toBe(result.sessionId);
+  });
+
+  it("passes the effort to the CLI", async () => {
+    const run = fake("copilot-echo").run({
+      cwd,
+      prompt: "x",
+      permissions: readOnly,
+      effort: "low",
+    });
+    await collect(run);
+    const args = JSON.parse((await run.result).text) as string[];
+    expect(args).toEqual(expect.arrayContaining(["--reasoning-effort", "low"]));
   });
 
   it("resumes the given session", async () => {

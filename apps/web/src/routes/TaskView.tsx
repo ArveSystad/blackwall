@@ -229,6 +229,7 @@ function TaskScreen({ task }: { task: Task }) {
           <GrillPanel
             task={task}
             questions={data.questions.data ?? []}
+            steps={data.steps}
             action={action}
             planComment={planComment}
             onPlanComment={setPlanComment}

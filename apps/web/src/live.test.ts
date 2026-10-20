@@ -342,6 +342,7 @@ describe("applyServerEvent", () => {
       cli: "claude",
       trust: null,
       trustForced: false,
+      effort: null,
       round: 0,
       visit: 0,
       status: "running",

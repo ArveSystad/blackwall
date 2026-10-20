@@ -26,6 +26,7 @@ const agent: Agent = {
   id: "a1",
   name: "Security reviewer",
   models: { copilot: "gpt-5" },
+  efforts: { copilot: "low" },
   prompt: "Look for injection.",
   eligibleStages: ["code-review", "plan-review"],
   permissionOverrides: { copilot: { allow: ["shell(npm test)"] } },
@@ -38,23 +39,26 @@ describe("agent drafts", () => {
     expect(draftToInput(agentDraft(agent))).toEqual({
       name: "Security reviewer",
       models: { copilot: "gpt-5" },
+      efforts: { copilot: "low" },
       prompt: "Look for injection.",
       eligibleStages: ["plan-review", "code-review"],
       permissionOverrides: { copilot: { allow: ["shell(npm test)"] } },
     });
   });
 
-  it("trims the name and models and drops blank models and rule lines", () => {
+  it("trims the name, models and efforts and drops blank ones and blank rule lines", () => {
     const draft = agentDraft();
     const edited = {
       ...draft,
       name: "  Docs ",
       models: { claude: " opus ", copilot: "  ", opencode: "" },
+      efforts: { claude: " high ", copilot: " ", opencode: "" },
       deny: { ...draft.deny, claude: "\n  Bash(rm:*) \n\n" },
     };
     expect(draftToInput(edited)).toMatchObject({
       name: "Docs",
       models: { claude: "opus" },
+      efforts: { claude: "high" },
       permissionOverrides: { claude: { deny: ["Bash(rm:*)"] } },
     });
   });
@@ -65,6 +69,9 @@ describe("agent drafts", () => {
       sameDraft(draft, { ...draft, allow: { ...draft.allow, copilot: "shell(npm test)\n" } }),
     ).toBe(true);
     expect(sameDraft(draft, { ...draft, models: { ...draft.models, claude: "opus" } })).toBe(false);
+    expect(sameDraft(draft, { ...draft, efforts: { ...draft.efforts, copilot: "high" } })).toBe(
+      false,
+    );
   });
 
   it("counts each CLI's permission rules", () => {

@@ -65,6 +65,11 @@ export interface AgentRunOptions {
    */
   systemPrompt?: string;
   model?: string;
+  /**
+   * Reasoning effort: the CLI's own level from `AGENT_EFFORT_LEVELS`. Unset
+   * runs the CLI's default; a CLI without an effort setting ignores it.
+   */
+  effort?: string;
   /** Continue an earlier session instead of starting a new one. */
   resumeSessionId?: string;
   /**

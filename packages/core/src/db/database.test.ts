@@ -205,6 +205,9 @@ describe("openDatabase", () => {
       permissionOverrides: { claude: { allow: ["Read"] } },
     });
     expect(r.agents.get("copilot")).toMatchObject({ models: {}, permissionOverrides: {} });
+    // Agents and steps from before per-agent effort run and show at the CLI default.
+    expect(r.agents.get("claude")?.efforts).toEqual({});
+    expect(r.steps.get("s1")?.effort).toBeNull();
     expect(r.agents.get("claude")).not.toHaveProperty("cli");
     expect(r.tasks.get("t1")).toMatchObject({ cli: "copilot", agentClis: { claude: "claude" } });
     expect(r.tasks.get("t2")).toMatchObject({ cli: "claude", agentClis: {} });

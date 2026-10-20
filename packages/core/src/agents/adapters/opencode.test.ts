@@ -451,6 +451,10 @@ describe("opencodeArgs", () => {
       "ses_1",
     ]);
   });
+
+  it("ignores the effort: OpenCode has no effort setting", () => {
+    expect(opencodeArgs({ cwd: "C:/wt", effort: "low" })).toEqual(opencodeArgs({ cwd: "C:/wt" }));
+  });
 });
 
 describe("prepareConfigHome", () => {

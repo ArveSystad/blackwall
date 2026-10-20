@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  AGENT_CLIS,
+  AGENT_EFFORT_LEVELS,
   DEFAULT_TAGS,
   planAnswersOutputJsonSchema,
   planAnswersOutputSchema,
@@ -214,5 +216,34 @@ describe.runIf(process.env.BLACKWALL_TEST_CLIS === "1")("seed prompt output cont
         TIMEOUT_MS,
       );
     });
+  }
+});
+
+/** Small or routing models per CLI: Claude ignores an effort on them, Copilot's `auto` refuses one. */
+const EFFORT_MODELS: Partial<Record<AgentCli, string[]>> = {
+  claude: ["haiku"],
+  copilot: ["claude-haiku-5.5", "auto"],
+};
+
+describe.runIf(process.env.BLACKWALL_TEST_CLIS === "1")("effort", () => {
+  for (const cli of AGENT_CLIS.filter((c) => AGENT_EFFORT_LEVELS[c].length > 0)) {
+    const effort = AGENT_EFFORT_LEVELS[cli][0]!;
+    for (const model of [undefined, ...(EFFORT_MODELS[cli] ?? [])]) {
+      it.concurrent(
+        `${cli} answers at ${effort} effort on ${model ?? "its default model"}`,
+        async () => {
+          const adapter = cli === "claude" ? createClaudeAdapter() : createCopilotAdapter();
+          const result = await adapter.run({
+            cwd: repo,
+            prompt: "Reply with just the word ok.",
+            permissions: permissionsFor(cli, "read-only"),
+            effort,
+            ...(model ? { model } : {}),
+          }).result;
+          expect(result.text.toLowerCase()).toContain("ok");
+        },
+        TIMEOUT_MS,
+      );
+    }
   }
 });

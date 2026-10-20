@@ -36,7 +36,9 @@ import {
   deliveryActionCopy,
   deliveryConflicts,
   diffStat,
+  effectiveEffort,
   effectiveModel,
+  effortLabel,
   findingLocation,
   gateBanner,
   initialTicks,
@@ -612,6 +614,52 @@ describe("effectiveModel", () => {
         "copilot",
       ),
     ).toEqual({ model: "claude-sonnet-5.5", source: "reported" });
+  });
+});
+
+describe("effectiveEffort", () => {
+  const started = new Date(0);
+
+  it("uses a started step's recorded effort, not the agent's current one", () => {
+    expect(
+      effectiveEffort(
+        { effort: "low", startedAt: started },
+        { efforts: { claude: "high" } },
+        "claude",
+      ),
+    ).toEqual({ effort: "low", source: "recorded" });
+  });
+
+  it("keeps a started step's null effort instead of the agent's", () => {
+    expect(
+      effectiveEffort(
+        { effort: null, startedAt: started },
+        { efforts: { claude: "high" } },
+        "claude",
+      ),
+    ).toEqual({ effort: null, source: "recorded" });
+  });
+
+  it("uses the agent's effort for the CLI before the step starts", () => {
+    const agent = { efforts: { claude: "high" } };
+    expect(effectiveEffort({ effort: null, startedAt: null }, agent, "claude")).toEqual({
+      effort: "high",
+      source: "configured",
+    });
+    expect(effectiveEffort(undefined, agent, "copilot").effort).toBeNull();
+  });
+
+  it("is null without an agent or CLI", () => {
+    expect(effectiveEffort(undefined, undefined, "claude").effort).toBeNull();
+    expect(effectiveEffort(undefined, { efforts: { claude: "low" } }, null).effort).toBeNull();
+  });
+});
+
+describe("effortLabel", () => {
+  it("shows a set effort and nothing for the default", () => {
+    expect(effortLabel("low")).toBe("low");
+    expect(effortLabel(null)).toBeNull();
+    expect(effortLabel(undefined)).toBeNull();
   });
 });
 

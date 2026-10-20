@@ -11,6 +11,7 @@ import {
   type Agent,
   type AgentCli,
   type AgentClis,
+  type AgentEfforts,
   type AgentInput,
   type AgentModels,
   type AgentPermissionOverrides,
@@ -58,6 +59,8 @@ export interface AgentInvocation {
   cli: AgentCli;
   /** The agent's model on `cli`; null runs the CLI's default model. */
   model: string | null;
+  /** The agent's reasoning effort on `cli`; null runs the CLI's default effort. */
+  effort: string | null;
   systemPrompt: string;
   permissions: AgentPermissions;
 }
@@ -157,18 +160,21 @@ function groupOrder(base: Agent, candidates: readonly Agent[]): Agent[] {
 
 /**
  * The fields of the agent a group merges into: the first member's prompt and
- * stages, and per CLI the first member's model and permission overrides.
+ * stages, and per CLI the first member's model, effort and permission overrides.
  */
 function mergedAgent(
   group: readonly Agent[],
-): Pick<Agent, "prompt" | "eligibleStages" | "models" | "permissionOverrides"> {
+): Pick<Agent, "prompt" | "eligibleStages" | "models" | "efforts" | "permissionOverrides"> {
   const [first] = group;
   if (!first) throw new Error("An agent group needs at least one agent");
   const models: AgentModels = {};
+  const efforts: AgentEfforts = {};
   const permissionOverrides: AgentPermissionOverrides = {};
   for (const cli of AGENT_CLIS) {
     const model = group.find((a) => a.models[cli] !== undefined)?.models[cli];
     if (model !== undefined) models[cli] = model;
+    const effort = group.find((a) => a.efforts[cli] !== undefined)?.efforts[cli];
+    if (effort !== undefined) efforts[cli] = effort;
     const overrides = group.find((a) => a.permissionOverrides[cli] !== undefined)
       ?.permissionOverrides[cli];
     if (overrides !== undefined) permissionOverrides[cli] = overrides;
@@ -177,6 +183,7 @@ function mergedAgent(
     prompt: first.prompt,
     eligibleStages: [...first.eligibleStages],
     models,
+    efforts,
     permissionOverrides,
   };
 }
@@ -444,7 +451,7 @@ export function createAgentService({
     /**
      * What an agent gets for a stage on a CLI: its system prompt (code
      * reviewers also get the current tags and the findings contract), its
-     * model on that CLI, and the permissions of the stage's profile plus the
+     * model and effort on that CLI, and the permissions of the stage's profile plus the
      * agent's overrides for that CLI. Read-only stages may also read the
      * repo's reference repos; implementers never get them. `trust` is the
      * level the step runs under (Locked unless the engine says otherwise).
@@ -464,6 +471,7 @@ export function createAgentService({
         stage,
         cli,
         model: agent.models[cli] ?? null,
+        effort: agent.efforts[cli] ?? null,
         systemPrompt: buildSystemPrompt({
           agent,
           stage,

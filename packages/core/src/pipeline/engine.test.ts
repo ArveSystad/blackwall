@@ -4241,6 +4241,64 @@ describe("CI", () => {
   });
 });
 
+describe("agent effort", () => {
+  const plannerOf = (t: Task) => t.agents.planner as string;
+  const informStep = (taskId: string) => stepsOf(taskId).find((s) => s.stage === "inform")!;
+  const informCalls = (h: Harness) => h.calls.filter((c) => c.stage === "inform");
+
+  it("passes the agent's effort for the CLI and records it on the step", async () => {
+    const seeded = seedTask();
+    agentService().update(plannerOf(seeded), { efforts: { claude: "low", copilot: "high" } });
+    const h = harness();
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(informCalls(h)[0]!.options.effort).toBe("low");
+    expect(informStep(seeded.id)).toMatchObject({ cli: "claude", effort: "low" });
+  });
+
+  it("passes no effort and records null when the agent has none", async () => {
+    const seeded = seedTask();
+    const h = harness();
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(informCalls(h)[0]!.options).not.toHaveProperty("effort");
+    expect(informStep(seeded.id).effort).toBeNull();
+  });
+
+  it("records the effort a re-run step ran at", async () => {
+    const seeded = seedTask();
+    const agents = agentService();
+    agents.update(plannerOf(seeded), { efforts: { claude: "low" } });
+    let fail = true;
+    const h = harness((stage) => (stage === "inform" && fail ? { fail: "model overloaded" } : {}));
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(informStep(seeded.id)).toMatchObject({ status: "failed", effort: "low" });
+
+    fail = false;
+    agents.update(plannerOf(seeded), { efforts: { claude: "high" } });
+    h.engine.resume(seeded.id);
+    await settle(h.engine);
+    expect(informCalls(h).map((c) => c.options.effort)).toEqual(["low", "high"]);
+    expect(informStep(seeded.id)).toMatchObject({ status: "succeeded", effort: "high" });
+  });
+
+  it("passes and records no effort for a model the CLI takes none for", async () => {
+    const seeded = seedTask({ cli: "copilot" });
+    // Saved before the model rule existed: the pair would be rejected now.
+    r.agents.update(plannerOf(seeded), {
+      models: { copilot: "auto" },
+      efforts: { copilot: "low" },
+    });
+    const h = harness();
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(informCalls(h)[0]!.options).toMatchObject({ model: "auto" });
+    expect(informCalls(h)[0]!.options).not.toHaveProperty("effort");
+    expect(informStep(seeded.id)).toMatchObject({ cli: "copilot", effort: null });
+  });
+});
+
 describe("agent trust", () => {
   /** Each distinct trust the task's agent steps ran under, as `level,forced`. */
   const trustOf = (taskId: string) => [

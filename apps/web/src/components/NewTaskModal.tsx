@@ -240,10 +240,12 @@ function AgentsField({
                     <option value="">None</option>
                     {eligible.map((agent) => {
                       const model = agent.models[cliFor(agent.id)];
+                      const effort = agent.efforts[cliFor(agent.id)];
                       return (
                         <option key={agent.id} value={agent.id}>
                           {agent.name}
                           {model ? ` · ${model}` : ""}
+                          {effort ? ` · ${effort}` : ""}
                         </option>
                       );
                     })}

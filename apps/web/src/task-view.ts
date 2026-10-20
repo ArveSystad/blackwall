@@ -698,6 +698,37 @@ export function modelTitle({
   return model ? `${model} — ${hint}` : hint;
 }
 
+export type EffortSource = "recorded" | "configured";
+
+export const EFFORT_SOURCE_HINTS: Record<EffortSource, string> = {
+  recorded: "Reasoning effort recorded for this run.",
+  configured: "Reasoning effort set on the agent.",
+};
+
+/**
+ * The reasoning effort a step runs at: once started, the effort recorded for
+ * its run (null for the CLI default), so a finished step never shows the
+ * agent's later edits; before that, the agent's effort for `cli`.
+ */
+export function effectiveEffort(
+  step: Pick<Step, "effort" | "startedAt"> | undefined,
+  agent: Pick<Agent, "efforts"> | undefined,
+  cli: AgentCli | null,
+): { effort: string | null; source: EffortSource } {
+  if (step?.startedAt) return { effort: step.effort, source: "recorded" };
+  return { effort: (cli ? agent?.efforts[cli] : undefined) ?? null, source: "configured" };
+}
+
+/** The effort to show next to a model, or null to show nothing (the CLI default). */
+export function effortLabel(effort: string | null | undefined): string | null {
+  return effort?.trim() ? effort : null;
+}
+
+/** Tooltip for a displayed effort. */
+export function effortTitle({ effort, source }: { effort: string; source: EffortSource }): string {
+  return `${effort} — ${EFFORT_SOURCE_HINTS[source]}`;
+}
+
 // ---------------------------------------------------------------------------
 // Checks
 // ---------------------------------------------------------------------------

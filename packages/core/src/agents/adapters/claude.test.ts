@@ -249,6 +249,12 @@ describe("claudeArgs", () => {
     expect(args).toContain("--disallowedTools");
   });
 
+  it("passes the effort after the model, and none when unset", () => {
+    const args = claudeArgs({ permissions: readOnly, model: "haiku", effort: "low" });
+    expect(args.slice(4, 8)).toEqual(["--model", "haiku", "--effort", "low"]);
+    expect(claudeArgs({ permissions: readOnly, model: "haiku" })).not.toContain("--effort");
+  });
+
   it("drops the JSON Schema dialect Claude cannot load", () => {
     const args = claudeArgs({
       permissions: readOnly,

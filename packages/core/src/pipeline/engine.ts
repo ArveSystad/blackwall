@@ -2,6 +2,7 @@ import {
   LOCKED_TRUST,
   agentCliFor,
   effectiveTrust,
+  effortFlagApplies,
   deliveryConfirmationSchema,
   diffCommentsInputSchema,
   findingOverrideInputSchema,
@@ -646,6 +647,8 @@ export function createPipelineEngine({
       referenceReposFrom(r.repos, ctx.task.repoId, ctx.task.referenceRepoIds),
       trust,
     );
+    // Recorded as passed: null when unset or the CLI takes none for this model.
+    const effort = inv.effort && effortFlagApplies(cli, inv.model) ? inv.effort : null;
     const adapter = adapters[cli];
     if (!adapter) throw new Error(`No adapter for the ${cli} CLI`);
 
@@ -669,6 +672,7 @@ export function createPipelineEngine({
       finishedAt: null,
       trust: trust.level,
       trustForced: trust.forced,
+      effort,
     };
     let step = earlier
       ? saveStep(earlier.id, { ...started, error: null })
@@ -701,6 +705,7 @@ export function createPipelineEngine({
         permissions: inv.permissions,
         signal,
         ...(inv.model ? { model: inv.model } : {}),
+        ...(effort ? { effort } : {}),
         ...(resumeSessionId ? { resumeSessionId } : {}),
         ...(input.jsonSchema ? { jsonSchema: input.jsonSchema } : {}),
         ...(input.maxTurns !== undefined ? { maxTurns: input.maxTurns } : {}),

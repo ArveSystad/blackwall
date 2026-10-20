@@ -10,6 +10,7 @@ import {
   type Agent,
   type AgentCli,
   type AgentInput,
+  type AgentEfforts,
   type AgentModels,
   type AgentPermissionOverrides,
   type AgentRole,
@@ -84,6 +85,8 @@ export interface AgentDraft {
   name: string;
   /** Model per CLI; blank runs that CLI's default model. */
   models: Record<AgentCli, string>;
+  /** Reasoning effort per CLI; blank runs at that CLI's default effort. */
+  efforts: Record<AgentCli, string>;
   prompt: string;
   eligibleStages: Stage[];
   allow: Record<AgentCli, string>;
@@ -99,6 +102,7 @@ export function agentDraft(agent?: Agent): AgentDraft {
   return {
     name: agent?.name ?? "",
     models: perCli((cli) => agent?.models[cli] ?? ""),
+    efforts: perCli((cli) => agent?.efforts[cli] ?? ""),
     prompt: agent?.prompt ?? "",
     eligibleStages: agent ? [...agent.eligibleStages] : [],
     allow: perCli((cli) => (agent?.permissionOverrides[cli]?.allow ?? []).join("\n")),
@@ -107,15 +111,19 @@ export function agentDraft(agent?: Agent): AgentDraft {
 }
 
 /**
- * The draft as an API body. A blank model means Auto, the CLI's own default;
- * blank models and CLIs without rules are left out.
+ * The draft as an API body. A blank model means Auto, the CLI's own default,
+ * and a blank effort the CLI's default effort; blank models, blank efforts and
+ * CLIs without rules are left out.
  */
 export function draftToInput(draft: AgentDraft): Required<AgentInput> {
   const models: AgentModels = {};
+  const efforts: AgentEfforts = {};
   const permissionOverrides: AgentPermissionOverrides = {};
   for (const cli of AGENT_CLIS) {
     const model = draft.models[cli].trim();
     if (model !== "") models[cli] = model;
+    const effort = draft.efforts[cli].trim();
+    if (effort !== "") efforts[cli] = effort;
     const allow = parseLines(draft.allow[cli]);
     const deny = parseLines(draft.deny[cli]);
     if (allow.length > 0 || deny.length > 0) {
@@ -128,6 +136,7 @@ export function draftToInput(draft: AgentDraft): Required<AgentInput> {
   return {
     name: draft.name.trim(),
     models,
+    efforts,
     prompt: draft.prompt,
     // Keep pipeline order whatever order the boxes were ticked in.
     eligibleStages: AGENT_STAGES.map((s) => s.stage).filter((s) =>

@@ -27,6 +27,7 @@ import {
   TASK_STATUSES,
   TRIAGE_MODES,
   type AgentClis,
+  type AgentEfforts,
   type AgentModels,
   type AgentPermissionOverrides,
   type ChatAction,
@@ -126,6 +127,11 @@ export const agents = sqliteTable("agents", {
   /** Model id per CLI; a CLI without one uses its own default. */
   models: text("models", { mode: "json" })
     .$type<AgentModels>()
+    .notNull()
+    .default(sql`'{}'`),
+  /** Reasoning effort per CLI; a CLI without one runs at its own default. */
+  efforts: text("efforts", { mode: "json" })
+    .$type<AgentEfforts>()
     .notNull()
     .default(sql`'{}'`),
   prompt: text("prompt").notNull().default(""),
@@ -319,6 +325,11 @@ export const steps = sqliteTable(
     trust: text("trust", { enum: AGENT_TRUST_LEVELS }),
     /** The step ran under a forced trust level rather than the repo's. */
     trustForced: integer("trust_forced", { mode: "boolean" }).notNull().default(false),
+    /**
+     * Reasoning effort passed to the CLI when the step last ran; null for the
+     * CLI default, harness steps and older steps.
+     */
+    effort: text("effort"),
     /** Fix round within the stage loop (0 for the first pass). */
     round: integer("round").notNull().default(0),
     /** Visit of the stage within the run (0 for the first). */

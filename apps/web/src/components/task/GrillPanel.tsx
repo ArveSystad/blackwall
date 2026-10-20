@@ -1,4 +1,10 @@
-import { agentCliFor, type Agent, type GrillQuestion, type Task } from "@blackwall/shared";
+import {
+  agentCliFor,
+  type Agent,
+  type GrillQuestion,
+  type Step,
+  type Task,
+} from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { answerQuestion } from "../../api";
@@ -7,7 +13,15 @@ import { isModKey, modKeyLabel } from "../../keyboard";
 import { cn } from "../../lib/utils";
 import { queryKeys, stepEventsQuery } from "../../query";
 import { errorMessage } from "../../settings-forms";
-import { AUTO_MODEL_LABEL, effectiveModel, grillCounts, modelTitle } from "../../task-view";
+import {
+  AUTO_MODEL_LABEL,
+  effectiveEffort,
+  effectiveModel,
+  effortLabel,
+  effortTitle,
+  grillCounts,
+  modelTitle,
+} from "../../task-view";
 import { AgentTile } from "../AgentTile";
 import { StatusBadge } from "../StatusBadge";
 import { Button } from "../ui/button";
@@ -99,11 +113,14 @@ function QuestionCard({
   question,
   number,
   asker,
+  step,
 }: {
   task: Task;
   question: GrillQuestion;
   number: number;
   asker: Agent | undefined;
+  /** The step that asked, when it is among the loaded steps. */
+  step: Step | undefined;
 }) {
   const needsAnswer = question.needsHuman && question.answer === null;
   const canAnswer = needsAnswer && task.status === "needs-you" && task.gate === "questions";
@@ -113,6 +130,9 @@ function QuestionCard({
   });
   const cli = asker ? agentCliFor(task, asker.id) : null;
   const model = effectiveModel(events.data, asker, cli);
+  // A question's step has run: without it, show nothing rather than the agent's current effort.
+  const effort = effectiveEffort(step, step ? asker : undefined, cli);
+  const effortText = effortLabel(effort.effort);
   // The glow sits on an unclipped wrapper: clip-path drops the card's own shadow.
   return (
     <div className={cn(canAnswer && "drop-shadow-glow-needs")}>
@@ -139,6 +159,14 @@ function QuestionCard({
               >
                 {model.model ?? AUTO_MODEL_LABEL}
               </span>
+              {effortText && (
+                <span
+                  className="mono text-[11px] text-faint"
+                  title={effortTitle({ effort: effortText, source: effort.source })}
+                >
+                  · {effortText}
+                </span>
+              )}
             </>
           ) : (
             <span className="text-faint">Plan reviewer</span>
@@ -171,12 +199,15 @@ function QuestionCard({
 export function GrillPanel({
   task,
   questions,
+  steps = [],
   action,
   planComment,
   onPlanComment,
 }: {
   task: Task;
   questions: readonly GrillQuestion[];
+  /** The run's steps, for the effort each question's step ran at. */
+  steps?: readonly Step[];
   action: TaskAction;
   planComment: PlanComment;
   onPlanComment: (comment: PlanComment) => void;
@@ -228,6 +259,7 @@ export function GrillPanel({
               question={question}
               number={i + 1}
               asker={question.askedByAgentId ? agentMap.get(question.askedByAgentId) : undefined}
+              step={steps.find((s) => s.id === question.stepId)}
             />
           ))
         )}

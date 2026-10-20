@@ -1,4 +1,11 @@
-import { AGENT_CLIS, stagePermissionProfile, type Agent, type AgentCli } from "@blackwall/shared";
+import {
+  AGENT_CLIS,
+  AGENT_EFFORT_LEVELS,
+  effortFlagApplies,
+  stagePermissionProfile,
+  type Agent,
+  type AgentCli,
+} from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { createAgent, deleteAgent, updateAgent } from "../../api";
@@ -94,8 +101,15 @@ function AgentEditor({
   const set = <K extends keyof AgentDraft>(key: K, value: AgentDraft[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));
   /** Sets one CLI's entry of a per-CLI field. */
-  const setFor = (key: "models" | "allow" | "deny", cli: AgentCli, value: string) =>
+  const setFor = (key: "models" | "efforts" | "allow" | "deny", cli: AgentCli, value: string) =>
     setDraft((d) => ({ ...d, [key]: { ...d[key], [cli]: value } }));
+  /** Sets one CLI's model, clearing its effort when the CLI takes none for that model. */
+  const setModel = (cli: AgentCli, value: string) =>
+    setDraft((d) => ({
+      ...d,
+      models: { ...d.models, [cli]: value },
+      ...(effortFlagApplies(cli, value.trim()) ? {} : { efforts: { ...d.efforts, [cli]: "" } }),
+    }));
 
   async function save() {
     if (!dirty || saving) return;
@@ -168,8 +182,8 @@ function AgentEditor({
         <fieldset className="m-0 grid grid-cols-1 gap-3.5 border-none p-0 lg:grid-cols-2">
           <legend className={cn(fieldLabel, "mb-1 p-0")}>Model</legend>
           <p className="col-span-full m-0 text-meta text-muted-foreground">
-            The agent runs on its task&apos;s CLI. Leave a model blank to use that CLI&apos;s
-            default.
+            The agent runs on its task&apos;s CLI. Leave a model or effort blank to use that
+            CLI&apos;s default.
           </p>
           {AGENT_CLIS.map((cli) => (
             <Field key={cli} label={CLI_NAMES[cli]}>
@@ -179,10 +193,10 @@ function AgentEditor({
                   const value = event.target.value;
                   if (value === CUSTOM_MODEL) {
                     setCustomPicked((c) => ({ ...c, [cli]: true }));
-                    if (isPresetModel(cli, draft.models[cli])) setFor("models", cli, "");
+                    if (isPresetModel(cli, draft.models[cli])) setModel(cli, "");
                   } else {
                     setCustomPicked((c) => ({ ...c, [cli]: false }));
-                    setFor("models", cli, value);
+                    setModel(cli, value);
                   }
                 }}
               >
@@ -202,9 +216,15 @@ function AgentEditor({
                   placeholder="Model id"
                   aria-label={`Custom ${CLI_NAMES[cli]} model`}
                   value={draft.models[cli]}
-                  onChange={(event) => setFor("models", cli, event.target.value)}
+                  onChange={(event) => setModel(cli, event.target.value)}
                 />
               )}
+              <EffortField
+                cli={cli}
+                model={draft.models[cli]}
+                value={draft.efforts[cli]}
+                onChange={(value) => setFor("efforts", cli, value)}
+              />
             </Field>
           ))}
         </fieldset>
@@ -319,22 +339,62 @@ function AgentEditor({
   );
 }
 
-/** The models an agent has set, each with its CLI's tile; Auto when none is. */
+/** One CLI's reasoning effort: Default or one of the CLI's levels. */
+function EffortField({
+  cli,
+  model,
+  value,
+  onChange,
+}: {
+  cli: AgentCli;
+  model: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const levels = AGENT_EFFORT_LEVELS[cli];
+  const applies = effortFlagApplies(cli, model.trim());
+  const hint =
+    levels.length === 0
+      ? `${CLI_NAMES[cli]} has no effort setting; this agent runs at its default.`
+      : !applies
+        ? `${CLI_NAMES[cli]} takes no effort for ${model.trim()}; it runs at its default.`
+        : undefined;
+  return (
+    <Field label="Effort" hint={hint}>
+      <Select
+        value={applies ? value : ""}
+        disabled={levels.length === 0 || !applies}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="">Default (CLI default)</option>
+        {levels.map((level) => (
+          <option key={level} value={level}>
+            {level}
+          </option>
+        ))}
+      </Select>
+    </Field>
+  );
+}
+
+/** The models an agent has set, each with its CLI's tile and effort; Auto when none is. */
 function AgentModels({ agent }: { agent: Agent }) {
   const set = AGENT_CLIS.flatMap((cli) => {
     const model = agent.models[cli];
-    return model ? [{ cli, model }] : [];
+    const effort = agent.efforts[cli];
+    return model || effort ? [{ cli, model: model ?? AUTO_MODEL_LABEL, effort }] : [];
   });
   if (set.length === 0) {
     return <span className="mono text-label text-faint">{AUTO_MODEL_LABEL}</span>;
   }
   return (
     <span className="flex min-w-0 items-center gap-1.5 text-label text-faint">
-      {set.map(({ cli, model }, i) => (
+      {set.map(({ cli, model, effort }, i) => (
         <span key={cli} className="inline-flex min-w-0 items-center gap-1">
           {i > 0 && <span aria-hidden="true">·</span>}
           <AgentTile cli={cli} />
           <span className="mono truncate">{model}</span>
+          {effort && <span className="mono">· {effort}</span>}
         </span>
       ))}
     </span>
