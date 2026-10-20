@@ -358,6 +358,15 @@ async function planReview(ctx: StageContext): Promise<StageResults["plan-review"
 /** Step event a Checks harness step logs when a check command finishes. */
 export const CHECK_FINISHED_EVENT = "check.finished";
 
+/** Step event a Checks harness step logs when it skips the check commands. */
+export const CHECKS_SKIPPED_EVENT = "checks.skipped";
+
+/** Payload of a {@link CHECKS_SKIPPED_EVENT} event; `files` is empty for `no-changes`. */
+export interface ChecksSkipped {
+  reason: "no-changes" | "docs-only";
+  files: string[];
+}
+
 /** Payload of a {@link CHECK_FINISHED_EVENT} event. */
 export interface CheckFinished extends CheckOutcome {
   command: string;
@@ -652,11 +661,16 @@ function checkRetries(ctx: StageContext): number {
  * output, as nothing could be committed to review. A commit-msg rejection the
  * summarizer's rewrites could not fix fails the task too, with the visit left
  * failed so a resume continues it.
+ *
+ * With `checksGit`, the check commands are skipped when the branch, after the
+ * round's commit, changes no files since its fork point, or only Markdown and
+ * `docs/` files; the step logs a {@link CHECKS_SKIPPED_EVENT} with the reason.
  */
 async function runChecks(
   ctx: StageContext,
   git: Pick<GitService, "stagedDiff" | "commitAll"> | undefined,
   runCheck: CheckRunner,
+  checksGit?: ChecksGit,
 ): Promise<StageResults["checks"]> {
   if (git) {
     try {
@@ -688,6 +702,14 @@ async function runChecks(
   if (commands.length === 0) return { retryImplement: false };
   const worktree = task.worktreePath;
   if (!worktree) throw new Error("The task has no worktree");
+
+  const skipped = checksGit && (await checksSkipReason(ctx, checksGit, worktree));
+  if (skipped) {
+    const step = startHarnessStep(ctx);
+    logEvent(ctx, step.id, CHECKS_SKIPPED_EVENT, skipped);
+    finishStep(ctx, step.id, { status: "succeeded", error: null });
+    return { retryImplement: false };
+  }
 
   const step = startHarnessStep(ctx);
   let failure: CheckFinished | undefined;
@@ -755,6 +777,37 @@ export interface ReviewDiffRange {
 
 /** What Code review needs from git to find the round's diff. */
 export type ReviewGit = Pick<GitService, "headSha" | "mergeBase" | "diff" | "commitsSince">;
+
+/** What Checks needs from git to see what the branch changes. */
+export type ChecksGit = Pick<GitService, "mergeBase" | "commitsSince" | "changedFiles">;
+
+/** Whether a changed path is documentation: a Markdown file, or anything under the root `docs/`. */
+export function isDocsPath(path: string): boolean {
+  return /\.md$/i.test(path) || path.startsWith("docs/");
+}
+
+/**
+ * Why Checks can skip the check commands: the branch changes no files since
+ * its fork point, or only docs paths. Undefined when the checks should run,
+ * including when the fork point or the changed files cannot be found.
+ */
+async function checksSkipReason(
+  ctx: StageContext,
+  git: ChecksGit,
+  worktree: string,
+): Promise<ChecksSkipped | undefined> {
+  const { task, repositories: r } = ctx;
+  try {
+    const from = await forkPoint(task, git, worktree, defaultBranchOf(r.repos, task.repoId));
+    if (from === undefined) return undefined;
+    const files = await git.changedFiles(worktree, from);
+    if (files.length === 0) return { reason: "no-changes", files: [] };
+    if (files.every(isDocsPath)) return { reason: "docs-only", files };
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /** Diffs beyond this many characters are cut in the reviewer prompt. */
 const MAX_REVIEW_DIFF_CHARS = 150_000;
@@ -1125,6 +1178,8 @@ export interface DefaultStagesOptions {
   reviewGit?: ReviewGit;
   /** Puts the security playbook in the worktree before Code review; defaults to copying the vendored one. */
   installPlaybook?: (worktree: string) => Promise<void>;
+  /** Lets Checks skip a branch that changes nothing, or only Markdown and `docs/` files; without it checks always run (tests). */
+  checksGit?: ChecksGit;
 }
 
 /**
@@ -1142,6 +1197,7 @@ export function createDefaultStages({
   runCheck = runCheckCommand,
   reviewGit,
   installPlaybook = installSecurePlaybook,
+  checksGit,
 }: DefaultStagesOptions = {}): StageHandlers {
   return {
     async inform(ctx) {
@@ -1199,7 +1255,7 @@ export function createDefaultStages({
       }
     },
 
-    checks: (ctx) => runChecks(ctx, git, runCheck),
+    checks: (ctx) => runChecks(ctx, git, runCheck, checksGit),
 
     "code-review": (ctx) =>
       codeReview(ctx, reviewGit, stackContext, prCommentsContext, installPlaybook),

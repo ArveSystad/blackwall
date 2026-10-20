@@ -1,7 +1,7 @@
 import type { Step } from "@blackwall/shared";
 import { useState } from "react";
 import { cn } from "../../lib/utils";
-import { checkPassed, type CheckRun } from "../../task-view";
+import { checkPassed, type CheckRun, type ChecksSkipReason } from "../../task-view";
 import { panelNote } from "../classes";
 import { CheckIcon, ChevronRightIcon, FailedIcon } from "../icons";
 import { ErrorText } from "../ui/field";
@@ -59,10 +59,12 @@ function CheckRow({ check }: { check: CheckRun }) {
 export function ChecksPanel({
   step,
   checks,
+  skipReason,
   loading,
 }: {
   step: Step | undefined;
   checks: readonly CheckRun[];
+  skipReason: ChecksSkipReason | null;
   loading: boolean;
 }) {
   if (!step) {
@@ -84,7 +86,11 @@ export function ChecksPanel({
         <p className="m-0 text-muted-foreground">
           {step.status === "running"
             ? "Check commands spinning up."
-            : "No check commands are configured for this repo, so Checks were skipped. Add them in Settings → Repositories."}
+            : skipReason === "no-changes"
+              ? "This branch changes no files, so Checks were skipped."
+              : skipReason === "docs-only"
+                ? "This branch changes only Markdown and docs/ files, so Checks were skipped."
+                : "No check commands are configured for this repo, so Checks were skipped. Add them in Settings → Repositories."}
         </p>
       ) : (
         checks.map((check, i) => <CheckRow key={`${check.command}:${i}`} check={check} />)

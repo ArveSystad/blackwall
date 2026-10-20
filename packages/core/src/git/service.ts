@@ -764,6 +764,19 @@ export function createGitService({
       return runGit(worktreePath, ["diff", "--no-color", "--no-ext-diff", from, to]);
     },
 
+    /** Paths changed from `from` to `to` (default HEAD); a rename lists both its old and new path. */
+    async changedFiles(worktreePath: string, from: string, to = "HEAD"): Promise<string[]> {
+      const out = await runGit(worktreePath, [
+        "diff",
+        "--name-only",
+        "--no-renames",
+        "-z",
+        from,
+        to,
+      ]);
+      return out.split("\0").filter((path) => path !== "");
+    },
+
     /**
      * Free-text finish: rebases the task branch onto the local `into` branch
      * (the repo's default branch), then fast-forwards it to the rebased commit

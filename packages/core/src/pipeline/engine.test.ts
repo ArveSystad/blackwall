@@ -66,12 +66,15 @@ import type { PullRequestFeedback, PullRequestFeedbackThread } from "./pr-feedba
 import type { WorkspaceSync } from "./workspace.js";
 import { InvalidGateResponseError } from "./transitions.js";
 import {
+  CHECKS_SKIPPED_EVENT,
   NO_HUMAN_ANSWER,
   commitKey,
   commitMessage,
   createDefaultStages as createStages,
   diffCommentFinding,
   type DefaultStagesOptions,
+  isDocsPath,
+  type ChecksGit,
 } from "./stages.js";
 
 /**
@@ -1850,6 +1853,82 @@ describe("implement and checks", () => {
     expect(runCheck).not.toHaveBeenCalled();
     expect(checkSteps(seeded.id)).toEqual([]);
     expect(task(seeded.id)).toMatchObject({ gate: "finish" });
+  });
+
+  describe("skipping on the branch's changes", () => {
+    const checksGit = (changedFiles: () => Promise<string[]>): ChecksGit => ({
+      mergeBase: async () => "base",
+      commitsSince: async () => 0,
+      changedFiles,
+    });
+
+    const skipped = (taskId: string) =>
+      checkSteps(taskId).flatMap((s) =>
+        r.stepEvents
+          .list(s.id)
+          .filter((e) => e.type === CHECKS_SKIPPED_EVENT)
+          .map((e) => e.payload),
+      );
+
+    it("skips the checks when the branch changes no files", async () => {
+      const runCheck = vi.fn(async () => passing);
+      const stages = createDefaultStages({ runCheck, checksGit: checksGit(async () => []) });
+      const h = harness(noFindings, { stages });
+      const seeded = await approved(h, ["pnpm test"]);
+
+      expect(runCheck).not.toHaveBeenCalled();
+      expect(checkSteps(seeded.id).map((s) => s.status)).toEqual(["succeeded"]);
+      expect(skipped(seeded.id)).toEqual([{ reason: "no-changes", files: [] }]);
+      expect(task(seeded.id)).toMatchObject({ gate: "finish" });
+    });
+
+    it("skips the checks when the branch changes only docs", async () => {
+      const files = ["README.md", "docs/guide/setup.txt", "packages/x/CHANGELOG.MD"];
+      const runCheck = vi.fn(async () => passing);
+      const stages = createDefaultStages({ runCheck, checksGit: checksGit(async () => files) });
+      const h = harness(noFindings, { stages });
+      const seeded = await approved(h, ["pnpm test"]);
+
+      expect(runCheck).not.toHaveBeenCalled();
+      expect(skipped(seeded.id)).toEqual([{ reason: "docs-only", files }]);
+      expect(task(seeded.id)).toMatchObject({ gate: "finish" });
+    });
+
+    it("runs the checks when the branch changes code too", async () => {
+      const runCheck = vi.fn<CheckRunner>(async () => passing);
+      const stages = createDefaultStages({
+        runCheck,
+        checksGit: checksGit(async () => ["README.md", "src/a.ts"]),
+      });
+      const h = harness(noFindings, { stages });
+      const seeded = await approved(h, ["pnpm test"]);
+
+      expect(runCheck).toHaveBeenCalledWith("pnpm test", expect.anything());
+      expect(skipped(seeded.id)).toEqual([]);
+    });
+
+    it("runs the checks when the fork point can't be found", async () => {
+      const runCheck = vi.fn<CheckRunner>(async () => passing);
+      const stages = createDefaultStages({
+        runCheck,
+        checksGit: {
+          mergeBase: async () => {
+            throw new Error("no merge base");
+          },
+          commitsSince: async () => 0,
+          changedFiles: async () => [],
+        },
+      });
+      const h = harness(noFindings, { stages });
+      await approved(h, ["pnpm test"]);
+
+      expect(runCheck).toHaveBeenCalledWith("pnpm test", expect.anything());
+    });
+  });
+
+  it("counts Markdown files and the root docs folder as docs paths", () => {
+    for (const path of ["a.md", "x/y.MD", "docs/img.png"]) expect(isDocsPath(path)).toBe(true);
+    for (const path of ["src/docs/a.ts", "docs.ts", "a.mdx"]) expect(isDocsPath(path)).toBe(false);
   });
 
   it("fails the task with what to do when the commit hits a git lock", async () => {

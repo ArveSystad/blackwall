@@ -541,6 +541,18 @@ export function buildTranscript(events: readonly StepEvent[]): TranscriptItem[] 
         else items.push({ kind: "check", key, check });
         break;
       }
+      case "checks.skipped": {
+        const files = Array.isArray(payload.files) ? payload.files.length : 0;
+        items.push({
+          kind: "note",
+          key,
+          text:
+            payload.reason === "docs-only"
+              ? `Skipped the checks: this branch changes only documentation (${files} ${files === 1 ? "file" : "files"})`
+              : "Skipped the checks: this branch changes no files",
+        });
+        break;
+      }
       case "review.diff":
         items.push({ kind: "note", key, text: "Recorded the commit range for this review round" });
         break;
@@ -698,6 +710,15 @@ function finishedCheck(payload: Record<string, unknown>): CheckRun {
 /** The check commands a Checks step ran, in order, with their outcome. */
 export function checkRuns(events: readonly StepEvent[]): CheckRun[] {
   return buildTranscript(events).flatMap((item) => (item.kind === "check" ? [item.check] : []));
+}
+
+export type ChecksSkipReason = "no-changes" | "docs-only";
+
+/** Why a Checks step skipped its check commands, or null when it did not. */
+export function checksSkipReason(events: readonly StepEvent[]): ChecksSkipReason | null {
+  const event = events.filter((e) => e.type === "checks.skipped").at(-1);
+  if (!event) return null;
+  return record(event.payload).reason === "docs-only" ? "docs-only" : "no-changes";
 }
 
 export const checkPassed = (check: CheckRun) => !check.running && check.exitCode === 0;

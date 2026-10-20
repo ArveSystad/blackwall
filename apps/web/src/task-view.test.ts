@@ -26,6 +26,7 @@ import {
   isStoppedByUser,
   buildTranscript,
   checkRuns,
+  checksSkipReason,
   ciBanner,
   confirmLabel,
   currentActivity,
@@ -670,6 +671,32 @@ describe("buildTranscript", () => {
     expect(runs).toEqual([
       { command: "pnpm lint", exitCode: 0, output: "ok", timedOut: false, running: false },
       { command: "pnpm test", exitCode: null, output: "", timedOut: false, running: true },
+    ]);
+  });
+
+  it("reads why the checks were skipped", () => {
+    expect(
+      checksSkipReason([event(1, "checks.skipped", { reason: "no-changes", files: [] })]),
+    ).toBe("no-changes");
+    expect(
+      checksSkipReason([event(1, "checks.skipped", { reason: "docs-only", files: ["a.md"] })]),
+    ).toBe("docs-only");
+    expect(checksSkipReason([event(1, "check.started", { command: "pnpm test" })])).toBeNull();
+    expect(checksSkipReason([])).toBeNull();
+  });
+
+  it("notes skipped checks in the transcript", () => {
+    const items = buildTranscript([
+      event(1, "checks.skipped", { reason: "no-changes", files: [] }),
+      event(2, "checks.skipped", { reason: "docs-only", files: ["a.md", "docs/b.png"] }),
+    ]);
+    expect(items).toEqual([
+      { kind: "note", key: "s1:1", text: "Skipped the checks: this branch changes no files" },
+      {
+        kind: "note",
+        key: "s1:2",
+        text: "Skipped the checks: this branch changes only documentation (2 files)",
+      },
     ]);
   });
 

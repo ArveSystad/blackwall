@@ -267,6 +267,7 @@ function TaskScreen({ task }: { task: Task }) {
           <ChecksPanel
             step={data.checksStep}
             checks={data.checks}
+            skipReason={data.checksSkipReason}
             loading={data.checksQuery.isPending}
           />
         );

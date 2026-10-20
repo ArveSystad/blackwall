@@ -422,6 +422,36 @@ describe("commits, squash and diff", () => {
     expect(readFileSync(join(path, "a.txt"), "utf8")).toBe("two\n");
     expect(await service.squash(path, squashed!, "noop")).toBeNull();
   });
+
+  it("lists the changed paths, both sides of a rename", async () => {
+    const path = worktreePathFor(repo, "t1");
+    const wt = await service.createWorktree({
+      repoPath: repo,
+      worktreePath: path,
+      branch: "agent/t1",
+      checkout: { kind: "new" },
+    });
+    expect(await service.changedFiles(path, wt.baseSha)).toEqual([]);
+
+    mkdirSync(join(path, "src"));
+    write(path, "src/a.ts", "export const a = 1;\n");
+    write(path, "my notes.md", "notes\n");
+    const first = await service.commitAll(path, "add files");
+    expect((await service.changedFiles(path, wt.baseSha)).sort()).toEqual([
+      "my notes.md",
+      "src/a.ts",
+    ]);
+
+    mkdirSync(join(path, "docs"));
+    git(path, "mv", "src/a.ts", "docs/a.md");
+    write(path, "my notes.md", "more notes\n");
+    await service.commitAll(path, "move to docs");
+    expect((await service.changedFiles(path, first!)).sort()).toEqual([
+      "docs/a.md",
+      "my notes.md",
+      "src/a.ts",
+    ]);
+  });
 });
 
 describe("commit hooks", () => {

@@ -170,6 +170,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
         prCommentsContext: github.prCommentsContext,
         git,
         reviewGit: git,
+        checksGit: git,
       }),
       prepareWorkspace: createWorkspacePreparer({
         git,

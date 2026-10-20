@@ -12,6 +12,7 @@ import {
 } from "../../query";
 import {
   checkRuns,
+  checksSkipReason,
   currentRound,
   deliveryConflicts,
   latestHarnessStep,
@@ -81,6 +82,7 @@ export function useTaskData(task: Task) {
     artifacts,
     checksStep,
     checks: checksStep ? checkRuns(checkEvents.data ?? []) : [],
+    checksSkipReason: checksStep ? checksSkipReason(checkEvents.data ?? []) : null,
     checksQuery: checkEvents,
     deliveryStep,
     deliveryConflicts: deliveryStep ? deliveryConflicts(deliveryEvents.data ?? []) : [],
