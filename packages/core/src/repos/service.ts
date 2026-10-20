@@ -17,7 +17,7 @@ import {
 } from "@blackwall/shared";
 import type { ConnectionService } from "../connections/service.js";
 import type { Repositories } from "../db/repositories.js";
-import { suggestCheckCommands } from "./checks.js";
+import { suggestCheckCommands, suggestSetupCommands } from "./checks.js";
 import { describeGitError } from "../git/errors.js";
 import { GitError } from "../git/service.js";
 import { gitDirKind, pushBranch, readBranchSync, readOriginRemote } from "./git.js";
@@ -185,7 +185,11 @@ export function createRepoService({ repos, connections }: RepoServiceOptions) {
   /** Registers a canonical repo path; the caller has checked it is a repo and not registered. */
   async function register(
     path: string,
-    fields: { name?: string | undefined; checkCommands?: string[] | undefined } = {},
+    fields: {
+      name?: string | undefined;
+      checkCommands?: string[] | undefined;
+      setupCommands?: string[] | undefined;
+    } = {},
   ): Promise<Repo> {
     const remoteUrl = await readOriginRemote(path);
     return repos.create({
@@ -194,6 +198,7 @@ export function createRepoService({ repos, connections }: RepoServiceOptions) {
       remoteUrl,
       connectionId: connectionIdFor(remoteUrl),
       checkCommands: fields.checkCommands ?? (await suggestCheckCommands(path)),
+      setupCommands: fields.setupCommands ?? (await suggestSetupCommands(path)),
     });
   }
 
@@ -225,7 +230,10 @@ export function createRepoService({ repos, connections }: RepoServiceOptions) {
       checkReferenceRepoIds(repos, repoId, ids);
     },
 
-    /** Registers one git repo. Omitted check commands are suggested from its build files. */
+    /**
+     * Registers one git repo. Omitted check commands are suggested from its build
+     * files, omitted setup commands from its lockfiles.
+     */
     async add(input: RepoInput): Promise<Repo> {
       const parsed = repoInputSchema.safeParse(input);
       if (!parsed.success) throw invalid(parsed.error);
@@ -263,6 +271,7 @@ export function createRepoService({ repos, connections }: RepoServiceOptions) {
       const {
         name,
         checkCommands,
+        setupCommands,
         defaultCli,
         defaultOrigin,
         maxBacklogTasks,
@@ -278,6 +287,7 @@ export function createRepoService({ repos, connections }: RepoServiceOptions) {
       return repos.update(id, {
         ...(name === undefined ? {} : { name }),
         ...(checkCommands === undefined ? {} : { checkCommands }),
+        ...(setupCommands === undefined ? {} : { setupCommands }),
         ...(defaultCli === undefined ? {} : { defaultCli }),
         ...(defaultOrigin === undefined ? {} : { defaultOrigin }),
         ...(maxBacklogTasks === undefined ? {} : { maxBacklogTasks }),
@@ -313,6 +323,11 @@ export function createRepoService({ repos, connections }: RepoServiceOptions) {
     /** Check commands suggested from the repo's current build files. */
     async suggestChecks(id: string): Promise<string[]> {
       return suggestCheckCommands(use(id).path);
+    },
+
+    /** Setup commands suggested from the repo's current lockfiles. */
+    async suggestSetup(id: string): Promise<string[]> {
+      return suggestSetupCommands(use(id).path);
     },
 
     /** Re-reads the `origin` remote and re-resolves its connection (e.g. after adding one). */

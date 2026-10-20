@@ -28,6 +28,7 @@ import {
   createWorkspacePreparer,
   createWorkspaceRemover,
   createWorkspaceSyncer,
+  createWorktreeSetup,
   detectClis,
   openDatabase,
   sqliteOf,
@@ -205,6 +206,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       prFeedback: github.pullRequestFeedback,
       prBranchOwned: github.prBranchOwned,
       worktreeGuard: git,
+      setup: createWorktreeSetup({ git }),
       // Autonomous mode covers the repo's backlog tasks only, read live at each gate.
       autonomous: (task) =>
         settings.repoBacklogRunner(task.repoId).autonomous &&

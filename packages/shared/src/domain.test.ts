@@ -553,6 +553,18 @@ describe("settings and inputs", () => {
     );
   });
 
+  it("accepts repo setup commands and rejects blank ones", () => {
+    expect(repoInputSchema.parse({ path: "/code/app", setupCommands: [" npm ci "] })).toEqual({
+      path: "/code/app",
+      setupCommands: ["npm ci"],
+    });
+    expect(repoUpdateSchema.parse({ setupCommands: [] })).toEqual({ setupCommands: [] });
+    expect(repoUpdateSchema.safeParse({ setupCommands: ["  "] }).success).toBe(false);
+    expect(repoInputSchema.safeParse({ path: "/code/app", setupCommands: [""] }).success).toBe(
+      false,
+    );
+  });
+
   it("accepts a repo's default CLI and rejects unknown ones", () => {
     expect(repoUpdateSchema.parse({ defaultCli: "copilot" })).toEqual({ defaultCli: "copilot" });
     expect(repoUpdateSchema.safeParse({ defaultCli: "codex" }).success).toBe(false);

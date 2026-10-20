@@ -60,6 +60,12 @@ import {
 } from "./pr-feedback.js";
 import { createScheduler } from "./scheduler.js";
 import {
+  SETUP_SKIPPED_EVENT,
+  runSetupStep,
+  type SetupSkipped,
+  type WorktreeSetup,
+} from "./setup.js";
+import {
   addUsage,
   combine,
   emptyStepUsage,
@@ -74,6 +80,9 @@ import {
   commitMessage,
   commitMessageRewritePrompt,
   diffCommentFinding,
+  finishStep,
+  logEvent,
+  startHarnessStep,
 } from "./stages.js";
 import {
   FIRST_STAGE,
@@ -203,6 +212,8 @@ export interface StageContext {
   readonly repositories: Repositories;
   /** No human is in the loop: the planner answers every grill question itself. */
   readonly autonomous: boolean;
+  /** Implement only: why the worktree's setup commands failed in this drive, if they did. */
+  setupFailure: string | undefined;
   /**
    * Runs one agent as a step of this stage, persisting and broadcasting its
    * events as they stream. On resume, a step that already succeeded in this
@@ -291,6 +302,12 @@ export interface PipelineEngineOptions {
    * by default.
    */
   autonomous?: (task: Task) => boolean;
+  /**
+   * Runs the repo's setup commands (dependency install) in a work task's
+   * worktree when its setup key changed since the last successful setup. Without
+   * the port nothing runs (tests).
+   */
+  setup?: WorktreeSetup;
 }
 
 /** The only delivery actions autonomous mode takes: nothing leaves the machine. */
@@ -385,6 +402,7 @@ export function createPipelineEngine({
   prBranchOwned,
   worktreeGuard,
   autonomous = () => false,
+  setup,
 }: PipelineEngineOptions) {
   const scheduler = createScheduler({ maxPerRepo: maxTasksPerRepo });
   const drives = new Map<string, Promise<void>>();
@@ -559,6 +577,7 @@ export function createPipelineEngine({
       signal,
       repositories: r,
       autonomous: autonomous(task),
+      setupFailure: undefined as string | undefined,
       publish,
       updateTask(patch: TaskPatch): Task {
         ctx.task = saveTask(task.id, patch);
@@ -929,13 +948,70 @@ export function createPipelineEngine({
     }
   }
 
-  /** Runs a task from its current stage until it reaches a gate, fails or is interrupted. */
+  /**
+   * Runs a task from its current stage until it reaches a gate, fails or is
+   * interrupted. A work task's worktree is set up (see {@link setup}) in the
+   * background from the drive's first Inform or Plan review visit, and before
+   * every Implement visit, which waits for it. The drive, and so its scheduler
+   * slot, lasts until setup has settled, a gate included.
+   */
   async function drive(taskId: string): Promise<void> {
     const controller = new AbortController();
     controllers.set(taskId, controller);
     const { signal } = controller;
     const hints = pending.get(taskId) ?? {};
     pending.delete(taskId);
+
+    /** The setup this drive ran or skipped, by key: each key is tried once per drive. */
+    let setupRun: { key: string; outcome: Promise<string | undefined> } | undefined;
+    /** The background setup started from Inform or Plan review. */
+    let inFlight: Promise<unknown> | undefined;
+
+    /**
+     * Makes sure the worktree is set up for the repo's current setup commands
+     * and lockfiles: waits for setup in flight, then runs it when the key
+     * matches neither this drive's last attempt nor the stamp of the last
+     * successful setup. Resolves with why setup failed, if it did (the same
+     * text for every later call with that key in the drive). Never throws.
+     */
+    async function ensureSetup(ctx: StageContext): Promise<string | undefined> {
+      try {
+        if (!setup || ctx.pipeline !== "work") return undefined;
+        await inFlight;
+        const worktree = ctx.task.worktreePath;
+        const commands = r.repos.get(ctx.task.repoId)?.setupCommands ?? [];
+        if (!worktree || commands.length === 0) return undefined;
+        let key: string;
+        let stamp: string | null;
+        try {
+          key = await setup.key(worktree, commands);
+          stamp = await setup.readStamp(worktree);
+        } catch (error) {
+          const message = `Could not tell whether the worktree needs setup: ${errorMessage(error)}`;
+          log(`Task ${taskId}: worktree setup failed: ${message}`);
+          return message;
+        }
+        if (setupRun?.key === key) return await setupRun.outcome;
+        if (stamp === key) {
+          const step = startHarnessStep(ctx);
+          logEvent(ctx, step.id, SETUP_SKIPPED_EVENT, { key } satisfies SetupSkipped);
+          finishStep(ctx, step.id, { status: "succeeded", error: null });
+          setupRun = { key, outcome: Promise.resolve(undefined) };
+          return undefined;
+        }
+        const outcome = runSetupStep(ctx, setup, key, commands);
+        setupRun = { key, outcome };
+        const failure = await outcome;
+        if (failure && !signal.aborted) {
+          log(`Task ${taskId}: worktree setup failed: ${failure}`);
+        }
+        return failure;
+      } catch (error) {
+        const message = errorMessage(error);
+        log(`Task ${taskId}: worktree setup failed: ${message}`);
+        return message;
+      }
+    }
 
     let run: Run | undefined;
     try {
@@ -986,12 +1062,28 @@ export function createPipelineEngine({
       let instructions = hints.instructions;
       let guidance = hints.guidance;
       let resuming = hints.resuming ?? false;
+      let first = true;
 
       for (;;) {
         if (signal.aborted) throw new InterruptedError();
         if (task.stage !== stage) task = saveTask(taskId, { stage });
         const visit = chooseVisit(run, stage, resuming);
         const ctx = stageContext(task, run, stage, round, visit, instructions, signal, guidance);
+        // Setup runs alongside the planner, as part of this visit. The Trusted
+        // backstop would undo what it writes during a read-only step, so those
+        // tasks set up just before Implement instead.
+        if (
+          first &&
+          (stage === "inform" || stage === "plan-review") &&
+          !(worktreeGuard && trustFor(taskId).level === "trusted")
+        ) {
+          inFlight = ensureSetup(ctx);
+        }
+        first = false;
+        if (stage === "implement") {
+          ctx.setupFailure = await ensureSetup(ctx);
+          if (signal.aborted) throw new InterruptedError();
+        }
         const handler = stages[stage] as (ctx: StageContext) => Promise<StageResults[Stage]>;
         const result = await handler(ctx);
         if (signal.aborted) throw new InterruptedError();
@@ -1018,6 +1110,8 @@ export function createPipelineEngine({
         }
         if (next.kind === "gate") {
           saveTask(taskId, { status: "needs-you", gate: next.gate });
+          // Holds the repo's slot until setup is done; an early answer waits in the queue.
+          await inFlight;
           return;
         }
         throw new Error(`Unexpected transition ${next.kind} after ${stage}`);
@@ -1040,6 +1134,11 @@ export function createPipelineEngine({
       saveTask(taskId, { status: "failed", error: errorMessage(error) });
       if (run) saveRun(run.id, "failed");
     } finally {
+      // A failed or interrupted drive never leaves setup running.
+      if (inFlight) {
+        controller.abort();
+        await inFlight;
+      }
       controllers.delete(taskId);
     }
   }
@@ -1248,6 +1347,8 @@ export function createPipelineEngine({
     const task = getTask(taskId);
     if (task.status === "needs-you") {
       if (delivering.has(taskId) || commenting.has(taskId)) return task;
+      // A drive still setting up the worktree at its gate stops that setup.
+      controllers.get(taskId)?.abort();
       return saveTask(taskId, { status: "interrupted", error: TASK_STOPPED_ERROR });
     }
     if (task.status !== "queued" && task.status !== "running") return task;

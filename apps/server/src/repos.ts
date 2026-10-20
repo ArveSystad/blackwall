@@ -70,6 +70,11 @@ export function repoRoutes(repos: RepoService): Hono {
     c.json<string[]>(await repos.suggestChecks(c.req.param("id"))),
   );
 
+  /** Setup commands suggested from the repo's lockfiles, for "reset to suggested". */
+  routes.get("/:id/suggested-setup", async (c) =>
+    c.json<string[]>(await repos.suggestSetup(c.req.param("id"))),
+  );
+
   /** Local main vs origin/main as of the last fetch; `null` without both refs. */
   routes.get("/:id/sync", async (c) =>
     c.json<RepoSync | null>(await repos.sync(c.req.param("id"))),

@@ -440,6 +440,8 @@ export const repoSchema = z.object({
   connectionId: id.nullable(),
   /** Build/test commands run in the Checks stage; empty = skip. */
   checkCommands: z.array(z.string().trim().min(1)),
+  /** Commands run in each task worktree before agents work (dependency install); empty = no setup. */
+  setupCommands: z.array(z.string().trim().min(1)),
   /** CLI new tasks in this repo run their agents on. */
   defaultCli: agentCliSchema,
   /** Origin the new-task and backlog forms open on for this repo. */
@@ -491,6 +493,8 @@ export const repoInputSchema = z.object({
   name: name.optional(),
   /** Omitted: suggested from the repo's build files. Empty: Checks are skipped. */
   checkCommands: repoSchema.shape.checkCommands.optional(),
+  /** Omitted: suggested from the repo's lockfiles. Empty: no setup. */
+  setupCommands: repoSchema.shape.setupCommands.optional(),
 });
 export type RepoInput = z.input<typeof repoInputSchema>;
 
@@ -503,6 +507,7 @@ const referenceRepoIdsSchema = z
 export const repoUpdateSchema = z.object({
   name: name.optional(),
   checkCommands: repoSchema.shape.checkCommands.optional(),
+  setupCommands: repoSchema.shape.setupCommands.optional(),
   defaultCli: agentCliSchema.optional(),
   defaultOrigin: originKindSchema.optional(),
   maxBacklogTasks: backlogCapSchema.nullable().optional(),

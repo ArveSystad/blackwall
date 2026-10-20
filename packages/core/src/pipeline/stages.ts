@@ -355,6 +355,9 @@ async function planReview(ctx: StageContext): Promise<StageResults["plan-review"
   return { openQuestions: open(), satisfied: false };
 }
 
+/** Step event a Checks (or setup) harness step logs when a check command starts. */
+export const CHECK_STARTED_EVENT = "check.started";
+
 /** Step event a Checks harness step logs when a check command finishes. */
 export const CHECK_FINISHED_EVENT = "check.finished";
 
@@ -584,7 +587,7 @@ async function commitRound(
 }
 
 /** The harness step of this stage visit, (re)started: one per visit, without an agent. */
-function startHarnessStep(ctx: StageContext): Step {
+export function startHarnessStep(ctx: StageContext): Step {
   const { run, stage, round, visit, repositories: r } = ctx;
   const earlier = r.steps
     .listByRun(run.id)
@@ -598,12 +601,16 @@ function startHarnessStep(ctx: StageContext): Step {
   return step;
 }
 
-function finishStep(ctx: StageContext, stepId: string, patch: Pick<Step, "status" | "error">) {
+export function finishStep(
+  ctx: StageContext,
+  stepId: string,
+  patch: Pick<Step, "status" | "error">,
+): void {
   const step = ctx.repositories.steps.update(stepId, { ...patch, finishedAt: new Date() });
   ctx.publish({ type: "step.upserted", payload: { step } });
 }
 
-function logEvent(ctx: StageContext, stepId: string, type: string, payload: unknown): void {
+export function logEvent(ctx: StageContext, stepId: string, type: string, payload: unknown): void {
   const event = ctx.repositories.stepEvents.append(stepId, type, payload);
   ctx.publish({ type: "step.event", payload: { event } });
 }
@@ -715,7 +722,7 @@ async function runChecks(
   let failure: CheckFinished | undefined;
   try {
     for (const command of commands) {
-      logEvent(ctx, step.id, "check.started", { command });
+      logEvent(ctx, step.id, CHECK_STARTED_EVENT, { command });
       const outcome = await runCheck(command, { cwd: worktree, signal });
       if (signal.aborted) throw new Error("Interrupted");
       const finished: CheckFinished = { command, ...outcome };
@@ -1240,6 +1247,10 @@ export function createDefaultStages({
             check ? `${describeCheckFailure(check)}:\n\n${fence(check.output)}` : "",
           ),
           section("Instructions from the user", ctx.instructions),
+          section("Worktree setup failed", ctx.setupFailure),
+          ctx.setupFailure
+            ? "The harness's setup commands failed, so dependencies may be missing; install what you need to work and don't change the code to work around missing packages."
+            : "",
           check
             ? "Your changes fail the check above. Fix the cause in the worktree; do not weaken or skip the check."
             : toFix.length > 0

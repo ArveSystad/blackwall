@@ -62,6 +62,7 @@ import {
   type DeliveryPorts,
 } from "./delivery.js";
 import type { CheckOutcome, CheckRunner } from "./checks.js";
+import { SETUP_SKIPPED_EVENT, SETUP_STARTED_EVENT, type WorktreeSetup } from "./setup.js";
 import type { PullRequestFeedback, PullRequestFeedbackThread } from "./pr-feedback.js";
 import type { WorkspaceSync } from "./workspace.js";
 import { InvalidGateResponseError } from "./transitions.js";
@@ -199,6 +200,7 @@ function harness(
     log = () => undefined,
     autonomous,
     planActions = [],
+    setup,
   }: {
     stages?: StageHandlers;
     maxPerRepo?: number;
@@ -218,6 +220,7 @@ function harness(
     autonomous?: (task: Task) => boolean;
     /** The delivery actions offered at finish (none by default). */
     planActions?: DeliveryAction[];
+    setup?: WorktreeSetup;
   } = {},
 ): Harness {
   const agents = agentService();
@@ -268,6 +271,7 @@ function harness(
     ...(worktreeGuard ? { worktreeGuard } : {}),
     ...(syncWorkspace ? { syncWorkspace } : {}),
     ...(autonomous ? { autonomous } : {}),
+    ...(setup ? { setup } : {}),
     publish: (event) => events.push(event),
     log,
   });
@@ -4737,5 +4741,302 @@ describe("localDelivery", () => {
     // No commits leave no code route: only the follow-ups; the comment is never posted.
     expect(localDelivery(plan([comment, follow]))).toMatchObject({ actions: ["create-tasks"] });
     expect(localDelivery(plan([push, comment, follow]))).toBeNull();
+  });
+});
+
+describe("worktree setup", () => {
+  const INSTALL = "pnpm install --frozen-lockfile";
+  const passing: CheckOutcome = { exitCode: 0, output: "installed", timedOut: false };
+  const failing: CheckOutcome = { exitCode: 1, output: "ERR_PNPM_NO_LOCKFILE", timedOut: false };
+  /** A setup command that runs until the drive is aborted. */
+  const untilAborted: CheckRunner = (_command, { signal }) =>
+    new Promise((resolve) =>
+      signal.addEventListener("abort", () =>
+        resolve({ exitCode: null, output: "", timedOut: false }),
+      ),
+    );
+
+  /** Setup with an in-memory stamp and a key over the commands and a mutable lockfile. */
+  function fakeSetup(run: CheckRunner = async () => passing) {
+    const stamps = new Map<string, string>();
+    const lock = { value: "v1" };
+    const key = (commands: readonly string[]) => JSON.stringify([commands, lock.value]);
+    const setup = {
+      key: async (_worktree: string, commands: readonly string[]) => key(commands),
+      readStamp: async (worktree: string) => stamps.get(worktree) ?? null,
+      writeStamp: async (worktree: string, value: string) => {
+        stamps.set(worktree, value);
+      },
+      run: vi.fn<CheckRunner>(run),
+    };
+    return { setup, stamps, lock, key };
+  }
+
+  function seedSetupTask(
+    setupCommands: string[] = [INSTALL],
+    patch: Parameters<typeof seedTask>[0] = {},
+  ) {
+    const seeded = seedTask(patch);
+    r.repos.update(seeded.repoId, { setupCommands });
+    return seeded;
+  }
+
+  const setupSteps = (taskId: string) =>
+    stepsOf(taskId).filter(
+      (s) => s.agentId === null && r.stepEvents.list(s.id).some((e) => e.type.startsWith("setup.")),
+    );
+  const eventTypes = (stepId: string) => r.stepEvents.list(stepId).map((e) => e.type);
+  const implementPrompts = (h: Harness) =>
+    h.calls.filter((c) => c.stage === "implement").map((c) => c.options.prompt);
+
+  it("sets up a fresh worktree during Inform and stamps it", async () => {
+    const f = fakeSetup();
+    const h = harness(() => ({}), { setup: f.setup });
+    const seeded = seedSetupTask();
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "plan-approval" });
+    expect(f.setup.run).toHaveBeenCalledTimes(1);
+    expect(f.setup.run.mock.calls[0]![0]).toBe(INSTALL);
+    expect(f.setup.run.mock.calls[0]![1].cwd).toBe(dir);
+    expect(f.stamps.get(dir)).toBe(f.key([INSTALL]));
+    const [step] = setupSteps(seeded.id);
+    expect(step).toMatchObject({ stage: "inform", status: "succeeded", agentId: null });
+    expect(eventTypes(step!.id)).toEqual([SETUP_STARTED_EVENT, "check.started", "check.finished"]);
+    expect(r.stepEvents.list(step!.id)[0]!.payload).toEqual({
+      key: f.key([INSTALL]),
+      commands: [INSTALL],
+    });
+  });
+
+  it("runs alongside the planner and holds the drive until it is done", async () => {
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    const f = fakeSetup(async () => {
+      await released;
+      return passing;
+    });
+    const h = harness(() => ({}), { setup: f.setup });
+    const seeded = seedSetupTask();
+    h.engine.enqueue(seeded.id);
+
+    await vi.waitFor(() =>
+      expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "plan-approval" }),
+    );
+    expect(h.calls.map((c) => c.stage)).toContain("inform");
+    expect(f.setup.run).toHaveBeenCalledTimes(1);
+    // The drive keeps the repo's slot while setup runs at the gate.
+    expect(h.engine.activeTaskIds()).toEqual([seeded.id]);
+
+    await h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(h.calls.some((c) => c.stage === "implement")).toBe(false);
+
+    release();
+    await settle(h.engine);
+    expect(implementPrompts(h)).toHaveLength(1);
+    expect(f.setup.run).toHaveBeenCalledTimes(1);
+    expect(setupSteps(seeded.id).map((s) => [s.stage, s.status])).toEqual([
+      ["inform", "succeeded"],
+      ["implement", "succeeded"],
+    ]);
+    expect(eventTypes(setupSteps(seeded.id)[1]!.id)).toEqual([SETUP_SKIPPED_EVENT]);
+  });
+
+  it("skips setup when the stamp matches the key", async () => {
+    const f = fakeSetup();
+    f.stamps.set(dir, f.key([INSTALL]));
+    const h = harness(() => ({}), { setup: f.setup });
+    const seeded = seedSetupTask();
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+
+    expect(f.setup.run).not.toHaveBeenCalled();
+    const steps = setupSteps(seeded.id);
+    expect(steps.map((s) => [s.stage, s.status])).toEqual([["inform", "succeeded"]]);
+    expect(eventTypes(steps[0]!.id)).toEqual([SETUP_SKIPPED_EVENT]);
+  });
+
+  it("sets up again before Implement when a lockfile changed", async () => {
+    const f = fakeSetup();
+    const h = harness(() => ({}), { setup: f.setup });
+    const seeded = seedSetupTask();
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    f.lock.value = "v2";
+    await h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" });
+    await settle(h.engine);
+
+    expect(f.setup.run).toHaveBeenCalledTimes(2);
+    expect(f.stamps.get(dir)).toBe(f.key([INSTALL]));
+    expect(setupSteps(seeded.id).map((s) => [s.stage, s.status])).toEqual([
+      ["inform", "succeeded"],
+      ["implement", "succeeded"],
+    ]);
+  });
+
+  it("sets up again when the repo's setup commands changed", async () => {
+    const f = fakeSetup();
+    const h = harness(() => ({}), { setup: f.setup });
+    const seeded = seedSetupTask();
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    r.repos.update(seeded.repoId, { setupCommands: ["npm ci"] });
+    await h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" });
+    await settle(h.engine);
+
+    expect(f.setup.run.mock.calls.map(([command]) => command)).toEqual([INSTALL, "npm ci"]);
+    expect(f.stamps.get(dir)).toBe(f.key(["npm ci"]));
+  });
+
+  it("writes no stamp when setup fails and tries again on the next drive", async () => {
+    const results = [failing, passing];
+    const f = fakeSetup(async () => results.shift()!);
+    const logs: string[] = [];
+    const h = harness(() => ({}), { setup: f.setup, log: (m) => logs.push(m) });
+    const seeded = seedSetupTask();
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "plan-approval" });
+    expect(f.stamps.has(dir)).toBe(false);
+    expect(setupSteps(seeded.id)[0]).toMatchObject({
+      status: "failed",
+      error: `\`${INSTALL}\` exited with code 1`,
+    });
+    expect(logs.some((m) => m.includes("worktree setup failed"))).toBe(true);
+
+    await h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" });
+    await settle(h.engine);
+    expect(f.setup.run).toHaveBeenCalledTimes(2);
+    expect(f.stamps.get(dir)).toBe(f.key([INSTALL]));
+    expect(implementPrompts(h)[0]).not.toContain("Worktree setup failed");
+  });
+
+  it("tries a failing setup once per drive and tells every Implement visit", async () => {
+    const f = fakeSetup(async () => failing);
+    const checkResults: CheckOutcome[] = [
+      { exitCode: 1, output: "FAIL", timedOut: false },
+      { exitCode: 0, output: "ok", timedOut: false },
+    ];
+    const runCheck = vi.fn<CheckRunner>(async () => checkResults.shift()!);
+    const h = harness(() => ({}), {
+      setup: f.setup,
+      stages: createDefaultStages({ runCheck }),
+    });
+    const seeded = seedSetupTask();
+    r.repos.update(seeded.repoId, { checkCommands: ["pnpm test"] });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(f.setup.run).toHaveBeenCalledTimes(1);
+    await h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" });
+    await settle(h.engine);
+
+    // Once in the Inform drive, once in the Implement drive despite the check retry.
+    expect(f.setup.run).toHaveBeenCalledTimes(2);
+    const prompts = implementPrompts(h);
+    expect(prompts).toHaveLength(2);
+    for (const prompt of prompts) {
+      expect(prompt).toContain("## Worktree setup failed");
+      expect(prompt).toContain(`\`${INSTALL}\` exited with code 1`);
+      expect(prompt).toContain("ERR_PNPM_NO_LOCKFILE");
+      expect(prompt).toContain("install what you need to work");
+    }
+    expect(stepsOf(seeded.id).some((s) => s.stage === "checks")).toBe(true);
+    expect(runCheck).toHaveBeenCalledTimes(2);
+    expect(f.stamps.has(dir)).toBe(false);
+  });
+
+  it("interrupts the background setup when the task is stopped", async () => {
+    const f = fakeSetup(untilAborted);
+    const h = harness((stage) => (stage === "inform" ? { hang: true } : {}), {
+      setup: f.setup,
+    });
+    const seeded = seedSetupTask();
+    h.engine.enqueue(seeded.id);
+    await vi.waitFor(() => expect(f.setup.run).toHaveBeenCalledTimes(1));
+
+    expect(await h.engine.stop(seeded.id)).toMatchObject({
+      status: "interrupted",
+      error: TASK_STOPPED_ERROR,
+    });
+    expect(setupSteps(seeded.id).map((s) => s.status)).toEqual(["interrupted"]);
+    expect(f.stamps.has(dir)).toBe(false);
+    expect(h.engine.activeTaskIds()).toEqual([]);
+  });
+
+  it("stops setup a drive still runs at its gate", async () => {
+    const f = fakeSetup(untilAborted);
+    const h = harness(() => ({}), { setup: f.setup });
+    const seeded = seedSetupTask();
+    h.engine.enqueue(seeded.id);
+    await vi.waitFor(() =>
+      expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "plan-approval" }),
+    );
+
+    expect(await h.engine.stop(seeded.id)).toMatchObject({
+      status: "interrupted",
+      gate: "plan-approval",
+      error: TASK_STOPPED_ERROR,
+    });
+    await settle(h.engine);
+    expect(setupSteps(seeded.id).map((s) => s.status)).toEqual(["interrupted"]);
+    expect(f.stamps.has(dir)).toBe(false);
+    expect(h.engine.activeTaskIds()).toEqual([]);
+  });
+
+  it("does nothing for a repo without setup commands", async () => {
+    const f = fakeSetup();
+    const h = harness(() => ({}), { setup: f.setup });
+    const seeded = seedSetupTask([]);
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    await h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" });
+    await settle(h.engine);
+
+    expect(f.setup.run).not.toHaveBeenCalled();
+    expect(stepsOf(seeded.id).filter((s) => s.agentId === null)).toEqual([]);
+  });
+
+  it("never sets up a Review PR task", async () => {
+    const f = fakeSetup();
+    const h = harness(() => ({}), { setup: f.setup });
+    const seeded = seedSetupTask([INSTALL], { mode: "review", origin: prOrigin() });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+
+    expect(task(seeded.id).status).toBe("needs-you");
+    expect(f.setup.run).not.toHaveBeenCalled();
+    expect(setupSteps(seeded.id)).toEqual([]);
+  });
+
+  it("does not start Implement when stopped while waiting for setup under Trusted", async () => {
+    const f = fakeSetup(untilAborted);
+    const worktreeGuard = {
+      snapshotWorktree: async () => ({ head: "h", index: "i", worktree: "w" }),
+      restoreWorktree: async () => undefined,
+    };
+    const h = harness(() => ({}), { setup: f.setup, worktreeGuard });
+    const seeded = seedSetupTask();
+    r.repos.update(seeded.repoId, { agentTrust: "trusted" });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    // The backstop would undo setup output during the planner's steps.
+    expect(f.setup.run).not.toHaveBeenCalled();
+    expect(setupSteps(seeded.id)).toEqual([]);
+
+    await h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" });
+    await vi.waitFor(() => expect(f.setup.run).toHaveBeenCalledTimes(1));
+    expect(await h.engine.stop(seeded.id)).toMatchObject({
+      status: "interrupted",
+      error: TASK_STOPPED_ERROR,
+    });
+
+    expect(h.calls.some((c) => c.stage === "implement")).toBe(false);
+    expect(setupSteps(seeded.id).map((s) => [s.stage, s.status])).toEqual([
+      ["implement", "interrupted"],
+    ]);
+    expect(f.stamps.has(dir)).toBe(false);
   });
 });

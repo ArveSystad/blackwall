@@ -700,6 +700,43 @@ describe("buildTranscript", () => {
     ]);
   });
 
+  it("notes worktree setup and renders its commands as checks", () => {
+    const items = buildTranscript([
+      event(1, "setup.started", { key: "k1", commands: ["pnpm install --frozen-lockfile"] }),
+      event(2, "check.started", { command: "pnpm install --frozen-lockfile" }),
+      event(3, "check.finished", {
+        command: "pnpm install --frozen-lockfile",
+        exitCode: 0,
+        output: "done",
+        timedOut: false,
+      }),
+      event(4, "setup.skipped", { key: "k1" }),
+    ]);
+    expect(items).toEqual([
+      {
+        kind: "note",
+        key: "s1:1",
+        text: "Setting up the worktree: dependencies or setup commands changed",
+      },
+      {
+        kind: "check",
+        key: "s1:2",
+        check: {
+          command: "pnpm install --frozen-lockfile",
+          exitCode: 0,
+          output: "done",
+          timedOut: false,
+          running: false,
+        },
+      },
+      {
+        kind: "note",
+        key: "s1:4",
+        text: "Skipped setup: dependencies unchanged since the last setup",
+      },
+    ]);
+  });
+
   it("nests a sub-agent's messages and tool calls under its Agent call", () => {
     const input = {
       subagent_type: "blackwall-worker",

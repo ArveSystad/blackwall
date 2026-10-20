@@ -730,6 +730,32 @@ export function createGitService({
     },
 
     /**
+     * Absolute path of `name` inside the worktree's own git directory
+     * (`rev-parse --git-path`): `.git/worktrees/<name>/…` for a linked
+     * worktree, so files there never show up in the diff.
+     */
+    async gitPath(worktreePath: string, name: string): Promise<string> {
+      return resolve(worktreePath, await runGit(worktreePath, ["rev-parse", "--git-path", name]));
+    },
+
+    /**
+     * Tracked and untracked, not ignored, files matching any of `pathspecs`,
+     * relative to the worktree, each listed once.
+     */
+    async listFiles(worktreePath: string, pathspecs: readonly string[]): Promise<string[]> {
+      const out = await runGit(worktreePath, [
+        "ls-files",
+        "-z",
+        "--cached",
+        "--others",
+        "--exclude-standard",
+        "--",
+        ...pathspecs,
+      ]);
+      return [...new Set(out.split("\0").filter(Boolean))];
+    },
+
+    /**
      * Squashes every commit since `sinceSha` (usually the worktree's `baseSha`)
      * into one with `message`. Returns the new sha, or `null` when there was
      * nothing after `sinceSha`. The repo's hooks run; when the commit fails

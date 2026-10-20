@@ -553,6 +553,20 @@ export function buildTranscript(events: readonly StepEvent[]): TranscriptItem[] 
         });
         break;
       }
+      case "setup.started":
+        items.push({
+          kind: "note",
+          key,
+          text: "Setting up the worktree: dependencies or setup commands changed",
+        });
+        break;
+      case "setup.skipped":
+        items.push({
+          kind: "note",
+          key,
+          text: "Skipped setup: dependencies unchanged since the last setup",
+        });
+        break;
       case "review.diff":
         items.push({ kind: "note", key, text: "Recorded the commit range for this review round" });
         break;

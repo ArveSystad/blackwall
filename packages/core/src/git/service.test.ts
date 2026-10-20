@@ -454,6 +454,42 @@ describe("commits, squash and diff", () => {
   });
 });
 
+describe("gitPath and listFiles", () => {
+  it("points inside the linked worktree's own git directory", async () => {
+    const path = worktreePathFor(repo, "t1");
+    await service.createWorktree({
+      repoPath: repo,
+      worktreePath: path,
+      branch: "agent/t1",
+      checkout: { kind: "new" },
+    });
+    expect(await service.gitPath(path, "blackwall-setup")).toBe(
+      resolve(repo, ".git", "worktrees", "t1", "blackwall-setup"),
+    );
+  });
+
+  it("lists tracked, untracked and nested matches, skipping ignored ones", async () => {
+    mkdirSync(join(repo, "src", "App"), { recursive: true });
+    mkdirSync(join(repo, "node_modules", "dep"), { recursive: true });
+    write(repo, ".gitignore", "node_modules/\n");
+    write(repo, "pnpm-lock.yaml", "lock\n");
+    write(repo, "src/App/App.csproj", "<Project />\n");
+    write(repo, "node_modules/dep/package-lock.json", "{}\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "--quiet", "-m", "lockfiles");
+    write(repo, "go.sum", "sum\n");
+
+    const files = await service.listFiles(repo, [
+      ":(glob)**/pnpm-lock.yaml",
+      ":(glob)**/*.csproj",
+      ":(glob)**/package-lock.json",
+      ":(glob)**/go.sum",
+      ":(glob)**/go.sum",
+    ]);
+    expect(files.sort()).toEqual(["go.sum", "pnpm-lock.yaml", "src/App/App.csproj"]);
+  });
+});
+
 describe("commit hooks", () => {
   /** Installs a hook in the repo's hooks folder, shared by its worktrees. */
   function hook(name: string, script: string): void {

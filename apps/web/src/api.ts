@@ -503,6 +503,11 @@ export function suggestedChecks(id: string): Promise<string[]> {
   return request(`${at("/api/repos", id)}/suggested-checks`, repoSchema.shape.checkCommands);
 }
 
+/** Setup commands suggested from the repo's lockfiles; a missing folder is a `StaleRepoError`. */
+export function suggestedSetup(id: string): Promise<string[]> {
+  return request(`${at("/api/repos", id)}/suggested-setup`, repoSchema.shape.setupCommands);
+}
+
 const backlogPath = (repoId: string) => `${at("/api/repos", repoId)}/backlog`;
 
 /** The repo's backlog in pick order, each item with the dependencies still holding it back. */

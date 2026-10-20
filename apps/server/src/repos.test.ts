@@ -125,6 +125,7 @@ describe("repo routes", () => {
       method: "PATCH",
       body: {
         checkCommands: [],
+        setupCommands: ["pnpm install --frozen-lockfile"],
         defaultCli: "copilot",
         defaultOrigin: "free-text",
         maxBacklogTasks: 2,
@@ -132,6 +133,7 @@ describe("repo routes", () => {
     });
     expect(repoSchema.parse(await patch.json())).toMatchObject({
       checkCommands: [],
+      setupCommands: ["pnpm install --frozen-lockfile"],
       defaultCli: "copilot",
       defaultOrigin: "free-text",
       maxBacklogTasks: 2,

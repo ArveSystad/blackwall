@@ -91,6 +91,24 @@ describe("repo service", () => {
     expect(await service.suggestChecks(repo.id)).toEqual(["go build ./...", "go test ./..."]);
   });
 
+  it("suggests setup commands from lockfiles and keeps given ones, including none", async () => {
+    const suggested = gitRepo(["app"]);
+    writeFileSync(join(suggested, "pnpm-lock.yaml"), "");
+    expect((await service.add({ path: suggested })).setupCommands).toEqual([
+      "pnpm install --frozen-lockfile",
+    ]);
+    const given = gitRepo(["given"]);
+    writeFileSync(join(given, "go.sum"), "");
+    const repo = await service.add({ path: given, setupCommands: [] });
+    expect(repo.setupCommands).toEqual([]);
+    expect(await service.suggestSetup(repo.id)).toEqual(["go mod download"]);
+    const explicit = await service.add({
+      path: gitRepo(["explicit"]),
+      setupCommands: ["make deps"],
+    });
+    expect(explicit.setupCommands).toEqual(["make deps"]);
+  });
+
   it("leaves the connection empty for unknown hosts and local remotes", async () => {
     const github = await service.add({ path: gitRepo(["a"], "https://github.com/acme/a.git") });
     const local = await service.add({ path: gitRepo(["b"], root) });
@@ -195,6 +213,9 @@ describe("repo service", () => {
       name: "App",
       checkCommands: [],
     });
+    expect(service.update(repo.id, { setupCommands: ["npm ci"] }).setupCommands).toEqual([
+      "npm ci",
+    ]);
     expect(() => service.update(repo.id, { name: " " })).toThrow(InvalidRepoError);
     expect(service.update(repo.id, { defaultCli: "copilot" })).toMatchObject({
       name: "App",

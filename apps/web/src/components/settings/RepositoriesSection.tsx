@@ -15,6 +15,7 @@ import {
   reorderRepos,
   scanRepos,
   suggestedChecks,
+  suggestedSetup,
   updateRepo,
 } from "../../api";
 import { cn } from "../../lib/utils";
@@ -168,6 +169,7 @@ function RepoEditor({
   const settings = useQuery(settingsQuery);
   const repos = useQuery(reposQuery);
   const [name, setName] = useState(repo.name);
+  const [setup, setSetup] = useState(repo.setupCommands.join("\n"));
   const [checks, setChecks] = useState(repo.checkCommands.join("\n"));
   const [defaultCli, setDefaultCli] = useState(repo.defaultCli);
   const [defaultOrigin, setDefaultOrigin] = useState(repo.defaultOrigin);
@@ -185,7 +187,7 @@ function RepoEditor({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"suggest" | "refresh" | null>(null);
+  const [busy, setBusy] = useState<"suggest" | "suggest-setup" | "refresh" | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
 
   // Empty uses the global backlog cap.
@@ -193,6 +195,7 @@ function RepoEditor({
   const backlogCapInvalid = backlogCap.trim() !== "" && backlogCapValue === null;
   const dirty =
     name.trim() !== repo.name ||
+    !sameList(parseLines(setup), repo.setupCommands) ||
     !sameList(parseLines(checks), repo.checkCommands) ||
     defaultCli !== repo.defaultCli ||
     defaultOrigin !== repo.defaultOrigin ||
@@ -233,6 +236,7 @@ function RepoEditor({
     try {
       await updateRepo(repo.id, {
         name: name.trim(),
+        setupCommands: parseLines(setup),
         checkCommands: parseLines(checks),
         defaultCli,
         defaultOrigin,
@@ -267,6 +271,24 @@ function RepoEditor({
         suggested.length > 0
           ? "Suggested commands loaded. Save to keep them."
           : "No build files found to suggest commands from.",
+      );
+    } catch (cause) {
+      await failed(cause);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function suggestSetup() {
+    setBusy("suggest-setup");
+    setError(null);
+    try {
+      const suggested = await suggestedSetup(repo.id);
+      setSetup(suggested.join("\n"));
+      setNotice(
+        suggested.length > 0
+          ? "Suggested commands loaded. Save to keep them."
+          : "No lockfiles found to suggest commands from.",
       );
     } catch (cause) {
       await failed(cause);
@@ -547,6 +569,32 @@ function RepoEditor({
 
         <label className="flex flex-col gap-1.5">
           <span className="flex items-center gap-2">
+            <span className={fieldLabel}>Setup commands</span>
+            <span className="text-meta text-faint">
+              One per line, run in each task worktree before Implement. Empty skips setup.
+            </span>
+            <span className="flex-1" />
+            <Button
+              size="sm"
+              variant="ghost"
+              type="button"
+              disabled={busy !== null || !repo.exists}
+              onClick={() => void suggestSetup()}
+            >
+              {busy === "suggest-setup" ? "Reading…" : "Reset to suggested"}
+            </Button>
+          </span>
+          <Textarea
+            className="mono min-h-20 bg-code text-code"
+            spellCheck={false}
+            value={setup}
+            placeholder="pnpm install --frozen-lockfile"
+            onChange={(event) => setSetup(event.target.value)}
+          />
+        </label>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="flex items-center gap-2">
             <span className={fieldLabel}>Check commands</span>
             <span className="text-meta text-faint">
               One per line, run in order. Empty skips Checks.
@@ -579,6 +627,7 @@ function RepoEditor({
         error={error}
         onDiscard={() => {
           setName(repo.name);
+          setSetup(repo.setupCommands.join("\n"));
           setChecks(repo.checkCommands.join("\n"));
           setDefaultCli(repo.defaultCli);
           setDefaultOrigin(repo.defaultOrigin);

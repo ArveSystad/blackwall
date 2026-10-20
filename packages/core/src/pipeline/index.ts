@@ -11,6 +11,7 @@ export * from "./findings.js";
 export * from "./follow-ups.js";
 export * from "./pr-feedback.js";
 export * from "./scheduler.js";
+export * from "./setup.js";
 export * from "./stages.js";
 export * from "./transitions.js";
 export * from "./workspace.js";

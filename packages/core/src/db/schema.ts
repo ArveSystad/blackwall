@@ -88,6 +88,11 @@ export const repos = sqliteTable("repos", {
     .$type<string[]>()
     .notNull()
     .default(sql`'[]'`),
+  /** Dependency install commands run in each task worktree; empty = no setup. */
+  setupCommands: text("setup_commands", { mode: "json" })
+    .$type<string[]>()
+    .notNull()
+    .default(sql`'[]'`),
   defaultCli: text("default_cli", { enum: AGENT_CLIS }).notNull().default("claude"),
   defaultOrigin: text("default_origin", { enum: ORIGIN_KINDS }).notNull().default("jira-issue"),
   maxBacklogTasks: integer("max_backlog_tasks"),
