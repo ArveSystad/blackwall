@@ -867,6 +867,7 @@ async function codeReview(
   git: ReviewGit | undefined,
   stackContext: OriginContextProvider | undefined,
   prCommentsContext: OriginContextProvider | undefined,
+  installPlaybook: (worktree: string) => Promise<void>,
 ): Promise<void> {
   const { task, run, round, repositories } = ctx;
   const reviewers = panel(task, "codeReviewers");
@@ -895,7 +896,7 @@ async function codeReview(
     }
   }
 
-  if (worktree) await installSecurePlaybook(worktree);
+  if (worktree) await installPlaybook(worktree);
 
   let stack: string | undefined;
   try {
@@ -1122,6 +1123,8 @@ export interface DefaultStagesOptions {
   runCheck?: CheckRunner;
   /** Scopes Code review to the round's diff; without it reviewers see the branch as it stands (tests). */
   reviewGit?: ReviewGit;
+  /** Puts the security playbook in the worktree before Code review; defaults to copying the vendored one. */
+  installPlaybook?: (worktree: string) => Promise<void>;
 }
 
 /**
@@ -1138,6 +1141,7 @@ export function createDefaultStages({
   git,
   runCheck = runCheckCommand,
   reviewGit,
+  installPlaybook = installSecurePlaybook,
 }: DefaultStagesOptions = {}): StageHandlers {
   return {
     async inform(ctx) {
@@ -1197,7 +1201,8 @@ export function createDefaultStages({
 
     checks: (ctx) => runChecks(ctx, git, runCheck),
 
-    "code-review": (ctx) => codeReview(ctx, reviewGit, stackContext, prCommentsContext),
+    "code-review": (ctx) =>
+      codeReview(ctx, reviewGit, stackContext, prCommentsContext, installPlaybook),
 
     aggregate,
 

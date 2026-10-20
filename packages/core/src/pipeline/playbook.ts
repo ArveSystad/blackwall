@@ -20,13 +20,17 @@ export const SECURE_PLAYBOOK_CODE_REVIEW =
   "plugins/code-security-skills/plays/code-review-security.md";
 
 /**
- * Copies the playbook into the worktree's git-ignored scratch folder, where
- * read-only reviewers can read it. Any earlier copy is replaced, so an edited
- * or stale copy never reaches the next review.
+ * Copies the playbook (from `source`, the vendored one by default) into the
+ * worktree's git-ignored scratch folder, where read-only reviewers can read it.
+ * Any earlier copy is replaced, so an edited or stale copy never reaches the
+ * next review.
  */
-export async function installSecurePlaybook(worktree: string): Promise<void> {
+export async function installSecurePlaybook(
+  worktree: string,
+  source = SECURE_PLAYBOOK_SOURCE,
+): Promise<void> {
   await ensureScratchDir(worktree);
   const target = join(worktree, SECURE_PLAYBOOK_DIR);
   await rm(target, { recursive: true, force: true });
-  await cp(SECURE_PLAYBOOK_SOURCE, target, { recursive: true });
+  await cp(source, target, { recursive: true });
 }

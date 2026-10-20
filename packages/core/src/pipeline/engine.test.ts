@@ -1,5 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -36,7 +44,12 @@ import {
   type StageHandlers,
 } from "./engine.js";
 import { createFakeAdapter, type FakeScript } from "./fake-adapter.js";
-import { SECURE_PLAYBOOK_DIR, SECURE_PLAYBOOK_ENTRY } from "./playbook.js";
+import {
+  SECURE_PLAYBOOK_DIR,
+  SECURE_PLAYBOOK_ENTRY,
+  SECURE_PLAYBOOK_SOURCE,
+  installSecurePlaybook,
+} from "./playbook.js";
 import {
   DELIVERY_CONFLICT_EVENT,
   DELIVERY_DONE_EVENT,
@@ -56,9 +69,31 @@ import {
   NO_HUMAN_ANSWER,
   commitKey,
   commitMessage,
-  createDefaultStages,
+  createDefaultStages as createStages,
   diffCommentFinding,
+  type DefaultStagesOptions,
 } from "./stages.js";
+
+/**
+ * The default stages without copying the security playbook (hundreds of
+ * files) into the worktree on every Code review visit, which made tests with
+ * several rounds time out when the suite runs in parallel. Tests that check the
+ * copy pass {@link installPlaybookEntry}.
+ */
+function createDefaultStages(options: DefaultStagesOptions = {}) {
+  return createStages({ installPlaybook: async () => undefined, ...options });
+}
+
+/** Installs a playbook of only its entry file, copied from the vendored one. */
+async function installPlaybookEntry(worktree: string): Promise<void> {
+  const source = join(dir, "playbook-source");
+  mkdirSync(source, { recursive: true });
+  copyFileSync(
+    join(SECURE_PLAYBOOK_SOURCE, SECURE_PLAYBOOK_ENTRY),
+    join(source, SECURE_PLAYBOOK_ENTRY),
+  );
+  await installSecurePlaybook(worktree, source);
+}
 
 let dir: string;
 let opened: OpenedDatabase;
@@ -406,13 +441,16 @@ describe("pipeline engine", () => {
     // Restart: a new process over the same database.
     opened.close();
     open();
-    const second = harness((stage) => {
-      if (stage === "code-review") {
-        reviews++;
-        return { structured: { findings: reviews === 1 ? [highFinding] : [] } };
-      }
-      return { text: stage === "summarize" ? "Fixed the comparison." : "done" };
-    });
+    const second = harness(
+      (stage) => {
+        if (stage === "code-review") {
+          reviews++;
+          return { structured: { findings: reviews === 1 ? [highFinding] : [] } };
+        }
+        return { text: stage === "summarize" ? "Fixed the comparison." : "done" };
+      },
+      { stages: createDefaultStages({ installPlaybook: installPlaybookEntry }) },
+    );
     second.engine.recover();
     expect(task(seeded.id).status).toBe("interrupted");
 
@@ -493,7 +531,6 @@ describe("pipeline engine", () => {
       return { hang: true, sessionId: options.resumeSessionId ?? "rev-2" };
     });
     first.engine.enqueue(seeded.id);
-    // The review first copies the security playbook into the worktree.
     await vi.waitFor(
       () => {
         const steps = stepsOf(seeded.id).filter((s) => s.stage === "code-review");
