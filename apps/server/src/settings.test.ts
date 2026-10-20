@@ -66,6 +66,7 @@ describe("settings routes", () => {
       maxBacklogTasksPerRepo: 1,
       stopBacklogOnNeedsYou: true,
       githubIssuesRefreshSeconds: 60,
+      voiceModel: "moonshine-tiny-en",
     });
   });
 

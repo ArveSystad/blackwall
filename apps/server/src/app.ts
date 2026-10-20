@@ -19,6 +19,7 @@ import type {
   Search,
   SettingsService,
   SystemService,
+  VoiceService,
 } from "@blackwall/core";
 import { Hono } from "hono";
 import { agentRoutes } from "./agents.js";
@@ -30,11 +31,13 @@ import { connectionRoutes, type ConnectionRoutesOptions } from "./connections.js
 import { dataRoutes } from "./data.js";
 import { errorResponse } from "./errors.js";
 import { issueRoutes, pullRequestRoutes } from "./github.js";
+import { mcpRoutes, type McpCommandService } from "./mcp.js";
 import { quotaRoutes } from "./quota.js";
 import { repoRoutes } from "./repos.js";
 import { searchRoutes } from "./search.js";
 import { settingsRoutes, tagRoutes } from "./settings.js";
 import { systemRoutes } from "./system.js";
+import { voiceRoutes, type VoiceCommandRouteService } from "./voice.js";
 import {
   taskRoutes,
   type TaskPipeline,
@@ -76,6 +79,10 @@ export interface AppOptions {
   system?: Pick<SystemService, "snapshot" | "compact">;
   /** Global search over tasks, backlog items and repos; omit to leave the search route out (e.g. in tests). */
   search?: Pick<Search, "search">;
+  /** Speech-to-text; omit and voice reports itself unavailable (e.g. in tests). */
+  voice?: Pick<VoiceService, "status" | "transcribe">;
+  /** Voice commands and the blackwall MCP server; omit to leave them out (e.g. in tests). */
+  voiceCommands?: VoiceCommandRouteService & McpCommandService;
 }
 
 function send(ws: { send(data: string): void }, event: ServerEvent): void {
@@ -108,6 +115,8 @@ export function createApp({
   data,
   system,
   search,
+  voice,
+  voiceCommands,
 }: AppOptions): CreatedApp {
   const app = new Hono();
   const { upgradeWebSocket, injectWebSocket, wss } = createNodeWebSocket({ app });
@@ -163,8 +172,18 @@ export function createApp({
   if (data) app.route("/api/data", dataRoutes(data));
   if (system) app.route("/api/system", systemRoutes({ system }));
   if (search) app.route("/api/search", searchRoutes(search));
+  app.route(
+    "/api/voice",
+    voiceRoutes({
+      ...(voice ? { voice } : {}),
+      ...(voiceCommands ? { commands: voiceCommands } : {}),
+    }),
+  );
 
   app.all("/api/*", (c) => c.json({ error: "not found" }, 404));
+
+  // Outside /api: voice turns reach it with their own bearer token, not the launch cookie.
+  if (voiceCommands) app.route("/mcp", mcpRoutes(voiceCommands));
 
   app.get(
     WS_PATH,

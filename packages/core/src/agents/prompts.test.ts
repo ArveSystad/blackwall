@@ -7,7 +7,10 @@ import {
   chatSystemPrompt,
   findingsContract,
   missingPlanSections,
+  voiceCommandPrompt,
+  voiceSystemPrompt,
 } from "./prompts.js";
+import { VOICE_TOOL_NAMES } from "../voice/tools.js";
 
 const agent = { prompt: "You are the security reviewer." };
 
@@ -339,5 +342,40 @@ describe("chat prompts", () => {
     expect(chatSystemPrompt()).toContain(
       "When the focused task lists a worktree, the current directory is that worktree",
     );
+  });
+});
+
+describe("voice prompts", () => {
+  it("names every blackwall tool and keeps the agent to them", () => {
+    const prompt = voiceSystemPrompt();
+    for (const name of VOICE_TOOL_NAMES) expect(prompt).toContain(`\`${name}\``);
+    expect(prompt).toContain("Act only through the blackwall tools");
+    expect(prompt).toContain("speech transcript");
+    expect(prompt).toContain("call no tool and ask");
+  });
+
+  it("lists waiting items, the runner and the draft, then the transcript", () => {
+    const prompt = voiceCommandPrompt({
+      text: "start the dark mode task",
+      backlog: [{ id: "b1", title: "Dark mode toggle" }],
+      runner: { enabled: true, global: true },
+      draft: null,
+    });
+    expect(prompt).toContain("- `b1` Dark mode toggle");
+    expect(prompt).toContain("Backlog runner: on\n");
+    expect(prompt).toContain("### Task draft\n\n(none)");
+    expect(prompt.endsWith("## Transcript\n\nstart the dark mode task")).toBe(true);
+  });
+
+  it("says when Settings turned the runner off for every repo, and shows the draft", () => {
+    const prompt = voiceCommandPrompt({
+      text: "confirm",
+      backlog: [],
+      runner: { enabled: false, global: false },
+      draft: { title: "Dark mode", description: "" },
+    });
+    expect(prompt).toContain("### Waiting backlog items\n\n(none)");
+    expect(prompt).toContain("Backlog runner: off (off for every repo in Settings)");
+    expect(prompt).toContain("- title: Dark mode\n- description: (empty)");
   });
 });

@@ -9,6 +9,7 @@ import {
   type StepEvent,
   type StepUsage,
   type Task,
+  type VoiceState,
 } from "@blackwall/shared";
 import type { QueryClient } from "@tanstack/react-query";
 import { queryKeys } from "./query";
@@ -245,6 +246,18 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     case "chat.upserted": {
       const { chat } = event.payload;
       client.setQueryData<ChatState>(queryKeys.chat(chat.repoId, chat.taskId), chat);
+      break;
+    }
+    case "voice.upserted": {
+      const { voice } = event.payload;
+      const before = client.getQueryData<VoiceState>(queryKeys.voice)?.created;
+      client.setQueryData<VoiceState>(queryKeys.voice, voice);
+      // A voice submit added a backlog item, and maybe started its task.
+      const { created } = voice;
+      if (created && (before?.itemId !== created.itemId || before.taskId !== created.taskId)) {
+        void client.invalidateQueries({ queryKey: queryKeys.backlog(created.repoId) });
+        void client.invalidateQueries({ queryKey: queryKeys.tasks });
+      }
       break;
     }
     case "data.imported":

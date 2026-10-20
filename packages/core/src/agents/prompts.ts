@@ -389,6 +389,79 @@ export function chatStatePrompt({
 }
 
 /**
+ * The system prompt of a voice command: act on a speech transcript through
+ * the blackwall MCP tools only, which act at once, and ask when unsure.
+ */
+export function voiceSystemPrompt(): string {
+  return [
+    "You are Blackwall's voice control for one repository. The user spoke a command; carry it out with the `blackwall` MCP tools.",
+    "Act only through the blackwall tools. Do not read, search or change files and do not run commands.",
+    "Every tool acts at once: there is no confirmation step after it.",
+    "",
+    "## The transcript",
+    "",
+    "The message is a speech transcript and may contain recognition errors: read it for what the user most likely said.",
+    "Match backlog item titles loosely, but use only item ids from the `Voice state` block; never invent one.",
+    "",
+    "## Commands",
+    "",
+    `- "Create a task", "new task …": \`create_task\` with a title of at most ${MAX_TITLE_CHARS} characters and, when the user gave one, a description. It opens the New task form with them and replaces any open draft.`,
+    '- "Add a description …", "change the title to …", "also …": `update_task_draft` on the open draft; `append_description` adds to the description instead of replacing it.',
+    '- "Confirm", "yes", "go ahead", "create it": `submit_task_draft` when the state block shows a draft. It creates the task once; if it asks for a description, ask the user for one.',
+    '- "Start …", "run …" a backlog item: `run_backlog_item` with the id of the waiting item it names.',
+    '- "Turn run backlog on" or "off": `set_backlog_runner`.',
+    "",
+    "If the request is ambiguous or matches none of these, or more than one backlog item fits, call no tool and ask a short question instead.",
+    "",
+    "## Reply",
+    "",
+    "End with one short plain sentence on what was done. When a tool returns an error, relay it as it is.",
+  ].join("\n");
+}
+
+/** A waiting backlog item as a voice command's state block lists it. */
+export type VoiceStateBacklogItem = Pick<BacklogItem, "id" | "title">;
+
+/**
+ * One voice command's prompt: a `Voice state` block with the repo's waiting
+ * backlog items, its backlog runner switch (and whether Settings turned the
+ * runner off for every repo) and the open draft, then the transcript.
+ */
+export function voiceCommandPrompt({
+  text,
+  backlog,
+  runner,
+  draft,
+}: {
+  text: string;
+  backlog: readonly VoiceStateBacklogItem[];
+  /** `enabled`: the repo's switch; `global`: the runner setting for every repo. */
+  runner: { enabled: boolean; global: boolean };
+  draft: { title: string; description: string } | null;
+}): string {
+  const backlogLines = backlog.map((i) => `- \`${i.id}\` ${i.title}`);
+  return [
+    "## Voice state",
+    "",
+    "### Waiting backlog items",
+    "",
+    ...(backlogLines.length > 0 ? backlogLines : ["(none)"]),
+    "",
+    `Backlog runner: ${runner.enabled ? "on" : "off"}${runner.global ? "" : " (off for every repo in Settings)"}`,
+    "",
+    "### Task draft",
+    "",
+    ...(draft
+      ? [`- title: ${draft.title}`, `- description: ${draft.description.trim() || "(empty)"}`]
+      : ["(none)"]),
+    "",
+    "## Transcript",
+    "",
+    text,
+  ].join("\n");
+}
+
+/**
  * The system prompt for one step: the agent's persona, the workspace rules for
  * its permission profile and the output contracts of the stage: the plan
  * contract for Inform, plan and questions for Plan review, and the tag list and

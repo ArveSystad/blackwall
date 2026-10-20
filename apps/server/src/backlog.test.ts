@@ -12,6 +12,7 @@ import {
 import {
   backlogItemSchema,
   backlogItemViewSchema,
+  newBacklogItemInputSchema,
   quotaStateSchema,
   repoBacklogRunnerSchema,
   taskSchema,
@@ -22,7 +23,7 @@ import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.js";
 import { tokenCookieName } from "./auth.js";
-import { backlogRoutes, promoteBacklogItem } from "./backlog.js";
+import { addBacklogItem, BacklogInputError, backlogRoutes, promoteBacklogItem } from "./backlog.js";
 import { errorResponse } from "./errors.js";
 import type { NewTaskServices, TaskPipeline } from "./tasks.js";
 
@@ -432,6 +433,44 @@ describe("starting new backlog items", () => {
     expect(res.status).toBe(500);
     expect(await list()).toEqual([]);
     expect(events).toEqual([]);
+  });
+
+  it("adds and starts an item directly, as voice does, only when both switches are on", async () => {
+    const stores = {
+      backlogItems: repositories.backlogItems,
+      repos: repositories.repos,
+      tasks: repositories.tasks,
+    };
+    const services = {
+      broadcast: (event: ServerEvent) => void events.push(event),
+      pipeline: { createTask, autopilotRepo },
+      newTask,
+      runner: settings,
+    };
+    const input = (title: string) =>
+      newBacklogItemInputSchema.parse({
+        origin: { kind: "free-text" },
+        title,
+        freeText: "Do it",
+        start: true,
+      });
+    const started = await addBacklogItem(stores, services, repoId, input("Now"));
+    expect(started).toMatchObject({ status: "promoted", title: "Now" });
+    expect(createTask).toHaveBeenCalledTimes(1);
+
+    settings.updateGeneral({ backlogRunner: false });
+    const waiting = await addBacklogItem(stores, services, repoId, input("Later"));
+    expect(waiting).toMatchObject({ status: "waiting", taskId: null });
+    settings.updateGeneral({ backlogRunner: true });
+    settings.setRepoBacklogRunnerEnabled(repoId, false);
+    expect((await addBacklogItem(stores, services, repoId, input("Later 2"))).status).toBe(
+      "waiting",
+    );
+    expect(createTask).toHaveBeenCalledTimes(1);
+
+    await expect(
+      addBacklogItem(stores, services, repoId, { ...input("Bad"), dependsOn: ["nope"] }),
+    ).rejects.toThrow(new BacklogInputError("Unknown dependencies in this repo: nope"));
   });
 
   it("inserts nothing for a stale repo", async () => {

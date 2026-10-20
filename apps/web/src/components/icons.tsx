@@ -102,6 +102,13 @@ export const ChatIcon = icon(
   <path d="M3 3.5h10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7.5L4.5 14v-2.5H3a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1Z" />,
 );
 
+export const MicIcon = icon(
+  <>
+    <rect x="6" y="1.75" width="4" height="7.75" rx="2" />
+    <path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5" />
+  </>,
+);
+
 export const StatsIcon = icon(<path d="M3 13V9M8 13V3M13 13V6" />);
 
 export const RepoIcon = icon(

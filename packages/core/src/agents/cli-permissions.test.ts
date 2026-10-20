@@ -1,4 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import {
   existsSync,
   mkdirSync,
@@ -22,7 +24,7 @@ import { createClaudeAdapter } from "./adapters/claude.js";
 import { createCopilotAdapter } from "./adapters/copilot.js";
 import { createOpencodeAdapter } from "./adapters/opencode.js";
 import type { AgentEvent } from "./adapters/types.js";
-import { permissionArgs, permissionsFor } from "./permissions.js";
+import { permissionArgs, permissionsFor, type HarnessMcp } from "./permissions.js";
 
 /*
  * Runs the real CLIs against a throwaway repo to prove the permission profiles
@@ -551,6 +553,115 @@ describe.runIf(process.env.BLACKWALL_TEST_CLIS === "1")("CLI trust levels", () =
         expect(git(remote, "for-each-ref")).toBe("");
       },
       TIMEOUT_MS,
+    );
+  }
+});
+
+/**
+ * A tiny MCP server over streamable HTTP (JSON responses) with one `ping`
+ * tool behind a bearer token, standing in for blackwall's own `/mcp`.
+ */
+async function withPingServer<T>(
+  fn: (harnessMcp: HarnessMcp, pings: () => number) => Promise<T>,
+): Promise<T> {
+  const token = "ping-token";
+  let pings = 0;
+  const server = createServer((req, res) => {
+    if (req.headers.authorization !== `Bearer ${token}`) {
+      res.writeHead(401).end();
+      return;
+    }
+    if (req.method !== "POST") {
+      res.writeHead(405).end();
+      return;
+    }
+    let body = "";
+    req.on("data", (chunk: Buffer) => (body += chunk.toString()));
+    req.on("end", () => {
+      const message = JSON.parse(body) as { id?: number | string; method: string };
+      if (message.id === undefined) {
+        res.writeHead(202).end();
+        return;
+      }
+      const result =
+        message.method === "initialize"
+          ? {
+              protocolVersion: "2025-06-18",
+              capabilities: { tools: {} },
+              serverInfo: { name: "blackwall", version: "0.0.0" },
+            }
+          : message.method === "tools/list"
+            ? {
+                tools: [
+                  {
+                    name: "ping",
+                    description: "Returns the secret pong word.",
+                    inputSchema: { type: "object", properties: {} },
+                  },
+                ],
+              }
+            : message.method === "tools/call"
+              ? (pings++, { content: [{ type: "text", text: "pong-31" }] })
+              : {};
+      res
+        .writeHead(200, { "content-type": "application/json" })
+        .end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as AddressInfo;
+  try {
+    return await fn(
+      {
+        name: "blackwall",
+        url: `http://127.0.0.1:${port}/mcp`,
+        headers: { Authorization: `Bearer ${token}` },
+        tools: ["ping"],
+      },
+      () => pings,
+    );
+  } finally {
+    server.close();
+  }
+}
+
+const PING_PROMPT =
+  "Call the ping tool of the blackwall MCP server and reply with exactly what it returned. If you have no such tool, reply NO-TOOL.";
+
+async function runWithHarness(cli: AgentCli, harnessMcp?: HarnessMcp): Promise<string> {
+  const adapter =
+    cli === "claude"
+      ? createClaudeAdapter()
+      : cli === "copilot"
+        ? createCopilotAdapter()
+        : createOpencodeAdapter({
+            command: OPENCODE_COMMAND,
+            env: { ...process.env, XDG_CONFIG_HOME: configHome },
+          });
+  const run = adapter.run({
+    cwd: work,
+    prompt: PING_PROMPT,
+    permissions: { ...permissionsFor(cli, "read-only"), ...(harnessMcp ? { harnessMcp } : {}) },
+  });
+  const events: AgentEvent[] = [];
+  for await (const event of run) events.push(event);
+  return (await run.result).text;
+}
+
+describe.runIf(process.env.BLACKWALL_TEST_CLIS === "1")("CLI harness MCP server", () => {
+  for (const cli of ["claude", "copilot", "opencode"] as const) {
+    it(
+      `${cli}: reaches the harness server's tools only when given it`,
+      async () => {
+        await withPingServer(async (harnessMcp, pings) => {
+          expect(await runWithHarness(cli, harnessMcp)).toContain("pong-31");
+          expect(pings()).toBeGreaterThan(0);
+          const before = pings();
+          expect(await runWithHarness(cli)).not.toContain("pong-31");
+          expect(pings()).toBe(before);
+        });
+      },
+      2 * TIMEOUT_MS,
     );
   }
 });

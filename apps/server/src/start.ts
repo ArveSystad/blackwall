@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { join } from "node:path";
 import {
   acquireDataDirLock,
   createAgentService,
@@ -24,6 +25,8 @@ import {
   createSettingsService,
   createSystemService,
   createTaskArtifacts,
+  createVoiceCommandService,
+  createVoiceService,
   createTaskDiffs,
   createWorkspacePreparer,
   createWorkspaceRemover,
@@ -32,10 +35,17 @@ import {
   detectClis,
   openDatabase,
   sqliteOf,
+  VoiceToolError,
 } from "@blackwall/core";
 import { parseRemoteSlug, testConnection } from "@blackwall/integrations";
-import { ROLE_STAGES, type ServerEvent, type TaskOrigin } from "@blackwall/shared";
-import { promoteBacklogItem } from "./backlog.js";
+import {
+  newBacklogItemInputSchema,
+  ROLE_STAGES,
+  type AgentCli,
+  type ServerEvent,
+  type TaskOrigin,
+} from "@blackwall/shared";
+import { addBacklogItem, promoteBacklogItem, type BacklogRouteOptions } from "./backlog.js";
 import type { ServerConfig } from "./config.js";
 import { createGitHubOrigin, firstBranchFor, firstOriginContext } from "./github.js";
 import { createJiraOrigin } from "./jira.js";
@@ -216,6 +226,16 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
     shutdown.onShutdown(() => pipeline.shutdown());
     // Registered after the engine's hook, so it runs first: no promotions while tasks are aborted.
     shutdown.onShutdown(() => backlogRunner.stop());
+    // The planner's model on the CLI, so the chat and voice answer like the agent that plans.
+    const modelFor = (cli: AgentCli) => {
+      const planner = agents.resolveRoles().planner;
+      if (typeof planner !== "string") return undefined;
+      try {
+        return agents.invocation(planner, ROLE_STAGES.planner, cli).model ?? undefined;
+      } catch {
+        return undefined;
+      }
+    };
     const chat = createChatService({
       adapters,
       repos: repositories.repos,
@@ -223,19 +243,58 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       questions: repositories.grillQuestions,
       backlogItems: repositories.backlogItems,
       messages: repositories.chatMessages,
-      // The planner's model on the CLI, so the chat answers like the agent that plans.
-      modelFor: (cli) => {
-        const planner = agents.resolveRoles().planner;
-        if (typeof planner !== "string") return undefined;
-        try {
-          return agents.invocation(planner, ROLE_STAGES.planner, cli).model ?? undefined;
-        } catch {
-          return undefined;
-        }
-      },
+      modelFor,
       publish,
     });
     shutdown.onShutdown(() => chat.shutdown());
+    const backlog: BacklogRouteOptions = {
+      backlogItems: repositories.backlogItems,
+      repos: repositories.repos,
+      tasks: repositories.tasks,
+      runner: settings,
+      onChanged: () => backlogRunner.poke(),
+    };
+    // Set once the server listens; voice turns start only after that.
+    let port = config.port;
+    const voice = createVoiceService({
+      modelsDir: join(config.dataDir, "models"),
+      modelId: () => settings.general().voiceModel,
+    });
+    const voiceCommands = createVoiceCommandService({
+      adapters,
+      repos: repositories.repos,
+      backlogItems: repositories.backlogItems,
+      runner: settings,
+      runBacklogItem: (repoId, itemId) => {
+        const item = repositories.backlogItems.get(itemId);
+        if (!item || item.repoId !== repoId || item.status !== "waiting") {
+          throw new VoiceToolError("The backlog item is not waiting in this repo");
+        }
+        return promoteBacklogItem(item, {
+          pipeline,
+          newTask,
+          backlogItems: repositories.backlogItems,
+          broadcast: publish,
+        });
+      },
+      // The same path as the New task form; `publish` also tells the backlog runner.
+      submitTask: (repoId, input) => {
+        const parsed = newBacklogItemInputSchema.safeParse(input);
+        if (!parsed.success) {
+          throw new VoiceToolError(parsed.error.issues[0]?.message ?? "Invalid task");
+        }
+        return addBacklogItem(
+          backlog,
+          { broadcast: publish, pipeline, newTask, runner: settings },
+          repoId,
+          parsed.data,
+        );
+      },
+      modelFor,
+      mcpUrl: () => `http://${HOSTNAME}:${port}/mcp`,
+      publish,
+    });
+    shutdown.onShutdown(() => voiceCommands.shutdown());
     const data = createDataService({
       sqlite: sqliteOf(database.db),
       dataDir: config.dataDir,
@@ -245,6 +304,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       // Nothing promotes or answers while the rows are replaced; chats would refer to old data.
       pause: async () => {
         chat.reset();
+        voiceCommands.reset();
         ciWatcher.stop();
         await backlogRunner.stop();
       },
@@ -284,13 +344,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
         prComments: github.pullRequestComments,
         artifacts: createTaskArtifacts(),
       },
-      backlog: {
-        backlogItems: repositories.backlogItems,
-        repos: repositories.repos,
-        tasks: repositories.tasks,
-        runner: settings,
-        onChanged: () => backlogRunner.poke(),
-      },
+      backlog,
       chat,
       quota,
       clis: () => clis,
@@ -301,9 +355,12 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
         tasks: repositories.tasks,
       }),
       search: createSearch(database.db),
+      voice,
+      voiceCommands,
       shutdown,
     });
     broadcast = send;
+    port = actualPort;
     // Steps left running by a previous process become interrupted (resumable); queued tasks start.
     pipeline.recover();
     // CI watches a previous process left pending resume, or time out.

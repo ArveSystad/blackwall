@@ -49,6 +49,9 @@ import {
   taskDoneTimeSchema,
   stepUsageSchema,
   taskSchema,
+  voiceStateSchema,
+  voiceStatusSchema,
+  voiceTranscriptSchema,
   type ActiveAgentStep,
   type AssignedIssues,
   type Agent,
@@ -111,6 +114,8 @@ import {
   type StepUsage,
   type TaskWorktree,
   type UpdateBacklogItemInput,
+  type VoiceState,
+  type VoiceStatus,
 } from "@blackwall/shared";
 
 export async function fetchHealth(signal?: AbortSignal): Promise<HealthResponse> {
@@ -165,15 +170,20 @@ async function errorFrom(res: Response): Promise<ApiError> {
 
 interface RequestInit {
   method?: string;
+  /** Sent as JSON. */
   body?: unknown;
+  /** Sent as is, as `application/octet-stream`, instead of a JSON body. */
+  raw?: ArrayBuffer;
 }
 
 async function send(path: string, init: RequestInit): Promise<Response> {
   const res = await fetch(path, {
     method: init.method ?? "GET",
-    ...(init.body === undefined
-      ? {}
-      : { headers: { "content-type": "application/json" }, body: JSON.stringify(init.body) }),
+    ...(init.raw !== undefined
+      ? { headers: { "content-type": "application/octet-stream" }, body: init.raw }
+      : init.body === undefined
+        ? {}
+        : { headers: { "content-type": "application/json" }, body: JSON.stringify(init.body) }),
   });
   if (!res.ok) throw await errorFrom(res);
   return res;
@@ -538,6 +548,49 @@ export function deleteBacklogItem(repoId: string, id: string): Promise<void> {
 /** Promotes the item now: the server creates a normal queued task from it. */
 export function runBacklogItem(repoId: string, id: string): Promise<Task> {
   return request(`${at(backlogPath(repoId), id)}/run`, taskSchema, { method: "POST" });
+}
+
+/** Whether the server can transcribe speech with the chosen model, and why not. */
+export function getVoiceStatus(): Promise<VoiceStatus> {
+  return request("/api/voice/status", voiceStatusSchema);
+}
+
+/**
+ * The text spoken in mono samples at `VOICE_SAMPLE_RATE`, transcribed on the
+ * server. Only the view's own samples are sent, even for a subarray.
+ */
+export async function transcribeVoice(samples: Float32Array): Promise<string> {
+  const { text } = await request("/api/voice/transcribe", voiceTranscriptSchema, {
+    method: "POST",
+    raw: samples.slice().buffer,
+  });
+  return text;
+}
+
+/** Voice control as every client sees it: the last command and the open task draft. */
+export function getVoiceState(): Promise<VoiceState> {
+  return request("/api/voice", voiceStateSchema);
+}
+
+/** Runs a transcript as a command on the repo; answers 409 while the last one still runs. */
+export function sendVoiceCommand(repoId: string, text: string): Promise<VoiceState> {
+  return request("/api/voice/commands", voiceStateSchema, {
+    method: "POST",
+    body: { repoId, text },
+  });
+}
+
+/** Creates the voice draft's task from its form; 409 when it was already created or closed. */
+export function submitVoiceDraft(id: string, input: NewBacklogItemInput): Promise<BacklogItem> {
+  return request(`${at("/api/voice/draft", id)}/submit`, backlogItemSchema, {
+    method: "POST",
+    body: input,
+  });
+}
+
+/** Closes the voice draft; a draft already gone is ignored. */
+export function clearVoiceDraft(id: string): Promise<void> {
+  return requestEmpty(at("/api/voice/draft", id), { method: "DELETE" });
 }
 
 /** The repo's chat, or the task's own when `taskId` is set. */

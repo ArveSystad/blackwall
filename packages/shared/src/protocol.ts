@@ -9,6 +9,7 @@ import {
   stepEventSchema,
   stepSchema,
   taskSchema,
+  voiceStateSchema,
 } from "./domain.js";
 
 /** Query parameter carrying the per-launch token in the launch URL. */
@@ -91,6 +92,8 @@ export const serverEventSchema = z.discriminatedUnion("type", [
   envelope("quota.changed", z.object({ quota: z.array(quotaStateSchema) })),
   /** A repo's chat changed (message, activity, busy or an applied action). */
   envelope("chat.upserted", z.object({ chat: chatStateSchema })),
+  /** Voice control changed (a command's progress or reply, its draft, or what a submit created). */
+  envelope("voice.upserted", z.object({ voice: voiceStateSchema })),
   /** A data import replaced every row; clients refetch everything. */
   envelope("data.imported", z.object({})),
 ]);

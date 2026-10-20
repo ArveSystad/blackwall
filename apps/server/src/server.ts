@@ -10,14 +10,17 @@ import type {
   Search,
   SettingsService,
   SystemService,
+  VoiceService,
 } from "@blackwall/core";
 import { TOKEN_QUERY_PARAM, type CliStatus, type ServerEvent } from "@blackwall/shared";
 import { createApp } from "./app.js";
 import { generateToken } from "./auth.js";
 import type { BacklogRouteOptions } from "./backlog.js";
 import type { ConnectionRoutesOptions } from "./connections.js";
+import type { McpCommandService } from "./mcp.js";
 import type { TaskPipeline, TaskRouteServices, TaskRouteStores } from "./tasks.js";
 import type { Shutdown } from "./shutdown.js";
+import type { VoiceCommandRouteService } from "./voice.js";
 
 export const HOSTNAME = "127.0.0.1";
 
@@ -44,6 +47,8 @@ export interface StartOptions {
   data?: Pick<DataService, "export" | "import">;
   system?: Pick<SystemService, "snapshot" | "compact">;
   search?: Pick<Search, "search">;
+  voice?: Pick<VoiceService, "status" | "transcribe">;
+  voiceCommands?: VoiceCommandRouteService & McpCommandService;
   shutdown: Shutdown;
 }
 
@@ -76,6 +81,8 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     ...(options.data ? { data: options.data } : {}),
     ...(options.system ? { system: options.system } : {}),
     ...(options.search ? { search: options.search } : {}),
+    ...(options.voice ? { voice: options.voice } : {}),
+    ...(options.voiceCommands ? { voiceCommands: options.voiceCommands } : {}),
     ...(options.dev ? {} : { webDist: WEB_DIST }),
   });
 

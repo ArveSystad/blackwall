@@ -64,6 +64,7 @@ const DEFAULTS = {
   maxBacklogTasksPerRepo: 1,
   stopBacklogOnNeedsYou: true,
   githubIssuesRefreshSeconds: 60,
+  voiceModel: "moonshine-tiny-en",
 };
 
 describe("general settings", () => {
@@ -81,6 +82,7 @@ describe("general settings", () => {
       maxBacklogTasksPerRepo: 2,
       stopBacklogOnNeedsYou: false,
       githubIssuesRefreshSeconds: 30,
+      voiceModel: "whisper-small",
     });
     const reopened = createSettingsService({ settings: r.settings, tags: r.tags });
     expect(reopened.maxTasksPerRepo()).toBe(5);
@@ -90,6 +92,7 @@ describe("general settings", () => {
       maxBacklogTasksPerRepo: 2,
       stopBacklogOnNeedsYou: false,
       githubIssuesRefreshSeconds: 30,
+      voiceModel: "whisper-small",
     });
   });
 
@@ -115,6 +118,14 @@ describe("general settings", () => {
   it("falls back to the default refresh interval when the stored one is out of range", () => {
     r.settings.set("githubIssuesRefreshSeconds", 1);
     expect(service.general().githubIssuesRefreshSeconds).toBe(60);
+  });
+
+  it("falls back to the default voice model when the stored one is unknown", () => {
+    r.settings.set("voiceModel", "whisper-huge");
+    expect(service.general().voiceModel).toBe("moonshine-tiny-en");
+    expect(() => service.updateGeneral({ voiceModel: "nope" as never })).toThrow(
+      InvalidSettingsError,
+    );
   });
 });
 

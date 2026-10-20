@@ -6,7 +6,9 @@ import {
   artifactUrl,
   getArtifactText,
   listConnections,
+  sendVoiceCommand,
   socketUrl,
+  transcribeVoice,
 } from "./api";
 
 describe("socketUrl", () => {
@@ -87,5 +89,46 @@ describe("getArtifactText", () => {
     const error = await getArtifactText("t1", artifact).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject({ status: 404, message: "Artifact docs/notes.md not found" });
+  });
+});
+
+describe("request bodies", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("sends voice samples as raw floats, only the view's own", async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(new Response(JSON.stringify({ text: "hi" })));
+    vi.stubGlobal("fetch", fetch);
+    const all = new Float32Array([0.1, 0.2, 0.3, 0.4, 0.5]);
+    expect(await transcribeVoice(all.subarray(1, 4))).toBe("hi");
+    const [path, init] = fetch.mock.calls[0]!;
+    expect(path).toBe("/api/voice/transcribe");
+    expect(init?.headers).toEqual({ "content-type": "application/octet-stream" });
+    const body = init?.body as ArrayBuffer;
+    expect(body.byteLength).toBe(3 * 4);
+    expect(Array.from(new Float32Array(body))).toEqual(Array.from(all.subarray(1, 4)));
+  });
+
+  it("still sends JSON bodies as JSON", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          busy: true,
+          repoId: "r1",
+          transcript: "hi",
+          activity: null,
+          reply: null,
+          error: null,
+          draft: null,
+          created: null,
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetch);
+    await sendVoiceCommand("r1", "hi");
+    const [, init] = fetch.mock.calls[0]!;
+    expect(init?.headers).toEqual({ "content-type": "application/json" });
+    expect(init?.body).toBe(JSON.stringify({ repoId: "r1", text: "hi" }));
   });
 });

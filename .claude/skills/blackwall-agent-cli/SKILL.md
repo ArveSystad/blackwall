@@ -169,6 +169,15 @@ Follow the `caveman` skill for narration and status updates. Code, prompts and c
   and injects `opencodeProject`: `skills.paths`, `instructions`, the repo's agents with the run's
   permission, and for implementers `mcp` / `plugin` when on. Skills grant no permissions.
   Unrestricted drops the project-config switch and the config home and allows `*`.
+- **Harness MCP (`AgentPermissions.harnessMcp`):** blackwall's own HTTP MCP server
+  (`{ name: "blackwall", url, headers, tools }`, served at `/mcp` with a per-turn bearer token).
+  Only voice turns set it, at any trust level. Claude: inline JSON
+  `{mcpServers:{blackwall:{type:"http",url,headers}}}` as one more `--mcp-config` value (after a
+  project `.mcp.json`, still `--strict-mcp-config`) plus `mcp__blackwall__<tool>` in
+  `--allowedTools`. Copilot: `--additional-mcp-config <inline JSON>` (the server also lists its
+  `tools`) plus `--allow-tool=blackwall(<tool>)`. OpenCode: `mcp.blackwall = { type: "remote", url,
+  headers, enabled: true }` plus `permission["blackwall_<tool>"] = "allow"`. Proven by the opt-in
+  "CLI harness MCP server" cases in `cli-permissions.test.ts`.
 - **Backstop:** read-only steps under Trusted are snapshotted and restored by the engine
   (`worktreeGuard`), see AGENTS.md.
 - **Events:** `skills-loaded` comes from Claude's init `skills` (only with `Skill` in its tools) and

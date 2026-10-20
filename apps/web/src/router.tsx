@@ -12,6 +12,7 @@ import { Inbox } from "./components/Inbox";
 import { NotFound } from "./components/NotFound";
 import { SearchPalette } from "./components/SearchPalette";
 import { TopBar } from "./components/TopBar";
+import { VoiceTaskModal } from "./components/VoiceTaskModal";
 import { ActiveAgents } from "./routes/ActiveAgents";
 import { AssignedIssues } from "./routes/AssignedIssues";
 import { Backlog } from "./routes/Backlog";
@@ -43,6 +44,7 @@ const rootRoute = createRootRoute({
           <ChatPanel />
         </div>
         <SearchPalette />
+        <VoiceTaskModal />
       </div>
     );
   },

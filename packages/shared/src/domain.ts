@@ -865,6 +865,58 @@ export function agentCliFor(
   return task.agentClis[agentId] ?? task.cli;
 }
 
+/** The files a speech model of each kind needs, by the recognizer config field they fill. */
+export const VOICE_MODEL_FILES = {
+  moonshine: ["preprocessor", "encoder", "uncachedDecoder", "cachedDecoder", "tokens"],
+  whisper: ["encoder", "decoder", "tokens"],
+} as const;
+export type VoiceModelKind = keyof typeof VOICE_MODEL_FILES;
+
+/** A downloadable sherpa-onnx speech model: its release archive and the files in it. */
+export type VoiceModelSpec = {
+  [K in VoiceModelKind]: {
+    label: string;
+    /** Release archive name under sherpa-onnx's `asr-models`, and the folder it unpacks to. */
+    archive: string;
+    kind: K;
+    files: Record<(typeof VOICE_MODEL_FILES)[K][number], string>;
+    /** Download size, roughly. */
+    approxMb: number;
+  };
+}[VoiceModelKind];
+
+/** The speech models voice control can use, by id. The single place to fix archive file names. */
+export const VOICE_MODELS = {
+  "moonshine-tiny-en": {
+    label: "Moonshine tiny (English)",
+    archive: "sherpa-onnx-moonshine-tiny-en-int8",
+    kind: "moonshine",
+    files: {
+      preprocessor: "preprocess.onnx",
+      encoder: "encode.int8.onnx",
+      uncachedDecoder: "uncached_decode.int8.onnx",
+      cachedDecoder: "cached_decode.int8.onnx",
+      tokens: "tokens.txt",
+    },
+    approxMb: 100,
+  },
+  "whisper-small": {
+    label: "Whisper small (multilingual)",
+    archive: "sherpa-onnx-whisper-small",
+    kind: "whisper",
+    files: {
+      encoder: "small-encoder.int8.onnx",
+      decoder: "small-decoder.int8.onnx",
+      tokens: "small-tokens.txt",
+    },
+    approxMb: 610,
+  },
+} as const satisfies Record<string, VoiceModelSpec>;
+export type VoiceModelId = keyof typeof VOICE_MODELS;
+export const VOICE_MODEL_IDS = Object.keys(VOICE_MODELS) as [VoiceModelId, ...VoiceModelId[]];
+export const DEFAULT_VOICE_MODEL: VoiceModelId = "moonshine-tiny-en";
+export const voiceModelIdSchema = z.enum(VOICE_MODEL_IDS);
+
 export const DEFAULT_MAX_TASKS_PER_REPO = 3;
 export const DEFAULT_MAX_BACKLOG_TASKS_PER_REPO = 1;
 export const DEFAULT_GITHUB_ISSUES_REFRESH_SECONDS = 60;
@@ -886,6 +938,8 @@ export const settingsSchema = z.object({
     .min(MIN_GITHUB_ISSUES_REFRESH_SECONDS)
     .max(MAX_GITHUB_ISSUES_REFRESH_SECONDS)
     .default(DEFAULT_GITHUB_ISSUES_REFRESH_SECONDS),
+  /** The speech model voice control transcribes with. */
+  voiceModel: voiceModelIdSchema.default(DEFAULT_VOICE_MODEL),
 });
 export type Settings = z.infer<typeof settingsSchema>;
 export type SettingsInput = z.input<typeof settingsSchema>;
@@ -909,6 +963,7 @@ export const generalSettingsUpdateSchema = z.object({
   maxBacklogTasksPerRepo: settingsSchema.shape.maxBacklogTasksPerRepo.unwrap().optional(),
   stopBacklogOnNeedsYou: z.boolean().optional(),
   githubIssuesRefreshSeconds: settingsSchema.shape.githubIssuesRefreshSeconds.unwrap().optional(),
+  voiceModel: voiceModelIdSchema.optional(),
 });
 export type GeneralSettingsUpdate = z.infer<typeof generalSettingsUpdateSchema>;
 
@@ -2232,3 +2287,77 @@ export const searchResultsSchema = z.object({
   repos: z.array(searchRepoHitSchema),
 });
 export type SearchResults = z.infer<typeof searchResultsSchema>;
+
+// ---------------------------------------------------------------------------
+// Voice
+// ---------------------------------------------------------------------------
+
+/** The rate the browser resamples to and the recognizer reads, in Hz. */
+export const VOICE_SAMPLE_RATE = 16000;
+/** The longest clip, in seconds; recording stops itself here. */
+export const MAX_VOICE_SECONDS = 30;
+/** Shorter clips are dropped as accidental taps. */
+export const MIN_VOICE_SECONDS = 0.3;
+/** The longest transcript a voice command takes. */
+export const MAX_VOICE_COMMAND_CHARS = 2000;
+
+/** `GET /api/voice/status`: whether the chosen model can transcribe, and why not. */
+export const voiceStatusSchema = z.object({
+  available: z.boolean(),
+  model: voiceModelIdSchema,
+  reason: z.string().nullable(),
+});
+export type VoiceStatus = z.infer<typeof voiceStatusSchema>;
+
+/** `POST /api/voice/transcribe` response. */
+export const voiceTranscriptSchema = z.object({ text: z.string() });
+export type VoiceTranscript = z.infer<typeof voiceTranscriptSchema>;
+
+/**
+ * The New task form a voice command opened, held on the server. `revision`
+ * goes up with each change of its fields; `submitting` while it is being
+ * created, by voice or the form.
+ */
+export const voiceDraftSchema = z.object({
+  id,
+  repoId: id,
+  title: z.string(),
+  description: z.string(),
+  revision: z.int(),
+  submitting: z.boolean(),
+});
+export type VoiceDraft = z.infer<typeof voiceDraftSchema>;
+
+/** What a voice submit created: the backlog item, and its task when it started at once. */
+export const voiceCreatedSchema = z.object({
+  repoId: id,
+  itemId: id,
+  taskId: id.nullable(),
+  title: z.string(),
+});
+export type VoiceCreated = z.infer<typeof voiceCreatedSchema>;
+
+/** Voice control as every client sees it: the last command, its progress, and the open draft. */
+export const voiceStateSchema = z.object({
+  /** True while the agent works on a command. */
+  busy: z.boolean(),
+  /** The repo of the last command. */
+  repoId: id.nullable(),
+  transcript: z.string().nullable(),
+  /** What the agent is doing right now; null when idle or unknown. */
+  activity: z.string().nullable(),
+  /** The agent's answer to the last command. */
+  reply: z.string().nullable(),
+  error: z.string().nullable(),
+  draft: voiceDraftSchema.nullable(),
+  /** Set by the last submit of a draft; cleared by the next command. */
+  created: voiceCreatedSchema.nullable(),
+});
+export type VoiceState = z.infer<typeof voiceStateSchema>;
+
+/** `POST /api/voice/commands` body: a transcript to act on in a repo. */
+export const voiceCommandInputSchema = z.object({
+  repoId: z.string().min(1),
+  text: z.string().trim().min(1).max(MAX_VOICE_COMMAND_CHARS),
+});
+export type VoiceCommandInput = z.infer<typeof voiceCommandInputSchema>;

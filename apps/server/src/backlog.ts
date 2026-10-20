@@ -180,6 +180,131 @@ export function addStackSiblings(
   );
 }
 
+/** A new backlog item the repo cannot take; the message is safe to show. */
+export class BacklogInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BacklogInputError";
+  }
+}
+
+/** Dependency ids that are not items of the repo; an item cannot be its own. */
+function foreignDependencies(items: BacklogItem[], dependsOn: string[]): string[] {
+  const ids = new Set(items.map((i) => i.id));
+  return dependsOn.filter((id) => !ids.has(id));
+}
+
+/**
+ * Whether a new item starts at once: backlogs run automatically, the repo's
+ * runner is on and the item's dependencies are done. A halt does not count;
+ * it only stops the runner from picking other waiting items.
+ */
+function shouldStart(
+  { backlogItems, tasks }: Pick<BacklogRouteStores, "backlogItems" | "tasks">,
+  { pipeline, newTask, runner }: Pick<BacklogRouteServices, "pipeline" | "newTask" | "runner">,
+  repoId: string,
+  dependsOn: string[],
+): boolean {
+  if (!runner || !pipeline || !newTask) return false;
+  const isDone = (taskId: string) => tasks.get(taskId)?.status === "done";
+  const byId = new Map(backlogItems.list(repoId).map((i) => [i.id, i]));
+  return (
+    runner.general().backlogRunner &&
+    runner.repoBacklogRunner(repoId).enabled &&
+    // Only the dependencies are read, so the item need not exist yet.
+    unmetDependencies({ dependsOn } as BacklogItem, byId, isDone).length === 0
+  );
+}
+
+/**
+ * The open PRs of a PR origin's stack, bottom first; undefined when it is
+ * not stacked or the lookup fails. A missing token still throws.
+ */
+async function stackOf(
+  newTask: NewTaskServices | undefined,
+  origin: TaskOrigin,
+): Promise<PullRequestStackMember[] | undefined> {
+  if (origin.kind !== "github-pr" || !newTask?.pullRequestStack) return undefined;
+  try {
+    const members = await newTask.pullRequestStack(origin);
+    return members && members.length >= 2 ? members : undefined;
+  } catch (error) {
+    // A missing token opens the token modal; other failures leave the PR unstacked.
+    if (error instanceof MissingCredentialError) throw error;
+    return undefined;
+  }
+}
+
+/** A parsed `POST /api/repos/:repoId/backlog` body. */
+export type NewBacklogItemParsed = ReturnType<typeof newBacklogItemInputSchema.parse>;
+
+/**
+ * Adds an item to a repo's backlog, for `POST /api/repos/:repoId/backlog` and
+ * voice commands. With `start` it is promoted at once when the runner would
+ * start it; a failed promotion removes it again. A PR that belongs to a stack
+ * is linked to it and its other open PRs get waiting Review PR items (see
+ * {@link addStackSiblings}). Throws {@link BacklogInputError} for
+ * dependencies that are not the repo's items.
+ */
+export async function addBacklogItem(
+  { backlogItems, repos, tasks }: BacklogRouteStores,
+  services: BacklogRouteServices,
+  repoId: string,
+  input: NewBacklogItemParsed,
+): Promise<BacklogItem> {
+  const { broadcast, pipeline, newTask } = services;
+  const changed = () => broadcast({ type: "backlog.changed", payload: { repoId } });
+  const foreign = foreignDependencies(backlogItems.list(repoId), input.dependsOn);
+  if (foreign.length > 0) {
+    throw new BacklogInputError(`Unknown dependencies in this repo: ${foreign.join(", ")}`);
+  }
+  if (input.referenceRepoIds) {
+    checkReferenceRepoIds(repos, repoId, input.referenceRepoIds);
+  }
+  const { start, startComment, ...parsed } = input;
+  // Only the server links a PR to its stack.
+  const values = { ...parsed, origin: withoutStack(parsed.origin) };
+  // Everything that can fail runs before the insert, so retries add no duplicates.
+  if (newTask && (start || values.title === undefined)) newTask.repos.use(repoId);
+  const title =
+    values.title ?? (await titleFor(values.origin, values.freeText, newTask?.originTitle));
+  const stack = await stackOf(newTask, values.origin);
+  if (stack && values.origin.kind === "github-pr") {
+    values.origin = { ...values.origin, stack: { prs: stack.map((m) => m.number) } };
+  }
+  const startsNow =
+    start && shouldStart({ backlogItems, tasks }, services, repoId, values.dependsOn);
+  // The confirmed start comment goes out only with a task that starts now,
+  // never later when the runner promotes the item on its own.
+  if (startComment && startsNow && newTask) {
+    await postStartComment(newTask, values.origin, startComment);
+  }
+  let item = backlogItems.insert({ ...values, title, repoId });
+  if (startsNow && pipeline && newTask) {
+    try {
+      // Announces the change itself.
+      promoteBacklogItem(item, { pipeline, newTask, backlogItems, broadcast });
+      item = backlogItems.get(item.id) ?? item;
+    } catch (error) {
+      // Never announced, so clients never saw it.
+      backlogItems.delete(item.id);
+      throw error;
+    }
+  } else {
+    changed();
+  }
+  if (stack) {
+    try {
+      const added = addStackSiblings(backlogItems, tasks, { repoId, main: item, members: stack });
+      // The backlog runner picks them up when the repo's runner is on.
+      if (added.length > 0) changed();
+    } catch (error) {
+      console.error(`Could not add the other pull requests of the stack: ${String(error)}`);
+    }
+  }
+  return item;
+}
+
 function badRequest(c: Context, error: { issues: { message: string }[] }) {
   return c.json({ error: error.issues.map((i) => i.message).join("; ") }, 400);
 }
@@ -195,50 +320,13 @@ function badRequest(c: Context, error: { issues: { message: string }[] }) {
  */
 export function backlogRoutes(
   { backlogItems, repos, tasks }: BacklogRouteStores,
-  { broadcast, pipeline, newTask, runner }: BacklogRouteServices,
+  services: BacklogRouteServices,
 ): Hono {
+  const { broadcast, pipeline, newTask, runner } = services;
   const routes = new Hono();
 
   const isDone = (taskId: string) => tasks.get(taskId)?.status === "done";
   const changed = (repoId: string) => broadcast({ type: "backlog.changed", payload: { repoId } });
-
-  /** Dependency ids that are not items of the repo; an item cannot be its own. */
-  function foreignDependencies(items: BacklogItem[], dependsOn: string[]): string[] {
-    const ids = new Set(items.map((i) => i.id));
-    return dependsOn.filter((id) => !ids.has(id));
-  }
-
-  /**
-   * Whether a new item starts at once: backlogs run automatically, the repo's
-   * runner is on and the item's dependencies are done. A halt does not count;
-   * it only stops the runner from picking other waiting items.
-   */
-  function shouldStart(repoId: string, dependsOn: string[]): boolean {
-    if (!runner || !pipeline || !newTask) return false;
-    const byId = new Map(backlogItems.list(repoId).map((i) => [i.id, i]));
-    return (
-      runner.general().backlogRunner &&
-      runner.repoBacklogRunner(repoId).enabled &&
-      // Only the dependencies are read, so the item need not exist yet.
-      unmetDependencies({ dependsOn } as BacklogItem, byId, isDone).length === 0
-    );
-  }
-
-  /**
-   * The open PRs of a PR origin's stack, bottom first; undefined when it is
-   * not stacked or the lookup fails. A missing token still throws.
-   */
-  async function stackOf(origin: TaskOrigin): Promise<PullRequestStackMember[] | undefined> {
-    if (origin.kind !== "github-pr" || !newTask?.pullRequestStack) return undefined;
-    try {
-      const members = await newTask.pullRequestStack(origin);
-      return members && members.length >= 2 ? members : undefined;
-    } catch (error) {
-      // A missing token opens the token modal; other failures leave the PR unstacked.
-      if (error instanceof MissingCredentialError) throw error;
-      return undefined;
-    }
-  }
 
   routes.use("*", async (c, next) => {
     const repoId = c.req.param("repoId") ?? "";
@@ -294,54 +382,18 @@ export function backlogRoutes(
     const repoId = c.req.param("repoId") ?? "";
     const input = newBacklogItemInputSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!input.success) return badRequest(c, input.error);
-    const foreign = foreignDependencies(backlogItems.list(repoId), input.data.dependsOn);
-    if (foreign.length > 0) {
-      return c.json({ error: `Unknown dependencies in this repo: ${foreign.join(", ")}` }, 400);
+    try {
+      const item = await addBacklogItem(
+        { backlogItems, repos, tasks },
+        services,
+        repoId,
+        input.data,
+      );
+      return c.json<BacklogItem>(item, 201);
+    } catch (error) {
+      if (error instanceof BacklogInputError) return c.json({ error: error.message }, 400);
+      throw error;
     }
-    if (input.data.referenceRepoIds) {
-      checkReferenceRepoIds(repos, repoId, input.data.referenceRepoIds);
-    }
-    const { start, startComment, ...parsed } = input.data;
-    // Only the server links a PR to its stack.
-    const values = { ...parsed, origin: withoutStack(parsed.origin) };
-    // Everything that can fail runs before the insert, so retries add no duplicates.
-    if (newTask && (start || values.title === undefined)) newTask.repos.use(repoId);
-    const title =
-      values.title ?? (await titleFor(values.origin, values.freeText, newTask?.originTitle));
-    const stack = await stackOf(values.origin);
-    if (stack && values.origin.kind === "github-pr") {
-      values.origin = { ...values.origin, stack: { prs: stack.map((m) => m.number) } };
-    }
-    const startsNow = start && shouldStart(repoId, values.dependsOn);
-    // The confirmed start comment goes out only with a task that starts now,
-    // never later when the runner promotes the item on its own.
-    if (startComment && startsNow && newTask) {
-      await postStartComment(newTask, values.origin, startComment);
-    }
-    let item = backlogItems.insert({ ...values, title, repoId });
-    if (startsNow && pipeline && newTask) {
-      try {
-        // Announces the change itself.
-        promoteBacklogItem(item, { pipeline, newTask, backlogItems, broadcast });
-        item = backlogItems.get(item.id) ?? item;
-      } catch (error) {
-        // Never announced, so clients never saw it.
-        backlogItems.delete(item.id);
-        throw error;
-      }
-    } else {
-      changed(repoId);
-    }
-    if (stack) {
-      try {
-        const added = addStackSiblings(backlogItems, tasks, { repoId, main: item, members: stack });
-        // The backlog runner picks them up when the repo's runner is on.
-        if (added.length > 0) changed(repoId);
-      } catch (error) {
-        console.error(`Could not add the other pull requests of the stack: ${String(error)}`);
-      }
-    }
-    return c.json<BacklogItem>(item, 201);
   });
 
   /** Sets the manual order; the body lists every item of the repo once. */

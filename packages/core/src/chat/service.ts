@@ -92,7 +92,7 @@ const TARGET_KEYS = ["file_path", "path", "command", "pattern", "url", "query", 
 const ACTIVITY_TARGET_CHARS = 80;
 
 /** What a tool call is doing, as the activity line shows it: `Grep · useTheme`. */
-function activityFor(name: string, input: unknown): string {
+export function activityFor(name: string, input: unknown): string {
   const fields =
     typeof input === "object" && input !== null ? (input as Record<string, unknown>) : {};
   for (const key of TARGET_KEYS) {

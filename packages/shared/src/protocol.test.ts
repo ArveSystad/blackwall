@@ -37,6 +37,36 @@ describe("protocol", () => {
     });
   });
 
+  it("parses voice state, with and without what a submit created", () => {
+    const voice = {
+      busy: false,
+      repoId: "r1",
+      transcript: "confirm",
+      activity: null,
+      reply: "Created it",
+      error: null,
+      draft: null,
+      created: null,
+    };
+    const parse = (v: unknown) =>
+      parseServerEvent(JSON.stringify({ type: "voice.upserted", payload: { voice: v } }));
+    expect(parse(voice)).toEqual({ type: "voice.upserted", payload: { voice } });
+    const created = { repoId: "r1", itemId: "b1", taskId: null, title: "Dark mode" };
+    const draft = {
+      id: "d1",
+      repoId: "r1",
+      title: "T",
+      description: "",
+      revision: 1,
+      submitting: false,
+    };
+    expect(parse({ ...voice, created, draft })).toEqual({
+      type: "voice.upserted",
+      payload: { voice: { ...voice, created, draft } },
+    });
+    expect(parse({ ...voice, created: { ...created, itemId: "" } })).toBeNull();
+  });
+
   it("parses a step's running usage", () => {
     const step = {
       id: "s1",

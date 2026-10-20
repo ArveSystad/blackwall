@@ -32,6 +32,46 @@ export interface AgentPermissions {
    * and hooks when turned on); Unrestricted drops every rule.
    */
   trust: AgentTrust;
+  /**
+   * The harness's own MCP server for this run, its tools allowed by name.
+   * Only voice turns set it; it reaches the run at every trust level.
+   */
+  harnessMcp?: HarnessMcp;
+}
+
+/**
+ * An MCP server blackwall serves itself over HTTP on 127.0.0.1, with a bearer
+ * token in `headers`. Allowed as `mcp__blackwall__<tool>` (Claude),
+ * `blackwall(<tool>)` (Copilot) and `blackwall_<tool>` (OpenCode).
+ */
+export interface HarnessMcp {
+  name: "blackwall";
+  url: string;
+  headers: Record<string, string>;
+  tools: readonly string[];
+}
+
+/** Claude Code's and Copilot's inline `--mcp-config` JSON for the harness server. */
+function harnessMcpJson({ name, url, headers, tools }: HarnessMcp, cli: "claude" | "copilot") {
+  const server = {
+    type: "http",
+    url,
+    headers,
+    ...(cli === "copilot" ? { tools: [...tools] } : {}),
+  };
+  return JSON.stringify({ mcpServers: { [name]: server } });
+}
+
+/** The harness server's tools as a CLI names them in its allow rules. */
+function harnessToolRules(harness: HarnessMcp | undefined, cli: AgentCli): string[] {
+  if (!harness) return [];
+  return harness.tools.map((tool) =>
+    cli === "claude"
+      ? `mcp__${harness.name}__${tool}`
+      : cli === "copilot"
+        ? `${harness.name}(${tool})`
+        : `${harness.name}_${tool}`,
+  );
 }
 
 export { REMOTE_COMMANDS, SAFE_GIT_COMMANDS } from "@blackwall/shared";
@@ -354,20 +394,29 @@ export interface ProjectLoad {
  * repo's skills and agents, plus the guard hook for read-only agents. Copilot
  * loads the repo's skills and agents through `--add-dir`. Project MCP servers
  * and hooks only ever reach implementers. Unrestricted is each CLI's own
- * "allow everything" mode.
+ * "allow everything" mode. The harness MCP server (`harnessMcp`) goes in as
+ * inline JSON at every level, its tools allowed by name.
  */
 export function permissionArgs(permissions: AgentPermissions, project: ProjectLoad = {}): string[] {
-  const { cli, profile, allow, deny, readDirs, trust } = permissions;
+  const { cli, profile, allow, deny, readDirs, trust, harnessMcp } = permissions;
   const addDirs = readDirs.flatMap((dir) => ["--add-dir", dir]);
   // OpenCode has no permission flags; its rules go in through config (`opencodeConfig`).
   if (cli === "opencode") return [];
   const trusted = trust.level === "trusted";
   const implement = profile === "implement";
   const mcpConfig = trusted && implement && trust.projectMcp ? project.mcpConfig : undefined;
+  const harnessJson = harnessMcp ? harnessMcpJson(harnessMcp, cli) : undefined;
+  const harnessAllow = harnessToolRules(harnessMcp, cli);
   if (cli === "claude") {
     if (trust.level === "unrestricted") {
-      return ["--permission-mode", "bypassPermissions", ...addDirs];
+      return [
+        "--permission-mode",
+        "bypassPermissions",
+        ...(harnessJson ? ["--mcp-config", harnessJson] : []),
+        ...addDirs,
+      ];
     }
+    const mcpConfigs = [...(mcpConfig ? [mcpConfig] : []), ...(harnessJson ? [harnessJson] : [])];
     const hooks = trusted && implement && trust.projectHooks ? project.hooks : undefined;
     const settings = guarded(permissions) ? guardSettings() : hooks ? { hooks } : undefined;
     const tools = unique([
@@ -383,19 +432,22 @@ export function permissionArgs(permissions: AgentPermissions, project: ProjectLo
       "--permission-mode",
       "dontAsk",
       ...(trusted && project.pluginDir ? ["--plugin-dir", project.pluginDir] : []),
-      ...(mcpConfig ? ["--mcp-config", mcpConfig] : []),
+      ...(mcpConfigs.length > 0 ? ["--mcp-config", ...mcpConfigs] : []),
       // Before --tools, so the variadic --add-dir and --mcp-config always end at a flag.
       ...addDirs,
       ...(settings ? ["--settings", JSON.stringify(settings)] : []),
       "--tools",
       tools.join(","),
       "--allowedTools",
-      [...allow, ...mcpAllow].join(","),
+      [...allow, ...mcpAllow, ...harnessAllow].join(","),
       "--disallowedTools",
       deny.join(","),
     ];
   }
-  if (trust.level === "unrestricted") return ["--no-ask-user", "--allow-all", ...addDirs];
+  const harnessArgs = harnessJson ? ["--additional-mcp-config", harnessJson] : [];
+  if (trust.level === "unrestricted") {
+    return ["--no-ask-user", "--allow-all", ...addDirs, ...harnessArgs];
+  }
   const excluded = [
     ...COPILOT_EXCLUDED_TOOLS[profile],
     ...(trusted ? [] : COPILOT_LOCKED_EXCLUDED_TOOLS),
@@ -408,8 +460,9 @@ export function permissionArgs(permissions: AgentPermissions, project: ProjectLo
     ...addDirs,
     ...(trusted && project.cwd ? ["--add-dir", project.cwd] : []),
     ...(mcpConfig ? ["--additional-mcp-config", `@${mcpConfig}`] : []),
+    ...harnessArgs,
     ...excluded.map((tool) => `--excluded-tools=${tool}`),
-    ...allow.map((rule) => `--allow-tool=${rule}`),
+    ...[...allow, ...harnessAllow].map((rule) => `--allow-tool=${rule}`),
     ...deny.map((rule) => `--deny-tool=${rule}`),
   ];
 }
@@ -452,7 +505,8 @@ export interface OpencodeAgentConfig {
  * OpenCode config injected for a run (`OPENCODE_CONFIG_CONTENT`). `mcp` and
  * `plugin` stay empty except for Trusted implementers with the repo's MCP
  * servers or hooks turned on, and are left out under Unrestricted, which loads
- * every config source as OpenCode itself would.
+ * every config source as OpenCode itself would. A run with the harness MCP
+ * server has it in `mcp` at every level.
  */
 export interface OpencodeConfig {
   permission: OpencodePermission;
@@ -564,7 +618,9 @@ function externalDirectory(
  * folders and its sub-agents, each bound by the run's permissions (reachable
  * through `task` only where the worker is); its MCP servers and plugins only
  * for implementers with them turned on. Under Unrestricted everything is
- * allowed and nothing else is overridden.
+ * allowed and nothing else is overridden. The harness MCP server
+ * (`harnessMcp`) is added as a remote server at every level, its tools
+ * allowed by name.
  */
 export function opencodeConfig(
   permissions: AgentPermissions,
@@ -573,8 +629,18 @@ export function opencodeConfig(
     project,
   }: { subagentModel?: string | undefined; project?: OpencodeProject | undefined } = {},
 ): OpencodeConfig {
-  const { cli, profile, allow, deny, readDirs, trust } = permissions;
+  const { cli, profile, allow, deny, readDirs, trust, harnessMcp } = permissions;
   if (cli !== "opencode") throw new Error(`Permissions for ${cli} are not OpenCode rules`);
+  const harness = harnessMcp
+    ? {
+        [harnessMcp.name]: {
+          type: "remote",
+          url: harnessMcp.url,
+          headers: harnessMcp.headers,
+          enabled: true,
+        },
+      }
+    : {};
   if (trust.level === "unrestricted") {
     const permission: OpencodePermission = { "*": "allow" };
     return {
@@ -585,6 +651,7 @@ export function opencodeConfig(
           ? { [SUBAGENT_NAME]: opencodeSubagent(permission, subagentModel) }
           : {}),
       },
+      ...(harnessMcp ? { mcp: harness } : {}),
       share: "disabled",
     };
   }
@@ -621,11 +688,12 @@ export function opencodeConfig(
   permission.task = task;
   permission.bash = patternMap("bash", allowed, denied);
   permission.external_directory = externalDirectory(readDirs, denied);
+  for (const rule of harnessToolRules(harnessMcp, cli)) permission[rule] = "allow";
   const agent: OpencodeConfig["agent"] = { blackwall: { mode: "primary", permission } };
   if (workerAllowed) {
     agent[SUBAGENT_NAME] = opencodeSubagent(permission, subagentModel);
   }
-  if (!trusted) return { permission, agent, mcp: {}, plugin: [], share: "disabled" };
+  if (!trusted) return { permission, agent, mcp: harness, plugin: [], share: "disabled" };
   for (const name of projectAgents) {
     const { description, prompt, model } = project.agents[name]!;
     agent[name] = {
@@ -640,7 +708,7 @@ export function opencodeConfig(
   return {
     permission,
     agent,
-    mcp: implement && trust.projectMcp ? project.mcp : {},
+    mcp: { ...(implement && trust.projectMcp ? project.mcp : {}), ...harness },
     plugin: implement && trust.projectHooks ? project.plugin : [],
     instructions: project.instructions,
     skills: { paths: project.skillPaths },

@@ -12,6 +12,7 @@ import {
 } from "../selected-repo";
 import { ChatToggle } from "./ChatToggle";
 import { BacklogIcon, GearIcon, SearchIcon, StatsIcon } from "./icons";
+import { PushToTalk } from "./PushToTalk";
 import { QuotaChip } from "./QuotaChip";
 import { RepoMenuItems } from "./RepoMenuItems";
 import { ThemeToggle } from "./ThemeToggle";
@@ -135,6 +136,7 @@ export function TopBar() {
         >
           <SearchIcon />
         </Button>
+        <PushToTalk className="shrink-0" />
         <ChatToggle className="shrink-0" />
         <ThemeToggle className="shrink-0" />
         <Button variant="ghost" size="icon" className={ACTIVE_ICON} asChild>

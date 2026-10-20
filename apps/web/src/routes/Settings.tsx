@@ -10,6 +10,7 @@ import { NotificationsSection } from "../components/settings/NotificationsSectio
 import { RepositoriesSection } from "../components/settings/RepositoriesSection";
 import { SystemSection } from "../components/settings/SystemSection";
 import { TagsSection } from "../components/settings/TagsSection";
+import { VoiceSection } from "../components/settings/VoiceSection";
 import { StatusBadge } from "../components/StatusBadge";
 import { Button } from "../components/ui/button";
 import { Kbd } from "../components/ui/kbd";
@@ -63,6 +64,8 @@ function SectionBody({ section }: { section: SettingsSection }) {
       return <BacklogSection />;
     case "notifications":
       return <NotificationsSection />;
+    case "voice":
+      return <VoiceSection />;
     case "data":
       return <DataSection />;
     case "system":

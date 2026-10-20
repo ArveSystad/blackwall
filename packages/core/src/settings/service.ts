@@ -28,6 +28,7 @@ const GENERAL_KEYS = [
   "maxBacklogTasksPerRepo",
   "stopBacklogOnNeedsYou",
   "githubIssuesRefreshSeconds",
+  "voiceModel",
 ] as const satisfies readonly (keyof GeneralSettings)[];
 
 /** Settings key of a repo's backlog runner state. */

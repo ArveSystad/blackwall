@@ -7,6 +7,7 @@ export const SETTINGS_SECTIONS = [
   { id: "defaults", label: "Defaults" },
   { id: "backlog", label: "Backlog" },
   { id: "notifications", label: "Notifications" },
+  { id: "voice", label: "Voice" },
   { id: "data", label: "Data" },
   { id: "system", label: "System" },
 ] as const;

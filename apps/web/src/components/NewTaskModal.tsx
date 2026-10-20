@@ -15,15 +15,18 @@ import {
   type Task,
   type TaskOrigin,
   type TriageMode,
+  type VoiceDraft,
 } from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
+  ApiError,
   MissingCredentialError,
   createBacklogItem,
   lookupIssue,
   lookupPullRequest,
+  submitVoiceDraft,
   updateBacklogItem,
 } from "../api";
 import { dependencyChoices, referenceRepoChoice, type ReferenceRepoPick } from "../backlog";
@@ -45,6 +48,7 @@ import {
   tasksQuery,
 } from "../query";
 import { resolveSelectedRepo, useSelectedRepoId } from "../selected-repo";
+import { draftFields } from "../voice";
 import {
   CLI_NAMES,
   ROLE_LABELS,
@@ -398,11 +402,18 @@ function ReferenceReposField({
 function NewTaskForm({
   defaults,
   item,
+  voiceDraft,
   onClose,
 }: {
   defaults: RoleAgents;
   /** The backlog item to edit; without it the form creates a new task. */
   item: BacklogItemView | undefined;
+  /**
+   * The voice draft the form mirrors: it opens on a Blackwall task in the
+   * draft's repo, takes each new revision's title and description, and
+   * creates the task through the draft so it is created once.
+   */
+  voiceDraft?: VoiceDraft | undefined;
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -417,7 +428,7 @@ function NewTaskForm({
     : undefined;
 
   // Until the user picks an origin or types into the form, it follows the repo's default.
-  const [kindChoice, setKindChoice] = useState<OriginKind | null>(null);
+  const [kindChoice, setKindChoice] = useState<OriginKind | null>(voiceDraft ? "free-text" : null);
   const [jiraText, setJiraText] = useState("");
   const [prUrl, setPrUrl] = useState("");
   const [issueUrl, setIssueUrl] = useState("");
@@ -426,8 +437,12 @@ function NewTaskForm({
   const [startComment, setStartComment] = useState(START_COMMENT_DRAFT);
   // New PR tasks default to Review PR.
   const [mode, setMode] = useState<PrMode>(item?.mode ?? "review");
-  const [chosenRepo, setChosenRepo] = useState<string | null>(item?.repoId ?? null);
-  const [freeText, setFreeText] = useState(item?.freeText ?? "");
+  const [chosenRepo, setChosenRepo] = useState<string | null>(
+    item?.repoId ?? voiceDraft?.repoId ?? null,
+  );
+  const [freeText, setFreeText] = useState(
+    item?.freeText ?? (voiceDraft ? draftFields(voiceDraft).freeText : ""),
+  );
   // The role defaults, under the edited backlog item's agents.
   const [roles, setRoles] = useState<RoleAgents>(() =>
     item ? { ...defaults, ...item.agents } : defaults,
@@ -443,13 +458,25 @@ function NewTaskForm({
   });
   // Backlog items run unattended, so they default to "Run and let me intervene" too.
   const [triageMode, setTriageMode] = useState<TriageMode>(item?.triageMode ?? "intervene");
-  const [title, setTitle] = useState(item?.title ?? "");
+  const [title, setTitle] = useState(
+    item?.title ?? (voiceDraft ? draftFields(voiceDraft).title : ""),
+  );
+  // Each voice change of the draft overwrites what it covers.
+  const [draftRevision, setDraftRevision] = useState(voiceDraft?.revision);
+  if (voiceDraft && voiceDraft.revision !== draftRevision) {
+    setDraftRevision(voiceDraft.revision);
+    const fields = draftFields(voiceDraft);
+    setTitle(fields.title);
+    setFreeText(fields.freeText);
+  }
   const [dependsOn, setDependsOn] = useState<string[]>(item?.dependsOn ?? []);
   // The reference repos the user picked, for the repo they were picked in; null follows the repo's.
   const [referencePick, setReferencePick] = useState<ReferenceRepoPick | null>(() =>
     item?.referenceRepoIds ? { repoId: item.repoId, ids: item.referenceRepoIds } : null,
   );
-  const [submitting, setSubmitting] = useState(false);
+  const [localSubmitting, setSubmitting] = useState(false);
+  // A voice "confirm" may be creating the draft's task from the server.
+  const submitting = localSubmitting || !!voiceDraft?.submitting;
   const [error, setError] = useState<string | null>(null);
 
   const usableRepos = (repos.data ?? []).filter((r) => r.exists);
@@ -570,22 +597,24 @@ function NewTaskForm({
     setSubmitting(true);
     setError(null);
     try {
+      const input = {
+        origin: resolved,
+        mode: kind === "github-pr" ? mode : null,
+        title: title.trim() || undefined,
+        freeText,
+        agents: roles,
+        agentClis: overrides,
+        referenceRepoIds: refOverride,
+        triageMode,
+        dependsOn: chosenDeps,
+        start: true,
+        ...(comment ? { startComment: { body: comment } } : {}),
+      };
       const created = await withCredential(
         { label: "New task", target: originKey({ origin: resolved }) },
+        // A voice draft is created through its claim on the server, so only once.
         () =>
-          createBacklogItem(repoId, {
-            origin: resolved,
-            mode: kind === "github-pr" ? mode : null,
-            title: title.trim() || undefined,
-            freeText,
-            agents: roles,
-            agentClis: overrides,
-            referenceRepoIds: refOverride,
-            triageMode,
-            dependsOn: chosenDeps,
-            start: true,
-            ...(comment ? { startComment: { body: comment } } : {}),
-          }),
+          voiceDraft ? submitVoiceDraft(voiceDraft.id, input) : createBacklogItem(repoId, input),
       );
       void queryClient.invalidateQueries({ queryKey: queryKeys.backlog(repoId) });
       const { taskId } = created;
@@ -602,7 +631,11 @@ function NewTaskForm({
       }
     } catch (cause) {
       setError(
-        cause instanceof MissingCredentialError ? "Cancelled: no token saved" : errorMessage(cause),
+        cause instanceof MissingCredentialError
+          ? "Cancelled: no token saved"
+          : voiceDraft && cause instanceof ApiError && cause.status === 409
+            ? "Already being created"
+            : errorMessage(cause),
       );
       setSubmitting(false);
     }
@@ -854,7 +887,12 @@ function NewTaskForm({
               <label htmlFor="new-task-repo" className={fieldLabel}>
                 Repository
               </label>
-              <SelectMenu value={repoId ?? ""} onValueChange={setChosenRepo}>
+              {/* A voice draft belongs to its repo: the server creates it there. */}
+              <SelectMenu
+                value={repoId ?? ""}
+                onValueChange={setChosenRepo}
+                disabled={voiceDraft !== undefined}
+              >
                 <SelectMenuTrigger
                   id="new-task-repo"
                   placeholder="Choose a repo"
@@ -1054,7 +1092,7 @@ function NewTaskForm({
               aria-label="Saving"
             />
           )}
-          {submitting ? "Saving…" : item ? "Save item" : "Create task"}
+          {submitting ? (voiceDraft ? "Creating…" : "Saving…") : item ? "Save item" : "Create task"}
           <Kbd onFill aria-hidden="true">
             {modKeyLabel("↵")}
           </Kbd>
@@ -1067,16 +1105,19 @@ function NewTaskForm({
 /**
  * The new task form, over the dimmed shell. Esc closes; ⌘↵ creates the task.
  * A new task is a backlog item of the chosen repo, started at once when the
- * repo's backlog runs. With `item` it edits that backlog item instead.
+ * repo's backlog runs. With `item` it edits that backlog item instead; with
+ * `voiceDraft` it mirrors that voice draft (see `VoiceTaskModal`).
  */
 export function NewTaskModal({
   open,
   onClose,
   item,
+  voiceDraft,
 }: {
   open: boolean;
   onClose: () => void;
   item?: BacklogItemView | undefined;
+  voiceDraft?: VoiceDraft | undefined;
 }) {
   const defaults = useQuery({ ...roleDefaultsQuery, enabled: open });
   // The form opens on the repo's default origin, so it waits for the repos too.
@@ -1085,7 +1126,12 @@ export function NewTaskModal({
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="max-w-[680px]">
         {defaults.data && repos.data ? (
-          <NewTaskForm defaults={defaults.data} item={item} onClose={onClose} />
+          <NewTaskForm
+            defaults={defaults.data}
+            item={item}
+            voiceDraft={voiceDraft}
+            onClose={onClose}
+          />
         ) : (
           <div className="flex flex-col gap-2 px-5 py-6">
             <DialogTitle>{item ? "Edit backlog item" : "New task"}</DialogTitle>

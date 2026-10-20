@@ -23,6 +23,8 @@ import {
   listClis,
   listArtifacts,
   getTaskWorktree,
+  getVoiceState,
+  getVoiceStatus,
   listDiffs,
   listDoneTimes,
   listFindings,
@@ -92,6 +94,10 @@ export const queryKeys = {
   quota: ["quota"] as const,
   /** A repo's chat (`taskId` null) or a task's own; written in place by `chat.upserted`. */
   chat: (repoId: string, taskId?: string | null) => ["chat", repoId, taskId ?? null] as const,
+  /** Whether the server can transcribe; saving the voice model invalidates it. */
+  voiceStatus: ["voice", "status"] as const,
+  /** Voice control's last command and draft; written in place by `voice.upserted`. */
+  voice: ["voice", "state"] as const,
   reviewRequests: ["review-requests"] as const,
   assignedIssues: ["assigned-issues"] as const,
   repoIssues: (repoId: string) => ["repo-issues", repoId] as const,
@@ -239,6 +245,20 @@ export const repoSyncQuery = (repoId: string) =>
     queryFn: () => getRepoSync(repoId),
     refetchOnWindowFocus: "always",
   });
+
+/** Rechecked now and then: the model may be downloaded while blackwall runs. */
+export const voiceStatusQuery = queryOptions({
+  queryKey: queryKeys.voiceStatus,
+  queryFn: getVoiceStatus,
+  staleTime: 60_000,
+});
+
+/** Written in place by `voice.upserted`, so it never goes stale once loaded. */
+export const voiceQuery = queryOptions({
+  queryKey: queryKeys.voice,
+  queryFn: getVoiceState,
+  staleTime: Infinity,
+});
 
 /** Written in place by `chat.upserted`, so it never goes stale once loaded. */
 export const chatQuery = (repoId: string, taskId?: string) =>

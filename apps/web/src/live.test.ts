@@ -290,6 +290,41 @@ describe("applyServerEvent", () => {
     expect(client.getQueryData(queryKeys.chat("r1", "t2"))).toBeUndefined();
   });
 
+  it("writes voice state in place, and refetches what a voice submit created once", () => {
+    const voice = {
+      busy: true,
+      repoId: "r1",
+      transcript: "confirm",
+      activity: null,
+      reply: null,
+      error: null,
+      draft: null,
+      created: null,
+    };
+    client.setQueryData(queryKeys.tasks, [makeTask({ id: "t1" })]);
+    client.setQueryData(queryKeys.backlog("r1"), []);
+    applyServerEvent(client, { type: "voice.upserted", payload: { voice } });
+    expect(client.getQueryData(queryKeys.voice)).toEqual(voice);
+    expect(client.getQueryState(queryKeys.backlog("r1"))?.isInvalidated).toBe(false);
+    expect(client.getQueryState(queryKeys.tasks)?.isInvalidated).toBe(false);
+
+    const created = { repoId: "r1", itemId: "b1", taskId: "t2", title: "Dark mode" };
+    applyServerEvent(client, { type: "voice.upserted", payload: { voice: { ...voice, created } } });
+    expect(client.getQueryData(queryKeys.voice)).toMatchObject({ created });
+    expect(client.getQueryState(queryKeys.backlog("r1"))?.isInvalidated).toBe(true);
+    expect(client.getQueryState(queryKeys.tasks)?.isInvalidated).toBe(true);
+
+    // Later events carrying the same `created` refetch nothing again.
+    client.setQueryData(queryKeys.tasks, [makeTask({ id: "t1" })]);
+    client.setQueryData(queryKeys.backlog("r1"), []);
+    applyServerEvent(client, {
+      type: "voice.upserted",
+      payload: { voice: { ...voice, busy: false, created } },
+    });
+    expect(client.getQueryState(queryKeys.backlog("r1"))?.isInvalidated).toBe(false);
+    expect(client.getQueryState(queryKeys.tasks)?.isInvalidated).toBe(false);
+  });
+
   it("drops every cached query after a data import", () => {
     client.setQueryData(queryKeys.tasks, [makeTask({ id: "t1" })]);
     client.setQueryData(queryKeys.backlog("r1"), []);

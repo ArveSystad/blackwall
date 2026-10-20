@@ -16,3 +16,4 @@ export * from "./search/index.js";
 export * from "./secrets/index.js";
 export * from "./settings/index.js";
 export * from "./system/index.js";
+export * from "./voice/index.js";

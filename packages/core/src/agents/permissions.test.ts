@@ -9,6 +9,8 @@ import {
   opencodeConfig,
   permissionArgs,
   permissionsFor,
+  type AgentPermissions,
+  type HarnessMcp,
   type OpencodeProject,
   type ProjectLoad,
 } from "./permissions.js";
@@ -660,5 +662,133 @@ describe("Trust levels", () => {
     expect(config.agent["blackwall-worker"]).toMatchObject({ mode: "subagent" });
     expect(config).not.toHaveProperty("mcp");
     expect(config).not.toHaveProperty("plugin");
+  });
+});
+
+describe("Harness MCP server", () => {
+  const harnessMcp: HarnessMcp = {
+    name: "blackwall",
+    url: "http://127.0.0.1:4711/mcp",
+    headers: { Authorization: "Bearer tok" },
+    tools: ["create_task", "submit_task_draft"],
+  };
+  const withHarness = (permissions: AgentPermissions): AgentPermissions => ({
+    ...permissions,
+    harnessMcp,
+  });
+  const trusted: AgentTrust = {
+    level: "trusted",
+    projectMcp: true,
+    projectHooks: false,
+    forced: false,
+    forcedReason: null,
+  };
+  const unrestricted: AgentTrust = { ...trusted, level: "unrestricted" };
+  const project: ProjectLoad = { mcpConfig: "C:\\work\\.mcp.json", mcpServers: ["db"] };
+  const valuesAfter = (args: string[], flag: string) => {
+    const start = args.indexOf(flag) + 1;
+    const end = args.findIndex((a, i) => i >= start && a.startsWith("--"));
+    return args.slice(start, end === -1 ? undefined : end);
+  };
+
+  it("claude: adds the server as inline JSON and allows its tools, only when set", () => {
+    const locked = permissionsFor("claude", "read-only");
+    expect(permissionArgs(locked).join(" ")).not.toContain("blackwall");
+    const args = permissionArgs(withHarness(locked));
+    expect(args).toContain("--strict-mcp-config");
+    const [config, ...rest] = valuesAfter(args, "--mcp-config");
+    expect(rest).toEqual([]);
+    expect(JSON.parse(config!)).toEqual({
+      mcpServers: {
+        blackwall: {
+          type: "http",
+          url: "http://127.0.0.1:4711/mcp",
+          headers: { Authorization: "Bearer tok" },
+        },
+      },
+    });
+    expect(args.indexOf("--mcp-config")).toBeLessThan(args.indexOf("--tools"));
+    expect(listAfter(args, "--allowedTools")).toEqual(
+      expect.arrayContaining([
+        "Read",
+        "mcp__blackwall__create_task",
+        "mcp__blackwall__submit_task_draft",
+      ]),
+    );
+  });
+
+  it("claude: sits next to a Trusted implementer's project MCP config", () => {
+    const args = permissionArgs(
+      withHarness(permissionsFor("claude", "implement", {}, [], trusted)),
+      project,
+    );
+    const configs = valuesAfter(args, "--mcp-config");
+    expect(configs[0]).toBe("C:\\work\\.mcp.json");
+    expect(JSON.parse(configs[1]!).mcpServers.blackwall.type).toBe("http");
+    expect(listAfter(args, "--allowedTools")).toEqual(
+      expect.arrayContaining(["mcp__db", "mcp__blackwall__create_task"]),
+    );
+    const unrestrictedArgs = permissionArgs(
+      withHarness(permissionsFor("claude", "read-only", {}, [], unrestricted)),
+    );
+    expect(unrestrictedArgs.slice(0, 3)).toEqual([
+      "--permission-mode",
+      "bypassPermissions",
+      "--mcp-config",
+    ]);
+  });
+
+  it("copilot: adds the server as inline JSON and allows its tools, only when set", () => {
+    const locked = permissionsFor("copilot", "read-only");
+    expect(permissionArgs(locked)).not.toContain("--additional-mcp-config");
+    const args = permissionArgs(withHarness(locked));
+    const config = JSON.parse(args[args.indexOf("--additional-mcp-config") + 1]!);
+    expect(config.mcpServers.blackwall).toEqual({
+      type: "http",
+      url: "http://127.0.0.1:4711/mcp",
+      headers: { Authorization: "Bearer tok" },
+      tools: ["create_task", "submit_task_draft"],
+    });
+    expect(flagValues(args, "--allow-tool")).toEqual(
+      expect.arrayContaining(["blackwall(create_task)", "blackwall(submit_task_draft)"]),
+    );
+    const implement = permissionArgs(
+      withHarness(permissionsFor("copilot", "implement", {}, [], trusted)),
+      project,
+    );
+    expect(implement.filter((a) => a === "--additional-mcp-config")).toHaveLength(2);
+    expect(implement).toContain("@C:\\work\\.mcp.json");
+  });
+
+  it("opencode: adds a remote server and allows its tools, only when set", () => {
+    const locked = permissionsFor("opencode", "read-only");
+    expect(opencodeConfig(locked).mcp).toEqual({});
+    const config = opencodeConfig(withHarness(locked));
+    expect(config.mcp).toEqual({
+      blackwall: {
+        type: "remote",
+        url: "http://127.0.0.1:4711/mcp",
+        headers: { Authorization: "Bearer tok" },
+        enabled: true,
+      },
+    });
+    expect(config.permission).toMatchObject({
+      "*": "deny",
+      blackwall_create_task: "allow",
+      blackwall_submit_task_draft: "allow",
+    });
+    const implement = opencodeConfig(
+      withHarness(permissionsFor("opencode", "implement", {}, [], trusted)),
+      {
+        project: {
+          agents: {},
+          instructions: [],
+          skillPaths: [],
+          mcp: { db: { type: "local", command: ["db"] } },
+          plugin: [],
+        },
+      },
+    );
+    expect(Object.keys(implement.mcp ?? {})).toEqual(["db", "blackwall"]);
   });
 });

@@ -59,6 +59,12 @@ import {
   stagePermissionProfile,
   taskSchema,
   updateBacklogItemInputSchema,
+  generalSettingsUpdateSchema,
+  MAX_VOICE_COMMAND_CHARS,
+  VOICE_MODEL_FILES,
+  VOICE_MODEL_IDS,
+  VOICE_MODELS,
+  voiceCommandInputSchema,
   type CiState,
   type TaskCi,
 } from "./domain.js";
@@ -543,10 +549,41 @@ describe("settings and inputs", () => {
       maxBacklogTasksPerRepo: 1,
       stopBacklogOnNeedsYou: true,
       githubIssuesRefreshSeconds: 60,
+      voiceModel: "moonshine-tiny-en",
     });
     expect(settingsSchema.safeParse({ maxTasksPerRepo: 0 }).success).toBe(false);
     expect(settingsSchema.safeParse({ githubIssuesRefreshSeconds: 14 }).success).toBe(false);
     expect(settingsSchema.safeParse({ githubIssuesRefreshSeconds: 3601 }).success).toBe(false);
+  });
+
+  it("takes a known voice model only", () => {
+    expect(settingsSchema.parse({ voiceModel: "whisper-small" }).voiceModel).toBe("whisper-small");
+    expect(settingsSchema.safeParse({ voiceModel: "whisper-huge" }).success).toBe(false);
+    expect(generalSettingsUpdateSchema.parse({ voiceModel: "whisper-small" })).toEqual({
+      voiceModel: "whisper-small",
+    });
+    expect(generalSettingsUpdateSchema.safeParse({ voiceModel: "nope" }).success).toBe(false);
+  });
+
+  it("lists every file a voice model's kind needs", () => {
+    expect(VOICE_MODEL_IDS).toContain("moonshine-tiny-en");
+    for (const id of VOICE_MODEL_IDS) {
+      const model = VOICE_MODELS[id];
+      expect(Object.keys(model.files).sort()).toEqual([...VOICE_MODEL_FILES[model.kind]].sort());
+      for (const file of Object.values(model.files)) expect(file).toMatch(/\S/);
+      expect(model.archive).toMatch(/^sherpa-onnx-/);
+    }
+  });
+
+  it("trims and caps a voice command", () => {
+    expect(voiceCommandInputSchema.parse({ repoId: "r1", text: "  confirm " })).toEqual({
+      repoId: "r1",
+      text: "confirm",
+    });
+    expect(voiceCommandInputSchema.safeParse({ repoId: "r1", text: "   " }).success).toBe(false);
+    expect(voiceCommandInputSchema.safeParse({ repoId: "", text: "hi" }).success).toBe(false);
+    const long = "x".repeat(MAX_VOICE_COMMAND_CHARS + 1);
+    expect(voiceCommandInputSchema.safeParse({ repoId: "r1", text: long }).success).toBe(false);
   });
 
   it("leaves repo check commands unset so they can be suggested", () => {
