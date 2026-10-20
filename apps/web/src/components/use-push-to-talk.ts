@@ -68,6 +68,8 @@ export function usePushToTalk({
     }
     const context = new AudioContext();
     try {
+      // A window without a user gesture (the desktop hotkey from another app) starts suspended.
+      if (context.state === "suspended") await context.resume();
       await context.audioWorklet.addModule(workletUrl);
     } catch {
       for (const track of stream.getTracks()) track.stop();

@@ -11,6 +11,7 @@ const OUTPUTS = [
   "apps/server/dist/index.js",
   "apps/web/dist/index.html",
   "apps/desktop/dist/main.js",
+  "apps/desktop/dist/preload.cjs",
 ];
 
 describe("serverArgs", () => {
@@ -69,6 +70,12 @@ describe("buildReason", () => {
   it("reports missing output when the stamp exists but an output does not", () => {
     writeBuilt();
     rmSync(join(root, "apps/web/dist/index.html"));
+    expect(buildReason(root)).toBe("missing");
+  });
+
+  it("reports missing output when the desktop preload was not built", () => {
+    writeBuilt();
+    rmSync(join(root, "apps/desktop/dist/preload.cjs"));
     expect(buildReason(root)).toBe("missing");
   });
 

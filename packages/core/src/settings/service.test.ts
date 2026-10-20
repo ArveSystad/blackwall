@@ -65,6 +65,7 @@ const DEFAULTS = {
   stopBacklogOnNeedsYou: true,
   githubIssuesRefreshSeconds: 60,
   voiceModel: "moonshine-tiny-en",
+  voiceHotkey: null,
 };
 
 describe("general settings", () => {
@@ -93,6 +94,7 @@ describe("general settings", () => {
       stopBacklogOnNeedsYou: false,
       githubIssuesRefreshSeconds: 30,
       voiceModel: "whisper-small",
+      voiceHotkey: null,
     });
   });
 
@@ -124,6 +126,29 @@ describe("general settings", () => {
     r.settings.set("voiceModel", "whisper-huge");
     expect(service.general().voiceModel).toBe("moonshine-tiny-en");
     expect(() => service.updateGeneral({ voiceModel: "nope" as never })).toThrow(
+      InvalidSettingsError,
+    );
+  });
+
+  const F9 = { code: "F9", ctrl: false, alt: false, shift: false, meta: false };
+
+  it("stores the hold-to-talk key and clears it with null", () => {
+    expect(service.updateGeneral({ voiceHotkey: F9 }).voiceHotkey).toEqual(F9);
+    const reopened = createSettingsService({ settings: r.settings, tags: r.tags });
+    expect(reopened.general().voiceHotkey).toEqual(F9);
+    expect(service.updateGeneral({ voiceModel: "whisper-small" }).voiceHotkey).toEqual(F9);
+    expect(service.updateGeneral({ voiceHotkey: null }).voiceHotkey).toBeNull();
+  });
+
+  it("falls back to no hold-to-talk key when the stored one is invalid or reserved", () => {
+    r.settings.set("voiceHotkey", { ...F9, code: "Escape" });
+    expect(service.general().voiceHotkey).toBeNull();
+    r.settings.set("voiceHotkey", { ...F9, code: "KeyW", ctrl: true });
+    expect(service.general().voiceHotkey).toBeNull();
+    expect(() => service.updateGeneral({ voiceHotkey: { ...F9, code: "KeyP" } })).toThrow(
+      InvalidSettingsError,
+    );
+    expect(() => service.updateGeneral({ voiceHotkey: { ...F9, code: "F12" } })).toThrow(
       InvalidSettingsError,
     );
   });

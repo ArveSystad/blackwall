@@ -10,7 +10,8 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
-    "@blackwall/shared": "workspace:*"
+    "@blackwall/shared": "workspace:*",
+    "uiohook-napi": "^1.5.4"
   },
   "devDependencies": {
     "electron": "^44.7.0"

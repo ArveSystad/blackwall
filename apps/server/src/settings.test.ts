@@ -67,6 +67,7 @@ describe("settings routes", () => {
       stopBacklogOnNeedsYou: true,
       githubIssuesRefreshSeconds: 60,
       voiceModel: "moonshine-tiny-en",
+      voiceHotkey: null,
     });
   });
 
@@ -102,6 +103,26 @@ describe("settings routes", () => {
     const res = await request("/api/settings", {
       method: "PATCH",
       body: { githubIssuesRefreshSeconds: 5 },
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("sets and clears the hold-to-talk key", async () => {
+    const F9 = { code: "F9", ctrl: false, alt: false, shift: false, meta: false };
+    const res = await request("/api/settings", { method: "PATCH", body: { voiceHotkey: F9 } });
+    expect(await res.json()).toMatchObject({ voiceHotkey: F9 });
+    expect(await (await request("/api/settings")).json()).toMatchObject({ voiceHotkey: F9 });
+    const cleared = await request("/api/settings", {
+      method: "PATCH",
+      body: { voiceHotkey: null },
+    });
+    expect(await cleared.json()).toMatchObject({ voiceHotkey: null });
+  });
+
+  it("rejects a reserved hold-to-talk key", async () => {
+    const res = await request("/api/settings", {
+      method: "PATCH",
+      body: { voiceHotkey: { code: "KeyW", ctrl: true, alt: false, shift: false, meta: false } },
     });
     expect(res.status).toBe(400);
   });

@@ -29,6 +29,7 @@ const GENERAL_KEYS = [
   "stopBacklogOnNeedsYou",
   "githubIssuesRefreshSeconds",
   "voiceModel",
+  "voiceHotkey",
 ] as const satisfies readonly (keyof GeneralSettings)[];
 
 /** Settings key of a repo's backlog runner state. */
@@ -101,7 +102,9 @@ export function createSettingsService({ settings, tags }: SettingsServiceOptions
       if (!parsed.success) throw invalid(parsed.error);
       for (const key of GENERAL_KEYS) {
         const value = parsed.data[key];
-        if (value !== undefined) settings.set(key, value);
+        // Null (the hold-to-talk key turned off) is the default, so it drops the stored value.
+        if (value === null) settings.delete(key);
+        else if (value !== undefined) settings.set(key, value);
       }
       return general();
     },

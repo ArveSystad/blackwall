@@ -920,6 +920,117 @@ export const voiceModelIdSchema = z.enum(VOICE_MODEL_IDS);
 export const VOICE_MODEL_RELEASES =
   "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models";
 
+/** `KeyboardEvent.code`s a hold-to-talk key may use. */
+export const VOICE_HOTKEY_CODES: readonly string[] = [
+  ...Array.from({ length: 24 }, (_, i) => `F${i + 1}`),
+  ...Array.from({ length: 26 }, (_, i) => `Key${String.fromCharCode(65 + i)}`),
+  ...Array.from({ length: 10 }, (_, i) => `Digit${i}`),
+  "Space",
+];
+
+/** A chord that a hold-to-talk key may not be; an omitted flag matches either state. */
+export interface ReservedHotkey {
+  code: string;
+  ctrl?: boolean;
+  alt?: boolean;
+  shift?: boolean;
+  meta?: boolean;
+}
+
+const MOD_RESERVED_CODES = [
+  // Window, reload, quit and Hide chords of browsers and Electron's default menu.
+  "KeyW",
+  "KeyT",
+  "KeyN",
+  "KeyQ",
+  "KeyR",
+  "KeyM",
+  "KeyH",
+  // Edit chords: the desktop hook does not swallow keys, so these would act in the foreground app too.
+  "KeyA",
+  "KeyC",
+  "KeyV",
+  "KeyX",
+  "KeyZ",
+  "KeyY",
+  // Devtools (with Shift) and reset zoom.
+  "KeyI",
+  "Digit0",
+  // blackwall's own shortcuts: save settings (`settings/parts.tsx`) and search (`search.ts`).
+  "KeyS",
+  "KeyK",
+];
+
+/**
+ * Chords a hold-to-talk key may not be: browser chords a page cannot block,
+ * Electron's default-menu accelerators and blackwall's own ⌘/Ctrl shortcuts.
+ * Add every new app-level ⌘/Ctrl shortcut here.
+ */
+export const RESERVED_HOTKEYS: readonly ReservedHotkey[] = [
+  ...MOD_RESERVED_CODES.flatMap((code) => [
+    { code, ctrl: true, alt: false, meta: false },
+    { code, meta: true, alt: false, ctrl: false },
+  ]),
+  // macOS devtools and Hide Others.
+  { code: "KeyI", alt: true, meta: true, ctrl: false },
+  { code: "KeyH", alt: true, meta: true, ctrl: false },
+  // Browser fullscreen and devtools.
+  { code: "F11", ctrl: false, alt: false, shift: false, meta: false },
+  { code: "F12", ctrl: false, alt: false, shift: false, meta: false },
+  // Closes the window on Windows.
+  { code: "F4", alt: true, ctrl: false, meta: false },
+];
+
+export const voiceHotkeyObjectSchema = z.object({
+  code: z.enum(VOICE_HOTKEY_CODES),
+  ctrl: z.boolean(),
+  alt: z.boolean(),
+  shift: z.boolean(),
+  meta: z.boolean(),
+});
+
+/** True when `hotkey` is one of {@link RESERVED_HOTKEYS}. */
+export function isReservedHotkey(hotkey: z.infer<typeof voiceHotkeyObjectSchema>): boolean {
+  return RESERVED_HOTKEYS.some(
+    (reserved) =>
+      reserved.code === hotkey.code &&
+      (reserved.ctrl === undefined || reserved.ctrl === hotkey.ctrl) &&
+      (reserved.alt === undefined || reserved.alt === hotkey.alt) &&
+      (reserved.shift === undefined || reserved.shift === hotkey.shift) &&
+      (reserved.meta === undefined || reserved.meta === hotkey.meta),
+  );
+}
+
+/**
+ * The key held for push-to-talk. Letters, digits and Space need Ctrl, Alt or
+ * Meta (Shift alone is normal typing); F-keys may go bare.
+ */
+export const voiceHotkeySchema = voiceHotkeyObjectSchema
+  .refine((hotkey) => /^F\d+$/.test(hotkey.code) || hotkey.ctrl || hotkey.alt || hotkey.meta, {
+    message: "Add Ctrl, Alt or ⌘ to letters, digits and Space",
+  })
+  .refine((hotkey) => !isReservedHotkey(hotkey), {
+    message: "That key is reserved by the browser or the app",
+  });
+export type VoiceHotkey = z.infer<typeof voiceHotkeySchema>;
+
+/** A hold-to-talk key for display, e.g. "Ctrl Alt Space", or "⌥⌘Space" on macOS. */
+export function voiceHotkeyLabel(hotkey: VoiceHotkey, mac: boolean): string {
+  const key = hotkey.code.replace(/^Key|^Digit/, "");
+  if (mac) {
+    return `${hotkey.ctrl ? "⌃" : ""}${hotkey.alt ? "⌥" : ""}${hotkey.shift ? "⇧" : ""}${hotkey.meta ? "⌘" : ""}${key}`;
+  }
+  return [
+    hotkey.ctrl && "Ctrl",
+    hotkey.alt && "Alt",
+    hotkey.shift && "Shift",
+    hotkey.meta && "Meta",
+    key,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 export const DEFAULT_MAX_TASKS_PER_REPO = 3;
 export const DEFAULT_MAX_BACKLOG_TASKS_PER_REPO = 1;
 export const DEFAULT_GITHUB_ISSUES_REFRESH_SECONDS = 60;
@@ -943,6 +1054,8 @@ export const settingsSchema = z.object({
     .default(DEFAULT_GITHUB_ISSUES_REFRESH_SECONDS),
   /** The speech model voice control transcribes with. */
   voiceModel: voiceModelIdSchema.default(DEFAULT_VOICE_MODEL),
+  /** The key held for push-to-talk; null when off. */
+  voiceHotkey: voiceHotkeySchema.nullable().default(null),
 });
 export type Settings = z.infer<typeof settingsSchema>;
 export type SettingsInput = z.input<typeof settingsSchema>;
@@ -967,6 +1080,7 @@ export const generalSettingsUpdateSchema = z.object({
   stopBacklogOnNeedsYou: z.boolean().optional(),
   githubIssuesRefreshSeconds: settingsSchema.shape.githubIssuesRefreshSeconds.unwrap().optional(),
   voiceModel: voiceModelIdSchema.optional(),
+  voiceHotkey: voiceHotkeySchema.nullable().optional(),
 });
 export type GeneralSettingsUpdate = z.infer<typeof generalSettingsUpdateSchema>;
 

@@ -66,6 +66,8 @@ import {
   VOICE_MODELS,
   voiceCommandInputSchema,
   voiceDownloadInputSchema,
+  voiceHotkeyLabel,
+  voiceHotkeySchema,
   type CiState,
   type TaskCi,
 } from "./domain.js";
@@ -551,6 +553,7 @@ describe("settings and inputs", () => {
       stopBacklogOnNeedsYou: true,
       githubIssuesRefreshSeconds: 60,
       voiceModel: "moonshine-tiny-en",
+      voiceHotkey: null,
     });
     expect(settingsSchema.safeParse({ maxTasksPerRepo: 0 }).success).toBe(false);
     expect(settingsSchema.safeParse({ githubIssuesRefreshSeconds: 14 }).success).toBe(false);
@@ -564,6 +567,88 @@ describe("settings and inputs", () => {
       voiceModel: "whisper-small",
     });
     expect(generalSettingsUpdateSchema.safeParse({ voiceModel: "nope" }).success).toBe(false);
+  });
+
+  const hotkey = (
+    code: string,
+    mods: Partial<Record<"ctrl" | "alt" | "shift" | "meta", boolean>> = {},
+  ) => ({
+    code,
+    ctrl: false,
+    alt: false,
+    shift: false,
+    meta: false,
+    ...mods,
+  });
+  const RESERVED = "That key is reserved by the browser or the app";
+
+  it("takes a hold-to-talk key from the allow-list, with a modifier unless it is an F-key", () => {
+    expect(voiceHotkeySchema.safeParse(hotkey("F9")).success).toBe(true);
+    expect(voiceHotkeySchema.safeParse(hotkey("F24", { shift: true })).success).toBe(true);
+    expect(voiceHotkeySchema.safeParse(hotkey("KeyP", { ctrl: true, alt: true })).success).toBe(
+      true,
+    );
+    expect(voiceHotkeySchema.safeParse(hotkey("Digit5", { alt: true })).success).toBe(true);
+    expect(voiceHotkeySchema.safeParse(hotkey("F25")).success).toBe(false);
+    expect(voiceHotkeySchema.safeParse(hotkey("Escape", { ctrl: true })).success).toBe(false);
+    expect(voiceHotkeySchema.safeParse(hotkey("Slash", { ctrl: true })).success).toBe(false);
+    for (const bare of [hotkey("KeyP"), hotkey("Space"), hotkey("KeyP", { shift: true })]) {
+      const parsed = voiceHotkeySchema.safeParse(bare);
+      expect(parsed.success).toBe(false);
+      expect(parsed.error?.issues[0]?.message).toBe(
+        "Add Ctrl, Alt or ⌘ to letters, digits and Space",
+      );
+    }
+    expect(settingsSchema.parse({}).voiceHotkey).toBeNull();
+    expect(settingsSchema.parse({ voiceHotkey: hotkey("F9") }).voiceHotkey).toEqual(hotkey("F9"));
+    expect(generalSettingsUpdateSchema.parse({ voiceHotkey: null })).toEqual({ voiceHotkey: null });
+    expect(generalSettingsUpdateSchema.safeParse({ voiceHotkey: hotkey("KeyP") }).success).toBe(
+      false,
+    );
+  });
+
+  it("rejects reserved hold-to-talk chords", () => {
+    for (const chord of [
+      hotkey("KeyW", { ctrl: true }),
+      hotkey("KeyQ", { meta: true }),
+      hotkey("KeyR", { ctrl: true, shift: true }),
+      hotkey("KeyI", { ctrl: true, shift: true }),
+      hotkey("KeyI", { alt: true, meta: true }),
+      hotkey("KeyC", { ctrl: true }),
+      hotkey("KeyS", { ctrl: true }),
+      hotkey("KeyS", { meta: true }),
+      hotkey("KeyS", { ctrl: true, shift: true }),
+      hotkey("KeyK", { ctrl: true }),
+      hotkey("F11"),
+      hotkey("F12"),
+      hotkey("F4", { alt: true }),
+    ]) {
+      const parsed = voiceHotkeySchema.safeParse(chord);
+      expect(parsed.success, JSON.stringify(chord)).toBe(false);
+      expect(parsed.error?.issues.map((issue) => issue.message)).toEqual([RESERVED]);
+    }
+    for (const chord of [
+      hotkey("KeyW", { ctrl: true, alt: true }),
+      hotkey("KeyS", { ctrl: true, alt: true }),
+      hotkey("KeyK", { ctrl: true, alt: true }),
+      hotkey("Space", { ctrl: true, alt: true }),
+      hotkey("F9"),
+      hotkey("Space", { ctrl: true, shift: true }),
+    ]) {
+      expect(voiceHotkeySchema.safeParse(chord).success, JSON.stringify(chord)).toBe(true);
+    }
+  });
+
+  it("labels a hold-to-talk key", () => {
+    expect(voiceHotkeyLabel(hotkey("Space", { ctrl: true, alt: true }), false)).toBe(
+      "Ctrl Alt Space",
+    );
+    expect(voiceHotkeyLabel(hotkey("Space", { alt: true, meta: true }), true)).toBe("⌥⌘Space");
+    expect(voiceHotkeyLabel(hotkey("KeyP", { ctrl: true, shift: true }), false)).toBe(
+      "Ctrl Shift P",
+    );
+    expect(voiceHotkeyLabel(hotkey("Digit1", { meta: true }), false)).toBe("Meta 1");
+    expect(voiceHotkeyLabel(hotkey("F9"), true)).toBe("F9");
   });
 
   it("lists every file a voice model's kind needs", () => {

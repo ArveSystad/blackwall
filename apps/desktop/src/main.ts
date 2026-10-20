@@ -2,23 +2,32 @@
 // shows its launch URL in a window, and owns the tray, the badge and quitting.
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { APP_NAME, needsYouCountFromTitle } from "@blackwall/shared";
+import {
+  APP_NAME,
+  needsYouCountFromTitle,
+  voiceHotkeySchema,
+  type VoiceHotkey,
+} from "@blackwall/shared";
 import {
   app,
   BrowserWindow,
   dialog,
+  ipcMain,
   Menu,
   nativeImage,
   powerMonitor,
   screen,
   shell,
+  systemPreferences,
   Tray,
+  type IpcMainInvokeEvent,
 } from "electron";
 import { SERVER_ENTRY, startChild, type ServerChild } from "./child.js";
 import { routeUrl } from "./external-url.js";
 import { resolveLoginEnv } from "./login-env.js";
 import { checkNode, MIN_NODE_MAJOR } from "./node.js";
 import { desktopPort, isPortFree } from "./port.js";
+import { createHotkeyTracker, sameHotkey } from "./push-to-talk-hotkey.js";
 import { createQuitFlow } from "./quit-flow.js";
 import { titleBarOverlay } from "./title-bar.js";
 import { loadBounds, saveBounds, visibleBounds, type Bounds } from "./window-state.js";
@@ -35,6 +44,24 @@ let tray: Tray | undefined;
 let child: ServerChild | undefined;
 /** Set once the server is up, for restarting it after a crash. */
 let launch: { nodePath: string; port: number; env: Env } | undefined;
+
+/** Whether the system-wide hold-to-talk hook runs, and why not; mirrors the page's `PttStatus`. */
+interface PttStatus {
+  active: boolean;
+  reason: string | null;
+}
+
+type Uiohook = typeof import("uiohook-napi");
+
+let currentHotkey: VoiceHotkey | null = null;
+let pttStatus: PttStatus = { active: false, reason: null };
+/** The macOS Accessibility prompt is shown at most once per run. */
+let prompted = false;
+/** The keyboard hook and its tracker, loaded with the first hotkey. */
+let hook:
+  { uIOhook: Uiohook["uIOhook"]; tracker: ReturnType<typeof createHotkeyTracker> } | undefined;
+let hookLoadError: string | undefined;
+let hookRunning = false;
 
 const flow = createQuitFlow({
   requestStatus: async (timeoutMs) => child?.requestStatus(timeoutMs),
@@ -53,7 +80,10 @@ const flow = createQuitFlow({
   },
   shutdownChild: async (timeoutMs) => (child ? child.shutdown(timeoutMs) : "exited"),
   kill: () => child?.kill(),
-  quit: () => app.quit(),
+  quit: () => {
+    stopHook();
+    app.quit();
+  },
 });
 
 function errorMessage(error: unknown): string {
@@ -119,6 +149,96 @@ async function offerRestart(code: number | null): Promise<void> {
   }
 }
 
+const ACCESSIBILITY_REASON =
+  "Allow blackwall under System Settings → Privacy & Security → Accessibility";
+
+function setPttStatus(next: PttStatus): PttStatus {
+  pttStatus = next;
+  win?.webContents.send("bw:ptt-status", next);
+  return next;
+}
+
+function stopHook(): void {
+  if (!hook || !hookRunning) return;
+  hook.uIOhook.stop();
+  hookRunning = false;
+}
+
+/** Loads `uiohook-napi` once and feeds its key events to the tracker; null when it cannot load. */
+async function loadHook(): Promise<typeof hook> {
+  if (hook || hookLoadError) return hook;
+  try {
+    const { uIOhook, UiohookKey } = await import("uiohook-napi");
+    const tracker = createHotkeyTracker({
+      keycodes: UiohookKey,
+      emit: (edge) => win?.webContents.send("bw:ptt", edge),
+    });
+    uIOhook.on("keydown", (event) => tracker.keydown(event));
+    uIOhook.on("keyup", (event) => tracker.keyup(event));
+    hook = { uIOhook, tracker };
+  } catch (error) {
+    hookLoadError = errorMessage(error);
+  }
+  return hook;
+}
+
+/**
+ * Registers the hold-to-talk key system-wide (null turns it off). The same key
+ * again is a no-op once it works, so a reloaded page re-registering costs nothing.
+ */
+async function setPushToTalkHotkey(next: VoiceHotkey | null): Promise<PttStatus> {
+  if (sameHotkey(next, currentHotkey) && (pttStatus.active || !next)) return pttStatus;
+  currentHotkey = next;
+  hook?.tracker.set(next);
+  if (!next) {
+    stopHook();
+    return setPttStatus({ active: false, reason: null });
+  }
+  if (process.platform === "darwin" && !systemPreferences.isTrustedAccessibilityClient(false)) {
+    if (!prompted) {
+      prompted = true;
+      systemPreferences.isTrustedAccessibilityClient(true);
+    }
+    return setPttStatus({ active: false, reason: ACCESSIBILITY_REASON });
+  }
+  const loaded = await loadHook();
+  // Another call may have changed the key while the module loaded.
+  if (!sameHotkey(next, currentHotkey)) return pttStatus;
+  if (!loaded) {
+    return setPttStatus({
+      active: false,
+      reason: `The system-wide key hook could not load: ${hookLoadError}`,
+    });
+  }
+  loaded.tracker.set(next);
+  if (!hookRunning) {
+    try {
+      loaded.uIOhook.start();
+      hookRunning = true;
+    } catch (error) {
+      return setPttStatus({
+        active: false,
+        reason: `The system-wide key hook could not start: ${errorMessage(error)}`,
+      });
+    }
+  }
+  return setPttStatus({ active: true, reason: null });
+}
+
+/** The page's bridge (`preload.cts`); only the app's own origin may use it. */
+function handlePushToTalkIpc(appOrigin: string): void {
+  const fromApp = (event: IpcMainInvokeEvent) =>
+    routeUrl(event.senderFrame?.url ?? "", appOrigin) === "app";
+  ipcMain.handle("bw:ptt-hotkey", (event, value: unknown) => {
+    if (!fromApp(event)) throw new Error("Not allowed");
+    return setPushToTalkHotkey(voiceHotkeySchema.nullable().parse(value));
+  });
+  ipcMain.handle("bw:ptt-status", (event) => {
+    if (!fromApp(event)) throw new Error("Not allowed");
+    return pttStatus;
+  });
+}
+
 function updateBadge(count: number): void {
   tray?.setToolTip(count > 0 ? `${APP_NAME}: ${count} need you` : APP_NAME);
   if (process.platform === "win32") {
@@ -150,6 +270,10 @@ function createWindow(launchUrl: string, port: number): BrowserWindow {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      preload: fileURLToPath(new URL("./preload.cjs", import.meta.url)),
+      // The system-wide hold-to-talk key records while the window is in the background.
+      backgroundThrottling: false,
+      autoplayPolicy: "no-user-gesture-required",
     },
   });
 
@@ -253,6 +377,7 @@ async function startup(): Promise<void> {
     fatal("blackwall could not start", errorMessage(error));
     return;
   }
+  handlePushToTalkIpc(`http://127.0.0.1:${port}`);
   win = createWindow(launchUrl, port);
   tray = createTray();
 }

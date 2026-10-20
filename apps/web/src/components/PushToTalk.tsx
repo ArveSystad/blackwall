@@ -1,16 +1,19 @@
-import type { VoiceState } from "@blackwall/shared";
+import { voiceHotkeyLabel, type VoiceState } from "@blackwall/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { ApiError, sendVoiceCommand, transcribeVoice } from "../api";
+import { isMac } from "../keyboard";
 import { cn } from "../lib/utils";
-import { reposQuery, voiceQuery, voiceStatusQuery } from "../query";
+import { reposQuery, settingsQuery, voiceQuery, voiceStatusQuery } from "../query";
 import { prefersReducedMotion } from "../reduced-motion";
 import { resolveSelectedRepo, useSelectedRepoId } from "../selected-repo";
 import { errorMessage } from "../settings-forms";
 import { MicIcon, SpinnerIcon } from "./icons";
 import { Button } from "./ui/button";
 import { usePushToTalk } from "./use-push-to-talk";
+import { ariaKeyShortcuts } from "../voice-hotkey";
+import { usePushToTalkHotkey } from "./use-push-to-talk-hotkey";
 
 /** How long the panel stays up once nothing is happening. */
 const PANEL_LINGER_MS = 6000;
@@ -28,7 +31,8 @@ function panelKey(voice: VoiceState | undefined, notice: string | null): string 
 
 /**
  * Top bar push-to-talk button for the selected repo: hold it (pointer, or
- * Space / Enter while focused) and speak; on release the clip is transcribed
+ * Space / Enter while focused, or the hold-to-talk key from Settings → Voice
+ * anywhere but a text field) and speak; on release the clip is transcribed
  * on the server and sent as a voice command. A panel below shows the
  * transcript, the agent's progress and its reply, with a link to what a
  * submit created, and fades once nothing happens.
@@ -38,6 +42,8 @@ export function PushToTalk({ className }: { className?: string }) {
   const repo = resolveSelectedRepo(useSelectedRepoId(), repos.data);
   const status = useQuery(voiceStatusQuery);
   const voice = useQuery(voiceQuery);
+  const settings = useQuery(settingsQuery);
+  const hotkey = settings.data?.voiceHotkey ?? null;
   const [phase, setPhase] = useState<"idle" | "transcribing" | "sending">("idle");
   const [notice, setNotice] = useState<string | null>(null);
   // The clip that hit the length cap is sent like a released one.
@@ -50,7 +56,7 @@ export function PushToTalk({ className }: { className?: string }) {
 
   async function send(samples: Float32Array | null) {
     if (!samples) {
-      setNotice("Hold the button while you speak");
+      setNotice("Hold to talk while you speak");
       return;
     }
     if (!repo) return;
@@ -74,8 +80,19 @@ export function PushToTalk({ className }: { className?: string }) {
     }
   }
 
+  const disabledReason = !repo
+    ? "Pick a repository first"
+    : status.data && !status.data.available
+      ? (status.data.reason ?? "Voice control is unavailable")
+      : null;
+
   function press() {
     if (mic !== "idle" || phase !== "idle") return;
+    // The hotkey gets here even while the button is disabled.
+    if (disabledReason !== null) {
+      setNotice(disabledReason);
+      return;
+    }
     setNotice(null);
     void start();
   }
@@ -85,11 +102,8 @@ export function PushToTalk({ className }: { className?: string }) {
     void send(stop());
   }
 
-  const disabledReason = !repo
-    ? "Pick a repository first"
-    : status.data && !status.data.available
-      ? (status.data.reason ?? "Voice control is unavailable")
-      : null;
+  usePushToTalkHotkey(hotkey, { onPress: press, onRelease: release });
+  const hotkeyLabel = hotkey ? voiceHotkeyLabel(hotkey, isMac()) : null;
   const recording = mic !== "idle";
   const busy = recording || phase !== "idle" || !!voice.data?.busy;
 
@@ -116,7 +130,13 @@ export function PushToTalk({ className }: { className?: string }) {
         aria-label="Hold to talk"
         aria-pressed={recording}
         aria-describedby={showPanel ? "voice-panel" : undefined}
-        title={disabledReason ?? "Hold to talk (Space while focused)"}
+        aria-keyshortcuts={hotkey ? ariaKeyShortcuts(hotkey) : undefined}
+        title={
+          disabledReason ??
+          (hotkeyLabel
+            ? `Hold to talk (${hotkeyLabel}, or Space while focused)`
+            : "Hold to talk (Space while focused)")
+        }
         disabled={disabledReason !== null}
         onPointerDown={(event: PointerEvent<HTMLButtonElement>) => {
           if (event.button !== 0) return;

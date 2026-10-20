@@ -1,20 +1,26 @@
 import {
   VOICE_MODEL_IDS,
   VOICE_MODELS,
+  voiceHotkeyLabel,
+  voiceHotkeySchema,
   type GeneralSettings,
+  type VoiceHotkey,
   type VoiceModelId,
 } from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, type KeyboardEvent } from "react";
 import { downloadVoiceModel, updateSettings } from "../../api";
+import { isMac } from "../../keyboard";
 import { cn } from "../../lib/utils";
 import { queryKeys, settingsQuery, voiceDownloadQuery, voiceStatusQuery } from "../../query";
 import { errorMessage } from "../../settings-forms";
+import { hotkeyFromEvent } from "../../voice-hotkey";
 import { editorBody, sectionLegend } from "../classes";
 import { CheckIcon, WarnIcon } from "../icons";
 import { Button } from "../ui/button";
 import { Field } from "../ui/field";
 import { Select } from "../ui/select";
+import { useDesktopPttStatus } from "../use-desktop-ptt-status";
 import { Empty, SaveBar, SectionHeader } from "./parts";
 
 function VoiceStatusLine() {
@@ -102,19 +108,120 @@ function ModelDownload({ model }: { model: VoiceModelId }) {
   );
 }
 
+/** Whether the saved key works system-wide (desktop shell) or only while the page has focus. */
+function HotkeyStatusLine({ hotkey }: { hotkey: VoiceHotkey | null }) {
+  const desktop = useDesktopPttStatus();
+  if (!hotkey) return null;
+  if (!desktop) {
+    return <span className="text-meta text-muted-foreground">Works while blackwall has focus</span>;
+  }
+  if (desktop.active) {
+    return (
+      <span className="flex items-center gap-1.5 text-meta text-muted-foreground">
+        <CheckIcon size="sm" className="text-done" />
+        Works system-wide
+      </span>
+    );
+  }
+  return (
+    <span className="flex items-center gap-1.5 text-meta text-sev-medium">
+      <WarnIcon size="sm" />
+      {desktop.reason ?? "Works while blackwall has focus"}
+    </span>
+  );
+}
+
+/** Records the hold-to-talk key: click, then press the chord; Escape cancels. */
+function HotkeyField({
+  value,
+  saved,
+  onChange,
+}: {
+  value: VoiceHotkey | null;
+  saved: VoiceHotkey | null;
+  onChange: (hotkey: VoiceHotkey | null) => void;
+}) {
+  const [recording, setRecording] = useState(false);
+  const [hint, setHint] = useState<string | null>(null);
+
+  function stopRecording() {
+    setRecording(false);
+    setHint(null);
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    if (!recording || event.key === "Tab") return;
+    // Keeps window shortcuts (⌘S save, ⌘K search) from firing while a chord is tried.
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === "Escape") {
+      stopRecording();
+      return;
+    }
+    const chord = hotkeyFromEvent(event);
+    if (!chord) return;
+    const parsed = voiceHotkeySchema.safeParse(chord);
+    if (!parsed.success) {
+      setHint(parsed.error.issues[0]?.message ?? "That key cannot be used");
+      return;
+    }
+    onChange(parsed.data);
+    stopRecording();
+  }
+
+  return (
+    <Field
+      group
+      label="Hold-to-talk key"
+      hint="An F-key works best: the key also reaches whatever app has focus."
+    >
+      <div className="flex items-center gap-2">
+        <Button
+          role="combobox"
+          aria-expanded={recording}
+          className="min-w-40 justify-center"
+          onClick={() => (recording ? stopRecording() : setRecording(true))}
+          onKeyDown={onKeyDown}
+          onBlur={stopRecording}
+        >
+          {recording ? "Press a key…" : value ? voiceHotkeyLabel(value, isMac()) : "None"}
+        </Button>
+        {value && (
+          <Button
+            variant="ghost"
+            onClick={() => {
+              onChange(null);
+              stopRecording();
+            }}
+          >
+            Clear
+          </Button>
+        )}
+      </div>
+      {hint && <span className="text-meta text-sev-medium">{hint}</span>}
+      <HotkeyStatusLine hotkey={saved} />
+    </Field>
+  );
+}
+
 function VoiceEditor({ saved }: { saved: GeneralSettings }) {
   const queryClient = useQueryClient();
   const [model, setModel] = useState<VoiceModelId>(saved.voiceModel);
+  const [hotkey, setHotkey] = useState<VoiceHotkey | null>(saved.voiceHotkey);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const dirty = model !== saved.voiceModel;
+  const dirty =
+    model !== saved.voiceModel || JSON.stringify(hotkey) !== JSON.stringify(saved.voiceHotkey);
 
   async function save() {
     if (!dirty || saving) return;
     setSaving(true);
     setError(null);
     try {
-      queryClient.setQueryData(queryKeys.settings, await updateSettings({ voiceModel: model }));
+      queryClient.setQueryData(
+        queryKeys.settings,
+        await updateSettings({ voiceModel: model, voiceHotkey: hotkey }),
+      );
       // The new model may not be downloaded yet.
       void queryClient.invalidateQueries({ queryKey: queryKeys.voiceStatus });
     } catch (cause) {
@@ -129,8 +236,8 @@ function VoiceEditor({ saved }: { saved: GeneralSettings }) {
         <fieldset className="m-0 flex max-w-[720px] flex-col gap-4 border-none p-0">
           <legend className={sectionLegend}>Speech model</legend>
           <p className="m-0 text-meta text-muted-foreground">
-            Hold the mic in the top bar and speak a command. Audio is transcribed on this machine;
-            only the text goes to the repo&apos;s agent CLI.
+            Hold the mic in the top bar, or the hold-to-talk key below, and speak a command. Audio
+            is transcribed on this machine; only the text goes to the repo&apos;s agent CLI.
           </p>
           <VoiceStatusLine />
           <Field label="Model">
@@ -147,6 +254,7 @@ function VoiceEditor({ saved }: { saved: GeneralSettings }) {
             </Select>
           </Field>
           <ModelDownload key={model} model={model} />
+          <HotkeyField value={hotkey} saved={saved.voiceHotkey} onChange={setHotkey} />
         </fieldset>
       </div>
       <SaveBar
@@ -155,6 +263,7 @@ function VoiceEditor({ saved }: { saved: GeneralSettings }) {
         error={error}
         onDiscard={() => {
           setModel(saved.voiceModel);
+          setHotkey(saved.voiceHotkey);
           setError(null);
         }}
         onSave={() => void save()}
@@ -163,7 +272,7 @@ function VoiceEditor({ saved }: { saved: GeneralSettings }) {
   );
 }
 
-/** Voice control: whether speech can be transcribed, and the model it uses. */
+/** Voice control: whether speech can be transcribed, the model it uses and the hold-to-talk key. */
 export function VoiceSection() {
   const settings = useQuery(settingsQuery);
   return (
@@ -174,7 +283,10 @@ export function VoiceSection() {
       ) : !settings.data ? (
         <Empty>Reading voice settings…</Empty>
       ) : (
-        <VoiceEditor key={settings.data.voiceModel} saved={settings.data} />
+        <VoiceEditor
+          key={`${settings.data.voiceModel}|${JSON.stringify(settings.data.voiceHotkey)}`}
+          saved={settings.data}
+        />
       )}
     </div>
   );

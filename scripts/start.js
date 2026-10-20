@@ -26,6 +26,7 @@ const OUTPUTS = [
   SERVER_ENTRY,
   "apps/web/dist/index.html",
   "apps/desktop/dist/main.js",
+  "apps/desktop/dist/preload.cjs",
 ];
 const IGNORED_DIRS = new Set(["node_modules", "dist", "coverage", ".vite"]);
 
