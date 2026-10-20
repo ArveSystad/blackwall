@@ -102,6 +102,18 @@ describe("seeding", () => {
     expect(upgraded).toContain("Conventional Commits");
   });
 
+  it("upgrades the previous Implementer seed to the targeted-tests prompt", () => {
+    service.seed();
+    const implementer = byName("Implementer");
+    const previous = LEGACY_SEED_PROMPTS.Implementer!.at(-1)!;
+    service.update(implementer.id, { prompt: previous });
+    service.seed();
+    const upgraded = byName("Implementer").prompt;
+    expect(upgraded).toBe(SEED_AGENTS.find((a) => a.name === "Implementer")!.prompt);
+    expect(upgraded).not.toBe(previous);
+    expect(upgraded).toContain("targeted");
+  });
+
   it("gives every seed a persona that names its output contract", () => {
     for (const seed of SEED_AGENTS) {
       if (seed.eligibleStages.some((s) => s === "code-review")) {
@@ -113,6 +125,7 @@ describe("seeding", () => {
     expect(prompt("Plan reviewer")).toContain("questions output contract");
     expect(prompt("Plan reviewer")).toContain("needsHuman");
     expect(prompt("Implementer")).toMatch(/Do not commit and do not push/);
+    expect(prompt("Implementer")).toContain("checks the harness runs");
     expect(prompt("Summarizer")).toMatch(/commit message/i);
     expect(prompt("Summarizer")).toContain("Conventional Commits");
   });

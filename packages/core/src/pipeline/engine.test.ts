@@ -1774,6 +1774,25 @@ describe("implement and checks", () => {
   const noFindings = (stage: Call): FakeScript =>
     stage === "code-review" ? { structured: { findings: [] } } : {};
 
+  it("lists the repo's check commands in the implement prompt", async () => {
+    const runCheck = vi.fn(async () => passing);
+    const h = harness(noFindings, { stages: createDefaultStages({ runCheck }) });
+    await approved(h, ["pnpm run test", "pnpm run lint"]);
+    const implement = h.calls.find((c) => c.stage === "implement")!.options.prompt;
+    expect(implement).toContain("## Checks the harness runs");
+    expect(implement).toContain("- `pnpm run test`\n- `pnpm run lint`");
+    expect(implement).toContain("sends any failure back to you");
+    expect(implement).toContain("Run only fast, targeted builds and tests");
+  });
+
+  it("leaves the check commands out of the implement prompt when the repo has none", async () => {
+    const runCheck = vi.fn(async () => passing);
+    const h = harness(noFindings, { stages: createDefaultStages({ runCheck }) });
+    await approved(h, []);
+    const implement = h.calls.find((c) => c.stage === "implement")!.options.prompt;
+    expect(implement).not.toContain("## Checks the harness runs");
+  });
+
   it("retries the implementer with the failing output before any reviewer runs", async () => {
     const results = [failing("FAIL src/login.test.ts\n  expected 401"), passing, passing];
     const runCheck = vi.fn<CheckRunner>(async () => results.shift()!);
@@ -1791,6 +1810,7 @@ describe("implement and checks", () => {
     expect(retry).toContain("`pnpm run test` exited with code 1");
     expect(retry).toContain("expected 401");
     expect(retry).toContain("Your changes fail the check above");
+    expect(retry).toContain("## Checks the harness runs");
     // The first run stops at the failing command; the retry runs both.
     expect(runCheck.mock.calls.map(([command]) => command)).toEqual([
       "pnpm run test",

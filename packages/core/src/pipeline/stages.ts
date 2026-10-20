@@ -517,6 +517,16 @@ function describeCheckFailure(check: CheckFinished): string {
   return `\`${check.command}\` ${how}`;
 }
 
+/** The repo's check commands for the implementer, so it leaves the full suite to Checks. */
+function describeCheckCommands(commands: readonly string[]): string {
+  if (commands.length === 0) return "";
+  return [
+    ...commands.map((command) => `- \`${command}\``),
+    "",
+    "The harness runs these in the worktree after your round, in this order, and sends any failure back to you. Run only fast, targeted builds and tests for what you changed; do not run the whole suite or these commands in full.",
+  ].join("\n");
+}
+
 /**
  * The harness commits the round's work: the summarizer writes the message from
  * the staged diff as a Conventional Commits message, with the Jira key after
@@ -1236,6 +1246,7 @@ export function createDefaultStages({
       const { task, repositories } = ctx;
       const toFix = blockingFindings(repositories.findings.listByTask(task.id));
       const check = checkToFix(ctx);
+      const commands = repositories.repos.get(task.repoId)?.checkCommands ?? [];
       await ctx.runAgent({
         agentId: single(task, "implementer"),
         prompt: prompt(
@@ -1246,6 +1257,7 @@ export function createDefaultStages({
             "Failed check",
             check ? `${describeCheckFailure(check)}:\n\n${fence(check.output)}` : "",
           ),
+          section("Checks the harness runs", describeCheckCommands(commands)),
           section("Instructions from the user", ctx.instructions),
           section("Worktree setup failed", ctx.setupFailure),
           ctx.setupFailure
