@@ -48,6 +48,18 @@ export function endsHotkey(
   );
 }
 
+/**
+ * True when a key press would type a character into a text field: a
+ * single-character key from an Alt/Option or AltGr chord that isn't a plain
+ * letter, digit or space. Ctrl- and Meta-only chords and F-keys never type.
+ */
+export function hotkeyTypesText(event: KeyFields): boolean {
+  if (event.key.length !== 1) return false;
+  if (event.metaKey) return false;
+  if (!event.altKey) return false;
+  return !/^[a-z0-9 ]$/i.test(event.key);
+}
+
 /** `hotkey` in `aria-keyshortcuts` form, e.g. "Control+Alt+Space". */
 export function ariaKeyShortcuts(hotkey: VoiceHotkey): string {
   return [

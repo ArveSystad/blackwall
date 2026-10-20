@@ -32,10 +32,12 @@ function panelKey(voice: VoiceState | undefined, notice: string | null): string 
 /**
  * Top bar push-to-talk button for the selected repo: hold it (pointer, or
  * Space / Enter while focused, or the hold-to-talk key from Settings → Voice
- * anywhere but a text field) and speak; on release the clip is transcribed
- * on the server and sent as a voice command. A panel below shows the
- * transcript, the agent's progress and its reply, with a link to what a
- * submit created, and fades once nothing happens.
+ * anywhere, a text field included unless the chord types a character there)
+ * and speak; on release the clip is transcribed on the server and sent as a
+ * voice command. A panel below shows the transcript, the agent's progress and
+ * its reply, with a link to what a submit created, and fades once nothing
+ * happens. While a dialog is open the button sits under its overlay, and only
+ * shows through it while voice is active.
  */
 export function PushToTalk({ className }: { className?: string }) {
   const repos = useQuery(reposQuery);
@@ -119,7 +121,15 @@ export function PushToTalk({ className }: { className?: string }) {
   const showPanel = busy || (seenKey !== null && key !== seenKey);
 
   return (
-    <div className={cn("relative", className)}>
+    <div
+      className={cn(
+        "relative",
+        // Above a dialog's overlay while active, so the session shows through the blur; the
+        // button can't be clicked there.
+        (busy || showPanel) && "z-[60]",
+        className,
+      )}
+    >
       <Button
         variant="ghost"
         size="icon"
@@ -135,7 +145,7 @@ export function PushToTalk({ className }: { className?: string }) {
           disabledReason ??
           (hotkeyLabel
             ? `Hold to talk (${hotkeyLabel}, or Space while focused)`
-            : "Hold to talk (Space while focused)")
+            : "Hold to talk (Space while focused). Set a hold-to-talk key in Settings → Voice to talk from anywhere, dialogs included")
         }
         disabled={disabledReason !== null}
         onPointerDown={(event: PointerEvent<HTMLButtonElement>) => {

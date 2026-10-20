@@ -23,6 +23,7 @@ import { useEffect, useState } from "react";
 import {
   ApiError,
   MissingCredentialError,
+  clearVoiceDraft,
   createBacklogItem,
   lookupIssue,
   lookupPullRequest,
@@ -46,9 +47,11 @@ import {
   settingsQuery,
   taskQuery,
   tasksQuery,
+  voiceQuery,
 } from "../query";
 import { resolveSelectedRepo, useSelectedRepoId } from "../selected-repo";
 import { draftFields } from "../voice";
+import { claimVoiceDraftHost } from "../voice-draft-host";
 import {
   CLI_NAMES,
   ROLE_LABELS,
@@ -411,7 +414,8 @@ function NewTaskForm({
   /**
    * The voice draft the form mirrors: it opens on a Blackwall task in the
    * draft's repo, takes each new revision's title and description, and
-   * creates the task through the draft so it is created once.
+   * creates the task through the draft so it is created once. It may arrive
+   * after the form opened, when a hand-opened form takes over the draft.
    */
   voiceDraft?: VoiceDraft | undefined;
   onClose: () => void;
@@ -461,14 +465,6 @@ function NewTaskForm({
   const [title, setTitle] = useState(
     item?.title ?? (voiceDraft ? draftFields(voiceDraft).title : ""),
   );
-  // Each voice change of the draft overwrites what it covers.
-  const [draftRevision, setDraftRevision] = useState(voiceDraft?.revision);
-  if (voiceDraft && voiceDraft.revision !== draftRevision) {
-    setDraftRevision(voiceDraft.revision);
-    const fields = draftFields(voiceDraft);
-    setTitle(fields.title);
-    setFreeText(fields.freeText);
-  }
   const [dependsOn, setDependsOn] = useState<string[]>(item?.dependsOn ?? []);
   // The reference repos the user picked, for the repo they were picked in; null follows the repo's.
   const [referencePick, setReferencePick] = useState<ReferenceRepoPick | null>(() =>
@@ -478,6 +474,22 @@ function NewTaskForm({
   // A voice "confirm" may be creating the draft's task from the server.
   const submitting = localSubmitting || !!voiceDraft?.submitting;
   const [error, setError] = useState<string | null>(null);
+  // Each voice change of the draft overwrites what it covers; a new draft also
+  // switches the form to its repo and to free text.
+  const [draftKey, setDraftKey] = useState(
+    voiceDraft ? { id: voiceDraft.id, revision: voiceDraft.revision } : undefined,
+  );
+  if (voiceDraft && (voiceDraft.id !== draftKey?.id || voiceDraft.revision !== draftKey.revision)) {
+    if (voiceDraft.id !== draftKey?.id) {
+      setKindChoice("free-text");
+      setChosenRepo(voiceDraft.repoId);
+      setError(null);
+    }
+    setDraftKey({ id: voiceDraft.id, revision: voiceDraft.revision });
+    const fields = draftFields(voiceDraft);
+    setTitle(fields.title);
+    setFreeText(fields.freeText);
+  }
 
   const usableRepos = (repos.data ?? []).filter((r) => r.exists);
   const selectedRepo = resolveSelectedRepo(useSelectedRepoId(), usableRepos)?.id ?? null;
@@ -1106,7 +1118,9 @@ function NewTaskForm({
  * The new task form, over the dimmed shell. Esc closes; ⌘↵ creates the task.
  * A new task is a backlog item of the chosen repo, started at once when the
  * repo's backlog runs. With `item` it edits that backlog item instead; with
- * `voiceDraft` it mirrors that voice draft (see `VoiceTaskModal`).
+ * `voiceDraft` it mirrors that voice draft (see `VoiceTaskModal`). Opened by
+ * hand to create a task, it takes over the open voice draft, so voice fills
+ * this form rather than opening another.
  */
 export function NewTaskModal({
   open,
@@ -1122,16 +1136,30 @@ export function NewTaskModal({
   const defaults = useQuery({ ...roleDefaultsQuery, enabled: open });
   // The form opens on the repo's default origin, so it waits for the repos too.
   const repos = useQuery({ ...reposQuery, enabled: open });
+
+  const hosting = open && !item && !voiceDraft;
+  useEffect(() => (hosting ? claimVoiceDraftHost() : undefined), [hosting]);
+  const voice = useQuery({ ...voiceQuery, enabled: hosting });
+  const hostedDraft = hosting ? (voice.data?.draft ?? undefined) : undefined;
+  const draft = voiceDraft ?? hostedDraft;
+  // The hosted draft this form took, to close with it as `VoiceTaskModal` does.
+  const [adoptedId, setAdoptedId] = useState<string | null>(null);
+  if (hostedDraft && hostedDraft.id !== adoptedId) setAdoptedId(hostedDraft.id);
+  if (!hosting && adoptedId !== null) setAdoptedId(null);
+  const draftGone = hosting && adoptedId !== null && !hostedDraft;
+  useEffect(() => {
+    if (draftGone) onClose();
+  }, [draftGone, onClose]);
+  const close = () => {
+    if (hostedDraft) void clearVoiceDraft(hostedDraft.id).catch(() => undefined);
+    onClose();
+  };
+
   return (
-    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+    <Dialog open={open} onOpenChange={(next) => !next && close()}>
       <DialogContent className="max-w-[680px]">
         {defaults.data && repos.data ? (
-          <NewTaskForm
-            defaults={defaults.data}
-            item={item}
-            voiceDraft={voiceDraft}
-            onClose={onClose}
-          />
+          <NewTaskForm defaults={defaults.data} item={item} voiceDraft={draft} onClose={close} />
         ) : (
           <div className="flex flex-col gap-2 px-5 py-6">
             <DialogTitle>{item ? "Edit backlog item" : "New task"}</DialogTitle>

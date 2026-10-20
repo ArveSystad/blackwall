@@ -173,7 +173,7 @@ function HotkeyField({
     <Field
       group
       label="Hold-to-talk key"
-      hint="An F-key works best: the key also reaches whatever app has focus."
+      hint={`Use an F-key or a chord with Ctrl, Alt or ${isMac() ? "⌘" : "Win"}. It also works in text fields and while a dialog is open, where the mic button can't be reached. Alt/Option chords that type a symbol don't work in text fields.`}
     >
       <div className="flex items-center gap-2">
         <Button
@@ -237,7 +237,8 @@ function VoiceEditor({ saved }: { saved: GeneralSettings }) {
           <legend className={sectionLegend}>Speech model</legend>
           <p className="m-0 text-meta text-muted-foreground">
             Hold the mic in the top bar, or the hold-to-talk key below, and speak a command. Audio
-            is transcribed on this machine; only the text goes to the repo&apos;s agent CLI.
+            is transcribed on this machine; only the text goes to the repo&apos;s agent CLI. Set a
+            hold-to-talk key to talk while a dialog is open.
           </p>
           <VoiceStatusLine />
           <Field label="Model">

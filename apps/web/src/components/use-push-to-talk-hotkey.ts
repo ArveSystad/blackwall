@@ -1,13 +1,13 @@
 import type { VoiceHotkey } from "@blackwall/shared";
 import { useEffect, useRef } from "react";
 import { isTypingTarget, useWindowKeydown } from "../keyboard";
-import { desktopBridge, endsHotkey, matchesHotkeyDown } from "../voice-hotkey";
+import { desktopBridge, endsHotkey, hotkeyTypesText, matchesHotkeyDown } from "../voice-hotkey";
 
 /**
- * Holds `hotkey` for push-to-talk: a press anywhere on the page but a text
- * field or select menu calls `onPress`, releasing the key or one of its
- * modifiers (or leaving the window) calls `onRelease`. In the desktop shell
- * it also registers the key system-wide; the only caller of
+ * Holds `hotkey` for push-to-talk: a press anywhere on the page, a text field
+ * or select menu included unless the chord types a character there, calls
+ * `onPress`, releasing the key or one of its modifiers (or leaving the
+ * window) calls `onRelease`. In the desktop shell it also registers the key system-wide; the only caller of
  * `setPushToTalkHotkey`. Its down edges are ignored while the window has
  * focus, since the page sees the key itself then.
  */
@@ -22,7 +22,7 @@ export function usePushToTalkHotkey(
 
   useWindowKeydown((event) => {
     if (!hotkey || event.repeat || !matchesHotkeyDown(event, hotkey)) return;
-    if (isTypingTarget(event.target)) return;
+    if (isTypingTarget(event.target) && hotkeyTypesText(event)) return;
     event.preventDefault();
     handlers.current.onPress();
   }, hotkey !== null);
