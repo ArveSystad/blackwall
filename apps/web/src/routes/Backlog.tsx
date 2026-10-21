@@ -232,7 +232,7 @@ function RunnerBar({
       {enabled && includeRemoteIssues !== undefined && (hasRemoteIssues || includeRemoteIssues) && (
         <label
           className="bw-chamfer bw-chamfer-pill bw-chamfer-has-focus inline-flex h-6 cursor-pointer items-center gap-1.5 px-1.5 text-body text-foreground"
-          title="When the queue is empty, the runner starts this repo's open GitHub issues that are unassigned or assigned to you, one at a time. Pause an imported item to skip its issue."
+          title="When the queue is empty, the runner starts this repo's open GitHub issues, then its Jira project's, that are unassigned or assigned to you, one at a time. Pause an imported item to skip its issue."
         >
           <span aria-hidden="true" className="text-faint">
             ↳
@@ -1035,7 +1035,7 @@ export function Backlog({
         defaultBranch={repo?.defaultBranch ?? "main"}
         globalOn={settings.data?.backlogRunner ?? true}
         includeRemoteIssues={runner.data?.includeRemoteIssues}
-        hasRemoteIssues={issues.length > 0}
+        hasRemoteIssues={issues.length > 0 || jiraIssues.length > 0}
       />
 
       <div className={paneBody}>

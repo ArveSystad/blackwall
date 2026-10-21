@@ -381,14 +381,23 @@ describe("backlog runner", () => {
 describe("backlog runner with remote issues", () => {
   const refreshMs = () => settings.general().githubIssuesRefreshSeconds * 1000;
 
-  /** An importer that adds one issue item per call, numbered from 1. */
-  function importer(result: () => "item" | "none" | "throw" = () => "item") {
+  /** An importer that adds one GitHub or Jira issue item per call, numbered from 1. */
+  function importer(
+    result: () => "item" | "jira" | "none" | "throw" = () => "item",
+    failure = "github.com: Bad credentials",
+  ) {
     let calls = 0;
     const importRemoteIssue = vi.fn(async () => {
       calls++;
       const outcome = result();
-      if (outcome === "throw") throw new Error("github.com: Bad credentials");
+      if (outcome === "throw") throw new Error(failure);
       if (outcome === "none") return undefined;
+      if (outcome === "jira") {
+        return addItem(`Jira ${calls}`, {
+          origin: { kind: "jira-issue", key: `ABC-${calls}`, connectionId: null },
+          freeText: "",
+        });
+      }
       return addItem(`Issue ${calls}`, {
         origin: {
           kind: "github-issue",
@@ -515,6 +524,49 @@ describe("backlog runner with remote issues", () => {
     await runner.tick();
     expect(importRemoteIssue).toHaveBeenCalledTimes(1);
     expect(logs).toEqual([expect.stringContaining("github.com: Bad credentials")]);
+    advance(refreshMs() + 1);
+    await runner.tick();
+    expect(importRemoteIssue).toHaveBeenCalledTimes(2);
+  });
+
+  it("promotes a Jira import in the same pass, like a GitHub one", async () => {
+    const importRemoteIssue = importer(() => "jira");
+    const { runner, promoted } = unitRunner({ importRemoteIssue });
+    await runner.tick();
+    expect(importRemoteIssue).toHaveBeenCalledTimes(1);
+    expect(promoted.map((i) => i.title)).toEqual(["Jira 1"]);
+    expect(item(promoted[0]!.id).status).toBe("promoted");
+  });
+
+  it("shares one import and one cooldown across GitHub and Jira", async () => {
+    const outcomes = ["item", "jira"] as const;
+    let pass = 0;
+    const importRemoteIssue = importer(() => outcomes[pass++] ?? "none");
+    const { runner, promoted } = unitRunner({ importRemoteIssue });
+    await runner.tick();
+    setStatus(item(promoted[0]!.id).taskId!, "done");
+    await runner.tick();
+    expect(importRemoteIssue).toHaveBeenCalledTimes(2);
+    expect(promoted.map((i) => i.title)).toEqual(["Issue 1", "Jira 2"]);
+
+    setStatus(item(promoted[1]!.id).taskId!, "done");
+    await runner.tick();
+    await runner.tick();
+    expect(importRemoteIssue).toHaveBeenCalledTimes(3);
+    advance(refreshMs() + 1);
+    await runner.tick();
+    expect(importRemoteIssue).toHaveBeenCalledTimes(4);
+    expect(promoted).toHaveLength(2);
+  });
+
+  it("logs a failed Jira import and waits out the cooldown", async () => {
+    const logs: string[] = [];
+    const importRemoteIssue = importer(() => "throw", "acme.atlassian.net: Unauthorized");
+    const { runner } = unitRunner({ importRemoteIssue, log: (m) => logs.push(m) });
+    await runner.tick();
+    await runner.tick();
+    expect(importRemoteIssue).toHaveBeenCalledTimes(1);
+    expect(logs).toEqual([expect.stringContaining("acme.atlassian.net: Unauthorized")]);
     advance(refreshMs() + 1);
     await runner.tick();
     expect(importRemoteIssue).toHaveBeenCalledTimes(2);

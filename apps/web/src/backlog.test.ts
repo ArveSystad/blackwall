@@ -282,12 +282,12 @@ describe("runnerStatus", () => {
     expect(status()).toMatchObject({ tone: "ready", label: "Idle", detail: "Next: Add login" });
   });
 
-  it("says an empty queue picks up GitHub issues when remote issues are on", () => {
+  it("says an empty queue picks up remote issues when remote issues are on", () => {
     expect(status({ items: [] }).detail).toBe("Queue empty. Nothing to run.");
     expect(status({ items: [], runner: { ...runner, includeRemoteIssues: true } })).toMatchObject({
       tone: "idle",
       label: "Idle",
-      detail: "Queue empty. Picks up the next open GitHub issue.",
+      detail: "Queue empty. Picks up the next open GitHub or Jira issue.",
     });
   });
 

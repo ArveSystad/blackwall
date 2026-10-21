@@ -59,7 +59,7 @@ import {
   firstBranchFor,
   firstOriginContext,
 } from "./github.js";
-import { createJiraOrigin } from "./jira.js";
+import { createJiraIssueSource, createJiraOrigin } from "./jira.js";
 import { HOSTNAME, startServer } from "./server.js";
 import { createShutdown } from "./shutdown.js";
 
@@ -138,6 +138,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
     const jira = createJiraOrigin({ connections });
     const github = createGitHubOrigin({ connections });
     const repoIssues = createRepoIssueSource({ connections });
+    const jiraIssues = createJiraIssueSource({ connections });
     const newTask = {
       repos,
       resolveRoles: agents.resolveRoles,
@@ -164,6 +165,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
           {
             listIssues: repoIssues.listRepoIssues,
             viewerLogin: repoIssues.viewerLogin,
+            listJiraIssues: jiraIssues.listRepoJiraIssues,
             broadcast: publish,
           },
           repo,

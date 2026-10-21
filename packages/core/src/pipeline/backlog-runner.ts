@@ -45,10 +45,10 @@ export interface BacklogRunnerOptions {
   /** Promotes an item into a queued task, exactly like "Run now". */
   createTask: (item: BacklogItem) => Promise<Task>;
   /**
-   * Adds the repo's next eligible remote issue as a waiting backlog item at
-   * the end of its queue, or returns undefined when there is none. A throw
-   * is logged and, like an empty result, leaves the repo alone for the
-   * issue refresh interval.
+   * Adds the repo's next eligible remote issue (GitHub first, then Jira) as a
+   * waiting backlog item at the end of its queue, or returns undefined when
+   * there is none. A throw is logged and, like an empty result, leaves the
+   * repo alone for the issue refresh interval.
    */
   importRemoteIssue?: (repo: Repo) => Promise<BacklogItem | undefined>;
   /** Resumes a task a usage limit interrupted. */
@@ -79,8 +79,8 @@ type Picked = { item: BacklogItem } | { idle: true; quotaHeld: boolean };
  * runner until the user resumes it.
  *
  * A repo with "Include remote issues" on whose queue has nothing to start
- * imports its next remote issue as a backlog item and promotes it in the same
- * pass. It imports nothing while a waiting item is held only by a quota pause
+ * imports its next remote issue (GitHub first, then Jira) as a backlog item
+ * and promotes it in the same pass. It imports nothing while a waiting item is held only by a quota pause
  * (the reset wakes the runner), and leaves the repo alone for the issue
  * refresh interval after an import that found nothing, threw, or was not
  * promoted.

@@ -19,6 +19,7 @@ import {
   type Repo,
   type RepoBacklogRunner,
   type RepoIssues,
+  type RepoJiraIssues,
   type ServerEvent,
   type Task,
   type TaskOrigin,
@@ -199,17 +200,29 @@ export interface RemoteIssueServices {
   listIssues: (repo: Repo) => Promise<RepoIssues>;
   /** The login of a connection's token user; throws on failure. */
   viewerLogin: (connectionId: string) => Promise<string>;
+  /**
+   * The repo's open Jira issues, unassigned or assigned to the user, newest
+   * first; site failures in `errors`.
+   */
+  listJiraIssues: (repo: Repo) => Promise<RepoJiraIssues>;
   broadcast: (event: ServerEvent) => void;
 }
 
+function listingError(errors: readonly { host: string; message: string }[]): Error {
+  return new Error(errors.map((e) => `${e.host}: ${e.message}`).join("; "));
+}
+
 /**
- * For the backlog runner: adds the repo's next open GitHub issue as a waiting
- * backlog item at the end of its queue, and returns it. Takes the first issue
- * in list order (most recently updated first) that no task of the repo
- * (archived or not) and no item of the repo (whatever its status) covers, and
- * that is unassigned or assigned to the token's user. Never assigns or
- * comments on the issue. Undefined when no issue qualifies; throws when the
- * listing or the user lookup failed.
+ * For the backlog runner: adds the repo's next open GitHub issue, or when none
+ * qualifies the next open issue of its Jira project, as a waiting backlog item
+ * at the end of its queue, and returns it. Takes the first issue in list order
+ * (most recently updated first) that no task of the repo (archived or not) and
+ * no item of the repo (whatever its status) covers; a Jira issue is covered
+ * by its key. A GitHub issue must be unassigned or assigned to the token's
+ * user; a Jira issue's query already asks for that. Never assigns, transitions
+ * or comments on the issue. Undefined when no issue qualifies; throws when
+ * either listing or the user lookup failed, Jira being asked only once GitHub
+ * succeeded.
  */
 export async function importRemoteIssue(
   {
@@ -219,14 +232,11 @@ export async function importRemoteIssue(
     backlogItems: Pick<Repositories["backlogItems"], "list" | "insert">;
     tasks: Pick<Repositories["tasks"], "list">;
   },
-  { listIssues, viewerLogin, broadcast }: RemoteIssueServices,
+  { listIssues, viewerLogin, listJiraIssues, broadcast }: RemoteIssueServices,
   repo: Repo,
 ): Promise<BacklogItem | undefined> {
   const { issues, errors } = await listIssues(repo);
-  if (errors.length > 0) {
-    throw new Error(errors.map((e) => `${e.host}: ${e.message}`).join("; "));
-  }
-  if (issues.length === 0) return undefined;
+  if (errors.length > 0) throw listingError(errors);
   const origins = [
     ...tasks
       .list()
@@ -234,6 +244,25 @@ export async function importRemoteIssue(
       .map((t) => t.origin),
     ...backlogItems.list(repo.id).map((i) => i.origin),
   ];
+  // Never started at once, so no start comment: the runner promotes it.
+  const addImported = (issueOrigin: TaskOrigin, title: string): BacklogItem => {
+    const { origin, mode, freeText, agents, agentClis, referenceRepoIds, triageMode, dependsOn } =
+      newBacklogItemInputSchema.parse({ origin: issueOrigin, title });
+    const item = backlogItems.insert({
+      repoId: repo.id,
+      title,
+      origin,
+      mode,
+      freeText,
+      agents,
+      agentClis,
+      referenceRepoIds,
+      triageMode,
+      dependsOn,
+    });
+    broadcast({ type: "backlog.changed", payload: { repoId: repo.id } });
+    return item;
+  };
   const logins = new Map<string, string>();
   for (const issue of issues) {
     if (origins.some((origin) => sameGitHubItem(origin, "github-issue", issue))) continue;
@@ -250,33 +279,30 @@ export async function importRemoteIssue(
     const title =
       issue.title.trim().slice(0, MAX_TITLE_CHARS) ||
       `${issue.owner}/${issue.repo}#${issue.number}`;
-    // Never started at once, so no start comment: the runner promotes it.
-    const { origin, mode, freeText, agents, agentClis, referenceRepoIds, triageMode, dependsOn } =
-      newBacklogItemInputSchema.parse({
-        origin: {
-          kind: "github-issue",
-          url: issue.url,
-          owner: issue.owner,
-          repo: issue.repo,
-          number: issue.number,
-          connectionId: issue.connectionId,
-        },
-        title,
-      });
-    const item = backlogItems.insert({
-      repoId: repo.id,
+    return addImported(
+      {
+        kind: "github-issue",
+        url: issue.url,
+        owner: issue.owner,
+        repo: issue.repo,
+        number: issue.number,
+        connectionId: issue.connectionId,
+      },
       title,
-      origin,
-      mode,
-      freeText,
-      agents,
-      agentClis,
-      referenceRepoIds,
-      triageMode,
-      dependsOn,
-    });
-    broadcast({ type: "backlog.changed", payload: { repoId: repo.id } });
-    return item;
+    );
+  }
+  const jira = await listJiraIssues(repo);
+  if (jira.errors.length > 0) throw listingError(jira.errors);
+  for (const issue of jira.issues) {
+    // Keys are uppercase, so the same issue has the same key on any connection.
+    if (origins.some((origin) => origin.kind === "jira-issue" && origin.key === issue.key)) {
+      continue;
+    }
+    const title = issue.title.trim().slice(0, MAX_TITLE_CHARS) || issue.key;
+    return addImported(
+      { kind: "jira-issue", key: issue.key, connectionId: issue.connectionId },
+      title,
+    );
   }
   return undefined;
 }

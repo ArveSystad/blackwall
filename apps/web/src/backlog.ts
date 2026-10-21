@@ -305,7 +305,7 @@ export function runnerStatus({
   }
   if (pendingCount(items) === 0) {
     const detail = runner.includeRemoteIssues
-      ? "Queue empty. Picks up the next open GitHub issue."
+      ? "Queue empty. Picks up the next open GitHub or Jira issue."
       : "Queue empty. Nothing to run.";
     return { tone: "idle", label: "Idle", detail };
   }

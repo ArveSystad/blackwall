@@ -19,6 +19,8 @@ import {
   type NewBacklogItemInput,
   type RepoIssue,
   type RepoIssues,
+  type RepoJiraIssue,
+  type RepoJiraIssues,
   type ServerEvent,
 } from "@blackwall/shared";
 import { Hono } from "hono";
@@ -830,11 +832,38 @@ describe("importRemoteIssue", () => {
     connectionId: "c1",
   });
 
-  function run(listed: RepoIssues, viewerLogin = vi.fn(async () => "me")) {
+  const jiraIssue = (key: string, patch: Partial<RepoJiraIssue> = {}): RepoJiraIssue => ({
+    host: "acme.atlassian.net",
+    key,
+    title: `Jira ${key}`,
+    url: `https://acme.atlassian.net/browse/${key}`,
+    issueType: "Story",
+    status: "To Do",
+    author: "Ada",
+    assignee: null,
+    updatedAt: new Date("2026-10-09T12:00:00Z"),
+    repoId,
+    connectionId: "c1",
+    ...patch,
+  });
+  const jiraOrigin = (key: string) => ({ kind: "jira-issue" as const, key, connectionId: "c1" });
+  const jiraListed = (...issues: RepoJiraIssue[]) =>
+    vi.fn(async (): Promise<RepoJiraIssues> => ({ issues, errors: [] }));
+
+  function run(
+    listed: RepoIssues,
+    viewerLogin = vi.fn(async () => "me"),
+    listJiraIssues = jiraListed(),
+  ) {
     const repo = repositories.repos.get(repoId)!;
     return importRemoteIssue(
       { backlogItems: repositories.backlogItems, tasks: repositories.tasks },
-      { listIssues: async () => listed, viewerLogin, broadcast: (e) => events.push(e) },
+      {
+        listIssues: async () => listed,
+        viewerLogin,
+        listJiraIssues,
+        broadcast: (e) => events.push(e),
+      },
       repo,
     );
   }
@@ -913,6 +942,116 @@ describe("importRemoteIssue", () => {
       run({ issues: [issue(1, { assignees: ["x"] })], errors: [] }, viewerLogin),
     ).rejects.toThrow("401");
     expect(repositories.backlogItems.list(repoId)).toEqual([]);
+  });
+
+  it("takes an eligible GitHub issue without asking Jira", async () => {
+    const listJiraIssues = jiraListed(jiraIssue("ABC-2"));
+    const item = await run({ issues: [issue(1)], errors: [] }, undefined, listJiraIssues);
+    expect(item?.origin).toEqual(origin(1));
+    expect(listJiraIssues).not.toHaveBeenCalled();
+  });
+
+  it("adds the first Jira issue as a waiting item when no GitHub issue is eligible", async () => {
+    const item = await run({ issues: [], errors: [] }, undefined, jiraListed(jiraIssue("ABC-2")));
+    expect(item).toMatchObject({
+      repoId,
+      title: "Jira ABC-2",
+      status: "waiting",
+      origin: jiraOrigin("ABC-2"),
+      freeText: "",
+      dependsOn: [],
+    });
+    expect(repositories.backlogItems.list(repoId)).toHaveLength(1);
+    expect(events).toEqual([{ type: "backlog.changed", payload: { repoId } }]);
+  });
+
+  it("falls through to Jira when every GitHub issue is covered or assigned to others", async () => {
+    repositories.backlogItems.insert({
+      repoId,
+      title: "Paused",
+      origin: origin(1),
+      status: "paused",
+    });
+    const item = await run(
+      { issues: [issue(1), issue(2, { assignees: ["someone"] })], errors: [] },
+      undefined,
+      jiraListed(jiraIssue("ABC-2"), jiraIssue("ABC-1")),
+    );
+    expect(item?.origin).toEqual(jiraOrigin("ABC-2"));
+  });
+
+  it("skips Jira issues covered by any task or item of the repo", async () => {
+    const archived = repositories.tasks.create({
+      title: "Old",
+      origin: jiraOrigin("ABC-1"),
+      repoId,
+      freeText: "",
+      agents: { planner: "a" },
+    });
+    repositories.tasks.update(archived.id, { archivedAt: new Date() });
+    repositories.backlogItems.insert({
+      repoId,
+      title: "Paused",
+      origin: { kind: "jira-issue", key: "ABC-2", connectionId: null },
+      status: "paused",
+    });
+    const promoted = repositories.backlogItems.insert({
+      repoId,
+      title: "Promoted",
+      origin: jiraOrigin("ABC-3"),
+    });
+    repositories.backlogItems.markPromoted(promoted.id, archived.id);
+    const item = await run(
+      { issues: [], errors: [] },
+      undefined,
+      jiraListed(jiraIssue("ABC-1"), jiraIssue("ABC-2"), jiraIssue("ABC-3"), jiraIssue("ABC-4")),
+    );
+    expect(item?.origin).toEqual(jiraOrigin("ABC-4"));
+  });
+
+  it("falls back to the Jira key for an empty title", async () => {
+    const item = await run(
+      { issues: [], errors: [] },
+      undefined,
+      jiraListed(jiraIssue("ABC-7", { title: "  " })),
+    );
+    expect(item?.title).toBe("ABC-7");
+  });
+
+  it("rejects a Jira listing error and adds nothing", async () => {
+    const listJiraIssues = vi.fn(async (): Promise<RepoJiraIssues> => ({
+      issues: [jiraIssue("ABC-1")],
+      errors: [{ host: "acme.atlassian.net", message: "Unauthorized" }],
+    }));
+    await expect(run({ issues: [], errors: [] }, undefined, listJiraIssues)).rejects.toThrow(
+      "acme.atlassian.net: Unauthorized",
+    );
+    expect(repositories.backlogItems.list(repoId)).toEqual([]);
+    expect(events).toEqual([]);
+  });
+
+  it("rejects a GitHub listing error without asking Jira", async () => {
+    const listJiraIssues = jiraListed(jiraIssue("ABC-1"));
+    await expect(
+      run(
+        { issues: [], errors: [{ host: "github.com", message: "Bad credentials" }] },
+        undefined,
+        listJiraIssues,
+      ),
+    ).rejects.toThrow("github.com: Bad credentials");
+    expect(listJiraIssues).not.toHaveBeenCalled();
+  });
+
+  it("returns undefined when neither source has an eligible issue", async () => {
+    repositories.backlogItems.insert({ repoId, title: "Paused", origin: jiraOrigin("ABC-1") });
+    expect(
+      await run(
+        { issues: [issue(1, { assignees: ["x"] })], errors: [] },
+        undefined,
+        jiraListed(jiraIssue("ABC-1")),
+      ),
+    ).toBeUndefined();
+    expect(repositories.backlogItems.list(repoId)).toHaveLength(1);
   });
 });
 
