@@ -81,7 +81,7 @@ function BacklogEditor({ saved }: { saved: GeneralSettings }) {
             <span className="flex flex-col gap-0.5">
               <span className={fieldLabel}>Run backlogs automatically</span>
               <span className="text-meta text-muted-foreground">
-                Off: items wait until you press Run now.
+                Off: items wait until you press Start working.
               </span>
             </span>
           </label>

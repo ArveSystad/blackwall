@@ -56,8 +56,8 @@ The user picks the findings to post ("Review ready to post").
 
 - Each repo has a backlog. Its runner promotes the next item to a task when the repo is idle and
   quotas allow. The top bar shows "N waiting" per repo.
-- Quick add: "Quick add: describe the work, Enter adds it to the queue". "Run now" promotes an item
-  by hand.
+- Quick add: "Quick add: describe the work, Enter adds it to the queue". "Start working" promotes an
+  item by hand and starts its task without leaving the backlog.
 - Summarize may propose up to 5 follow-up tasks. On confirm they land in the backlog.
 - Stacked PRs: adding a PR in a stack also queues its sibling PRs as Review PR items, labelled
   "stack #41 · 2/3".
@@ -347,8 +347,9 @@ There is **no input bar** in the task view. You steer a task from the chat (see 
     follow-ups.
   - The Archive bar: "N archived", "Show archive (N)", "Archive done (N)", and the field "Search
     archive".
-- **What you can do**: "Run now", "Pause"/"Unpause", "Edit", "Archive", "Delete"; J/K to move,
-  Alt ↑/↓ to reorder, P to pause; "Work on issue" for GitHub issue rows; "Unarchive".
+- **What you can do**: "Start working", "Pause"/"Unpause", "Edit", "Archive", "Delete"; J/K to move,
+  Alt ↑/↓ to reorder, P to pause; "Start working" for GitHub issue rows (assigns the issue and
+  starts its task without leaving the backlog); "Unarchive".
 
 ### Review requests (`/reviews`) and Assigned issues (`/issues`)
 

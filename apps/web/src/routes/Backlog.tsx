@@ -369,6 +369,7 @@ function BacklogRow({
   onOpen,
   onEdit,
   onRun,
+  running,
   onTogglePause,
   onDelete,
   onArchive,
@@ -389,6 +390,8 @@ function BacklogRow({
   onOpen: (() => void) | undefined;
   onEdit: () => void;
   onRun: () => void;
+  /** The item is being started; its start button waits. */
+  running: boolean;
   onTogglePause: () => void;
   onDelete: () => void;
   /** Archives the item's done task. */
@@ -491,9 +494,15 @@ function BacklogRow({
       <span className="flex items-center gap-0.5">
         {!promoted && (
           <>
-            <Button size="sm" variant="ghost" onClick={onRun} title="Promote to a task now">
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={running}
+              onClick={onRun}
+              title="Start a task for this item now"
+            >
               <PlayIcon size="sm" />
-              Run now
+              Start working
             </Button>
             <Button size="sm" variant="ghost" onClick={onTogglePause} aria-keyshortcuts="P">
               {item.status === "paused" ? "Unpause" : "Pause"}
@@ -573,7 +582,7 @@ function TaskRow({
 
 /**
  * Assigns the issue to the user on GitHub and creates its task at once, even
- * with the runner off. The row then links to the task.
+ * with the runner off. The row then links to the task, and the user stays in the backlog.
  */
 function WorkOnIssue({ issue, repoId }: { issue: RepoIssue; repoId: string }) {
   const queryClient = useQueryClient();
@@ -588,7 +597,7 @@ function WorkOnIssue({ issue, repoId }: { issue: RepoIssue; repoId: string }) {
     const origin = issueOrigin(issue);
     try {
       const task = await withCredential(
-        { label: "Work on issue", target: originKey({ origin }) },
+        { label: "Start working", target: originKey({ origin }) },
         () => createTask({ origin, repoId, assignToMe: true }),
       );
       queryClient.setQueryData<Task[]>(queryKeys.tasks, (tasks) =>
@@ -609,15 +618,21 @@ function WorkOnIssue({ issue, repoId }: { issue: RepoIssue; repoId: string }) {
 
   return (
     <span className="flex flex-col items-end gap-0.5">
-      <Button size="sm" variant="ghost" disabled={pending} onClick={() => void work()}>
-        Work on issue
+      <Button
+        size="sm"
+        variant="ghost"
+        disabled={pending}
+        onClick={() => void work()}
+        title="Assign the issue to you and start a task"
+      >
+        Start working
       </Button>
       {error && <ErrorText className="max-w-60 text-right">{error}</ErrorText>}
     </span>
   );
 }
 
-/** A GitHub issue row's trailing action: a link to the work on it, else "Work on issue". */
+/** A GitHub issue row's trailing action: a link to the work on it, else "Start working". */
 function RepoIssueAction({
   issue,
   repoId,
@@ -707,6 +722,8 @@ export function Backlog({
   const [dialog, setDialog] = useState<Dialog>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState<BacklogItemView | null>(null);
+  // Items being started, so a second click does not hit "already promoted".
+  const [running, setRunning] = useState<ReadonlySet<string>>(new Set());
 
   useEscapeTo(() => void navigate({ to: "/" }));
   const [showArchive, setShowArchive] = useState(false);
@@ -822,6 +839,23 @@ export function Backlog({
     } finally {
       await queryClient.invalidateQueries({ queryKey: queryKeys.backlog(repoId) });
     }
+  }
+
+  // Starts the item's task and stays in the backlog; the row then links to the task.
+  async function run(item: BacklogItemView) {
+    if (running.has(item.id)) return;
+    setRunning((ids) => new Set(ids).add(item.id));
+    await act(async () => {
+      const task = await runBacklogItem(repoId, item.id);
+      queryClient.setQueryData<Task[]>(queryKeys.tasks, (tasks) =>
+        tasks && !tasks.some((t) => t.id === task.id) ? [...tasks, task] : tasks,
+      );
+    });
+    setRunning((ids) => {
+      const next = new Set(ids);
+      next.delete(item.id);
+      return next;
+    });
   }
 
   async function setArchived(task: Task, archived: boolean) {
@@ -988,12 +1022,8 @@ export function Backlog({
                             : undefined
                       }
                       onEdit={() => setDialog({ kind: "edit", item })}
-                      onRun={() =>
-                        void act(async () => {
-                          const task = await runBacklogItem(repoId, item.id);
-                          void navigate({ to: "/tasks/$taskId", params: { taskId: task.id } });
-                        })
-                      }
+                      onRun={() => void run(item)}
+                      running={running.has(item.id)}
                       onTogglePause={() =>
                         void act(() =>
                           updateBacklogItem(repoId, item.id, {
