@@ -46,9 +46,19 @@ import {
   type ServerEvent,
   type TaskOrigin,
 } from "@blackwall/shared";
-import { addBacklogItem, promoteBacklogItem, type BacklogRouteOptions } from "./backlog.js";
+import {
+  addBacklogItem,
+  importRemoteIssue,
+  promoteBacklogItem,
+  type BacklogRouteOptions,
+} from "./backlog.js";
 import type { ServerConfig } from "./config.js";
-import { createGitHubOrigin, firstBranchFor, firstOriginContext } from "./github.js";
+import {
+  createGitHubOrigin,
+  createRepoIssueSource,
+  firstBranchFor,
+  firstOriginContext,
+} from "./github.js";
 import { createJiraOrigin } from "./jira.js";
 import { HOSTNAME, startServer } from "./server.js";
 import { createShutdown } from "./shutdown.js";
@@ -127,6 +137,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
     });
     const jira = createJiraOrigin({ connections });
     const github = createGitHubOrigin({ connections });
+    const repoIssues = createRepoIssueSource({ connections });
     const newTask = {
       repos,
       resolveRoles: agents.resolveRoles,
@@ -147,6 +158,16 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
           backlogItems: repositories.backlogItems,
           broadcast: publish,
         }),
+      importRemoteIssue: (repo) =>
+        importRemoteIssue(
+          { backlogItems: repositories.backlogItems, tasks: repositories.tasks },
+          {
+            listIssues: repoIssues.listRepoIssues,
+            viewerLogin: repoIssues.viewerLogin,
+            broadcast: publish,
+          },
+          repo,
+        ),
       resumeTask: (taskId) => void pipeline.resume(taskId),
       settings,
       quota,

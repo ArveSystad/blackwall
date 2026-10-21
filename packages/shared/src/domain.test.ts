@@ -417,6 +417,13 @@ describe("repo backlog runner", () => {
     expect(repoBacklogRunnerUpdateSchema.safeParse({}).success).toBe(false);
     expect(repoBacklogRunnerUpdateSchema.safeParse({ autonomous: "yes" }).success).toBe(false);
   });
+
+  it("does not include remote issues unless switched on, and takes it as an update", () => {
+    expect(repoBacklogRunnerSchema.parse({}).includeRemoteIssues).toBe(false);
+    expect(repoBacklogRunnerUpdateSchema.parse({ includeRemoteIssues: true })).toEqual({
+      includeRemoteIssues: true,
+    });
+  });
 });
 
 describe("backlog item inputs", () => {

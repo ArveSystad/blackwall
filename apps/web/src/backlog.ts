@@ -304,7 +304,10 @@ export function runnerStatus({
     };
   }
   if (pendingCount(items) === 0) {
-    return { tone: "idle", label: "Idle", detail: "Queue empty. Nothing to run." };
+    const detail = runner.includeRemoteIssues
+      ? "Queue empty. Picks up the next open GitHub issue."
+      : "Queue empty. Nothing to run.";
+    return { tone: "idle", label: "Idle", detail };
   }
 
   const queued = tasks.filter((t) => t.status === "queued").length;

@@ -13,6 +13,7 @@ import type {
 import { describe, expect, it, vi } from "vitest";
 import {
   createGitHubOrigin,
+  createRepoIssueSource,
   firstBranchFor,
   firstOriginContext,
   issueRoutes,
@@ -1280,6 +1281,43 @@ describe("repo issues route", () => {
       errors: [{ host: "acme.ghe.com", message: "acme.ghe.com: token rejected" }],
     });
     expect(JSON.stringify(body)).not.toContain(TOKEN);
+  });
+});
+
+describe("createRepoIssueSource", () => {
+  it("looks up the token's user once per connection", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ login: "kari" }), {
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+    const source = createRepoIssueSource({
+      connections: { ...connections([ghe]), resolve: () => undefined },
+      fetch: fetchImpl,
+    });
+    expect(await source.viewerLogin("g1")).toBe("kari");
+    expect(await source.viewerLogin("g1")).toBe("kari");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws when the user lookup fails, and tries again next time", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ message: "Bad credentials" }), {
+          status: 401,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+    const source = createRepoIssueSource({
+      connections: { ...connections([ghe]), resolve: () => undefined },
+      fetch: fetchImpl,
+    });
+    await expect(source.viewerLogin("g1")).rejects.toThrow();
+    await expect(source.viewerLogin("g1")).rejects.toThrow();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 });
 

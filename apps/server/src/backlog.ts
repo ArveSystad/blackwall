@@ -16,7 +16,9 @@ import {
   updateBacklogItemInputSchema,
   type BacklogItem,
   type BacklogItemView,
+  type Repo,
   type RepoBacklogRunner,
+  type RepoIssues,
   type ServerEvent,
   type Task,
   type TaskOrigin,
@@ -44,6 +46,7 @@ export type BacklogRunnerSettings = Pick<
   | "repoBacklogRunner"
   | "setRepoBacklogRunnerEnabled"
   | "setRepoBacklogAutonomous"
+  | "setRepoBacklogIncludeRemoteIssues"
   | "setRepoBacklogHalt"
 >;
 
@@ -117,8 +120,6 @@ export function withoutStack(origin: TaskOrigin): TaskOrigin {
   return rest;
 }
 
-type PrOrigin = Extract<TaskOrigin, { kind: "github-pr" }>;
-
 function hostOf(url: string): string {
   try {
     return new URL(url).host.toLowerCase();
@@ -127,14 +128,26 @@ function hostOf(url: string): string {
   }
 }
 
-/** Same host, owner, repo (case-insensitive) and number. */
-function samePullRequest(origin: TaskOrigin, pr: PrOrigin, number: number): boolean {
+interface GitHubItemRef {
+  owner: string;
+  repo: string;
+  number: number;
+  /** Any link on the item's host. */
+  url: string;
+}
+
+/** A PR or issue origin of the same host, owner, repo (case-insensitive) and number. */
+function sameGitHubItem(
+  origin: TaskOrigin,
+  kind: "github-pr" | "github-issue",
+  ref: GitHubItemRef,
+): boolean {
   return (
-    origin.kind === "github-pr" &&
-    origin.number === number &&
-    origin.owner.toLowerCase() === pr.owner.toLowerCase() &&
-    origin.repo.toLowerCase() === pr.repo.toLowerCase() &&
-    hostOf(origin.url) === hostOf(pr.url)
+    origin.kind === kind &&
+    origin.number === ref.number &&
+    origin.owner.toLowerCase() === ref.owner.toLowerCase() &&
+    origin.repo.toLowerCase() === ref.repo.toLowerCase() &&
+    hostOf(origin.url) === hostOf(ref.url)
   );
 }
 
@@ -159,8 +172,8 @@ export function addStackSiblings(
   const waiting = backlogItems.list().filter((i) => i.status !== "promoted");
   const tracked = (number: number) =>
     number === origin.number ||
-    live.some((t) => samePullRequest(t.origin, origin, number)) ||
-    waiting.some((i) => samePullRequest(i.origin, origin, number));
+    live.some((t) => sameGitHubItem(t.origin, "github-pr", { ...origin, number })) ||
+    waiting.some((i) => sameGitHubItem(i.origin, "github-pr", { ...origin, number }));
   const siblings = members.filter((m) => !tracked(m.number));
   if (siblings.length === 0) return [];
   return backlogItems.insertMany(
@@ -178,6 +191,93 @@ export function addStackSiblings(
       dependsOn: [],
     })),
   );
+}
+
+export interface RemoteIssueServices {
+  /** The repo's open GitHub issues, newest first; host failures in `errors`. */
+  listIssues: (repo: Repo) => Promise<RepoIssues>;
+  /** The login of a connection's token user; throws on failure. */
+  viewerLogin: (connectionId: string) => Promise<string>;
+  broadcast: (event: ServerEvent) => void;
+}
+
+/**
+ * For the backlog runner: adds the repo's next open GitHub issue as a waiting
+ * backlog item at the end of its queue, and returns it. Takes the first issue
+ * in list order (most recently updated first) that no task of the repo
+ * (archived or not) and no item of the repo (whatever its status) covers, and
+ * that is unassigned or assigned to the token's user. Never assigns or
+ * comments on the issue. Undefined when no issue qualifies; throws when the
+ * listing or the user lookup failed.
+ */
+export async function importRemoteIssue(
+  {
+    backlogItems,
+    tasks,
+  }: {
+    backlogItems: Pick<Repositories["backlogItems"], "list" | "insert">;
+    tasks: Pick<Repositories["tasks"], "list">;
+  },
+  { listIssues, viewerLogin, broadcast }: RemoteIssueServices,
+  repo: Repo,
+): Promise<BacklogItem | undefined> {
+  const { issues, errors } = await listIssues(repo);
+  if (errors.length > 0) {
+    throw new Error(errors.map((e) => `${e.host}: ${e.message}`).join("; "));
+  }
+  if (issues.length === 0) return undefined;
+  const origins = [
+    ...tasks
+      .list()
+      .filter((t) => t.repoId === repo.id)
+      .map((t) => t.origin),
+    ...backlogItems.list(repo.id).map((i) => i.origin),
+  ];
+  const logins = new Map<string, string>();
+  for (const issue of issues) {
+    if (origins.some((origin) => sameGitHubItem(origin, "github-issue", issue))) continue;
+    if (issue.assignees.length > 0) {
+      if (!issue.connectionId) continue;
+      let login = logins.get(issue.connectionId);
+      if (login === undefined) {
+        login = await viewerLogin(issue.connectionId);
+        logins.set(issue.connectionId, login);
+      }
+      const viewer = login.toLowerCase();
+      if (!issue.assignees.some((a) => a.toLowerCase() === viewer)) continue;
+    }
+    const title =
+      issue.title.trim().slice(0, MAX_TITLE_CHARS) ||
+      `${issue.owner}/${issue.repo}#${issue.number}`;
+    // Never started at once, so no start comment: the runner promotes it.
+    const { origin, mode, freeText, agents, agentClis, referenceRepoIds, triageMode, dependsOn } =
+      newBacklogItemInputSchema.parse({
+        origin: {
+          kind: "github-issue",
+          url: issue.url,
+          owner: issue.owner,
+          repo: issue.repo,
+          number: issue.number,
+          connectionId: issue.connectionId,
+        },
+        title,
+      });
+    const item = backlogItems.insert({
+      repoId: repo.id,
+      title,
+      origin,
+      mode,
+      freeText,
+      agents,
+      agentClis,
+      referenceRepoIds,
+      triageMode,
+      dependsOn,
+    });
+    broadcast({ type: "backlog.changed", payload: { repoId: repo.id } });
+    return item;
+  }
+  return undefined;
 }
 
 /** A new backlog item the repo cannot take; the message is safe to show. */
@@ -346,10 +446,13 @@ export function backlogRoutes(
         await c.req.json().catch(() => undefined),
       );
       if (!input.success) return badRequest(c, input.error);
-      const { enabled, autonomous } = input.data;
+      const { enabled, autonomous, includeRemoteIssues } = input.data;
       const wasAutonomous = runner.repoBacklogRunner(repoId).autonomous;
       if (enabled !== undefined) runner.setRepoBacklogRunnerEnabled(repoId, enabled);
       if (autonomous !== undefined) runner.setRepoBacklogAutonomous(repoId, autonomous);
+      if (includeRemoteIssues !== undefined) {
+        runner.setRepoBacklogIncludeRemoteIssues(repoId, includeRemoteIssues);
+      }
       // Tasks already waiting at a gate move on without the user; a finish may
       // take a while to deliver, so the response does not wait for it.
       if (autonomous && !wasAutonomous) void pipeline?.autopilotRepo(repoId);

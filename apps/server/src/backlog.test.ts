@@ -17,13 +17,21 @@ import {
   repoBacklogRunnerSchema,
   taskSchema,
   type NewBacklogItemInput,
+  type RepoIssue,
+  type RepoIssues,
   type ServerEvent,
 } from "@blackwall/shared";
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.js";
 import { tokenCookieName } from "./auth.js";
-import { addBacklogItem, BacklogInputError, backlogRoutes, promoteBacklogItem } from "./backlog.js";
+import {
+  addBacklogItem,
+  BacklogInputError,
+  backlogRoutes,
+  importRemoteIssue,
+  promoteBacklogItem,
+} from "./backlog.js";
 import { errorResponse } from "./errors.js";
 import type { NewTaskServices, TaskPipeline } from "./tasks.js";
 
@@ -745,7 +753,17 @@ describe("backlog runner routes", () => {
       haltedTaskId: null,
       haltedAt: null,
       autonomous: false,
+      includeRemoteIssues: false,
     });
+  });
+
+  it("switches remote issues on and announces it", async () => {
+    const res = await request("/runner", { method: "PATCH", body: { includeRemoteIssues: true } });
+    expect(await runnerState(res)).toMatchObject({ enabled: true, includeRemoteIssues: true });
+    expect(settings.repoBacklogRunner(repoId).includeRemoteIssues).toBe(true);
+    expect(events).toEqual([{ type: "backlog.changed", payload: { repoId } }]);
+    const bad = await request("/runner", { method: "PATCH", body: { includeRemoteIssues: 1 } });
+    expect(bad.status).toBe(400);
   });
 
   it("switches autonomous mode on, moving on tasks already at a gate, and off", async () => {
@@ -784,6 +802,117 @@ describe("backlog runner routes", () => {
     const res = await request("/runner/resume", { method: "POST" });
     expect(await runnerState(res)).toMatchObject({ haltedTaskId: null, haltedAt: null });
     expect(events).toEqual([{ type: "backlog.changed", payload: { repoId } }]);
+  });
+});
+
+describe("importRemoteIssue", () => {
+  const issueUrl = (n: number) => `https://github.com/acme/app/issues/${n}`;
+  const issue = (number: number, patch: Partial<RepoIssue> = {}): RepoIssue => ({
+    host: "github.com",
+    owner: "acme",
+    repo: "app",
+    number,
+    title: `Issue ${number}`,
+    url: issueUrl(number),
+    author: "octocat",
+    updatedAt: new Date("2026-10-09T12:00:00Z"),
+    repoId,
+    connectionId: "c1",
+    assignees: [],
+    ...patch,
+  });
+  const origin = (number: number) => ({
+    kind: "github-issue" as const,
+    url: issueUrl(number),
+    owner: "acme",
+    repo: "app",
+    number,
+    connectionId: "c1",
+  });
+
+  function run(listed: RepoIssues, viewerLogin = vi.fn(async () => "me")) {
+    const repo = repositories.repos.get(repoId)!;
+    return importRemoteIssue(
+      { backlogItems: repositories.backlogItems, tasks: repositories.tasks },
+      { listIssues: async () => listed, viewerLogin, broadcast: (e) => events.push(e) },
+      repo,
+    );
+  }
+
+  it("adds the first uncovered issue as a waiting item and announces it", async () => {
+    const item = await run({ issues: [issue(3), issue(2)], errors: [] });
+    expect(item).toMatchObject({
+      repoId,
+      title: "Issue 3",
+      status: "waiting",
+      origin: origin(3),
+      freeText: "",
+      dependsOn: [],
+    });
+    expect(repositories.backlogItems.list(repoId)).toHaveLength(1);
+    expect(events).toEqual([{ type: "backlog.changed", payload: { repoId } }]);
+  });
+
+  it("skips issues covered by any task or item of the repo", async () => {
+    const archived = repositories.tasks.create({
+      title: "Old",
+      origin: origin(1),
+      repoId,
+      freeText: "",
+      agents: { planner: "a" },
+    });
+    repositories.tasks.update(archived.id, { archivedAt: new Date() });
+    repositories.backlogItems.insert({
+      repoId,
+      title: "Paused",
+      origin: { ...origin(2), url: "https://GitHub.com/ACME/App/issues/2" },
+      status: "paused",
+    });
+    const item = await run({ issues: [issue(1), issue(2), issue(3)], errors: [] });
+    expect(item?.origin).toEqual(origin(3));
+  });
+
+  it("skips issues assigned to others and takes the viewer's in list order", async () => {
+    const viewerLogin = vi.fn(async () => "Me");
+    const item = await run(
+      {
+        issues: [issue(5, { assignees: ["someone"] }), issue(4, { assignees: ["other", "me"] })],
+        errors: [],
+      },
+      viewerLogin,
+    );
+    expect(item?.origin).toEqual(origin(4));
+    expect(viewerLogin).toHaveBeenCalledTimes(1);
+    expect(viewerLogin).toHaveBeenCalledWith("c1");
+  });
+
+  it("falls back to the issue reference for an empty title", async () => {
+    const item = await run({ issues: [issue(7, { title: "  " })], errors: [] });
+    expect(item?.title).toBe("acme/app#7");
+  });
+
+  it("returns undefined when no issue qualifies", async () => {
+    expect(await run({ issues: [], errors: [] })).toBeUndefined();
+    expect(await run({ issues: [issue(1, { assignees: ["x"] })], errors: [] })).toBeUndefined();
+    expect(events).toEqual([]);
+  });
+
+  it("rejects a listing error and adds nothing", async () => {
+    await expect(
+      run({ issues: [issue(1)], errors: [{ host: "github.com", message: "Bad credentials" }] }),
+    ).rejects.toThrow("github.com: Bad credentials");
+    expect(repositories.backlogItems.list(repoId)).toEqual([]);
+    expect(events).toEqual([]);
+  });
+
+  it("rejects when the viewer lookup fails", async () => {
+    const viewerLogin = vi.fn(async (): Promise<string> => {
+      throw new Error("Authenticated user: 401");
+    });
+    await expect(
+      run({ issues: [issue(1, { assignees: ["x"] })], errors: [] }, viewerLogin),
+    ).rejects.toThrow("401");
+    expect(repositories.backlogItems.list(repoId)).toEqual([]);
   });
 });
 

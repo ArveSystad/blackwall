@@ -102,8 +102,9 @@ const RUNNER_TONES: Record<RunnerStatus["tone"], { text: string; dot: string }> 
 };
 
 /**
- * Says why the runner is or isn't promoting something; switches it and
- * autonomous mode per repo (autonomy only after a confirmation) and resumes a halt.
+ * Says why the runner is or isn't promoting something; switches it, its
+ * remote issues and autonomous mode per repo (autonomy only after a
+ * confirmation) and resumes a halt.
  */
 function RunnerBar({
   repoId,
@@ -112,6 +113,8 @@ function RunnerBar({
   autonomous,
   defaultBranch,
   globalOn,
+  includeRemoteIssues,
+  hasRemoteIssues,
 }: {
   repoId: string;
   status: RunnerStatus | null;
@@ -120,6 +123,9 @@ function RunnerBar({
   /** The repo's default branch, named in the autonomy confirmation. */
   defaultBranch: string;
   globalOn: boolean;
+  includeRemoteIssues: boolean | undefined;
+  /** The repo has open GitHub issues listed; the switch shows only then, or while on. */
+  hasRemoteIssues: boolean;
 }) {
   const queryClient = useQueryClient();
   const [pending, setPending] = useState(false);
@@ -213,6 +219,27 @@ function RunnerBar({
             }}
           />
           Run this repo&apos;s backlog
+        </label>
+      )}
+      {enabled && includeRemoteIssues !== undefined && (hasRemoteIssues || includeRemoteIssues) && (
+        <label
+          className="bw-chamfer bw-chamfer-pill bw-chamfer-has-focus inline-flex h-6 cursor-pointer items-center gap-1.5 px-1.5 text-body text-foreground"
+          title="When the queue is empty, the runner starts this repo's open GitHub issues that are unassigned or assigned to you, one at a time. Pause an imported item to skip its issue."
+        >
+          <span aria-hidden="true" className="text-faint">
+            ↳
+          </span>
+          <input
+            type="checkbox"
+            className="focus:outline-none"
+            checked={includeRemoteIssues}
+            disabled={pending}
+            onChange={(event) => {
+              const next = event.target.checked;
+              void act(() => setBacklogRunner(repoId, { includeRemoteIssues: next }));
+            }}
+          />
+          Include remote issues
         </label>
       )}
       {autonomous !== undefined && (
@@ -944,6 +971,8 @@ export function Backlog({
         autonomous={runner.data?.autonomous}
         defaultBranch={repo?.defaultBranch ?? "main"}
         globalOn={settings.data?.backlogRunner ?? true}
+        includeRemoteIssues={runner.data?.includeRemoteIssues}
+        hasRemoteIssues={issues.length > 0}
       />
 
       <div className={paneBody}>

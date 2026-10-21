@@ -49,6 +49,7 @@ import {
   type IssueLookup,
   type PullRequestComments,
   type PullRequestLookup,
+  type Repo,
   type RepoIssues,
   type ReviewRequests,
   type Task,
@@ -594,10 +595,72 @@ export function pullRequestRoutes({
   return routes;
 }
 
+export interface RepoIssueSourceOptions {
+  connections: Pick<ConnectionService, "resolve" | "list" | "credentialById">;
+  fetch?: Fetch;
+}
+
+export type RepoIssueSource = ReturnType<typeof createRepoIssueSource>;
+
+/**
+ * Reads a repo's open GitHub issues for the Backlog and the backlog runner,
+ * never asking for a token.
+ */
+export function createRepoIssueSource({ connections, fetch: fetchImpl }: RepoIssueSourceOptions) {
+  const viewers = new Map<string, string>();
+
+  return {
+    /**
+     * The open issues of the repo's `origin` repository, whoever they are
+     * assigned to, at most the 100 most recently updated, newest first. Empty
+     * when the repo has no GitHub remote or its connection has no token; a
+     * host failure is listed in `errors`, never thrown.
+     */
+    async listRepoIssues(repo: Repo): Promise<RepoIssues> {
+      const none: RepoIssues = { issues: [], errors: [] };
+      const slug = repo.remoteUrl ? parseRemoteSlug(repo.remoteUrl) : undefined;
+      if (!repo.remoteUrl || !slug) return none;
+      const connection = connections.resolve({ kind: "github", remote: repo.remoteUrl });
+      const view = connection && connections.list().find((conn) => conn.id === connection.id);
+      if (!connection || !view?.hasToken) return none;
+      try {
+        const { token } = await connections.credentialById(connection.id);
+        const client = createGitHubClient({ baseUrl: connection.baseUrl, token }, fetchImpl);
+        const rows = await client.searchRepoIssues({ owner: slug.owner, repo: slug.repo });
+        const issues = rows
+          .map((issue) => ({
+            ...issue,
+            updatedAt: new Date(issue.updatedAt),
+            repoId: repo.id,
+            connectionId: connection.id,
+          }))
+          .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+        return { issues, errors: [] };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { issues: [], errors: [{ host: connectionHost(connection), message }] };
+      }
+    },
+
+    /** The login of a connection's token user, cached per connection; throws on failure. */
+    async viewerLogin(connectionId: string): Promise<string> {
+      const cached = viewers.get(connectionId);
+      if (cached !== undefined) return cached;
+      const { connection, token } = await connections.credentialById(connectionId);
+      const client = createGitHubClient({ baseUrl: connection.baseUrl, token }, fetchImpl);
+      const { login } = await client.getViewer();
+      viewers.set(connectionId, login);
+      return login;
+    },
+  };
+}
+
 export interface IssueRoutesOptions {
   connections: Pick<ConnectionService, "resolve" | "list" | "credentialById">;
   repos: Pick<RepoService, "list">;
   fetch?: Fetch;
+  /** Shared with the backlog runner; built from `connections` and `fetch` when omitted. */
+  source?: Pick<RepoIssueSource, "listRepoIssues">;
 }
 
 /**
@@ -617,7 +680,12 @@ export interface IssueRoutesOptions {
  * first. Empty when the repo has no GitHub remote or its connection has no
  * token, so polling never asks for one; a host failure is listed in `errors`.
  */
-export function issueRoutes({ connections, repos, fetch: fetchImpl }: IssueRoutesOptions): Hono {
+export function issueRoutes({
+  connections,
+  repos,
+  fetch: fetchImpl,
+  source = createRepoIssueSource({ connections, ...(fetchImpl ? { fetch: fetchImpl } : {}) }),
+}: IssueRoutesOptions): Hono {
   const routes = new Hono();
 
   routes.get("/assigned", async (c) => {
@@ -638,32 +706,7 @@ export function issueRoutes({ connections, repos, fetch: fetchImpl }: IssueRoute
     const repoId = c.req.param("repoId");
     const repo = repos.list().find((r) => r.id === repoId);
     if (!repo) return c.json({ error: `Repo ${repoId} not found` }, 404);
-    const none: RepoIssues = { issues: [], errors: [] };
-    const slug = repo.remoteUrl ? parseRemoteSlug(repo.remoteUrl) : undefined;
-    if (!repo.remoteUrl || !slug) return c.json(none);
-    const connection = connections.resolve({ kind: "github", remote: repo.remoteUrl });
-    const view = connection && connections.list().find((conn) => conn.id === connection.id);
-    if (!connection || !view?.hasToken) return c.json(none);
-    try {
-      const { token } = await connections.credentialById(connection.id);
-      const client = createGitHubClient({ baseUrl: connection.baseUrl, token }, fetchImpl);
-      const rows = await client.searchRepoIssues({ owner: slug.owner, repo: slug.repo });
-      const issues = rows
-        .map((issue) => ({
-          ...issue,
-          updatedAt: new Date(issue.updatedAt),
-          repoId: repo.id,
-          connectionId: connection.id,
-        }))
-        .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
-      return c.json<RepoIssues>({ issues, errors: [] });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return c.json<RepoIssues>({
-        issues: [],
-        errors: [{ host: connectionHost(connection), message }],
-      });
-    }
+    return c.json<RepoIssues>(await source.listRepoIssues(repo));
   });
 
   routes.post("/lookup", async (c) => {

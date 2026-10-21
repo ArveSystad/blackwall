@@ -25,7 +25,11 @@ const SETTLED: readonly TaskStatus[] = ["done", "failed", "needs-you", "interrup
 export interface BacklogRunnerSettings {
   general(): Pick<
     GeneralSettings,
-    "maxTasksPerRepo" | "backlogRunner" | "maxBacklogTasksPerRepo" | "stopBacklogOnNeedsYou"
+    | "maxTasksPerRepo"
+    | "backlogRunner"
+    | "maxBacklogTasksPerRepo"
+    | "stopBacklogOnNeedsYou"
+    | "githubIssuesRefreshSeconds"
   >;
   repoBacklogRunner(repoId: string): RepoBacklogRunner;
   setRepoBacklogHalt(repoId: string, taskId: string | null): RepoBacklogRunner;
@@ -39,6 +43,13 @@ export interface BacklogRunnerOptions {
   };
   /** Promotes an item into a queued task, exactly like "Run now". */
   createTask: (item: BacklogItem) => Promise<Task>;
+  /**
+   * Adds the repo's next eligible remote issue as a waiting backlog item at
+   * the end of its queue, or returns undefined when there is none. A throw
+   * is logged and, like an empty result, leaves the repo alone for the
+   * issue refresh interval.
+   */
+  importRemoteIssue?: (repo: Repo) => Promise<BacklogItem | undefined>;
   /** Resumes a task a usage limit interrupted. */
   resumeTask: (taskId: string) => void;
   settings: BacklogRunnerSettings;
@@ -54,6 +65,9 @@ export interface BacklogRunnerOptions {
 
 export type BacklogRunner = ReturnType<typeof createBacklogRunner>;
 
+/** What an enabled, unhalted repo offers on a pass; see `pick`. */
+type Picked = { item: BacklogItem } | { idle: true; quotaHeld: boolean };
+
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /**
@@ -64,10 +78,18 @@ const errorMessage = (error: unknown) => (error instanceof Error ? error.message
  * backlog limit, no backlog task waiting on the user (when that setting is on), and
  * the item's CLIs not quota-paused. A failed backlog task halts its repo's
  * runner until the user resumes it.
+ *
+ * A repo with "Include remote issues" on whose queue has nothing to start
+ * imports its next remote issue as a backlog item and promotes it in the same
+ * pass. It imports nothing while a waiting item is held only by a quota pause
+ * (the reset wakes the runner), and leaves the repo alone for the issue
+ * refresh interval after an import that found nothing, threw, or was not
+ * promoted.
  */
 export function createBacklogRunner({
   repositories: r,
   createTask,
+  importRemoteIssue,
   resumeTask,
   settings,
   quota,
@@ -88,6 +110,8 @@ export function createBacklogRunner({
   let poked: ReturnType<typeof setTimeout> | undefined;
   /** Repos whose last promotion threw, until when they are left alone. */
   const retryAfter = new Map<string, number>();
+  /** Repos whose last remote issue import was not promoted, until when none is tried. */
+  const remoteCheckedAt = new Map<string, number>();
 
   function resumeReleased(): void {
     for (const taskId of quota.release()) {
@@ -102,8 +126,12 @@ export function createBacklogRunner({
     }
   }
 
-  /** The item to promote in a repo now, or undefined when the repo is not idle. */
-  function pick(repo: Repo, tasks: readonly Task[]): BacklogItem | undefined {
+  /**
+   * The item to promote in a repo now; idle when the repo could take work but
+   * its queue has none to start (`quotaHeld` when a waiting item sits out only
+   * for a quota pause); undefined when the repo is not idle.
+   */
+  function pick(repo: Repo, tasks: readonly Task[]): Picked | undefined {
     const repoId = repo.id;
     const general = settings.general();
     const state = settings.repoBacklogRunner(repoId);
@@ -134,7 +162,65 @@ export function createBacklogRunner({
     );
     const status = new Map(tasks.map((t) => [t.id, t.status]));
     const next = nextBacklogItem(candidates, (id) => status.get(id) === "done");
-    return next && items.find((i) => i.id === next.id);
+    const item = next && items.find((i) => i.id === next.id);
+    if (item) return { item };
+    const quotaHeld = items.some(
+      (item, index) => item.status === "waiting" && candidates[index]?.status === "paused",
+    );
+    return { idle: true, quotaHeld };
+  }
+
+  /** Whether to import a remote issue into an idle repo now. */
+  function wantsRemote(repo: Repo, result: Picked | undefined): boolean {
+    if (!result || !("idle" in result) || result.quotaHeld) return false;
+    if (!importRemoteIssue || !settings.repoBacklogRunner(repo.id).includeRemoteIssues) {
+      return false;
+    }
+    return (remoteCheckedAt.get(repo.id) ?? 0) <= clock().getTime();
+  }
+
+  /** Leaves a repo's remote issues alone for the issue refresh interval. */
+  function coolDown(repoId: string): void {
+    const seconds = settings.general().githubIssuesRefreshSeconds;
+    remoteCheckedAt.set(repoId, clock().getTime() + seconds * 1000);
+  }
+
+  /** Promotes an item; a throw leaves the repo alone for a while. True when promoted. */
+  async function promote(repoId: string, item: BacklogItem): Promise<boolean> {
+    try {
+      await createTask(item);
+      retryAfter.delete(repoId);
+      return true;
+    } catch (error) {
+      retryAfter.set(repoId, clock().getTime() + PROMOTION_RETRY_MS);
+      log(`Backlog item ${item.id} could not be promoted: ${errorMessage(error)}`);
+      return false;
+    }
+  }
+
+  /** Imports the repo's next remote issue and promotes it in the same pass. */
+  async function runRemote(
+    repo: Repo,
+    importIssue: (repo: Repo) => Promise<BacklogItem | undefined>,
+  ): Promise<void> {
+    let imported: BacklogItem | undefined;
+    try {
+      imported = await importIssue(repo);
+    } catch (error) {
+      log(`Remote issues for repo ${repo.id} could not be imported: ${errorMessage(error)}`);
+    }
+    if (!imported) {
+      coolDown(repo.id);
+      return;
+    }
+    // The item waits in the queue for the next start.
+    if (stopping) return;
+    const next = pick(repo, r.tasks.list());
+    if (next && "item" in next && (await promote(repo.id, next.item))) {
+      remoteCheckedAt.delete(repo.id);
+    } else {
+      coolDown(repo.id);
+    }
   }
 
   async function once(): Promise<void> {
@@ -142,14 +228,10 @@ export function createBacklogRunner({
     if (!settings.general().backlogRunner) return;
     for (const repo of r.repos.list()) {
       if (stopping) return;
-      const item = pick(repo, r.tasks.list());
-      if (!item) continue;
-      try {
-        await createTask(item);
-        retryAfter.delete(repo.id);
-      } catch (error) {
-        retryAfter.set(repo.id, clock().getTime() + PROMOTION_RETRY_MS);
-        log(`Backlog item ${item.id} could not be promoted: ${errorMessage(error)}`);
+      const result = pick(repo, r.tasks.list());
+      if (result && "item" in result) await promote(repo.id, result.item);
+      else if (importRemoteIssue && wantsRemote(repo, result)) {
+        await runRemote(repo, importRemoteIssue);
       }
     }
   }

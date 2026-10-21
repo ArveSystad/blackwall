@@ -76,6 +76,7 @@ export function createSettingsService({ settings, tags }: SettingsServiceOptions
       haltedTaskId: value.haltedTaskId,
       haltedAt: value.haltedAt?.toISOString() ?? null,
       autonomous: value.autonomous,
+      includeRemoteIssues: value.includeRemoteIssues,
     });
     return repoBacklogRunner(repoId);
   }
@@ -120,6 +121,14 @@ export function createSettingsService({ settings, tags }: SettingsServiceOptions
     /** Switches a repo's autonomous mode on or off (local only; see the schema). */
     setRepoBacklogAutonomous(repoId: string, autonomous: boolean): RepoBacklogRunner {
       return saveRepoBacklogRunner(repoId, { ...repoBacklogRunner(repoId), autonomous });
+    },
+
+    /** Lets a repo's runner import its open GitHub issues when its queue is empty. */
+    setRepoBacklogIncludeRemoteIssues(repoId: string, include: boolean): RepoBacklogRunner {
+      return saveRepoBacklogRunner(repoId, {
+        ...repoBacklogRunner(repoId),
+        includeRemoteIssues: include,
+      });
     },
 
     /** Halts a repo's backlog runner on a failed backlog task, or clears the halt (`null`). */

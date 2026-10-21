@@ -161,6 +161,7 @@ describe("repo backlog runner", () => {
       haltedTaskId: null,
       haltedAt: null,
       autonomous: false,
+      includeRemoteIssues: false,
     });
     service.setRepoBacklogRunnerEnabled("r1", false);
     const at = new Date("2026-10-09T10:00:00Z");
@@ -170,6 +171,7 @@ describe("repo backlog runner", () => {
       haltedTaskId: "t1",
       haltedAt: at,
       autonomous: false,
+      includeRemoteIssues: false,
     });
     expect(service.repoBacklogRunner("r2").enabled).toBe(true);
     expect(service.setRepoBacklogHalt("r1", null)).toEqual({
@@ -177,6 +179,7 @@ describe("repo backlog runner", () => {
       haltedTaskId: null,
       haltedAt: null,
       autonomous: false,
+      includeRemoteIssues: false,
     });
   });
 
@@ -189,12 +192,35 @@ describe("repo backlog runner", () => {
       haltedTaskId: "t1",
       haltedAt: at,
       autonomous: true,
+      includeRemoteIssues: false,
     });
     expect(service.repoBacklogRunner("r1").autonomous).toBe(true);
     expect(service.repoBacklogRunner("r2").autonomous).toBe(false);
     // Turning the runner on again keeps autonomy.
     expect(service.setRepoBacklogRunnerEnabled("r1", true).autonomous).toBe(true);
     expect(service.setRepoBacklogAutonomous("r1", false).autonomous).toBe(false);
+  });
+
+  it("switches remote issues per repo, kept by the other setters", () => {
+    const at = new Date("2026-10-09T10:00:00Z");
+    expect(service.setRepoBacklogIncludeRemoteIssues("r1", true).includeRemoteIssues).toBe(true);
+    expect(service.repoBacklogRunner("r2").includeRemoteIssues).toBe(false);
+    service.setRepoBacklogRunnerEnabled("r1", false);
+    service.setRepoBacklogAutonomous("r1", true);
+    service.setRepoBacklogHalt("r1", "t1", at);
+    expect(service.repoBacklogRunner("r1")).toEqual({
+      enabled: false,
+      haltedTaskId: "t1",
+      haltedAt: at,
+      autonomous: true,
+      includeRemoteIssues: true,
+    });
+    expect(service.setRepoBacklogIncludeRemoteIssues("r1", false)).toMatchObject({
+      enabled: false,
+      autonomous: true,
+      haltedTaskId: "t1",
+      includeRemoteIssues: false,
+    });
   });
 
   it("reads a stored row from before autonomous mode as not autonomous", () => {

@@ -378,6 +378,183 @@ describe("backlog runner", () => {
   });
 });
 
+describe("backlog runner with remote issues", () => {
+  const refreshMs = () => settings.general().githubIssuesRefreshSeconds * 1000;
+
+  /** An importer that adds one issue item per call, numbered from 1. */
+  function importer(result: () => "item" | "none" | "throw" = () => "item") {
+    let calls = 0;
+    const importRemoteIssue = vi.fn(async () => {
+      calls++;
+      const outcome = result();
+      if (outcome === "throw") throw new Error("github.com: Bad credentials");
+      if (outcome === "none") return undefined;
+      return addItem(`Issue ${calls}`, {
+        origin: {
+          kind: "github-issue",
+          url: `https://github.com/acme/app/issues/${calls}`,
+          owner: "acme",
+          repo: "app",
+          number: calls,
+          connectionId: null,
+        },
+        freeText: "",
+      });
+    });
+    return importRemoteIssue;
+  }
+
+  beforeEach(() => {
+    settings.setRepoBacklogIncludeRemoteIssues(repoId, true);
+  });
+
+  it("imports and promotes an issue when the queue is empty", async () => {
+    const importRemoteIssue = importer();
+    const { runner, promoted } = unitRunner({ importRemoteIssue });
+    await runner.tick();
+    expect(importRemoteIssue).toHaveBeenCalledTimes(1);
+    expect(promoted.map((i) => i.title)).toEqual(["Issue 1"]);
+    expect(item(promoted[0]!.id).status).toBe("promoted");
+
+    // Running: the repo is not idle while the backlog limit is reached.
+    settings.updateGeneral({ maxBacklogTasksPerRepo: 1 });
+    await runner.tick();
+    expect(importRemoteIssue).toHaveBeenCalledTimes(1);
+
+    // Done: the next issue is imported right away, no cooldown.
+    setStatus(item(promoted[0]!.id).taskId!, "done");
+    await runner.tick();
+    expect(promoted.map((i) => i.title)).toEqual(["Issue 1", "Issue 2"]);
+  });
+
+  it("does not import when the switch is off or the port is missing", async () => {
+    settings.setRepoBacklogIncludeRemoteIssues(repoId, false);
+    const importRemoteIssue = importer();
+    await unitRunner({ importRemoteIssue }).runner.tick();
+    expect(importRemoteIssue).not.toHaveBeenCalled();
+
+    settings.setRepoBacklogIncludeRemoteIssues(repoId, true);
+    const { runner, promoted } = unitRunner();
+    await runner.tick();
+    expect(promoted).toHaveLength(0);
+  });
+
+  it("does not import while the repo is not idle or halted", async () => {
+    const importRemoteIssue = importer();
+    const { runner } = unitRunner({ importRemoteIssue });
+
+    const manual = addTask("queued");
+    await runner.tick();
+    expect(importRemoteIssue).not.toHaveBeenCalled();
+    r.tasks.delete(manual.id);
+
+    settings.setRepoBacklogHalt(repoId, manual.id);
+    await runner.tick();
+    expect(importRemoteIssue).not.toHaveBeenCalled();
+    settings.setRepoBacklogHalt(repoId, null);
+
+    settings.setRepoBacklogRunnerEnabled(repoId, false);
+    await runner.tick();
+    expect(importRemoteIssue).not.toHaveBeenCalled();
+  });
+
+  it("does not import while a backlog task needs the user or the backlog is full", async () => {
+    addItem("Local");
+    const importRemoteIssue = importer();
+    const { runner, promoted } = unitRunner({ importRemoteIssue });
+    settings.updateGeneral({ maxBacklogTasksPerRepo: 1 });
+    await runner.tick();
+    expect(promoted.map((i) => i.title)).toEqual(["Local"]);
+    await runner.tick();
+    expect(importRemoteIssue).not.toHaveBeenCalled();
+
+    setStatus(item(promoted[0]!.id).taskId!, "needs-you");
+    await runner.tick();
+    expect(importRemoteIssue).not.toHaveBeenCalled();
+  });
+
+  it("starts local items before importing", async () => {
+    addItem("Local");
+    const importRemoteIssue = importer();
+    const { runner, promoted } = unitRunner({ importRemoteIssue });
+    await runner.tick();
+    expect(promoted.map((i) => i.title)).toEqual(["Local"]);
+    expect(importRemoteIssue).not.toHaveBeenCalled();
+  });
+
+  it("imports when the queue holds only paused or blocked items", async () => {
+    addItem("Paused", { status: "paused" });
+    const running = addItem("Running");
+    addItem("Blocked", { dependsOn: [running.id] });
+    settings.updateGeneral({ maxBacklogTasksPerRepo: 2 });
+    const importRemoteIssue = importer();
+    const { runner, promoted } = unitRunner({ importRemoteIssue });
+    await runner.tick();
+    expect(promoted.map((i) => i.title)).toEqual(["Running"]);
+    await runner.tick();
+    expect(promoted.map((i) => i.title)).toEqual(["Running", "Issue 1"]);
+  });
+
+  it("waits out the cooldown after an empty result", async () => {
+    const importRemoteIssue = importer(() => "none");
+    const { runner, promoted } = unitRunner({ importRemoteIssue });
+    await runner.tick();
+    await runner.tick();
+    expect(importRemoteIssue).toHaveBeenCalledTimes(1);
+    advance(refreshMs() + 1);
+    await runner.tick();
+    expect(importRemoteIssue).toHaveBeenCalledTimes(2);
+    expect(promoted).toHaveLength(0);
+  });
+
+  it("logs a failed import and waits out the cooldown", async () => {
+    const logs: string[] = [];
+    const importRemoteIssue = importer(() => "throw");
+    const { runner } = unitRunner({ importRemoteIssue, log: (m) => logs.push(m) });
+    await runner.tick();
+    await runner.tick();
+    expect(importRemoteIssue).toHaveBeenCalledTimes(1);
+    expect(logs).toEqual([expect.stringContaining("github.com: Bad credentials")]);
+    advance(refreshMs() + 1);
+    await runner.tick();
+    expect(importRemoteIssue).toHaveBeenCalledTimes(2);
+  });
+
+  it("imports at most one issue while its CLI is quota-paused", async () => {
+    const resetsAt = new Date(now.getTime() + 10 * refreshMs());
+    quota.report("claude", { resetsAt });
+    const importRemoteIssue = importer();
+    const { runner, promoted } = unitRunner({ importRemoteIssue });
+
+    await runner.tick();
+    expect(importRemoteIssue).toHaveBeenCalledTimes(1);
+    expect(promoted).toHaveLength(0);
+    expect(r.backlogItems.list(repoId).map((i) => i.status)).toEqual(["waiting"]);
+
+    // Cooldown.
+    await runner.tick();
+    // Past the cooldown, the imported item is held by the quota pause.
+    advance(refreshMs() + 1);
+    await runner.tick();
+    expect(importRemoteIssue).toHaveBeenCalledTimes(1);
+
+    advance(resetsAt.getTime() - now.getTime() + 1);
+    await runner.tick();
+    expect(promoted.map((i) => i.title)).toEqual(["Issue 1"]);
+    expect(importRemoteIssue).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not import while a local item is held by a quota pause", async () => {
+    addItem("Claude work");
+    quota.report("claude", { resetsAt: new Date(now.getTime() + 3_600_000) });
+    const importRemoteIssue = importer();
+    const { runner, promoted } = unitRunner({ importRemoteIssue });
+    await runner.tick();
+    expect(promoted).toHaveLength(0);
+    expect(importRemoteIssue).not.toHaveBeenCalled();
+  });
+});
+
 describe("backlog runner with the pipeline engine", () => {
   it("waits out a Claude usage limit: pauses promotion, resumes the interrupted task, moves on", async () => {
     const resetsAt = new Date(now.getTime() + 3_600_000);

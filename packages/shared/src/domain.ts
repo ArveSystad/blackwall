@@ -1455,15 +1455,28 @@ export const repoBacklogRunnerSchema = z.object({
    * never pushes, opens PRs or posts anywhere. Off by default.
    */
   autonomous: z.boolean().default(false),
+  /**
+   * When the repo's queue has nothing left to start, the runner imports the
+   * open GitHub issues of the repo's `origin` as backlog items, one at a
+   * time. It never assigns or comments on them. Off by default.
+   */
+  includeRemoteIssues: z.boolean().default(false),
 });
 export type RepoBacklogRunner = z.infer<typeof repoBacklogRunnerSchema>;
 
 /** `PATCH /api/repos/:repoId/backlog/runner` body: at least one field. */
 export const repoBacklogRunnerUpdateSchema = z
-  .object({ enabled: z.boolean().optional(), autonomous: z.boolean().optional() })
+  .object({
+    enabled: z.boolean().optional(),
+    autonomous: z.boolean().optional(),
+    includeRemoteIssues: z.boolean().optional(),
+  })
   .refine(
-    (input) => input.enabled !== undefined || input.autonomous !== undefined,
-    "Set enabled or autonomous",
+    (input) =>
+      input.enabled !== undefined ||
+      input.autonomous !== undefined ||
+      input.includeRemoteIssues !== undefined,
+    "Set enabled, autonomous or includeRemoteIssues",
   );
 export type RepoBacklogRunnerUpdate = z.infer<typeof repoBacklogRunnerUpdateSchema>;
 

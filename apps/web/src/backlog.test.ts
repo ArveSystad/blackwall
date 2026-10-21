@@ -257,6 +257,7 @@ describe("runnerStatus", () => {
     haltedTaskId: null,
     haltedAt: null,
     autonomous: false,
+    includeRemoteIssues: false,
   };
   const settings = {
     backlogRunner: true,
@@ -279,6 +280,15 @@ describe("runnerStatus", () => {
 
   it("names the next item when idle", () => {
     expect(status()).toMatchObject({ tone: "ready", label: "Idle", detail: "Next: Add login" });
+  });
+
+  it("says an empty queue picks up GitHub issues when remote issues are on", () => {
+    expect(status({ items: [] }).detail).toBe("Queue empty. Nothing to run.");
+    expect(status({ items: [], runner: { ...runner, includeRemoteIssues: true } })).toMatchObject({
+      tone: "idle",
+      label: "Idle",
+      detail: "Queue empty. Picks up the next open GitHub issue.",
+    });
   });
 
   it("is off globally or per repo", () => {
