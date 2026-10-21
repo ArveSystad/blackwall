@@ -1,5 +1,6 @@
 import {
   DELIVERY_TARGETS,
+  originRef,
   type DeliveryAction,
   type DeliveryConfirmation,
   type DeliveryPlan,
@@ -389,7 +390,7 @@ export function createDeliverer({
         // The full reference links (and on merge closes) the issue even from another repo.
         return [
           ...push,
-          ...openPr(`${body}\n\nCloses ${origin.owner}/${origin.repo}#${origin.number}`),
+          ...openPr(`${body}\n\nCloses ${originRef(origin)}`),
           { kind: "issue-comment", url: origin.url, body },
         ];
     }

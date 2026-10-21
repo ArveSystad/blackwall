@@ -9,6 +9,7 @@ import {
   type TaskCi,
 } from "@blackwall/shared";
 import type { Repositories } from "../db/repositories.js";
+import { errorMessage } from "../git/errors.js";
 import type { GitService } from "../git/service.js";
 import type { RemoteSlug } from "./delivery.js";
 
@@ -100,8 +101,6 @@ function defaultSleep(ms: number, signal: AbortSignal): Promise<void> {
 
 /** The wait after `step`: {@link BACKOFF_FACTOR} longer, in whole ms, up to {@link MAX_POLL_MS}. */
 const nextStep = (step: number) => Math.min(Math.round(step * BACKOFF_FACTOR), MAX_POLL_MS);
-
-const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /** The hint for sources the token can't read: SSO before scopes. */
 function unreadableHint(host: string, unreadable: readonly CiUnreadable[]): string | null {

@@ -12,6 +12,7 @@ import {
 } from "@blackwall/shared";
 import type { QuotaTracker } from "../agents/quota.js";
 import type { Repositories } from "../db/repositories.js";
+import { errorMessage } from "../git/errors.js";
 import { nextBacklogItem } from "./backlog.js";
 
 /** How often the runner looks for work besides the events that free capacity. */
@@ -67,8 +68,6 @@ export type BacklogRunner = ReturnType<typeof createBacklogRunner>;
 
 /** What an enabled, unhalted repo offers on a pass; see `pick`. */
 type Picked = { item: BacklogItem } | { idle: true; quotaHeld: boolean };
-
-const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /**
  * Works through each repo's backlog on its own, like a built-in ralph loop.
