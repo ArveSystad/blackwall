@@ -68,6 +68,7 @@ import {
   voiceDownloadInputSchema,
   voiceHotkeyLabel,
   voiceHotkeySchema,
+  voiceStateSchema,
   type CiState,
   type TaskCi,
 } from "./domain.js";
@@ -678,6 +679,45 @@ describe("settings and inputs", () => {
     expect(voiceCommandInputSchema.safeParse({ repoId: "", text: "hi" }).success).toBe(false);
     const long = "x".repeat(MAX_VOICE_COMMAND_CHARS + 1);
     expect(voiceCommandInputSchema.safeParse({ repoId: "r1", text: long }).success).toBe(false);
+  });
+
+  it("takes the sending client and its open task with a voice command", () => {
+    expect(
+      voiceCommandInputSchema.parse({ repoId: "r1", text: "hi", clientId: "c1", taskId: "t1" }),
+    ).toEqual({ repoId: "r1", text: "hi", clientId: "c1", taskId: "t1" });
+    const post = (extra: object) =>
+      voiceCommandInputSchema.safeParse({ repoId: "r1", text: "hi", ...extra }).success;
+    expect(post({ clientId: "" })).toBe(false);
+    expect(post({ clientId: "c".repeat(101) })).toBe(false);
+    expect(post({ taskId: "" })).toBe(false);
+  });
+
+  it("parses the voice state's client and UI actions, and refuses an unknown action", () => {
+    const state = {
+      busy: false,
+      repoId: "r1",
+      transcript: "go home",
+      activity: null,
+      reply: null,
+      error: null,
+      draft: null,
+      created: null,
+      clientId: "c1",
+      actions: [
+        { id: "a1", kind: "show-grid" },
+        { id: "a2", kind: "select-repo", repoId: "r2" },
+        { id: "a3", kind: "open-chat" },
+        { id: "a4", kind: "open-task", taskId: "t1" },
+      ],
+    };
+    expect(voiceStateSchema.parse(state)).toEqual(state);
+    expect(
+      voiceStateSchema.safeParse({ ...state, actions: [{ id: "a5", kind: "explode" }] }).success,
+    ).toBe(false);
+    expect(
+      voiceStateSchema.safeParse({ ...state, actions: [{ id: "a6", kind: "select-repo" }] })
+        .success,
+    ).toBe(false);
   });
 
   it("leaves repo check commands unset so they can be suggested", () => {

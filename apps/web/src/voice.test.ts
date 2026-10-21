@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { concatFrames, downsample, draftFields } from "./voice";
+import { concatFrames, downsample, draftFields, pendingVoiceActions } from "./voice";
 
 describe("downsample", () => {
   it("averages each group of samples from 48 kHz to 16 kHz", () => {
@@ -42,5 +42,27 @@ describe("draftFields", () => {
       title: "Dark mode",
       freeText: "A toggle",
     });
+  });
+});
+
+describe("pendingVoiceActions", () => {
+  const actions = [
+    { id: "a1", kind: "select-repo", repoId: "r2" },
+    { id: "a2", kind: "open-chat" },
+    { id: "a3", kind: "show-grid" },
+  ] as const;
+  const state = { clientId: "c1", actions: [...actions] };
+
+  it("returns the actions of this client's command in order", () => {
+    expect(pendingVoiceActions(state, "c1", new Set())).toEqual(actions);
+  });
+
+  it("returns nothing for another client's command", () => {
+    expect(pendingVoiceActions(state, "c2", new Set())).toEqual([]);
+    expect(pendingVoiceActions({ ...state, clientId: null }, "c1", new Set())).toEqual([]);
+  });
+
+  it("skips the actions already applied", () => {
+    expect(pendingVoiceActions(state, "c1", new Set(["a1", "a3"]))).toEqual([actions[1]]);
   });
 });

@@ -120,6 +120,7 @@ import {
   type VoiceState,
   type VoiceStatus,
 } from "@blackwall/shared";
+import { VOICE_CLIENT_ID } from "./voice";
 
 export async function fetchHealth(signal?: AbortSignal): Promise<HealthResponse> {
   const res = await fetch("/api/health", signal ? { signal } : {});
@@ -589,10 +590,19 @@ export function getVoiceState(): Promise<VoiceState> {
 }
 
 /** Runs a transcript as a command on the repo; answers 409 while the last one still runs. */
-export function sendVoiceCommand(repoId: string, text: string): Promise<VoiceState> {
+export function sendVoiceCommand(
+  repoId: string,
+  text: string,
+  context: { taskId?: string | undefined } = {},
+): Promise<VoiceState> {
   return request("/api/voice/commands", voiceStateSchema, {
     method: "POST",
-    body: { repoId, text },
+    body: {
+      repoId,
+      text,
+      clientId: VOICE_CLIENT_ID,
+      ...(context.taskId ? { taskId: context.taskId } : {}),
+    },
   });
 }
 

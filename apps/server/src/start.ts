@@ -267,6 +267,14 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
     const voiceCommands = createVoiceCommandService({
       adapters,
       repos: repositories.repos,
+      tasks: repositories.tasks,
+      questions: repositories.grillQuestions,
+      answerQuestion: (taskId, questionId, answer) =>
+        pipeline.answerQuestion(taskId, questionId, { answer }),
+      // No issue comment, like the task view's unticked default.
+      approvePlan: (taskId) =>
+        pipeline.respond(taskId, { gate: "plan-approval", decision: "approve" }),
+      sendChat: chat.send,
       backlogItems: repositories.backlogItems,
       runner: settings,
       runBacklogItem: (repoId, itemId) => {

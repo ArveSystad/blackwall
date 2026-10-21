@@ -47,6 +47,8 @@ describe("protocol", () => {
       error: null,
       draft: null,
       created: null,
+      clientId: null,
+      actions: [],
     };
     const parse = (v: unknown) =>
       parseServerEvent(JSON.stringify({ type: "voice.upserted", payload: { voice: v } }));

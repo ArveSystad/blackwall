@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import type {
   AgentCli,
   BacklogItem,
@@ -7,15 +7,22 @@ import type {
   ServerEvent,
   Task,
   VoiceState,
+  VoiceUiAction,
 } from "@blackwall/shared";
 import type { AgentAdapter } from "../agents/adapters/types.js";
 import { permissionsFor } from "../agents/permissions.js";
-import { voiceCommandPrompt, voiceSystemPrompt } from "../agents/prompts.js";
+import { voiceCommandPrompt, voiceSystemPrompt, type VoiceStateFocus } from "../agents/prompts.js";
 import { activityFor } from "../chat/service.js";
 import type { Repositories } from "../db/repositories.js";
 import { TaskStateError } from "../pipeline/engine.js";
 import { RepoNotFoundError } from "../repos/service.js";
-import { VOICE_TOOL_NAMES, VOICE_TOOLS, VoiceToolError, type VoiceToolContext } from "./tools.js";
+import {
+  VOICE_TOOL_NAMES,
+  VOICE_TOOLS,
+  VoiceToolError,
+  waitingTasks,
+  type VoiceToolContext,
+} from "./tools.js";
 
 /** A command sent while the last one still runs. Maps to 409 like a task state conflict. */
 export class VoiceBusyError extends TaskStateError {
@@ -38,7 +45,15 @@ export const VOICE_MAX_TURNS = 8;
 
 export interface VoiceCommandServiceOptions {
   adapters: Partial<Record<AgentCli, AgentAdapter>>;
-  repos: Pick<Repositories["repos"], "get">;
+  repos: Pick<Repositories["repos"], "get" | "list">;
+  tasks: VoiceToolContext["tasks"];
+  questions: VoiceToolContext["questions"];
+  /** Records the user's answer to a grill question; the last one continues the task. */
+  answerQuestion: VoiceToolContext["answerQuestion"];
+  /** Approves a task's plan at its plan-approval gate. */
+  approvePlan: VoiceToolContext["approvePlan"];
+  /** Sends a chat message to a repo's chat, or a task's conversation. */
+  sendChat: VoiceToolContext["sendChat"];
   backlogItems: Pick<Repositories["backlogItems"], "list">;
   /** The global and per-repo backlog runner switches. */
   runner: VoiceToolContext["runner"];
@@ -59,6 +74,14 @@ export type VoiceCommandService = ReturnType<typeof createVoiceCommandService>;
 export interface VoiceTurnAccess {
   token: string;
   repoId: string;
+  /** The task open in the tab that sent the command. */
+  focusTaskId: string | null;
+}
+
+/** What a live turn token is bound to. */
+interface TurnBinding {
+  repoId: string;
+  focusTaskId: string | null;
 }
 
 const IDLE: VoiceState = {
@@ -70,6 +93,8 @@ const IDLE: VoiceState = {
   error: null,
   draft: null,
   created: null,
+  clientId: null,
+  actions: [],
 };
 
 /**
@@ -85,6 +110,11 @@ const IDLE: VoiceState = {
 export function createVoiceCommandService({
   adapters,
   repos,
+  tasks,
+  questions,
+  answerQuestion,
+  approvePlan,
+  sendChat,
   backlogItems,
   runner,
   runBacklogItem,
@@ -97,8 +127,8 @@ export function createVoiceCommandService({
   /** Bumped by reset and shutdown, so a turn that started before drops its result. */
   let generation = 0;
   let controller: AbortController | null = null;
-  /** Live turn tokens, each bound to its turn's repo. */
-  const tokens = new Map<string, string>();
+  /** Live turn tokens, each bound to its turn's repo and focused task. */
+  const tokens = new Map<string, TurnBinding>();
 
   function update(patch: Partial<VoiceState>): VoiceState {
     state = { ...state, ...patch };
@@ -143,9 +173,20 @@ export function createVoiceCommandService({
     }
   }
 
-  function toolContext(repoId: string): VoiceToolContext {
+  function toolContext({ repoId, focusTaskId }: TurnBinding): VoiceToolContext {
     return {
       repoId,
+      focusTaskId,
+      repos,
+      tasks,
+      questions,
+      answerQuestion,
+      approvePlan,
+      sendChat,
+      pushAction: (action) =>
+        void update({
+          actions: [...state.actions, { ...action, id: randomUUID() } as VoiceUiAction],
+        }),
       draft: { get: () => state.draft, set: (draft) => void update({ draft }) },
       submitDraft: (id) => submitDraft(id),
       runBacklogItem,
@@ -155,13 +196,33 @@ export function createVoiceCommandService({
     };
   }
 
-  async function runTurn(repo: Repo, text: string): Promise<void> {
+  /**
+   * The focused task as the state block shows it, with the questions open for
+   * the user numbered by their place among all of the task's questions.
+   */
+  function focusOf(task: Task): VoiceStateFocus {
+    return {
+      id: task.id,
+      title: task.title,
+      repoName: repos.get(task.repoId)?.name ?? task.repoId,
+      status: task.status,
+      gate: task.gate,
+      stage: task.stage,
+      questions: questions
+        .listByTask(task.id)
+        .map((q, i) => ({ q, number: i + 1 }))
+        .filter(({ q }) => q.needsHuman && q.answer === null)
+        .map(({ q, number }) => ({ number, question: q.question })),
+    };
+  }
+
+  async function runTurn(repo: Repo, text: string, focus: Task | null): Promise<void> {
     const turn = generation;
     const current = () => generation === turn;
     const turnController = new AbortController();
     controller = turnController;
     const token = randomBytes(32).toString("base64url");
-    tokens.set(token, repo.id);
+    tokens.set(token, { repoId: repo.id, focusTaskId: focus?.id ?? null });
     const cli = repo.defaultCli;
     /** Set when the CLI reported its usage limit; matters only if the run then fails. */
     let rateLimit: { resetsAt?: string } | undefined;
@@ -181,6 +242,15 @@ export function createVoiceCommandService({
           global: runner.general().backlogRunner,
         },
         draft: draft ? { title: draft.title, description: draft.description } : null,
+        repos: repos.list(),
+        selectedRepoId: repo.id,
+        focus: focus ? focusOf(focus) : null,
+        waiting: waitingTasks(tasks.list()).map((t) => ({
+          id: t.id,
+          title: t.title,
+          repoName: repos.get(t.repoId)?.name ?? t.repoId,
+          gate: t.gate,
+        })),
       });
       const model = modelFor(cli);
       const run = adapter.run({
@@ -245,12 +315,21 @@ export function createVoiceCommandService({
     /**
      * Runs a transcript as a command in the background. Refused with
      * {@link VoiceBusyError} while the last one runs, and with
-     * {@link RepoNotFoundError} for an unknown repo.
+     * {@link RepoNotFoundError} for an unknown repo. `context.taskId` is the
+     * task open in the sending tab, kept when it exists and is not archived,
+     * in any repo; `context.clientId` is the page load that applies the
+     * command's UI actions.
      */
-    command(repoId: string, text: string): VoiceState {
+    command(
+      repoId: string,
+      text: string,
+      context: { clientId?: string | undefined; taskId?: string | undefined } = {},
+    ): VoiceState {
       if (state.busy) throw new VoiceBusyError();
       const repo = repos.get(repoId);
       if (!repo) throw new RepoNotFoundError(repoId);
+      const task = context.taskId ? tasks.get(context.taskId) : undefined;
+      const focus = task && !task.archivedAt ? task : null;
       const next = update({
         busy: true,
         repoId,
@@ -259,26 +338,29 @@ export function createVoiceCommandService({
         reply: null,
         error: null,
         created: null,
+        clientId: context.clientId ?? null,
+        actions: [],
       });
-      void runTurn(repo, text);
+      void runTurn(repo, text, focus);
       return next;
     },
 
     /** The turn a bearer token belongs to; null for a missing, unknown or revoked one. */
     authorize(token: string | undefined): VoiceTurnAccess | null {
       if (!token) return null;
-      const repoId = tokens.get(token);
-      return repoId === undefined ? null : { token, repoId };
+      const binding = tokens.get(token);
+      return binding === undefined ? null : { token, ...binding };
     },
 
     /** Runs a tool for a turn; throws {@link VoiceToolError} for the agent to read. */
     async callTool(access: VoiceTurnAccess, name: string, input: unknown): Promise<string> {
-      if (tokens.get(access.token) !== access.repoId) {
+      const binding = tokens.get(access.token);
+      if (binding?.repoId !== access.repoId) {
         throw new VoiceToolError("The voice command has ended");
       }
       const found = VOICE_TOOLS.find((t) => t.name === name);
       if (!found) throw new VoiceToolError(`Unknown tool ${name}`);
-      return found.run(toolContext(access.repoId), input);
+      return found.run(toolContext(binding), input);
     },
 
     submitDraft,

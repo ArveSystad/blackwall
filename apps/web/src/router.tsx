@@ -12,6 +12,7 @@ import { Inbox } from "./components/Inbox";
 import { NotFound } from "./components/NotFound";
 import { SearchPalette } from "./components/SearchPalette";
 import { TopBar } from "./components/TopBar";
+import { useVoiceActions } from "./components/use-voice-actions";
 import { VoiceTaskModal } from "./components/VoiceTaskModal";
 import { ActiveAgents } from "./routes/ActiveAgents";
 import { AssignedIssues } from "./routes/AssignedIssues";
@@ -32,6 +33,7 @@ const rootRoute = createRootRoute({
     useThemeHotkey();
     useChatHotkey();
     useSearchHotkey();
+    useVoiceActions();
     return (
       <div className="flex h-full min-h-0 flex-col bg-background">
         <div className="bw-titlebar" aria-hidden />

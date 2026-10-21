@@ -47,6 +47,11 @@ beforeEach(() => {
   commands = createVoiceCommandService({
     adapters: { claude: adapter },
     repos: r.repos,
+    tasks: r.tasks,
+    questions: r.grillQuestions,
+    answerQuestion: vi.fn(),
+    approvePlan: vi.fn(),
+    sendChat: vi.fn(),
     backlogItems: r.backlogItems,
     runner: createSettingsService({ settings: r.settings, tags: r.tags }),
     runBacklogItem: vi.fn(),
@@ -149,6 +154,12 @@ describe("blackwall MCP server", () => {
       "submit_task_draft",
       "run_backlog_item",
       "set_backlog_runner",
+      "show_grid_wall",
+      "select_repo",
+      "send_chat_message",
+      "answer_grill_question",
+      "open_task",
+      "approve_plan",
     ]);
     expect(tools[0]?.inputSchema).toMatchObject({
       type: "object",

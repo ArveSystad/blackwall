@@ -34,6 +34,8 @@ const idle: VoiceState = {
   error: null,
   draft: null,
   created: null,
+  clientId: null,
+  actions: [],
 };
 
 const idleDownload: VoiceDownload = {
@@ -235,7 +237,19 @@ describe("voice routes", () => {
     });
     expect(res.status).toBe(202);
     expect(voiceStateSchema.parse(await res.json())).toMatchObject({ busy: true });
-    expect(commands.command).toHaveBeenCalledWith("r1", "create a task");
+    expect(commands.command).toHaveBeenCalledWith("r1", "create a task", {});
+  });
+
+  it("forwards the sending client and its open task", async () => {
+    const res = await request("/commands", {
+      method: "POST",
+      json: { repoId: "r1", text: "approve the plan", clientId: "c1", taskId: "t1" },
+    });
+    expect(res.status).toBe(202);
+    expect(commands.command).toHaveBeenCalledWith("r1", "approve the plan", {
+      clientId: "c1",
+      taskId: "t1",
+    });
   });
 
   it("refuses an empty command, an unknown repo and a command while busy", async () => {

@@ -1,4 +1,12 @@
-import { VOICE_SAMPLE_RATE, type VoiceDraft } from "@blackwall/shared";
+import {
+  VOICE_SAMPLE_RATE,
+  type VoiceDraft,
+  type VoiceState,
+  type VoiceUiAction,
+} from "@blackwall/shared";
+
+/** This page load, sent with each voice command so only it applies the command's UI actions. */
+export const VOICE_CLIENT_ID = crypto.randomUUID();
 
 /**
  * Mono samples resampled from `fromRate` down to `toRate`: each output sample
@@ -32,6 +40,16 @@ export function concatFrames(frames: readonly Float32Array[]): Float32Array {
     offset += frame.length;
   }
   return output;
+}
+
+/** The UI actions of this client's last command not applied yet, in order. */
+export function pendingVoiceActions(
+  state: Pick<VoiceState, "clientId" | "actions">,
+  clientId: string,
+  applied: ReadonlySet<string>,
+): VoiceUiAction[] {
+  if (state.clientId !== clientId) return [];
+  return state.actions.filter((action) => !applied.has(action.id));
 }
 
 /** The New task form's fields a voice draft fills. */

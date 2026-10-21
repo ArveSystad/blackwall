@@ -11,6 +11,7 @@ import {
   socketUrl,
   transcribeVoice,
 } from "./api";
+import { VOICE_CLIENT_ID } from "./voice";
 
 describe("socketUrl", () => {
   it("uses ws: on http", () => {
@@ -131,24 +132,39 @@ describe("request bodies", () => {
   });
 
   it("still sends JSON bodies as JSON", async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          busy: true,
-          repoId: "r1",
-          transcript: "hi",
-          activity: null,
-          reply: null,
-          error: null,
-          draft: null,
-          created: null,
-        }),
-      ),
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            busy: true,
+            repoId: "r1",
+            transcript: "hi",
+            activity: null,
+            reply: null,
+            error: null,
+            draft: null,
+            created: null,
+            clientId: VOICE_CLIENT_ID,
+            actions: [],
+          }),
+        ),
     );
     vi.stubGlobal("fetch", fetch);
     await sendVoiceCommand("r1", "hi");
     const [, init] = fetch.mock.calls[0]!;
     expect(init?.headers).toEqual({ "content-type": "application/json" });
-    expect(init?.body).toBe(JSON.stringify({ repoId: "r1", text: "hi" }));
+    expect(init?.body).toBe(
+      JSON.stringify({ repoId: "r1", text: "hi", clientId: VOICE_CLIENT_ID }),
+    );
+
+    await sendVoiceCommand("r1", "approve the plan", { taskId: "t1" });
+    expect(fetch.mock.calls[1]![1]?.body).toBe(
+      JSON.stringify({
+        repoId: "r1",
+        text: "approve the plan",
+        clientId: VOICE_CLIENT_ID,
+        taskId: "t1",
+      }),
+    );
   });
 });

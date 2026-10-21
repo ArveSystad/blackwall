@@ -1,6 +1,6 @@
 import { voiceHotkeyLabel, type VoiceState } from "@blackwall/shared";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useParams } from "@tanstack/react-router";
 import { useEffect, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { ApiError, sendVoiceCommand, transcribeVoice } from "../api";
 import { isMac } from "../keyboard";
@@ -42,6 +42,7 @@ function panelKey(voice: VoiceState | undefined, notice: string | null): string 
 export function PushToTalk({ className }: { className?: string }) {
   const repos = useQuery(reposQuery);
   const repo = resolveSelectedRepo(useSelectedRepoId(), repos.data);
+  const { taskId } = useParams({ strict: false });
   const status = useQuery(voiceStatusQuery);
   const voice = useQuery(voiceQuery);
   const settings = useQuery(settingsQuery);
@@ -70,7 +71,7 @@ export function PushToTalk({ className }: { className?: string }) {
         return;
       }
       setPhase("sending");
-      await sendVoiceCommand(repo.id, text);
+      await sendVoiceCommand(repo.id, text, { taskId });
     } catch (cause) {
       setNotice(
         cause instanceof ApiError && cause.status === 409

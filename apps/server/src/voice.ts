@@ -110,7 +110,8 @@ export function voiceRoutes({ voice, commands, downloads }: VoiceRouteOptions): 
     routes.post("/commands", async (c) => {
       const input = voiceCommandInputSchema.safeParse(await c.req.json().catch(() => undefined));
       if (!input.success) return badRequest(c, input.error);
-      return c.json<VoiceState>(commands.command(input.data.repoId, input.data.text), 202);
+      const { repoId, text, clientId, taskId } = input.data;
+      return c.json<VoiceState>(commands.command(repoId, text, { clientId, taskId }), 202);
     });
 
     /** The draft's form creates its task; 409 when it was already created or closed. */

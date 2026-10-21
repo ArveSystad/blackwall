@@ -4,10 +4,13 @@ import {
   type Agent,
   type AgentCli,
   type BacklogItem,
+  type Gate,
   type GrillQuestion,
   type PermissionProfile,
+  type Repo,
   type Stage,
   type Task,
+  type TaskStatus,
 } from "@blackwall/shared";
 import { SUBAGENT_CLIS, SUBAGENT_NAME, subagentTool } from "./subagents.js";
 
@@ -394,14 +397,15 @@ export function chatStatePrompt({
  */
 export function voiceSystemPrompt(): string {
   return [
-    "You are Blackwall's voice control for one repository. The user spoke a command; carry it out with the `blackwall` MCP tools.",
+    "You are Blackwall's voice control. The user spoke a command; carry it out with the `blackwall` MCP tools.",
     "Act only through the blackwall tools. Do not read, search or change files and do not run commands.",
     "Every tool acts at once: there is no confirmation step after it.",
     "",
     "## The transcript",
     "",
     "The message is a speech transcript and may contain recognition errors: read it for what the user most likely said.",
-    "Match backlog item titles loosely, but use only item ids from the `Voice state` block; never invent one.",
+    "Match backlog item, repository and task names loosely, but use only ids from the `Voice state` block; never invent one.",
+    'Read spoken numbers loosely too: "question to" or "question two" is question 2.',
     "",
     "## Commands",
     "",
@@ -410,8 +414,17 @@ export function voiceSystemPrompt(): string {
     '- "Confirm", "yes", "go ahead", "create it": `submit_task_draft` when the state block shows a draft. It creates the task once; if it asks for a description, ask the user for one.',
     '- "Start …", "run …" a backlog item: `run_backlog_item` with the id of the waiting item it names.',
     '- "Turn run backlog on" or "off": `set_backlog_runner`.',
+    '- "Show the grid wall", "background grid", "show the grid", "go home": `show_grid_wall`.',
+    '- "Switch repo to …", "select …": `select_repo` with the id of the repository it names.',
+    `- "Write to chat …", "tell the chat …", "ask the chat …": \`send_chat_message\` with the message. It opens the chat panel. On a task page, chat always goes to the focused task's conversation; otherwise to the selected repo's chat.`,
+    '- "Answer question 2: …", "respond to grill question 2 …": `answer_grill_question` on the focused task, with the `Q` number from the state block and the answer. Pass a plain "yes" or "no" on as the answer text.',
+    '- "Open the task that needs me", "open …": `open_task` with an id from `Tasks waiting on you`. Without a name, open the first one listed and say how many others are waiting.',
+    '- "Approve the plan": `approve_plan` on the focused task.',
     "",
-    "If the request is ambiguous or matches none of these, or more than one backlog item fits, call no tool and ask a short question instead.",
+    "Grill answers and plan approval act only on the focused task; when none is focused, tell the user to open the task first.",
+    "When one command both switches repo and writes to chat, only switch the repo and tell the user to say the chat message again as a separate command.",
+    "",
+    "If the request is ambiguous or matches none of these, or more than one backlog item, repository or task fits, call no tool and ask a short question instead.",
     "",
     "## Reply",
     "",
@@ -422,24 +435,59 @@ export function voiceSystemPrompt(): string {
 /** A waiting backlog item as a voice command's state block lists it. */
 export type VoiceStateBacklogItem = Pick<BacklogItem, "id" | "title">;
 
+/** The task open in the tab that sent a voice command, as its state block shows it. */
+export interface VoiceStateFocus {
+  id: string;
+  title: string;
+  repoName: string;
+  status: TaskStatus;
+  gate: Gate | null;
+  stage: Stage | null;
+  /** The grill questions open for the user, numbered as the task view numbers them. */
+  questions: readonly { number: number; question: string }[];
+}
+
+/** A task waiting on the user, as a voice command's state block lists it. */
+export interface VoiceStateWaitingTask {
+  id: string;
+  title: string;
+  repoName: string;
+  gate: Gate | null;
+}
+
 /**
  * One voice command's prompt: a `Voice state` block with the repo's waiting
  * backlog items, its backlog runner switch (and whether Settings turned the
- * runner off for every repo) and the open draft, then the transcript.
+ * runner off for every repo), the open draft, the repositories, the focused
+ * task and the tasks waiting on the user, then the transcript.
  */
 export function voiceCommandPrompt({
   text,
   backlog,
   runner,
   draft,
+  repos,
+  selectedRepoId,
+  focus,
+  waiting,
 }: {
   text: string;
   backlog: readonly VoiceStateBacklogItem[];
   /** `enabled`: the repo's switch; `global`: the runner setting for every repo. */
   runner: { enabled: boolean; global: boolean };
   draft: { title: string; description: string } | null;
+  repos: readonly Pick<Repo, "id" | "name">[];
+  selectedRepoId: string;
+  focus: VoiceStateFocus | null;
+  waiting: readonly VoiceStateWaitingTask[];
 }): string {
   const backlogLines = backlog.map((i) => `- \`${i.id}\` ${i.title}`);
+  const repoLines = repos.map(
+    (r) => `- \`${r.id}\` ${r.name}${r.id === selectedRepoId ? " (selected)" : ""}`,
+  );
+  const waitingLines = waiting.map(
+    (t) => `- \`${t.id}\` ${t.title} (${t.repoName}, ${t.gate ?? "no gate"})`,
+  );
   return [
     "## Voice state",
     "",
@@ -454,6 +502,36 @@ export function voiceCommandPrompt({
     ...(draft
       ? [`- title: ${draft.title}`, `- description: ${draft.description.trim() || "(empty)"}`]
       : ["(none)"]),
+    "",
+    "### Repositories",
+    "",
+    ...(repoLines.length > 0 ? repoLines : ["(none)"]),
+    "",
+    "### Focused task",
+    "",
+    ...(focus
+      ? [
+          `- id: \`${focus.id}\``,
+          `- title: ${focus.title}`,
+          `- repo: ${focus.repoName}`,
+          `- status: ${focus.status}`,
+          `- gate: ${focus.gate ?? "(none)"}`,
+          `- stage: ${focus.stage ?? "(none)"}`,
+          ...(focus.gate === "questions"
+            ? [
+                "",
+                "Questions open for you:",
+                ...(focus.questions.length > 0
+                  ? focus.questions.map((q) => `- Q${q.number}: ${q.question}`)
+                  : ["(none)"]),
+              ]
+            : []),
+        ]
+      : ["(none)"]),
+    "",
+    "### Tasks waiting on you",
+    "",
+    ...(waitingLines.length > 0 ? waitingLines : ["(none)"]),
     "",
     "## Transcript",
     "",

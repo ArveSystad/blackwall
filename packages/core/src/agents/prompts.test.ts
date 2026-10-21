@@ -346,12 +346,16 @@ describe("chat prompts", () => {
 });
 
 describe("voice prompts", () => {
+  const noContext = { repos: [], selectedRepoId: "r1", focus: null, waiting: [] };
+
   it("names every blackwall tool and keeps the agent to them", () => {
     const prompt = voiceSystemPrompt();
     for (const name of VOICE_TOOL_NAMES) expect(prompt).toContain(`\`${name}\``);
     expect(prompt).toContain("Act only through the blackwall tools");
     expect(prompt).toContain("speech transcript");
     expect(prompt).toContain("call no tool and ask");
+    expect(prompt).toContain("On a task page, chat always goes to the focused task's conversation");
+    expect(prompt).toContain("use only ids from the `Voice state` block");
   });
 
   it("lists waiting items, the runner and the draft, then the transcript", () => {
@@ -360,6 +364,7 @@ describe("voice prompts", () => {
       backlog: [{ id: "b1", title: "Dark mode toggle" }],
       runner: { enabled: true, global: true },
       draft: null,
+      ...noContext,
     });
     expect(prompt).toContain("- `b1` Dark mode toggle");
     expect(prompt).toContain("Backlog runner: on\n");
@@ -373,9 +378,73 @@ describe("voice prompts", () => {
       backlog: [],
       runner: { enabled: false, global: false },
       draft: { title: "Dark mode", description: "" },
+      ...noContext,
     });
     expect(prompt).toContain("### Waiting backlog items\n\n(none)");
     expect(prompt).toContain("Backlog runner: off (off for every repo in Settings)");
     expect(prompt).toContain("- title: Dark mode\n- description: (empty)");
+    expect(prompt).toContain("### Repositories\n\n(none)");
+    expect(prompt).toContain("### Focused task\n\n(none)");
+    expect(prompt).toContain("### Tasks waiting on you\n\n(none)");
+  });
+
+  it("lists the repos, the focused task with its open questions and the waiting tasks", () => {
+    const prompt = voiceCommandPrompt({
+      text: "answer question 3: yes",
+      backlog: [],
+      runner: { enabled: true, global: true },
+      draft: null,
+      repos: [
+        { id: "r1", name: "app" },
+        { id: "r2", name: "drops" },
+      ],
+      selectedRepoId: "r1",
+      focus: {
+        id: "t1",
+        title: "Dark mode",
+        repoName: "drops",
+        status: "needs-you",
+        gate: "questions",
+        stage: "plan-review",
+        // Q1 was answered: the open ones keep their numbers.
+        questions: [
+          { number: 2, question: "Which theme?" },
+          { number: 3, question: "Keep the toggle?" },
+        ],
+      },
+      waiting: [{ id: "t1", title: "Dark mode", repoName: "drops", gate: "questions" }],
+    });
+    expect(prompt).toContain("### Repositories\n\n- `r1` app (selected)\n- `r2` drops\n");
+    expect(prompt).toContain(
+      "- id: `t1`\n- title: Dark mode\n- repo: drops\n- status: needs-you\n- gate: questions\n- stage: plan-review",
+    );
+    expect(prompt).toContain(
+      "Questions open for you:\n- Q2: Which theme?\n- Q3: Keep the toggle?\n",
+    );
+    expect(prompt).toContain("### Tasks waiting on you\n\n- `t1` Dark mode (drops, questions)\n");
+    expect(prompt.indexOf("### Tasks waiting on you")).toBeLessThan(
+      prompt.indexOf("## Transcript"),
+    );
+  });
+
+  it("lists no questions away from the questions gate", () => {
+    const prompt = voiceCommandPrompt({
+      text: "approve the plan",
+      backlog: [],
+      runner: { enabled: true, global: true },
+      draft: null,
+      ...noContext,
+      focus: {
+        id: "t1",
+        title: "Dark mode",
+        repoName: "app",
+        status: "needs-you",
+        gate: "plan-approval",
+        stage: "plan-review",
+        questions: [],
+      },
+    });
+    expect(prompt).toContain("- gate: plan-approval");
+    expect(prompt).not.toContain("Questions open for you");
   });
 });

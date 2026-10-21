@@ -2482,6 +2482,19 @@ export const voiceCreatedSchema = z.object({
 });
 export type VoiceCreated = z.infer<typeof voiceCreatedSchema>;
 
+/**
+ * Something a voice command asks the browser to do: navigation, the selected
+ * repo and the chat panel live only there. Only the tab that sent the command
+ * applies it, each `id` once.
+ */
+export const voiceUiActionSchema = z.discriminatedUnion("kind", [
+  z.object({ id, kind: z.literal("show-grid") }),
+  z.object({ id, kind: z.literal("select-repo"), repoId: id }),
+  z.object({ id, kind: z.literal("open-chat") }),
+  z.object({ id, kind: z.literal("open-task"), taskId: id }),
+]);
+export type VoiceUiAction = z.infer<typeof voiceUiActionSchema>;
+
 /** Voice control as every client sees it: the last command, its progress, and the open draft. */
 export const voiceStateSchema = z.object({
   /** True while the agent works on a command. */
@@ -2497,6 +2510,10 @@ export const voiceStateSchema = z.object({
   draft: voiceDraftSchema.nullable(),
   /** Set by the last submit of a draft; cleared by the next command. */
   created: voiceCreatedSchema.nullable(),
+  /** The page load that sent the last command; only it applies `actions`. */
+  clientId: z.string().nullable(),
+  /** UI actions the last command queued, in order; cleared by the next command. */
+  actions: z.array(voiceUiActionSchema),
 });
 export type VoiceState = z.infer<typeof voiceStateSchema>;
 
@@ -2504,5 +2521,9 @@ export type VoiceState = z.infer<typeof voiceStateSchema>;
 export const voiceCommandInputSchema = z.object({
   repoId: z.string().min(1),
   text: z.string().trim().min(1).max(MAX_VOICE_COMMAND_CHARS),
+  /** The sending page load, so only it applies the command's UI actions. */
+  clientId: z.string().min(1).max(100).optional(),
+  /** The task open in the sending tab, which task tools act on. */
+  taskId: z.string().min(1).optional(),
 });
 export type VoiceCommandInput = z.infer<typeof voiceCommandInputSchema>;

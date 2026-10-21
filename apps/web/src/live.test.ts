@@ -300,6 +300,8 @@ describe("applyServerEvent", () => {
       error: null,
       draft: null,
       created: null,
+      clientId: null,
+      actions: [],
     };
     client.setQueryData(queryKeys.tasks, [makeTask({ id: "t1" })]);
     client.setQueryData(queryKeys.backlog("r1"), []);
