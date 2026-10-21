@@ -19,8 +19,9 @@ import {
   type VoiceStatus,
   type VoiceTranscript,
 } from "@blackwall/shared";
-import { Hono, type Context } from "hono";
+import { Hono } from "hono";
 import { BacklogInputError } from "./backlog.js";
+import { badRequest, readJson } from "./validation.js";
 
 /** The voice command service as the routes use it. */
 export type VoiceCommandRouteService = Pick<
@@ -46,10 +47,6 @@ const UNAVAILABLE: VoiceStatus = {
   reason: "Voice control is not set up on this server",
   installed: [],
 };
-
-function badRequest(c: Context, error: { issues: { message: string }[] }) {
-  return c.json({ error: error.issues.map((i) => i.message).join("; ") }, 400);
-}
 
 /**
  * Voice control, mounted at `/api/voice`. The browser posts a clip as raw
@@ -93,8 +90,8 @@ export function voiceRoutes({ voice, commands, downloads }: VoiceRouteOptions): 
     routes.get("/download", (c) => c.json<VoiceDownload>(downloads.state()));
 
     routes.post("/download", async (c) => {
-      const input = voiceDownloadInputSchema.safeParse(await c.req.json().catch(() => undefined));
-      if (!input.success) return badRequest(c, input.error);
+      const input = voiceDownloadInputSchema.safeParse(await readJson(c));
+      if (!input.success) return badRequest(c, input.error.issues);
       try {
         return c.json<VoiceDownload>(downloads.start(input.data.model), 202);
       } catch (error) {
@@ -108,16 +105,16 @@ export function voiceRoutes({ voice, commands, downloads }: VoiceRouteOptions): 
     routes.get("/", (c) => c.json<VoiceState>(commands.state()));
 
     routes.post("/commands", async (c) => {
-      const input = voiceCommandInputSchema.safeParse(await c.req.json().catch(() => undefined));
-      if (!input.success) return badRequest(c, input.error);
+      const input = voiceCommandInputSchema.safeParse(await readJson(c));
+      if (!input.success) return badRequest(c, input.error.issues);
       const { repoId, text, clientId, taskId } = input.data;
       return c.json<VoiceState>(commands.command(repoId, text, { clientId, taskId }), 202);
     });
 
     /** The draft's form creates its task; 409 when it was already created or closed. */
     routes.post("/draft/:id/submit", async (c) => {
-      const input = newBacklogItemInputSchema.safeParse(await c.req.json().catch(() => undefined));
-      if (!input.success) return badRequest(c, input.error);
+      const input = newBacklogItemInputSchema.safeParse(await readJson(c));
+      if (!input.success) return badRequest(c, input.error.issues);
       try {
         return c.json<BacklogItem>(await commands.submitDraft(c.req.param("id"), input.data), 201);
       } catch (error) {

@@ -9,15 +9,8 @@ import {
   type RepoSync,
   type RepoView,
 } from "@blackwall/shared";
-import { Hono, type Context } from "hono";
-
-function body(c: Context): Promise<unknown> {
-  return c.req.json().catch(() => undefined);
-}
-
-function badRequest(c: Context, issues: readonly { message: string }[]) {
-  return c.json({ error: issues.map((issue) => issue.message).join("; ") }, 400);
-}
+import { Hono } from "hono";
+import { badRequest, readJson } from "./validation.js";
 
 /**
  * Repo registry routes. Using a repo whose folder is gone throws
@@ -30,21 +23,21 @@ export function repoRoutes(repos: RepoService): Hono {
   routes.get("/", (c) => c.json<RepoView[]>(repos.list()));
 
   routes.post("/", async (c) => {
-    const input = repoInputSchema.safeParse(await body(c));
+    const input = repoInputSchema.safeParse(await readJson(c));
     if (!input.success) return badRequest(c, input.error.issues);
     return c.json<Repo>(await repos.add(input.data), 201);
   });
 
   /** Registers every git repo under a root folder. */
   routes.post("/scan", async (c) => {
-    const input = repoScanInputSchema.safeParse(await body(c));
+    const input = repoScanInputSchema.safeParse(await readJson(c));
     if (!input.success) return badRequest(c, input.error.issues);
     return c.json<RepoScanResult>(await repos.scan(input.data));
   });
 
   /** Sets the manual order; the body lists every repo id exactly once. */
   routes.post("/reorder", async (c) => {
-    const input = reorderReposInputSchema.safeParse(await body(c));
+    const input = reorderReposInputSchema.safeParse(await readJson(c));
     if (!input.success) return badRequest(c, input.error.issues);
     return c.json<RepoView[]>(repos.reorder(input.data.ids));
   });
@@ -52,7 +45,7 @@ export function repoRoutes(repos: RepoService): Hono {
   routes.get("/:id", (c) => c.json<Repo>(repos.get(c.req.param("id"))));
 
   routes.patch("/:id", async (c) => {
-    const patch = repoUpdateSchema.safeParse(await body(c));
+    const patch = repoUpdateSchema.safeParse(await readJson(c));
     if (!patch.success) return badRequest(c, patch.error.issues);
     return c.json<Repo>(repos.update(c.req.param("id"), patch.data));
   });

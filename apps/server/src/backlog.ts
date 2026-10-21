@@ -31,6 +31,7 @@ import {
   type NewTaskServices,
   type TaskPipeline,
 } from "./tasks.js";
+import { badRequest, readJson } from "./validation.js";
 
 export interface BacklogRouteStores {
   backlogItems: Repositories["backlogItems"];
@@ -405,10 +406,6 @@ export async function addBacklogItem(
   return item;
 }
 
-function badRequest(c: Context, error: { issues: { message: string }[] }) {
-  return c.json({ error: error.issues.map((i) => i.message).join("; ") }, 400);
-}
-
 /**
  * A repo's backlog, mounted at `/api/repos/:repoId/backlog`. Items wait until
  * promoted; `run` promotes one now through the same path as the new task
@@ -442,10 +439,8 @@ export function backlogRoutes(
 
     routes.patch("/runner", async (c) => {
       const repoId = c.req.param("repoId") ?? "";
-      const input = repoBacklogRunnerUpdateSchema.safeParse(
-        await c.req.json().catch(() => undefined),
-      );
-      if (!input.success) return badRequest(c, input.error);
+      const input = repoBacklogRunnerUpdateSchema.safeParse(await readJson(c));
+      if (!input.success) return badRequest(c, input.error.issues);
       const { enabled, autonomous, includeRemoteIssues } = input.data;
       const wasAutonomous = runner.repoBacklogRunner(repoId).autonomous;
       if (enabled !== undefined) runner.setRepoBacklogRunnerEnabled(repoId, enabled);
@@ -483,8 +478,8 @@ export function backlogRoutes(
 
   routes.post("/", async (c) => {
     const repoId = c.req.param("repoId") ?? "";
-    const input = newBacklogItemInputSchema.safeParse(await c.req.json().catch(() => undefined));
-    if (!input.success) return badRequest(c, input.error);
+    const input = newBacklogItemInputSchema.safeParse(await readJson(c));
+    if (!input.success) return badRequest(c, input.error.issues);
     try {
       const item = await addBacklogItem(
         { backlogItems, repos, tasks },
@@ -502,8 +497,8 @@ export function backlogRoutes(
   /** Sets the manual order; the body lists every item of the repo once. */
   routes.post("/reorder", async (c) => {
     const repoId = c.req.param("repoId") ?? "";
-    const input = reorderBacklogInputSchema.safeParse(await c.req.json().catch(() => undefined));
-    if (!input.success) return badRequest(c, input.error);
+    const input = reorderBacklogInputSchema.safeParse(await readJson(c));
+    if (!input.success) return badRequest(c, input.error.issues);
     const items = backlogItems.list(repoId);
     const listed = new Set(input.data.ids);
     if (items.length !== listed.size || items.some((i) => !listed.has(i.id))) {
@@ -528,8 +523,8 @@ export function backlogRoutes(
     if (item.status === "promoted") {
       return c.json({ error: "The item was already promoted to a task" }, 409);
     }
-    const input = updateBacklogItemInputSchema.safeParse(await c.req.json().catch(() => undefined));
-    if (!input.success) return badRequest(c, input.error);
+    const input = updateBacklogItemInputSchema.safeParse(await readJson(c));
+    if (!input.success) return badRequest(c, input.error.issues);
     const { dependsOn } = input.data;
     if (dependsOn) {
       const items = backlogItems.list(item.repoId);

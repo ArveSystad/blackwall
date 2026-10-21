@@ -4,6 +4,7 @@ import {
   DeliveryError,
   InvalidGateResponseError,
   MissingCredentialError,
+  TaskNotFoundError,
   type NewTaskValues,
   type PipelineEngine,
   type RepoService,
@@ -46,6 +47,7 @@ import {
 } from "@blackwall/shared";
 import { Hono } from "hono";
 import { withoutStack } from "./backlog.js";
+import { badRequest, readJson } from "./validation.js";
 
 /** The engine actions the task routes expose. */
 export type TaskPipeline = Pick<
@@ -290,6 +292,12 @@ export function taskRoutes(
 ): Hono {
   const routes = new Hono();
 
+  const requireTask = (id: string): Task => {
+    const task = tasks.get(id);
+    if (!task) throw new TaskNotFoundError(id);
+    return task;
+  };
+
   routes.get("/", (c) => c.json<Task[]>(tasks.list()));
 
   if (pipeline && newTask) {
@@ -299,9 +307,9 @@ export function taskRoutes(
      * Jira issue's summary or the PR's title is used.
      */
     routes.post("/", async (c) => {
-      const input = newTaskInputSchema.safeParse(await c.req.json().catch(() => undefined));
+      const input = newTaskInputSchema.safeParse(await readJson(c));
       if (!input.success) {
-        return c.json({ error: input.error.issues.map((i) => i.message).join("; ") }, 400);
+        return badRequest(c, input.error.issues);
       }
       // Only the server links a PR to its stack.
       const values = { ...input.data, origin: withoutStack(input.data.origin) };
@@ -330,22 +338,20 @@ export function taskRoutes(
   /** The plan reviewers' questions and their answers; `needsHuman` ones without an answer wait on the user. */
   routes.get("/:id/questions", (c) => {
     const id = c.req.param("id");
-    if (!tasks.get(id)) return c.json({ error: `Task ${id} not found` }, 404);
+    requireTask(id);
     return c.json<GrillQuestion[]>(grillQuestions.listByTask(id));
   });
 
   /** The review findings, merged duplicates included (`status: "merged"`, `mergedIntoId`). */
   routes.get("/:id/findings", (c) => {
     const id = c.req.param("id");
-    if (!tasks.get(id)) return c.json({ error: `Task ${id} not found` }, 404);
+    requireTask(id);
     return c.json<Finding[]>(findings.listByTask(id));
   });
 
   /** Where the task's worktree is and whether it exists; it may be missing after an import. */
   routes.get("/:id/worktree", (c) => {
-    const id = c.req.param("id");
-    const task = tasks.get(id);
-    if (!task) return c.json({ error: `Task ${id} not found` }, 404);
+    const task = requireTask(c.req.param("id"));
     const path = task.worktreePath;
     return c.json<TaskWorktree>({ path, exists: path !== null && existsSync(path) });
   });
@@ -354,7 +360,7 @@ export function taskRoutes(
     /** The task's pipeline runs, oldest first. */
     routes.get("/:id/runs", (c) => {
       const id = c.req.param("id");
-      if (!tasks.get(id)) return c.json({ error: `Task ${id} not found` }, 404);
+      requireTask(id);
       return c.json<Run[]>(runs.listByTask(id));
     });
 
@@ -381,9 +387,7 @@ export function taskRoutes(
   if (diffs) {
     /** The branch's changes per fix round, plus commits not reviewed yet. */
     routes.get("/:id/diffs", async (c) => {
-      const id = c.req.param("id");
-      const task = tasks.get(id);
-      if (!task) return c.json({ error: `Task ${id} not found` }, 404);
+      const task = requireTask(c.req.param("id"));
       if (worktreeMissing(task)) return c.json<TaskDiff[]>([]);
       return c.json<TaskDiff[]>(await diffs(task));
     });
@@ -392,9 +396,7 @@ export function taskRoutes(
   if (branchDiff) {
     /** The branch's whole diff from its fork point to HEAD; null before it has commits. */
     routes.get("/:id/branch-diff", async (c) => {
-      const id = c.req.param("id");
-      const task = tasks.get(id);
-      if (!task) return c.json({ error: `Task ${id} not found` }, 404);
+      const task = requireTask(c.req.param("id"));
       if (worktreeMissing(task)) return c.json<BranchDiff | null>(null);
       return c.json<BranchDiff | null>(await branchDiff(task));
     });
@@ -403,9 +405,7 @@ export function taskRoutes(
   if (prComments) {
     /** The PR's inline review threads, for the Diff step-through; empty for tasks that are not PRs. */
     routes.get("/:id/pr-comments", async (c) => {
-      const id = c.req.param("id");
-      const task = tasks.get(id);
-      if (!task) return c.json({ error: `Task ${id} not found` }, 404);
+      const task = requireTask(c.req.param("id"));
       return c.json<PullRequestComments>(await prComments(task));
     });
   }
@@ -413,9 +413,7 @@ export function taskRoutes(
   if (artifacts) {
     /** The files saved to `.blackwall/artifacts/` in the task's worktree, newest first. */
     routes.get("/:id/artifacts", async (c) => {
-      const id = c.req.param("id");
-      const task = tasks.get(id);
-      if (!task) return c.json({ error: `Task ${id} not found` }, 404);
+      const task = requireTask(c.req.param("id"));
       return c.json<TaskArtifact[]>(await artifacts.list(task));
     });
 
@@ -425,9 +423,7 @@ export function taskRoutes(
      * Downloads are streamed, so they have no size cap.
      */
     routes.get("/:id/artifacts/:path{.+}", async (c) => {
-      const id = c.req.param("id");
-      const task = tasks.get(id);
-      if (!task) return c.json({ error: `Task ${id} not found` }, 404);
+      const task = requireTask(c.req.param("id"));
       const path = c.req.param("path");
       const file = await artifacts.read(task, path);
       if (!file) return c.json({ error: `Artifact ${path} not found` }, 404);
@@ -464,7 +460,7 @@ export function taskRoutes(
       }
       const input = taskResumeInputSchema.safeParse(json);
       if (!input.success) {
-        return c.json({ error: input.error.issues.map((i) => i.message).join("; ") }, 400);
+        return badRequest(c, input.error.issues);
       }
       return c.json<Task>(pipeline.resume(c.req.param("id"), input.data.message));
     });
@@ -521,18 +517,18 @@ export function taskRoutes(
      * delivery actions listed in `delivery`.
      */
     routes.post("/:id/gate", async (c) => {
-      const input = gateResponseInputSchema.safeParse(await c.req.json().catch(() => undefined));
+      const input = gateResponseInputSchema.safeParse(await readJson(c));
       if (!input.success) {
-        return c.json({ error: input.error.issues.map((i) => i.message).join("; ") }, 400);
+        return badRequest(c, input.error.issues);
       }
       return c.json<Task>(await pipeline.respond(c.req.param("id"), input.data));
     });
 
     /** Answers a grill question only the user can decide; the last answer continues the task. */
     routes.post("/:id/questions/:questionId/answer", async (c) => {
-      const input = grillAnswerInputSchema.safeParse(await c.req.json().catch(() => undefined));
+      const input = grillAnswerInputSchema.safeParse(await readJson(c));
       if (!input.success) {
-        return c.json({ error: input.error.issues.map((i) => i.message).join("; ") }, 400);
+        return badRequest(c, input.error.issues);
       }
       const { id, questionId } = c.req.param();
       return c.json<GrillAnswerResult>(await pipeline.answerQuestion(id, questionId, input.data));
@@ -540,9 +536,9 @@ export function taskRoutes(
 
     /** Force-fixes or force-ignores a finding, at any time; it applies from the next round, and at the finish gate a force-fix starts the fix round. */
     routes.post("/:id/findings/:findingId", async (c) => {
-      const input = findingOverrideInputSchema.safeParse(await c.req.json().catch(() => undefined));
+      const input = findingOverrideInputSchema.safeParse(await readJson(c));
       if (!input.success) {
-        return c.json({ error: input.error.issues.map((i) => i.message).join("; ") }, 400);
+        return badRequest(c, input.error.issues);
       }
       const { id, findingId } = c.req.param();
       return c.json<Finding>(pipeline.overrideFinding(id, findingId, input.data));
@@ -560,9 +556,9 @@ export function taskRoutes(
      * round straight away, and open in a review task, to post to the PR.
      */
     routes.post("/:id/comments", async (c) => {
-      const input = diffCommentsInputSchema.safeParse(await c.req.json().catch(() => undefined));
+      const input = diffCommentsInputSchema.safeParse(await readJson(c));
       if (!input.success) {
-        return c.json({ error: input.error.issues.map((i) => i.message).join("; ") }, 400);
+        return badRequest(c, input.error.issues);
       }
       return c.json<DiffCommentsResult>(pipeline.commentOnDiff(c.req.param("id"), input.data));
     });

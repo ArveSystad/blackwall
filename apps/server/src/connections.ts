@@ -8,7 +8,8 @@ import {
   type ConnectionTestResult,
   type ConnectionView,
 } from "@blackwall/shared";
-import { Hono, type Context } from "hono";
+import { Hono } from "hono";
+import { badRequest, readJson } from "./validation.js";
 
 /** Runs a connection's "Test connection" request (see `@blackwall/integrations`). */
 export type ConnectionTester = (
@@ -19,14 +20,6 @@ export type ConnectionTester = (
 export interface ConnectionRoutesOptions {
   connections: ConnectionService;
   test: ConnectionTester;
-}
-
-function body(c: Context): Promise<unknown> {
-  return c.req.json().catch(() => undefined);
-}
-
-function badRequest(c: Context, issues: readonly { message: string }[]) {
-  return c.json({ error: issues.map((issue) => issue.message).join("; ") }, 400);
 }
 
 /**
@@ -41,14 +34,14 @@ export function connectionRoutes({ connections, test }: ConnectionRoutesOptions)
   routes.get("/", (c) => c.json<ConnectionView[]>(connections.list()));
 
   routes.post("/", async (c) => {
-    const input = connectionInputSchema.safeParse(await body(c));
+    const input = connectionInputSchema.safeParse(await readJson(c));
     if (!input.success) return badRequest(c, input.error.issues);
     return c.json<ConnectionView>(await connections.create(input.data), 201);
   });
 
   /** Finds the connection for a git remote or Jira URL and checks that it has a token. */
   routes.post("/resolve", async (c) => {
-    const input = resolveConnectionInputSchema.safeParse(await body(c));
+    const input = resolveConnectionInputSchema.safeParse(await readJson(c));
     if (!input.success) return badRequest(c, input.error.issues);
     const { connection } = await connections.requireCredential(input.data);
     return c.json<ConnectionView>(connections.get(connection.id));
@@ -57,7 +50,7 @@ export function connectionRoutes({ connections, test }: ConnectionRoutesOptions)
   routes.get("/:id", (c) => c.json<ConnectionView>(connections.get(c.req.param("id"))));
 
   routes.patch("/:id", async (c) => {
-    const patch = connectionUpdateSchema.safeParse(await body(c));
+    const patch = connectionUpdateSchema.safeParse(await readJson(c));
     if (!patch.success) return badRequest(c, patch.error.issues);
     return c.json<ConnectionView>(connections.update(c.req.param("id"), patch.data));
   });
@@ -73,7 +66,7 @@ export function connectionRoutes({ connections, test }: ConnectionRoutesOptions)
   });
 
   routes.put("/:id/token", async (c) => {
-    const input = tokenInputSchema.safeParse(await body(c));
+    const input = tokenInputSchema.safeParse(await readJson(c));
     if (!input.success) return c.json({ error: "token is required" }, 400);
     return c.json<ConnectionView>(await connections.setToken(c.req.param("id"), input.data.token));
   });

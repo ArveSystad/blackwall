@@ -55,6 +55,7 @@ import {
   type Task,
 } from "@blackwall/shared";
 import { Hono } from "hono";
+import { badRequest, readJson } from "./validation.js";
 
 type PrOrigin = Extract<Task["origin"], { kind: "github-pr" }>;
 type IssueOrigin = Extract<Task["origin"], { kind: "github-issue" }>;
@@ -567,9 +568,9 @@ export function pullRequestRoutes({
   });
 
   routes.post("/lookup", async (c) => {
-    const input = pullRequestLookupInputSchema.safeParse(await c.req.json().catch(() => undefined));
+    const input = pullRequestLookupInputSchema.safeParse(await readJson(c));
     if (!input.success) {
-      return c.json({ error: input.error.issues.map((i) => i.message).join("; ") }, 400);
+      return badRequest(c, input.error.issues);
     }
     const ref = parsePullRequestUrl(input.data.url);
     if (!ref)
@@ -710,9 +711,9 @@ export function issueRoutes({
   });
 
   routes.post("/lookup", async (c) => {
-    const input = issueLookupInputSchema.safeParse(await c.req.json().catch(() => undefined));
+    const input = issueLookupInputSchema.safeParse(await readJson(c));
     if (!input.success) {
-      return c.json({ error: input.error.issues.map((i) => i.message).join("; ") }, 400);
+      return badRequest(c, input.error.issues);
     }
     const ref = parseIssueUrl(input.data.url);
     if (!ref)

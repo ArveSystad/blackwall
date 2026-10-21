@@ -4,15 +4,8 @@ import {
   tagListInputSchema,
   type GeneralSettings,
 } from "@blackwall/shared";
-import { Hono, type Context } from "hono";
-
-function body(c: Context): Promise<unknown> {
-  return c.req.json().catch(() => undefined);
-}
-
-function badRequest(c: Context, issues: readonly { message: string }[]) {
-  return c.json({ error: issues.map((issue) => issue.message).join("; ") }, 400);
-}
+import { Hono } from "hono";
+import { badRequest, readJson } from "./validation.js";
 
 /** Finding tags, injected into code reviewer prompts. */
 export function tagRoutes(settings: SettingsService): Hono {
@@ -22,7 +15,7 @@ export function tagRoutes(settings: SettingsService): Hono {
 
   /** Replaces the whole list; the order is the display order. */
   routes.put("/", async (c) => {
-    const input = tagListInputSchema.safeParse(await body(c));
+    const input = tagListInputSchema.safeParse(await readJson(c));
     if (!input.success) return badRequest(c, input.error.issues);
     return c.json<string[]>(settings.setTags(input.data));
   });
@@ -37,7 +30,7 @@ export function settingsRoutes(settings: SettingsService): Hono {
   routes.get("/", (c) => c.json<GeneralSettings>(settings.general()));
 
   routes.patch("/", async (c) => {
-    const patch = generalSettingsUpdateSchema.safeParse(await body(c));
+    const patch = generalSettingsUpdateSchema.safeParse(await readJson(c));
     if (!patch.success) return badRequest(c, patch.error.issues);
     return c.json<GeneralSettings>(settings.updateGeneral(patch.data));
   });

@@ -6,15 +6,8 @@ import {
   type Agent,
   type RoleAgents,
 } from "@blackwall/shared";
-import { Hono, type Context } from "hono";
-
-function body(c: Context): Promise<unknown> {
-  return c.req.json().catch(() => undefined);
-}
-
-function badRequest(c: Context, issues: readonly { message: string }[]) {
-  return c.json({ error: issues.map((issue) => issue.message).join("; ") }, 400);
-}
+import { Hono } from "hono";
+import { badRequest, readJson } from "./validation.js";
 
 /** Agent library routes, plus the default agent per pipeline role. */
 export function agentRoutes(agents: AgentService): Hono {
@@ -23,7 +16,7 @@ export function agentRoutes(agents: AgentService): Hono {
   routes.get("/", (c) => c.json<Agent[]>(agents.list()));
 
   routes.post("/", async (c) => {
-    const input = agentInputSchema.safeParse(await body(c));
+    const input = agentInputSchema.safeParse(await readJson(c));
     if (!input.success) return badRequest(c, input.error.issues);
     return c.json<Agent>(agents.create(input.data), 201);
   });
@@ -32,7 +25,7 @@ export function agentRoutes(agents: AgentService): Hono {
 
   /** Replaces the role defaults; each agent must exist and be eligible for its role's stage. */
   routes.put("/role-defaults", async (c) => {
-    const input = roleAgentsSchema.safeParse(await body(c));
+    const input = roleAgentsSchema.safeParse(await readJson(c));
     if (!input.success) return badRequest(c, input.error.issues);
     return c.json<RoleAgents>(agents.setRoleDefaults(input.data));
   });
@@ -40,7 +33,7 @@ export function agentRoutes(agents: AgentService): Hono {
   routes.get("/:id", (c) => c.json<Agent>(agents.get(c.req.param("id"))));
 
   routes.patch("/:id", async (c) => {
-    const patch = agentUpdateSchema.safeParse(await body(c));
+    const patch = agentUpdateSchema.safeParse(await readJson(c));
     if (!patch.success) return badRequest(c, patch.error.issues);
     return c.json<Agent>(agents.update(c.req.param("id"), patch.data));
   });

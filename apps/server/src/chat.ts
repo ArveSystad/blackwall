@@ -1,6 +1,7 @@
 import type { ChatService } from "@blackwall/core";
 import { chatActionProposalSchema, chatSendInputSchema } from "@blackwall/shared";
 import { Hono, type Context } from "hono";
+import { badRequest, readJson } from "./validation.js";
 
 /** The chat service as the routes use it. */
 export type ChatRouteService = Pick<ChatService, "get" | "send" | "markApplied" | "addAction">;
@@ -22,9 +23,9 @@ export function chatRoutes(chat: ChatRouteService): Hono {
   routes.get("/", (c) => c.json(chat.get(c.req.param("repoId") ?? "", taskIdOf(c))));
 
   routes.post("/", async (c) => {
-    const parsed = chatSendInputSchema.safeParse(await c.req.json().catch(() => undefined));
+    const parsed = chatSendInputSchema.safeParse(await readJson(c));
     if (!parsed.success) {
-      return c.json({ error: parsed.error.issues.map((i) => i.message).join("; ") }, 400);
+      return badRequest(c, parsed.error.issues);
     }
     return c.json(chat.send(c.req.param("repoId") ?? "", parsed.data.text, taskIdOf(c)), 202);
   });
@@ -34,9 +35,9 @@ export function chatRoutes(chat: ChatRouteService): Hono {
   );
 
   routes.post("/messages/:messageId/actions", async (c) => {
-    const parsed = chatActionProposalSchema.safeParse(await c.req.json().catch(() => undefined));
+    const parsed = chatActionProposalSchema.safeParse(await readJson(c));
     if (!parsed.success) {
-      return c.json({ error: parsed.error.issues.map((i) => i.message).join("; ") }, 400);
+      return badRequest(c, parsed.error.issues);
     }
     return c.json(
       chat.addAction(
