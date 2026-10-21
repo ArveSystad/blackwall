@@ -7,6 +7,7 @@ import {
   planReviewOutputSchema,
   reviewOutputJsonSchema,
   reviewOutputSchema,
+  originRef,
   parseFollowUps,
   shortSummarySchema,
   summaryCoreSchema,
@@ -78,11 +79,11 @@ function describeOrigin(task: Task): string {
   const { origin } = task;
   switch (origin.kind) {
     case "jira-issue":
-      return `Jira issue ${origin.key}: ${task.title}`;
+      return `Jira issue ${originRef(origin)}: ${task.title}`;
     case "github-pr":
-      return `Pull request ${origin.owner}/${origin.repo}#${origin.number}: ${task.title}`;
+      return `Pull request ${originRef(origin)}: ${task.title}`;
     case "github-issue":
-      return `GitHub issue ${origin.owner}/${origin.repo}#${origin.number}: ${task.title}`;
+      return `GitHub issue ${originRef(origin)}: ${task.title}`;
     case "free-text":
       return task.title;
   }

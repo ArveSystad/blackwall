@@ -21,6 +21,7 @@ import {
   grillAnswerInputSchema,
   MAX_TITLE_CHARS,
   newTaskInputSchema,
+  originRef,
   taskResumeInputSchema,
   type ActiveAgentStep,
   type AgentCli,
@@ -128,9 +129,7 @@ export function fallbackTitle(origin: TaskOrigin, freeText: string): string {
     const line = freeText.trim().split("\n")[0]?.trim() || "Untitled task";
     return line.length > MAX_TITLE_CHARS ? `${line.slice(0, MAX_TITLE_CHARS - 1)}…` : line;
   }
-  return origin.kind === "jira-issue"
-    ? origin.key
-    : `${origin.owner}/${origin.repo}#${origin.number}`;
+  return originRef(origin);
 }
 
 /**

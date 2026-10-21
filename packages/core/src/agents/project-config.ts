@@ -11,6 +11,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, extname, isAbsolute, join, relative } from "node:path";
+import { isObject, type Json } from "./adapters/json.js";
 import type { OpencodeProject } from "./permissions.js";
 
 /*
@@ -24,11 +25,6 @@ import type { OpencodeProject } from "./permissions.js";
 const MAX_INSTRUCTIONS_CHARS = 40_000;
 /** Files copied into the Claude plugin, at most. */
 const MAX_PLUGIN_FILES = 2_000;
-
-type Json = Record<string, unknown>;
-
-const isObject = (value: unknown): value is Json =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 function inside(root: string, path: string): boolean {
   const rel = relative(root, path);

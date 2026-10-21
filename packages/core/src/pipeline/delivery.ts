@@ -12,8 +12,8 @@ import {
 import { MissingCredentialError } from "../connections/service.js";
 import type { Repositories } from "../db/repositories.js";
 import { prBranchName } from "../git/branches.js";
-import { describeGitError } from "../git/errors.js";
-import { GitError, type GitService } from "../git/service.js";
+import { errorMessage } from "../git/errors.js";
+import type { GitService } from "../git/service.js";
 import { defaultBranchOf } from "../repos/service.js";
 import { createFollowUpTasks, resolveFollowUps } from "./follow-ups.js";
 import {
@@ -187,13 +187,6 @@ function prTitle(task: Task): string {
   const key = commitKey(task);
   return key && !task.title.toUpperCase().startsWith(key) ? `${key} ${task.title}` : task.title;
 }
-
-const errorMessage = (error: unknown) =>
-  error instanceof GitError
-    ? describeGitError(error)
-    : error instanceof Error
-      ? error.message
-      : String(error);
 
 /** Prompt for the implementer resolving a stop of the rebase onto main. */
 export function conflictResolutionPrompt(

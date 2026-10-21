@@ -1,4 +1,5 @@
-import type { GitError } from "./service.js";
+// A value import that cycles with service.ts: read `GitError` only inside function bodies.
+import { GitError } from "./service.js";
 
 /** What went wrong in a failed git command, read from git's own message. */
 export type GitErrorKind =
@@ -111,6 +112,12 @@ export function describeGitError(error: GitError): string {
   }
   const line = withoutCredentials(firstLine(error.stderr));
   return line ? `${advice} (${line})` : advice;
+}
+
+/** A thrown value as a message: git errors described, other errors by their message. */
+export function errorMessage(error: unknown): string {
+  if (error instanceof GitError) return describeGitError(error);
+  return error instanceof Error ? error.message : String(error);
 }
 
 function adviceFor({ kind, stderr, staleLockRemoved, hook }: GitError): string | undefined {

@@ -1,12 +1,9 @@
+import { isObject } from "./json.js";
+
 /** A usage limit a CLI reported. `resetsAt` is ISO; absent when the CLI gave no reset time. */
 export interface RateLimitHit {
   resetsAt?: string;
 }
-
-type Json = Record<string, unknown>;
-
-const isObject = (value: unknown): value is Json =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** Epoch seconds (or milliseconds) to ISO, or undefined when not a plausible time. */
 function epochToIso(value: unknown): string | undefined {

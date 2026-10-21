@@ -71,6 +71,7 @@ import {
   voiceStateSchema,
   type CiState,
   type TaskCi,
+  originRef,
 } from "./domain.js";
 
 const now = "2026-10-08T10:00:00.000Z";
@@ -107,6 +108,27 @@ const task = {
   createdAt: now,
   updatedAt: now,
 };
+
+describe("originRef", () => {
+  it("is the Jira key for a Jira issue", () => {
+    expect(originRef({ kind: "jira-issue", key: "ABC-1", connectionId: null })).toBe("ABC-1");
+  });
+
+  it("is owner/repo#number for a pull request", () => {
+    const pr = { url: "https://github.com/acme/web/pull/7", owner: "acme", repo: "web", number: 7 };
+    expect(originRef({ kind: "github-pr", ...pr, connectionId: null })).toBe("acme/web#7");
+  });
+
+  it("is owner/repo#number for a GitHub issue", () => {
+    const issue = {
+      url: "https://github.com/acme/web/issues/7",
+      owner: "acme",
+      repo: "web",
+      number: 7,
+    };
+    expect(originRef({ kind: "github-issue", ...issue, connectionId: null })).toBe("acme/web#7");
+  });
+});
 
 describe("ciNeedsYou", () => {
   const ci = (state: CiState): TaskCi => ({

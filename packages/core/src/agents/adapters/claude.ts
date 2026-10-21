@@ -14,6 +14,7 @@ import {
 } from "../project-config.js";
 import { claudeSubagents } from "../subagents.js";
 import { deferredRun } from "./deferred-run.js";
+import { isObject, num, str, type Json } from "./json.js";
 import { claudeRateLimitFromEvent, claudeRateLimitFromText } from "./rate-limit.js";
 import { runAgentProcess, type LineParser } from "./run-process.js";
 import type { AgentAdapter, AgentEvent, AgentRunOptions, AgentUsage } from "./types.js";
@@ -27,15 +28,6 @@ const STRUCTURED_OUTPUT_TOOL = "StructuredOutput";
 
 /** The tool that runs a sub-agent; `Task` is its name before Claude Code 2.1. */
 const SUBAGENT_TOOLS = new Set(["Agent", "Task"]);
-
-type Json = Record<string, unknown>;
-
-const isObject = (value: unknown): value is Json =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-const str = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
-
-const num = (value: unknown): number => (typeof value === "number" ? value : 0);
 
 function usageFrom(raw: unknown, costUsd?: unknown): AgentUsage {
   if (!isObject(raw)) return emptyUsage();

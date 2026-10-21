@@ -1133,6 +1133,13 @@ export const taskOriginSchema = z.discriminatedUnion("kind", [
 ]);
 export type TaskOrigin = z.infer<typeof taskOriginSchema>;
 
+/** A Jira or GitHub origin's short reference: the Jira key, or `owner/repo#number`. */
+export function originRef(origin: Exclude<TaskOrigin, { kind: "free-text" }>): string {
+  return origin.kind === "jira-issue"
+    ? origin.key
+    : `${origin.owner}/${origin.repo}#${origin.number}`;
+}
+
 /** A registry repo plus the task's own worktree and branch (set once created). */
 export const workspaceSchema = z.object({
   repoId: id,

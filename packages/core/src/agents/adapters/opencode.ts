@@ -5,6 +5,7 @@ import { opencodeConfig, type OpencodeProject } from "../permissions.js";
 import { opencodeProject } from "../project-config.js";
 import { opencodeSubagentModel } from "../subagents.js";
 import { deferredRun, emittingRun } from "./deferred-run.js";
+import { isObject, num, str, type Json } from "./json.js";
 import { opencodeRateLimitFromText } from "./rate-limit.js";
 import { runAgentProcess, type LineParser } from "./run-process.js";
 import { inlinePrompt, withStructuredOutput } from "./structured-output.js";
@@ -17,15 +18,6 @@ import {
   type AgentRunOptions,
   type AgentUsage,
 } from "./types.js";
-
-type Json = Record<string, unknown>;
-
-const isObject = (value: unknown): value is Json =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-const str = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
-
-const num = (value: unknown): number => (typeof value === "number" ? value : 0);
 
 /** The name of the agent injected through config; the run pins it with `--agent`. */
 export const OPENCODE_AGENT = "blackwall";

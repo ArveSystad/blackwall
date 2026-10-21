@@ -35,8 +35,8 @@ import type { AgentInvocation } from "../agents/service.js";
 import { AgentRunError, type AgentAdapter, type AgentResult } from "../agents/adapters/types.js";
 import type { QuotaTracker } from "../agents/quota.js";
 import type { Repositories } from "../db/repositories.js";
-import { describeGitError } from "../git/errors.js";
-import { GitError, sameSnapshot, type GitService } from "../git/service.js";
+import { errorMessage } from "../git/errors.js";
+import { sameSnapshot, type GitService } from "../git/service.js";
 import { defaultBranchOf, referenceReposFrom, type ReferenceRepo } from "../repos/service.js";
 import { MAX_CI_FAILURES, type CiWatcher } from "./ci.js";
 import {
@@ -369,13 +369,6 @@ interface Pending {
 }
 
 export type PipelineEngine = ReturnType<typeof createPipelineEngine>;
-
-const errorMessage = (error: unknown) =>
-  error instanceof GitError
-    ? describeGitError(error)
-    : error instanceof Error
-      ? error.message
-      : String(error);
 
 /**
  * Drives tasks through the hardcoded pipeline (see {@link afterStage}). Each

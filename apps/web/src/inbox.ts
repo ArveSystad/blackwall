@@ -1,5 +1,6 @@
 import {
   ciNeedsYou,
+  originRef,
   type Stage,
   type Task,
   type TaskOrigin,
@@ -44,15 +45,7 @@ export function statusLabel(task: Pick<Task, "status" | "delivering">): string {
 /** Short origin label: Jira key, `owner/repo#42`, or "blackwall". */
 export function originKey(task: Pick<Task, "origin">): string {
   const { origin } = task;
-  switch (origin.kind) {
-    case "jira-issue":
-      return origin.key;
-    case "github-pr":
-    case "github-issue":
-      return `${origin.owner}/${origin.repo}#${origin.number}`;
-    case "free-text":
-      return "blackwall";
-  }
+  return origin.kind === "free-text" ? "blackwall" : originRef(origin);
 }
 
 /**

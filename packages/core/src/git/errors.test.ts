@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { classifyGitError, describeGitError, hookOutput, lockPath, refName } from "./errors.js";
+import {
+  classifyGitError,
+  describeGitError,
+  errorMessage,
+  hookOutput,
+  lockPath,
+  refName,
+} from "./errors.js";
 import { GitError } from "./service.js";
 
 const INDEX_LOCK = `fatal: Unable to create '/repo/.git/index.lock': File exists.
@@ -189,5 +196,22 @@ husky - pre-commit script failed (code 1)`;
     expect(hookOutput(error)).toBe("on stdout\non stderr");
     const long = new GitError(["commit"], "y".repeat(25_000), 1);
     expect(hookOutput(long)).toBe(`[… 5000 earlier characters cut]\n${"y".repeat(20_000)}`);
+  });
+});
+
+describe("errorMessage", () => {
+  const error = (stderr: string, args = ["push"]) => new GitError(args, stderr, 128);
+
+  it("describes a git error", () => {
+    const git = error(SAMPLES[7]![1]);
+    expect(errorMessage(git)).toBe(describeGitError(git));
+  });
+
+  it("uses an error's message", () => {
+    expect(errorMessage(new Error("x"))).toBe("x");
+  });
+
+  it("stringifies anything else", () => {
+    expect(errorMessage(42)).toBe("42");
   });
 });

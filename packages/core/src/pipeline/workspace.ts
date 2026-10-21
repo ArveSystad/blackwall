@@ -1,8 +1,8 @@
 import type { Task } from "@blackwall/shared";
 import type { Repositories } from "../db/repositories.js";
 import { branchForTask, worktreePathFor } from "../git/branches.js";
-import { describeGitError } from "../git/errors.js";
-import { GitError, type GitService } from "../git/service.js";
+import { errorMessage } from "../git/errors.js";
+import type { GitService } from "../git/service.js";
 import type { PreparedWorkspace } from "./engine.js";
 
 export interface WorkspacePreparerOptions {
@@ -59,13 +59,6 @@ export function createWorkspacePreparer({
     return { branch, worktreePath, baseBranch: baseBranch ?? null };
   };
 }
-
-const errorMessage = (error: unknown) =>
-  error instanceof GitError
-    ? describeGitError(error)
-    : error instanceof Error
-      ? error.message
-      : String(error);
 
 export interface WorkspaceSyncerOptions {
   git: Pick<GitService, "remoteUrl" | "fetchDefault" | "fastForwardTo">;

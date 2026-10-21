@@ -7,18 +7,12 @@ import { permissionArgs } from "../permissions.js";
 import { projectMcp } from "../project-config.js";
 import { copilotSubagentFile, SUBAGENT_NAME } from "../subagents.js";
 import { deferredRun } from "./deferred-run.js";
+import { isObject, str } from "./json.js";
 import { copilotRateLimitFromText } from "./rate-limit.js";
 import { runAgentProcess, type LineParser } from "./run-process.js";
 import { inlinePrompt, withStructuredOutput } from "./structured-output.js";
 import type { AgentAdapter, AgentEvent, AgentRunOptions } from "./types.js";
 import { emptyUsage } from "./types.js";
-
-type Json = Record<string, unknown>;
-
-const isObject = (value: unknown): value is Json =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-const str = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
 
 /** Copilot's tool that starts a sub-agent. */
 const SUBAGENT_TOOL = "task";
