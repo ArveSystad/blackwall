@@ -975,6 +975,63 @@ export function hunkFindings(
   return sortFindings(matches);
 }
 
+/** A file's findings as the file-by-file diff shows them inline. */
+export interface InlineFindings {
+  /** Shown above the file's diff, most severe first. */
+  fileLevel: Finding[];
+  /** Shown after the line at that index in `file.lines`, most severe first. */
+  afterLine: Map<number, Finding[]>;
+}
+
+/**
+ * Places a file's findings in its diff, the way GitHub places review
+ * comments. Findings on other files are skipped. One without a line is
+ * file-level. Otherwise it goes after the last added or context line in its
+ * range (`lineStart` to `lineEnd`), so at its end line; deleted lines carry
+ * old-file numbers and never anchor one. One whose range touches no diff line
+ * is file-level too, where its location still shows where it points.
+ */
+export function inlineFindings(
+  file: Pick<DiffFile, "path" | "lines">,
+  findings: readonly Finding[],
+): InlineFindings {
+  const path = normalizeFindingPath(file.path);
+  const fileLevel: Finding[] = [];
+  const afterLine = new Map<number, Finding[]>();
+  for (const f of findings) {
+    if (f.file === null || normalizeFindingPath(f.file) !== path) continue;
+    if (f.lineStart === null) {
+      fileLevel.push(f);
+      continue;
+    }
+    const start = f.lineStart;
+    const end = f.lineEnd ?? f.lineStart;
+    const anchor = file.lines.findLastIndex(
+      (l) =>
+        (l.kind === "add" || l.kind === "ctx") &&
+        l.line !== null &&
+        l.line >= start &&
+        l.line <= end,
+    );
+    if (anchor === -1) {
+      fileLevel.push(f);
+    } else {
+      afterLine.set(anchor, [...(afterLine.get(anchor) ?? []), f]);
+    }
+  }
+  for (const [index, list] of afterLine) afterLine.set(index, sortFindings(list));
+  return { fileLevel: sortFindings(fileLevel), afterLine };
+}
+
+/** How many findings point at no file in the diff: none at all, or one it does not touch. */
+export function findingsOffDiff(
+  files: readonly Pick<DiffFile, "path">[],
+  findings: readonly Finding[],
+): number {
+  const paths = new Set(files.map((f) => normalizeFindingPath(f.path)));
+  return findings.filter((f) => f.file === null || !paths.has(normalizeFindingPath(f.file))).length;
+}
+
 /**
  * The PR's review threads on a hunk, oldest first: a current thread when one
  * of its lines is on the hunk's side (added and context lines for `RIGHT`,

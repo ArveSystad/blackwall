@@ -40,10 +40,12 @@ import {
   effectiveModel,
   effortLabel,
   findingLocation,
+  findingsOffDiff,
   gateBanner,
   initialTicks,
   hunkFindings,
   hunkThreads,
+  inlineFindings,
   isBlocking,
   isOutbound,
   isTabEnabled,
@@ -360,6 +362,99 @@ describe("hunkFindings", () => {
     for (const file of ["./src/a.ts", "/src/a.ts", "src\\a.ts", " src/a.ts "]) {
       expect(hunkFindings(hunk, [finding({ file, lineStart: 21 })])).toHaveLength(1);
     }
+  });
+});
+
+describe("inlineFindings", () => {
+  const [file] = parseDiff(
+    [
+      "diff --git a/src/a.ts b/src/a.ts",
+      "--- a/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -10,3 +10,4 @@",
+      " const x = 1;",
+      "-return x;",
+      "+const y = 2;",
+      "+return x + y;",
+      " }",
+      "@@ -40,2 +41,2 @@",
+      " a",
+      "-b",
+      "+c",
+    ].join("\n"),
+  );
+  // Lines: 0 hunk, 1 ctx 10, 2 del 11, 3 add 11, 4 add 12, 5 ctx 13, 6 hunk, 7 ctx 41, 8 del 41, 9 add 42.
+  const placed = (f: Finding) => {
+    const { fileLevel, afterLine } = inlineFindings(file!, [f]);
+    return { fileLevel: fileLevel.map((x) => x.id), afterLine: [...afterLine.keys()] };
+  };
+
+  it("anchors a finding after the diff line at its end line", () => {
+    expect(placed(finding({ file: "src/a.ts", lineStart: 10, lineEnd: 12 }))).toEqual({
+      fileLevel: [],
+      afterLine: [4],
+    });
+    expect(placed(finding({ file: "src/a.ts", lineStart: 13 })).afterLine).toEqual([5]);
+  });
+
+  it("falls back to the last diff line in range when the end line is not in the diff", () => {
+    expect(placed(finding({ file: "src/a.ts", lineStart: 12, lineEnd: 30 })).afterLine).toEqual([
+      5,
+    ]);
+  });
+
+  it("never anchors on a deleted line", () => {
+    // Line 41 is both deleted (old numbering) and context (new numbering); the context line wins.
+    expect(placed(finding({ file: "src/a.ts", lineStart: 41 })).afterLine).toEqual([7]);
+    // Line 11 in the range 11–11 is only the added line, not the deleted one.
+    expect(placed(finding({ file: "src/a.ts", lineStart: 11 })).afterLine).toEqual([3]);
+  });
+
+  it("puts findings with no line, or a range outside the diff, at file level", () => {
+    const noLine = finding({ file: "src/a.ts" });
+    const outside = finding({ file: "src/a.ts", lineStart: 100, lineEnd: 120 });
+    const { fileLevel, afterLine } = inlineFindings(file!, [noLine, outside]);
+    expect(fileLevel).toEqual([noLine, outside]);
+    expect(afterLine.size).toBe(0);
+  });
+
+  it("ignores other files and findings with no file", () => {
+    const { fileLevel, afterLine } = inlineFindings(file!, [
+      finding({ file: "src/b.ts", lineStart: 11 }),
+      finding({ file: null }),
+    ]);
+    expect(fileLevel).toEqual([]);
+    expect(afterLine.size).toBe(0);
+  });
+
+  it("normalizes the finding's path", () => {
+    for (const f of ["./src/a.ts", "src\\a.ts"]) {
+      expect(placed(finding({ file: f, lineStart: 11 })).afterLine).toEqual([3]);
+    }
+  });
+
+  it("sorts the most severe first within an anchor and at file level", () => {
+    const low = finding({ file: "src/a.ts", lineStart: 12, severity: "low" });
+    const critical = finding({ file: "src/a.ts", lineStart: 12, severity: "critical" });
+    const lowFile = finding({ file: "src/a.ts", severity: "low" });
+    const highFile = finding({ file: "src/a.ts", severity: "high" });
+    const { fileLevel, afterLine } = inlineFindings(file!, [low, lowFile, critical, highFile]);
+    expect(afterLine.get(4)).toEqual([critical, low]);
+    expect(fileLevel).toEqual([highFile, lowFile]);
+  });
+});
+
+describe("findingsOffDiff", () => {
+  it("counts findings with no file or on files the diff does not touch", () => {
+    const files = [{ path: "src/a.ts" }, { path: "src/b.ts" }];
+    expect(
+      findingsOffDiff(files, [
+        finding({ file: "src/a.ts", lineStart: 3 }),
+        finding({ file: "./src/b.ts" }),
+        finding({ file: null }),
+        finding({ file: "src/c.ts", lineStart: 1 }),
+      ]),
+    ).toBe(2);
   });
 });
 

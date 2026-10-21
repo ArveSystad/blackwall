@@ -27,8 +27,10 @@ import {
   diffCommentsRunFixRound,
   diffStat,
   findingLocation,
+  findingsOffDiff,
   hunkFindings,
   hunkThreads,
+  inlineFindings,
   parseDiff,
   splitHunks,
   unplacedThreads,
@@ -77,8 +79,48 @@ export function DiffStat({ additions, deletions }: { additions: number; deletion
   );
 }
 
-function FileDiff({ file }: { file: DiffFile }) {
+/** The findings as a list of read-only cards, without fading in. */
+function FindingList({
+  findings,
+  agents,
+}: {
+  findings: readonly Finding[];
+  agents: ReadonlyMap<string, Agent>;
+}) {
+  return (
+    <ul className="m-0 flex list-none flex-col gap-2 p-0">
+      {findings.map((finding) => (
+        <HunkFinding
+          key={finding.id}
+          finding={finding}
+          reviewer={finding.reviewerAgentId ? agents.get(finding.reviewerAgentId) : undefined}
+          fadeIn={false}
+        />
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * A file's diff, with its findings under the lines they point at and the rest
+ * above the diff; a binary or mode-only file shows them all above.
+ */
+function FileDiff({
+  file,
+  findings,
+  agents,
+}: {
+  file: DiffFile;
+  findings: readonly Finding[];
+  agents: ReadonlyMap<string, Agent>;
+}) {
   const [open, setOpen] = useState(true);
+  // A binary or mode-only file has no lines to anchor on, so all its findings are file-level.
+  const { fileLevel, afterLine } = inlineFindings(file, findings);
+  const count = fileLevel.length + [...afterLine.values()].flat().length;
+  const annotations = new Map(
+    [...afterLine].map(([i, list]) => [i, <FindingList findings={list} agents={agents} />]),
+  );
   return (
     <section className="flex flex-col gap-1.5">
       <button
@@ -90,12 +132,18 @@ function FileDiff({ file }: { file: DiffFile }) {
         <ChevronRightIcon size="sm" className={cn("text-faint", open && "rotate-90")} />
         <span className="mono truncate text-foreground-strong">{file.path}</span>
         <DiffStat additions={file.additions} deletions={file.deletions} />
+        {count > 0 && (
+          <span className="text-meta text-muted-foreground">
+            {count} {count === 1 ? "finding" : "findings"}
+          </span>
+        )}
       </button>
+      {open && fileLevel.length > 0 && <FindingList findings={fileLevel} agents={agents} />}
       {open &&
         (file.lines.length === 0 ? (
           <p className="m-0 pl-5 text-meta text-muted-foreground">Binary file or mode change.</p>
         ) : (
-          <DiffView lines={file.lines} />
+          <DiffView lines={file.lines} annotations={annotations} />
         ))}
     </section>
   );
@@ -407,7 +455,9 @@ function HunkStepper({
 
 /**
  * The task branch's changes per fix round, file by file (plain diff colors,
- * never neon). Step through walks the whole branch diff hunk by hunk to
+ * never neon). In a review task, the reviewers' findings show under the diff
+ * lines they point at, as on GitHub; those off the diff are counted in the
+ * toolbar. Step through walks the whole branch diff hunk by hunk to
  * comment on it: in a work task while it waits at finish, triage or
  * escalation; in a review task at any time, with each hunk's findings as the
  * reviewers report them and the PR's GitHub review threads (polled while
@@ -442,6 +492,7 @@ export function DiffPanel({
     ...taskPrCommentsQuery(task.id),
     enabled: stepping && task.mode === "review" && task.origin.kind === "github-pr",
   });
+  const agents = useAgentLibrary();
   if (loading) return <p className={panelNote}>Reading the diff…</p>;
   if (diffs.length === 0) {
     return (
@@ -459,6 +510,10 @@ export function DiffPanel({
   const diff = diffs[keys.indexOf(key)]!;
   const files = parseDiff(diff.diff);
   const stat = diffStat(files);
+  // A review task's findings point at the reviewed head, which its diff shows;
+  // a work task's fix rounds each move the head, so its findings stay off the diff.
+  const inline = task.mode === "review" ? findings : [];
+  const offDiff = findingsOffDiff(files, inline);
 
   async function send(comments: DiffCommentInput[]) {
     if (await onSend(comments)) setStepping(false);
@@ -485,6 +540,11 @@ export function DiffPanel({
               {roundLabel(diff)} · {files.length} {files.length === 1 ? "file" : "files"}
             </span>
             <DiffStat {...stat} />
+            {offDiff > 0 && (
+              <span className="text-meta text-muted-foreground">
+                {offDiff} {offDiff === 1 ? "finding" : "findings"} outside this diff — see Findings
+              </span>
+            )}
           </>
         )}
         <span className="flex-1" />
@@ -530,7 +590,9 @@ export function DiffPanel({
           {files.length === 0 ? (
             <p className="m-0 text-muted-foreground">This round changed no files.</p>
           ) : (
-            files.map((file) => <FileDiff key={file.path} file={file} />)
+            files.map((file) => (
+              <FileDiff key={file.path} file={file} findings={inline} agents={agents} />
+            ))
           )}
         </div>
       )}
