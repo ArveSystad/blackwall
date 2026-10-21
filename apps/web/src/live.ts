@@ -115,6 +115,28 @@ function upsertTask(tasks: Task[] | undefined, task: Task): Task[] | undefined {
   return index === -1 ? [...tasks, task] : tasks.with(index, task);
 }
 
+const GIT_STATE_FIELDS = [
+  "stage",
+  "status",
+  "gate",
+  "worktreePath",
+  "branch",
+  "delivering",
+] as const satisfies readonly (keyof Task)[];
+
+/** The third part of the task query keys whose data comes from git. */
+const GIT_QUERY_PARTS = new Set<unknown>(["diffs", "branch-diff", "worktree"]);
+
+/** Whether an update can mean new commits; with no earlier copy, assume it does. */
+function changesGitState(before: Task | undefined, task: Task): boolean {
+  if (!before) return true;
+  if (GIT_STATE_FIELDS.some((field) => before[field] !== task[field])) return true;
+  return (
+    before.deliveryTargets.length !== task.deliveryTargets.length ||
+    before.deliveryTargets.some((target, i) => target !== task.deliveryTargets[i])
+  );
+}
+
 /**
  * Drops a deleted task from the cache: from the inbox list and its own query
  * (an open task view leaves for the inbox). The backlog that may have
@@ -153,7 +175,8 @@ function patchStepUsage(client: QueryClient, step: Step): void {
 
 /**
  * Applies a server event to the Query cache: task changes are written in
- * place; everything else invalidates the queries that hold it, so open views
+ * place, and refetch a task's git data only when a field that can move it
+ * changed; everything else invalidates the queries that hold it, so open views
  * refetch. Step output is appended to an already loaded log, and a step's
  * running usage (`step.usage`) is patched into the loaded steps and usage
  * list without refetching anything.
@@ -162,14 +185,20 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
   switch (event.type) {
     case "task.upserted": {
       const { task } = event.payload;
+      const before =
+        client.getQueryData<Task>(queryKeys.task(task.id)) ??
+        client.getQueryData<Task[]>(queryKeys.tasks)?.find((t) => t.id === task.id);
       client.setQueryData<Task[]>(queryKeys.tasks, (tasks) => upsertTask(tasks, task));
       client.setQueryData<Task>(queryKeys.task(task.id), task);
-      // A stage or gate change can mean new commits or a new delivery plan.
-      void client.invalidateQueries({ queryKey: queryKeys.taskDiffs(task.id) });
-      void client.invalidateQueries({ queryKey: queryKeys.taskBranchDiff(task.id) });
-      void client.invalidateQueries({ queryKey: queryKeys.taskArtifacts(task.id) });
+      // A stage, status, gate, workspace or delivery change can mean new
+      // commits. The delivery plan depends on too many fields to gate.
+      if (changesGitState(before, task)) {
+        void client.invalidateQueries({ queryKey: queryKeys.taskDiffs(task.id) });
+        void client.invalidateQueries({ queryKey: queryKeys.taskBranchDiff(task.id) });
+        void client.invalidateQueries({ queryKey: queryKeys.taskArtifacts(task.id) });
+        void client.invalidateQueries({ queryKey: queryKeys.taskWorktree(task.id) });
+      }
       void client.invalidateQueries({ queryKey: queryKeys.taskDelivery(task.id) });
-      void client.invalidateQueries({ queryKey: queryKeys.taskWorktree(task.id) });
       // A finished task can unblock the backlog items that depend on it, and
       // its delivery run's finish time is when it was resolved.
       if (task.status === "done") {
@@ -187,15 +216,25 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     case "run.upserted":
       void client.invalidateQueries({ queryKey: queryKeys.taskRuns(event.payload.run.taskId) });
       break;
-    case "step.upserted":
-      void client.invalidateQueries({ queryKey: queryKeys.runSteps(event.payload.step.runId) });
+    case "step.upserted": {
+      const { step } = event.payload;
+      void client.invalidateQueries({ queryKey: queryKeys.runSteps(step.runId) });
       void client.invalidateQueries({ queryKey: queryKeys.activeAgents });
       // A step can write artifacts, and the step carries no task id.
       void client.invalidateQueries({
         predicate: (query) => query.queryKey[0] === "tasks" && query.queryKey[2] === "artifacts",
       });
-      patchStepUsage(client, event.payload.step);
+      // The harness commits the round at the start of Checks, after the stage
+      // change and before its first harness step is published.
+      if (step.agentId === null && step.stage === "checks") {
+        void client.invalidateQueries({
+          predicate: (query) =>
+            query.queryKey[0] === "tasks" && GIT_QUERY_PARTS.has(query.queryKey[2]),
+        });
+      }
+      patchStepUsage(client, step);
       break;
+    }
     case "step.usage": {
       const { step } = event.payload;
       client.setQueryData<Step[]>(queryKeys.runSteps(step.runId), (steps) =>

@@ -249,6 +249,94 @@ describe("applyServerEvent", () => {
     expect(stale(queryKeys.taskDiffs("t1"))).toBe(false);
   });
 
+  describe("refetching a task's git data", () => {
+    const stale = (key: readonly unknown[]) => client.getQueryState(key)?.isInvalidated;
+    const seedQueries = (id: string) => {
+      for (const key of [
+        queryKeys.taskDiffs(id),
+        queryKeys.taskBranchDiff(id),
+        queryKeys.taskArtifacts(id),
+        queryKeys.taskWorktree(id),
+      ]) {
+        client.setQueryData(key, []);
+      }
+      client.setQueryData(queryKeys.taskDelivery(id), {});
+    };
+
+    it("skips git data but refetches the delivery plan on an error-only change", () => {
+      const task = makeTask({ status: "failed", error: null });
+      client.setQueryData<Task>(queryKeys.task(task.id), task);
+      seedQueries(task.id);
+      applyServerEvent(client, {
+        type: "task.upserted",
+        payload: { task: { ...task, error: "boom" } },
+      });
+      expect(stale(queryKeys.taskDiffs(task.id))).toBe(false);
+      expect(stale(queryKeys.taskBranchDiff(task.id))).toBe(false);
+      expect(stale(queryKeys.taskArtifacts(task.id))).toBe(false);
+      expect(stale(queryKeys.taskWorktree(task.id))).toBe(false);
+      expect(stale(queryKeys.taskDelivery(task.id))).toBe(true);
+    });
+
+    it("refetches git data on a stage change", () => {
+      const task = makeTask({ stage: "implement" });
+      client.setQueryData<Task>(queryKeys.task(task.id), task);
+      seedQueries(task.id);
+      applyServerEvent(client, {
+        type: "task.upserted",
+        payload: { task: { ...task, stage: "checks" } },
+      });
+      expect(stale(queryKeys.taskDiffs(task.id))).toBe(true);
+      expect(stale(queryKeys.taskBranchDiff(task.id))).toBe(true);
+    });
+
+    it("refetches git data when there is no earlier copy of the task", () => {
+      const task = makeTask();
+      seedQueries(task.id);
+      applyServerEvent(client, { type: "task.upserted", payload: { task } });
+      expect(stale(queryKeys.taskDiffs(task.id))).toBe(true);
+    });
+
+    it("skips git data on a title-only change", () => {
+      const task = makeTask();
+      client.setQueryData<Task>(queryKeys.task(task.id), task);
+      seedQueries(task.id);
+      applyServerEvent(client, {
+        type: "task.upserted",
+        payload: { task: { ...task, title: "Renamed" } },
+      });
+      expect(stale(queryKeys.taskDiffs(task.id))).toBe(false);
+      expect(stale(queryKeys.taskDelivery(task.id))).toBe(true);
+    });
+
+    it("compares against the inbox list when the task's own query is not cached", () => {
+      const task = makeTask({ error: null });
+      client.setQueryData<Task[]>(queryKeys.tasks, [task]);
+      seedQueries(task.id);
+      applyServerEvent(client, {
+        type: "task.upserted",
+        payload: { task: { ...task, error: "boom" } },
+      });
+      expect(stale(queryKeys.taskDiffs(task.id))).toBe(false);
+    });
+
+    it("refetches git data when a Checks harness step is published", () => {
+      seedQueries("t1");
+      applyServerEvent(client, {
+        type: "step.upserted",
+        payload: { step: { runId: "r1", agentId: "a1", stage: "checks" } as never },
+      });
+      expect(stale(queryKeys.taskDiffs("t1"))).toBe(false);
+      applyServerEvent(client, {
+        type: "step.upserted",
+        payload: { step: { runId: "r1", agentId: null, stage: "checks" } as never },
+      });
+      expect(stale(queryKeys.taskDiffs("t1"))).toBe(true);
+      expect(stale(queryKeys.taskBranchDiff("t1"))).toBe(true);
+      expect(stale(queryKeys.taskWorktree("t1"))).toBe(true);
+    });
+  });
+
   it("refetches a repo's backlog and runner on backlog.changed, and stores quota", () => {
     for (const key of [
       queryKeys.backlog("r1"),
