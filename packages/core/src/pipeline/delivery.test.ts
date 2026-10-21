@@ -14,7 +14,9 @@ import { openDatabase, type OpenedDatabase } from "../db/database.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
 import { worktreePathFor } from "../git/branches.js";
 import { GitError, createGitService } from "../git/service.js";
+import * as deliveryModule from "./delivery.js";
 import {
+  DELIVERY_EVENT_TYPES,
   DeliveryError,
   createDeliverer,
   type DeliveryContext,
@@ -167,6 +169,16 @@ async function deliver(
   });
   return outcomes;
 }
+
+describe("delivery event types", () => {
+  it("lists every delivery event", () => {
+    const events = Object.entries(deliveryModule)
+      .filter(([name]) => /^DELIVERY_.*_EVENT$/.test(name))
+      .map(([, type]) => type);
+    expect(events).not.toHaveLength(0);
+    expect(DELIVERY_EVENT_TYPES).toEqual(expect.arrayContaining(events));
+  });
+});
 
 describe("free-text tasks", () => {
   it("offers the local merge and a squash, and never a push", async () => {

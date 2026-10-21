@@ -22,14 +22,19 @@ export function createTaskDiffs({ repositories: r, git }: TaskDiffsOptions) {
     const run = r.runs.listByTask(task.id).at(-1);
     const steps = run ? r.steps.listByRun(run.id) : [];
 
+    const reviews = steps.filter((s) => s.stage === "code-review" && s.agentId === null);
+    // Events come in sequence order per step, so the last one per step wins.
+    const lastRange = new Map(
+      r.stepEvents
+        .listOfTypes(
+          reviews.map((s) => s.id),
+          [REVIEW_DIFF_EVENT],
+        )
+        .map((e) => [e.stepId, e]),
+    );
     const ranges: (ReviewDiffRange & { round: number; reviewed: boolean })[] = [];
-    for (const step of steps) {
-      if (step.stage !== "code-review" || step.agentId !== null) continue;
-      const event = r.stepEvents
-        .list(step.id)
-        .filter((e) => e.type === REVIEW_DIFF_EVENT)
-        .at(-1);
-      const range = event?.payload as ReviewDiffRange | undefined;
+    for (const step of reviews) {
+      const range = lastRange.get(step.id)?.payload as ReviewDiffRange | undefined;
       if (!range || ranges.some((seen) => seen.from === range.from && seen.to === range.to)) {
         continue;
       }

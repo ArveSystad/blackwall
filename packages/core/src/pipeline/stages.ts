@@ -628,10 +628,7 @@ export function logEvent(ctx: StageContext, stepId: string, type: string, payloa
 /** The failing check a failed Checks harness step logged last. */
 function failedCheck(ctx: StageContext, step: Step): CheckFinished | undefined {
   if (step.status !== "failed") return undefined;
-  const event = ctx.repositories.stepEvents
-    .list(step.id)
-    .filter((e) => e.type === CHECK_FINISHED_EVENT)
-    .at(-1);
+  const event = ctx.repositories.stepEvents.lastOfType(step.id, CHECK_FINISHED_EVENT);
   const check = event?.payload as CheckFinished | undefined;
   return check && check.exitCode !== 0 ? check : undefined;
 }
@@ -830,10 +827,7 @@ async function checksSkipReason(
 const MAX_REVIEW_DIFF_CHARS = 150_000;
 
 function storedRange(ctx: StageContext, step: Step): ReviewDiffRange | undefined {
-  const event = ctx.repositories.stepEvents
-    .list(step.id)
-    .filter((e) => e.type === REVIEW_DIFF_EVENT)
-    .at(-1);
+  const event = ctx.repositories.stepEvents.lastOfType(step.id, REVIEW_DIFF_EVENT);
   return event?.payload as ReviewDiffRange | undefined;
 }
 

@@ -53,6 +53,7 @@ import {
 import {
   DELIVERY_CONFLICT_EVENT,
   DELIVERY_DONE_EVENT,
+  DELIVERY_FAILED_EVENT,
   DeliveryError,
   ISSUE_COMMENT_EVENT,
   createDeliverer,
@@ -3253,6 +3254,60 @@ describe("summarize and finish", () => {
       error: null,
       deliveryTargets: ["push-branch", "open-pr"],
     });
+  });
+
+  it("counts actions an agent step logged during a delivery visit", async () => {
+    const h = harness();
+    const seeded = await atFinish(h);
+    const run = r.runs.listByTask(seeded.id).at(-1)!;
+    const delivery = r.steps.create({
+      runId: run.id,
+      stage: "summarize",
+      visit: 100,
+      agentId: null,
+    });
+    r.stepEvents.append(delivery.id, DELIVERY_CONFLICT_EVENT, {
+      branch: "agent/x",
+      into: "main",
+      files: ["src/login.ts"],
+    });
+    const resolver = r.steps.create({
+      runId: run.id,
+      stage: "summarize",
+      visit: 100,
+      agentId: seeded.agents.implementer!,
+    });
+    r.stepEvents.append(resolver.id, DELIVERY_DONE_EVENT, { action: "push-branch", detail: "x" });
+
+    expect((await h.engine.deliveryPlan(seeded.id)).completed).toEqual(["push-branch"]);
+  });
+
+  it("treats a visit that only failed as a delivery visit, and keeps run order", async () => {
+    const h = harness();
+    const seeded = await atFinish(h);
+    const run = r.runs.listByTask(seeded.id).at(-1)!;
+    const harnessStep = (visit: number) =>
+      r.steps.create({ runId: run.id, stage: "summarize", visit, agentId: null });
+    r.stepEvents.append(harnessStep(100).id, DELIVERY_DONE_EVENT, {
+      action: "merge-main",
+      detail: "x",
+    });
+    r.stepEvents.append(harnessStep(101).id, DELIVERY_FAILED_EVENT, { message: "no" });
+    r.steps.create({
+      runId: run.id,
+      stage: "summarize",
+      visit: 101,
+      agentId: seeded.agents.implementer!,
+    });
+    r.stepEvents.append(harnessStep(102).id, DELIVERY_DONE_EVENT, {
+      action: "push-branch",
+      detail: "x",
+    });
+
+    expect((await h.engine.deliveryPlan(seeded.id)).completed).toEqual([
+      "merge-main",
+      "push-branch",
+    ]);
   });
 
   const conflict = { branch: "agent/x", into: "main", files: ["src/login.ts"] };

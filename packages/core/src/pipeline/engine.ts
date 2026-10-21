@@ -27,6 +27,7 @@ import {
   type ServerEvent,
   type Stage,
   type Step,
+  type StepEvent,
   type StepStatus,
   type Task,
 } from "@blackwall/shared";
@@ -41,6 +42,7 @@ import { MAX_CI_FAILURES, type CiWatcher } from "./ci.js";
 import {
   DELIVERY_CONFLICT_EVENT,
   DELIVERY_DONE_EVENT,
+  DELIVERY_EVENT_TYPES,
   DELIVERY_FAILED_EVENT,
   ISSUE_COMMENT_EVENT,
   conflictResolutionPrompt,
@@ -549,10 +551,7 @@ export function createPipelineEngine({
 
   /** The stored result of a succeeded step: the payload of its `result` event. */
   function storedResult(step: Step): AgentResult | undefined {
-    const event = r.stepEvents
-      .list(step.id)
-      .filter((e) => e.type === "result")
-      .at(-1);
+    const event = r.stepEvents.lastOfType(step.id, "result");
     return (event?.payload as { result?: AgentResult } | undefined)?.result;
   }
 
@@ -838,23 +837,33 @@ export function createPipelineEngine({
   function completedDeliveries(run: Run | undefined): DeliveryStep[] {
     if (!run) return [];
     const steps = r.steps.listByRun(run.id);
+    const byId = new Map(steps.map((s) => [s.id, s]));
     const deliveryVisits = new Set(
-      steps
-        .filter(
-          (s) =>
-            s.agentId === null &&
-            r.stepEvents.list(s.id).some((e) => e.type.startsWith("delivery.")),
+      r.stepEvents
+        .listOfTypes(
+          steps.filter((s) => s.agentId === null).map((s) => s.id),
+          DELIVERY_EVENT_TYPES,
         )
+        .map((e) => byId.get(e.stepId))
+        .filter((s) => s !== undefined)
         .map((s) => `${s.stage}:${s.visit}`),
     );
     const worked = steps.findLastIndex(
       (s) => s.agentId !== null && !deliveryVisits.has(`${s.stage}:${s.visit}`),
     );
-    return steps
-      .slice(worked + 1)
-      .flatMap((s) => r.stepEvents.list(s.id))
-      .filter((e) => e.type === DELIVERY_DONE_EVENT)
-      .map((e) => (e.payload as DeliveryOutcome).action);
+    const tail = steps.slice(worked + 1);
+    const done = r.stepEvents.listOfTypes(
+      tail.map((s) => s.id),
+      [DELIVERY_DONE_EVENT],
+    );
+    return eventsInStepOrder(tail, done).map((e) => (e.payload as DeliveryOutcome).action);
+  }
+
+  /** `events` regrouped to follow `steps`, each step's in sequence order. */
+  function eventsInStepOrder(steps: Step[], events: StepEvent[]): StepEvent[] {
+    const byStep = new Map<string, StepEvent[]>();
+    for (const e of events) byStep.set(e.stepId, [...(byStep.get(e.stepId) ?? []), e]);
+    return steps.flatMap((s) => byStep.get(s.id) ?? []);
   }
 
   /**
@@ -1306,18 +1315,15 @@ export function createPipelineEngine({
   function hasDelivered(task: Task): boolean {
     if (task.deliveryTargets.length > 0) return true;
     return r.runs.listByTask(task.id).some((run) =>
-      r.steps
-        .listByRun(run.id)
-        .filter((s) => s.agentId === null)
-        .some((s) =>
-          r.stepEvents
-            .list(s.id)
-            .some(
-              (e) =>
-                e.type === DELIVERY_DONE_EVENT &&
-                (e.payload as DeliveryOutcome).action !== "squash",
-            ),
-        ),
+      r.stepEvents
+        .listOfTypes(
+          r.steps
+            .listByRun(run.id)
+            .filter((s) => s.agentId === null)
+            .map((s) => s.id),
+          [DELIVERY_DONE_EVENT],
+        )
+        .some((e) => (e.payload as DeliveryOutcome).action !== "squash"),
     );
   }
 
@@ -1325,14 +1331,15 @@ export function createPipelineEngine({
   function openedPullRequestUrl(taskId: string): string | undefined {
     let url: string | undefined;
     for (const run of r.runs.listByTask(taskId)) {
-      for (const step of r.steps.listByRun(run.id)) {
-        if (step.agentId !== null) continue;
-        for (const e of r.stepEvents.list(step.id)) {
-          if (e.type !== DELIVERY_DONE_EVENT) continue;
-          const outcome = e.payload as DeliveryOutcome;
-          if (outcome.action === "open-pr" && /^https?:\/\//.test(outcome.detail)) {
-            url = outcome.detail;
-          }
+      const harness = r.steps.listByRun(run.id).filter((s) => s.agentId === null);
+      const done = r.stepEvents.listOfTypes(
+        harness.map((s) => s.id),
+        [DELIVERY_DONE_EVENT],
+      );
+      for (const e of eventsInStepOrder(harness, done)) {
+        const outcome = e.payload as DeliveryOutcome;
+        if (outcome.action === "open-pr" && /^https?:\/\//.test(outcome.detail)) {
+          url = outcome.detail;
         }
       }
     }

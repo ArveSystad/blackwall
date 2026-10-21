@@ -46,6 +46,13 @@ export const DELIVERY_FAILED_EVENT = "delivery.failed";
 /** Step event logged when the rebase onto main stops on conflicts the implementer resolves. */
 export const DELIVERY_CONFLICT_EVENT = "delivery.conflict";
 
+/** Every step event type delivery logs. */
+export const DELIVERY_EVENT_TYPES = [
+  DELIVERY_DONE_EVENT,
+  DELIVERY_FAILED_EVENT,
+  DELIVERY_CONFLICT_EVENT,
+] as const;
+
 /** Payload of a {@link DELIVERY_CONFLICT_EVENT}: the rebase that stopped and its conflicted files. */
 export interface MergeConflict {
   branch: string;

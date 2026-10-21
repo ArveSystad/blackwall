@@ -611,6 +611,26 @@ export function createStepEventsRepository(db: Db) {
         .orderBy(asc(stepEvents.seq))
         .all();
     },
+    /** The step's last event of `type`, if it logged one. */
+    lastOfType(stepId: string, type: string): StepEvent | undefined {
+      return db
+        .select()
+        .from(stepEvents)
+        .where(and(eq(stepEvents.stepId, stepId), eq(stepEvents.type, type)))
+        .orderBy(desc(stepEvents.seq))
+        .limit(1)
+        .get();
+    },
+    /** Events of any of `types` across the steps, ordered by step id, then sequence. */
+    listOfTypes(stepIds: readonly string[], types: readonly string[]): StepEvent[] {
+      if (stepIds.length === 0 || types.length === 0) return [];
+      return db
+        .select()
+        .from(stepEvents)
+        .where(and(inArray(stepEvents.stepId, stepIds), inArray(stepEvents.type, types)))
+        .orderBy(asc(stepEvents.stepId), asc(stepEvents.seq))
+        .all();
+    },
   };
 }
 

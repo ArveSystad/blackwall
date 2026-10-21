@@ -752,6 +752,40 @@ describe("tasks, runs and steps", () => {
     expect(r.stepEvents.list(step.id, 2)).toMatchObject([{ seq: 3, payload: { ok: true } }]);
   });
 
+  it("finds a step's last event of a type", () => {
+    const run = r.runs.create(seedTask().id);
+    const step = r.steps.create({ runId: run.id, stage: "implement" });
+    r.stepEvents.append(step.id, "result", { n: 1 });
+    r.stepEvents.append(step.id, "result", { n: 2 });
+    r.stepEvents.append(step.id, "text", { text: "after" });
+
+    expect(r.stepEvents.lastOfType(step.id, "result")).toMatchObject({ seq: 2, payload: { n: 2 } });
+    expect(r.stepEvents.lastOfType(step.id, "missing")).toBeUndefined();
+    expect(r.stepEvents.lastOfType("no-such-step", "result")).toBeUndefined();
+  });
+
+  it("lists events of the given types across steps, by step then sequence", () => {
+    const run = r.runs.create(seedTask().id);
+    const a = r.steps.create({ runId: run.id, stage: "implement" });
+    const b = r.steps.create({ runId: run.id, stage: "implement" });
+    const other = r.steps.create({ runId: run.id, stage: "implement" });
+    for (const step of [b, a, other]) {
+      r.stepEvents.append(step.id, "x", {});
+      r.stepEvents.append(step.id, "text", {});
+      r.stepEvents.append(step.id, "y", {});
+    }
+
+    const events = r.stepEvents.listOfTypes([a.id, b.id], ["x", "y"]);
+    expect(events.map((e) => [e.stepId, e.seq, e.type])).toEqual(
+      [a.id, b.id].sort().flatMap((id) => [
+        [id, 1, "x"],
+        [id, 3, "y"],
+      ]),
+    );
+    expect(r.stepEvents.listOfTypes([], ["x"])).toEqual([]);
+    expect(r.stepEvents.listOfTypes([a.id], [])).toEqual([]);
+  });
+
   it("cascades task deletion to runs, steps, events, findings and questions", () => {
     const task = seedTask();
     const run = r.runs.create(task.id);
