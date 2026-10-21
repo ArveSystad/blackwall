@@ -2,6 +2,7 @@ import {
   AGENT_ROLES,
   type BacklogItemView,
   type RepoIssue,
+  type RepoJiraIssue,
   type RepoSync,
   type RoleAgents,
   type Task,
@@ -39,11 +40,17 @@ import {
   type BacklogItemState,
   type RunnerStatus,
 } from "../backlog";
-import { issueOrigin, issueWork, type IssueWork } from "../assigned-issues";
+import {
+  issueOrigin,
+  issueWork,
+  jiraIssueOrigin,
+  jiraIssueWork,
+  type IssueWork,
+} from "../assigned-issues";
 import { paneBody, paneHeader, paneTitle } from "../components/classes";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { EmptyState } from "../components/EmptyState";
-import { IssueRow, IssueWorkLink } from "../components/IssueRow";
+import { IssueRow, IssueWorkLink, JiraIssueRow } from "../components/IssueRow";
 import {
   BacklogIcon,
   FailedIcon,
@@ -73,6 +80,7 @@ import {
   queryKeys,
   quotaQuery,
   repoIssuesQuery,
+  repoJiraIssuesQuery,
   repoSyncQuery,
   reposQuery,
   roleDefaultsQuery,
@@ -672,6 +680,56 @@ function RepoIssueAction({
   return work ? <IssueWorkLink work={work} /> : <WorkOnIssue issue={issue} repoId={repoId} />;
 }
 
+/**
+ * Creates the Jira issue's task at once, even with the runner off; the issue
+ * is neither assigned nor transitioned. The row then links to the task, and
+ * the user stays in the backlog.
+ */
+function WorkOnJiraIssue({ issue, repoId }: { issue: RepoJiraIssue; repoId: string }) {
+  const queryClient = useQueryClient();
+  const withCredential = useWithCredential();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function work() {
+    if (pending) return;
+    setPending(true);
+    setError(null);
+    const origin = jiraIssueOrigin(issue);
+    try {
+      const task = await withCredential(
+        { label: "Start working", target: originKey({ origin }) },
+        () => createTask({ origin, repoId }),
+      );
+      queryClient.setQueryData<Task[]>(queryKeys.tasks, (tasks) =>
+        tasks && !tasks.some((t) => t.id === task.id) ? [...tasks, task] : tasks,
+      );
+      await queryClient.invalidateQueries({ queryKey: ["repo-jira-issues", repoId] });
+    } catch (cause) {
+      setError(
+        cause instanceof MissingCredentialError ? "Cancelled: no token saved" : errorMessage(cause),
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <span className="flex flex-col items-end gap-0.5">
+      <Button
+        size="sm"
+        variant="ghost"
+        disabled={pending}
+        onClick={() => void work()}
+        title="Start a task"
+      >
+        Start working
+      </Button>
+      {error && <ErrorText className="max-w-60 text-right">{error}</ErrorText>}
+    </span>
+  );
+}
+
 /** Title-only Blackwall items, added with Enter. */
 function QuickAdd({ repoId, onError }: { repoId: string; onError: (error: string) => void }) {
   const queryClient = useQueryClient();
@@ -746,6 +804,10 @@ export function Backlog({
   const roleDefaults = useQuery(roleDefaultsQuery);
   const sync = useQuery(repoSyncQuery(repoId));
   const repoIssues = useQuery(repoIssuesQuery(repoId, issuesRefreshSeconds(settings.data)));
+  const jiraProject = repos.data?.find((r) => r.id === repoId)?.jiraProject ?? null;
+  const repoJiraIssues = useQuery(
+    repoJiraIssuesQuery(repoId, jiraProject, issuesRefreshSeconds(settings.data)),
+  );
   const [dialog, setDialog] = useState<Dialog>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState<BacklogItemView | null>(null);
@@ -789,6 +851,7 @@ export function Backlog({
     [items],
   );
   const issues = repoIssues.data?.issues ?? [];
+  const jiraIssues = (jiraProject && repoJiraIssues.data?.issues) || [];
   const titles = useMemo(() => new Map(items.map((i) => [i.id, i.title])), [items]);
   // Across all repos: a follow-up can land in a different repo from its source task.
   const taskTitles = useMemo(
@@ -1005,6 +1068,7 @@ export function Backlog({
               sections.active.length === 0 &&
               sections.earlier.length === 0 &&
               issues.length === 0 &&
+              jiraIssues.length === 0 &&
               !(showArchive && sections.archived.length > 0) && (
                 <EmptyState title="Queue empty. Nothing waiting.">
                   Park work here and the runner starts it when the repo is idle. Quick add a line
@@ -1098,6 +1162,39 @@ export function Backlog({
                     }
                   />
                 ))}
+              </Section>
+            )}
+            {jiraProject &&
+              repoJiraIssues.data?.errors.map((issuesError) => (
+                <EmptyState
+                  key={`jira-issues-error:${issuesError.host}`}
+                  role="alert"
+                  title={`Could not load Jira issues from ${issuesError.host}`}
+                  className="flex-none"
+                  onRetry={() => void repoJiraIssues.refetch()}
+                >
+                  {issuesError.message}
+                </EmptyState>
+              ))}
+            {jiraIssues.length > 0 && (
+              <Section label="Jira issues" ariaLabel="Jira issues" count={jiraIssues.length}>
+                {jiraIssues.map((issue) => {
+                  const work = jiraIssueWork(issue, tasks.data ?? [], items);
+                  return (
+                    <JiraIssueRow
+                      key={issue.url}
+                      issue={issue}
+                      now={now}
+                      action={
+                        work ? (
+                          <IssueWorkLink work={work} />
+                        ) : (
+                          <WorkOnJiraIssue issue={issue} repoId={repoId} />
+                        )
+                      }
+                    />
+                  );
+                })}
               </Section>
             )}
             {sections.earlier.length > 0 && (

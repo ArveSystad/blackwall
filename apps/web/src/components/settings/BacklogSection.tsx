@@ -127,8 +127,8 @@ function BacklogEditor({ saved }: { saved: GeneralSettings }) {
         <fieldset className="m-0 flex max-w-[720px] flex-col gap-4 border-none p-0">
           <legend className={sectionLegend}>GitHub issues</legend>
           <p className="m-0 text-meta text-muted-foreground">
-            How often each backlog&apos;s GitHub issues and the assigned issues re-read GitHub, so
-            closed issues drop off.
+            How often each backlog&apos;s GitHub and Jira issues and the assigned issues re-read
+            GitHub and Jira, so closed issues drop off.
           </p>
           <div className="grid grid-cols-[180px_minmax(0,1fr)] items-center gap-3">
             <label htmlFor="github-issues-refresh-seconds" className={fieldLabel}>

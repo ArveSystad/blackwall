@@ -1,6 +1,13 @@
-import type { AssignedIssue, RepoIssue } from "@blackwall/shared";
+import type { AssignedIssue, RepoIssue, RepoJiraIssue } from "@blackwall/shared";
 import { describe, expect, it } from "vitest";
-import { issueOrigin, issuePillLabel, issueWork } from "./assigned-issues";
+import {
+  issueOrigin,
+  issuePillLabel,
+  issueWork,
+  jiraIssueOrigin,
+  jiraIssueWork,
+} from "./assigned-issues";
+import { queryKeys } from "./query";
 import { makeBacklogItem, makeTask } from "./test-fixtures";
 
 describe("issuePillLabel", () => {
@@ -94,5 +101,65 @@ describe("issueWork", () => {
       makeTask({ origin: { ...origin, url: "https://github.com/acme/shop/issues/7" } }),
     ];
     expect(issueWork(issue, tasks, [])).toBeNull();
+  });
+});
+
+const jiraIssue: RepoJiraIssue = {
+  host: "acme.atlassian.net",
+  key: "ABC-7",
+  title: "Totals drift by a cent",
+  url: "https://acme.atlassian.net/browse/ABC-7",
+  issueType: "Bug",
+  status: "To Do",
+  author: "Kari",
+  assignee: null,
+  updatedAt: new Date("2026-10-08T10:00:00.000Z"),
+  repoId: "r1",
+  connectionId: "j1",
+};
+const jiraOrigin = jiraIssueOrigin(jiraIssue);
+
+describe("jiraIssueOrigin", () => {
+  it("builds the jira-issue origin with the issue's connection", () => {
+    expect(jiraOrigin).toEqual({ kind: "jira-issue", key: "ABC-7", connectionId: "j1" });
+  });
+});
+
+describe("jiraIssueWork", () => {
+  it("returns null when nothing works on the issue", () => {
+    expect(jiraIssueWork(jiraIssue, [makeTask()], [makeBacklogItem()])).toBeNull();
+  });
+
+  it("finds a task on the same key, with the same or no connection", () => {
+    for (const connectionId of ["j1", null]) {
+      const task = makeTask({ origin: { ...jiraOrigin, connectionId } });
+      expect(jiraIssueWork(jiraIssue, [task], [])).toEqual({ kind: "task", taskId: task.id });
+    }
+  });
+
+  it("ignores archived tasks, other keys and other connections", () => {
+    const tasks = [
+      makeTask({ origin: jiraOrigin, archivedAt: new Date("2026-10-09T10:00:00.000Z") }),
+      makeTask({ origin: { ...jiraOrigin, key: "ABC-8" } }),
+      makeTask({ origin: { ...jiraOrigin, connectionId: "j2" } }),
+    ];
+    expect(jiraIssueWork(jiraIssue, tasks, [])).toBeNull();
+  });
+
+  it("finds a waiting backlog item and maps a promoted one to its task", () => {
+    const waiting = makeBacklogItem({ origin: jiraOrigin, status: "waiting", repoId: "r9" });
+    expect(jiraIssueWork(jiraIssue, [], [waiting])).toEqual({ kind: "backlog", repoId: "r9" });
+    const promoted = makeBacklogItem({ origin: jiraOrigin, status: "promoted", taskId: "t42" });
+    expect(jiraIssueWork(jiraIssue, [], [promoted])).toEqual({ kind: "task", taskId: "t42" });
+  });
+});
+
+describe("queryKeys.repoJiraIssues", () => {
+  it("keys each project apart under the repo's shared prefix", () => {
+    const abc = queryKeys.repoJiraIssues("r", "ABC");
+    const def = queryKeys.repoJiraIssues("r", "DEF");
+    expect(abc).not.toEqual(def);
+    expect(abc.slice(0, 2)).toEqual(["repo-jira-issues", "r"]);
+    expect(def.slice(0, 2)).toEqual(["repo-jira-issues", "r"]);
   });
 });

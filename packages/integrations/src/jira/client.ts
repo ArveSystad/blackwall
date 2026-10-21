@@ -81,6 +81,20 @@ export interface JiraIssueJson {
   };
 }
 
+/** One issue of `GET /rest/api/3/search/jql` with the fields the Backlog lists. */
+export interface JiraSearchIssueJson {
+  id: string;
+  key: string;
+  fields: {
+    summary?: string;
+    issuetype?: { name?: string } | null;
+    status?: { name?: string } | null;
+    assignee?: JiraUserJson | null;
+    reporter?: JiraUserJson | null;
+    updated?: string;
+  };
+}
+
 interface CommentPage {
   comments?: JiraCommentJson[];
   startAt?: number;
@@ -106,6 +120,7 @@ export const ISSUE_FIELDS = [
 
 const TIMEOUT_MS = 30_000;
 const COMMENT_PAGE = 100;
+const SEARCH_PAGE = 100;
 
 export type JiraClient = ReturnType<typeof createJiraClient>;
 
@@ -201,6 +216,27 @@ export function createJiraClient(credentials: JiraCredentials, fetchImpl: Fetch 
         all.push(...comments);
         if (comments.length === 0 || all.length >= (page.total ?? 0)) return all;
       }
+    },
+
+    /**
+     * The first page (at most `maxResults`, default 100) of issues matching
+     * the JQL, with summary, type, status, assignee, reporter and update time.
+     */
+    async searchIssues(
+      jql: string,
+      options: { maxResults?: number; signal?: AbortSignal } = {},
+    ): Promise<JiraSearchIssueJson[]> {
+      const query = new URLSearchParams({
+        jql,
+        fields: "summary,issuetype,status,assignee,reporter,updated",
+        maxResults: String(options.maxResults ?? SEARCH_PAGE),
+      });
+      const page = await json<{ issues?: JiraSearchIssueJson[] }>(
+        `/rest/api/3/search/jql?${query}`,
+        "Project",
+        options.signal,
+      );
+      return page.issues ?? [];
     },
 
     /** Posts a comment; markdown is converted to ADF. Returns the new comment's id. */

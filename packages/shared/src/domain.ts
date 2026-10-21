@@ -213,6 +213,9 @@ export const MAX_TITLE_CHARS = 120;
 
 export const JIRA_KEY_PATTERN = /^[A-Z][A-Z0-9_]*-\d+$/;
 
+/** A Jira project key (`ABC`): the part of an issue key before the dash. */
+export const JIRA_PROJECT_PATTERN = /^[A-Z][A-Z0-9_]*$/;
+
 // ---------------------------------------------------------------------------
 // CI
 // ---------------------------------------------------------------------------
@@ -456,6 +459,11 @@ export const repoSchema = z.object({
   position: z.int(),
   /** Watch CI after a task pushes its branch; matters only for GitHub/GHE remotes. */
   watchCi: z.boolean(),
+  /** Jira project key whose open issues the Backlog lists; null = none. */
+  jiraProject: z
+    .string()
+    .regex(JIRA_PROJECT_PATTERN, "Expected a Jira project key like ABC")
+    .nullable(),
   /**
    * Other registered repos whose files the read-only agents (planner, reviewers,
    * summarizer) and the chat may read. Implementers stay in the worktree.
@@ -514,6 +522,12 @@ export const repoUpdateSchema = z.object({
   defaultBranch: branchNameSchema.optional(),
   favorite: z.boolean().optional(),
   watchCi: z.boolean().optional(),
+  jiraProject: z
+    .string()
+    .trim()
+    .regex(JIRA_PROJECT_PATTERN, "Expected a Jira project key like ABC")
+    .nullable()
+    .optional(),
   referenceRepoIds: referenceRepoIdsSchema.optional(),
   agentTrust: agentTrustLevelSchema.optional(),
   trustProjectMcp: z.boolean().optional(),
@@ -1594,6 +1608,40 @@ export const repoIssuesSchema = z.object({
   errors: z.object({ host: z.string(), message: z.string() }).array(),
 });
 export type RepoIssues = z.infer<typeof repoIssuesSchema>;
+
+/** An open issue in a repo's Jira project, unassigned or assigned to the user. */
+export const repoJiraIssueSchema = z.object({
+  /** Host of the Jira site it came from (`acme.atlassian.net`). */
+  host: z.string(),
+  key: z.string().regex(JIRA_KEY_PATTERN),
+  title: z.string(),
+  /** The issue's `/browse/<key>` link. */
+  url: z.url(),
+  /** Issue type name (`Bug`, `Story`); null when Jira sends none. */
+  issueType: z.string().nullable(),
+  /** Status name; null when Jira sends none. */
+  status: z.string().nullable(),
+  /** Reporter's display name; null when unknown. */
+  author: z.string().nullable(),
+  /** Assignee's display name; null when unassigned. */
+  assignee: z.string().nullable(),
+  updatedAt: timestamp,
+  repoId: id,
+  /** The Jira connection the issue was listed through. */
+  connectionId: id,
+});
+export type RepoJiraIssue = z.infer<typeof repoJiraIssueSchema>;
+
+/**
+ * `GET /api/issues/jira/:repoId`: the open issues of the repo's Jira project,
+ * unassigned or assigned to the user, at most the 100 most recently updated,
+ * newest first, and the site when it failed.
+ */
+export const repoJiraIssuesSchema = z.object({
+  issues: repoJiraIssueSchema.array(),
+  errors: z.object({ host: z.string(), message: z.string() }).array(),
+});
+export type RepoJiraIssues = z.infer<typeof repoJiraIssuesSchema>;
 
 /**
  * One round's changes on the task branch: the range Code review reviewed in

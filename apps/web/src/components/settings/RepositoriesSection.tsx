@@ -2,6 +2,7 @@ import {
   AGENT_CLIS,
   AGENT_TRUST_LEVELS,
   DEFAULT_REPO_SCAN_DEPTH,
+  JIRA_PROJECT_PATTERN,
   effectiveTrust,
   type RepoView,
 } from "@blackwall/shared";
@@ -178,6 +179,7 @@ function RepoEditor({
     repo.maxBacklogTasks === null ? "" : String(repo.maxBacklogTasks),
   );
   const [watchCi, setWatchCi] = useState(repo.watchCi);
+  const [jiraProject, setJiraProject] = useState(repo.jiraProject ?? "");
   const [referenceRepoIds, setReferenceRepoIds] = useState(repo.referenceRepoIds);
   const [agentTrust, setAgentTrust] = useState(repo.agentTrust);
   const [trustProjectMcp, setTrustProjectMcp] = useState(repo.trustProjectMcp);
@@ -193,6 +195,10 @@ function RepoEditor({
   // Empty uses the global backlog cap.
   const backlogCapValue = backlogCap.trim() === "" ? null : parseCap(backlogCap);
   const backlogCapInvalid = backlogCap.trim() !== "" && backlogCapValue === null;
+  // Empty lists no Jira issues.
+  const jiraProjectValue = jiraProject === "" ? null : jiraProject;
+  const jiraProjectInvalid =
+    jiraProjectValue !== null && !JIRA_PROJECT_PATTERN.test(jiraProjectValue);
   const dirty =
     name.trim() !== repo.name ||
     !sameList(parseLines(setup), repo.setupCommands) ||
@@ -203,6 +209,7 @@ function RepoEditor({
     backlogCapInvalid ||
     backlogCapValue !== repo.maxBacklogTasks ||
     watchCi !== repo.watchCi ||
+    jiraProjectValue !== repo.jiraProject ||
     !sameList([...referenceRepoIds].sort(), [...repo.referenceRepoIds].sort()) ||
     agentTrust !== repo.agentTrust ||
     trustProjectMcp !== repo.trustProjectMcp ||
@@ -230,6 +237,10 @@ function RepoEditor({
       setError("Backlog tasks at once must be empty or a whole number from 1 to 20");
       return;
     }
+    if (jiraProjectInvalid) {
+      setError("Jira project must be empty or a project key like ABC");
+      return;
+    }
     const branchChanged = defaultBranch.trim() !== repo.defaultBranch;
     setSaving(true);
     setError(null);
@@ -243,6 +254,7 @@ function RepoEditor({
         defaultBranch: defaultBranch.trim(),
         maxBacklogTasks: backlogCapValue,
         watchCi,
+        jiraProject: jiraProjectValue,
         referenceRepoIds,
         agentTrust,
         trustProjectMcp,
@@ -431,6 +443,20 @@ function RepoEditor({
               aria-invalid={backlogCapInvalid}
               value={backlogCap}
               onChange={(event) => setBacklogCap(event.target.value)}
+            />
+          </Field>
+          <Field
+            label="Jira project"
+            hint="Project key whose open issues, unassigned or assigned to you, show in this repo's Backlog. Empty: none."
+          >
+            <Input
+              className="mono w-28"
+              spellCheck={false}
+              autoCapitalize="characters"
+              placeholder="ABC"
+              aria-invalid={jiraProjectInvalid}
+              value={jiraProject}
+              onChange={(event) => setJiraProject(event.target.value.trim().toUpperCase())}
             />
           </Field>
         </div>
@@ -634,6 +660,7 @@ function RepoEditor({
           setDefaultBranch(repo.defaultBranch);
           setBacklogCap(repo.maxBacklogTasks === null ? "" : String(repo.maxBacklogTasks));
           setWatchCi(repo.watchCi);
+          setJiraProject(repo.jiraProject ?? "");
           setReferenceRepoIds(repo.referenceRepoIds);
           setAgentTrust(repo.agentTrust);
           setTrustProjectMcp(repo.trustProjectMcp);

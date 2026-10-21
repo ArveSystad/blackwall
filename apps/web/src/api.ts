@@ -31,6 +31,7 @@ import {
   quotaStateSchema,
   repoBacklogRunnerSchema,
   repoIssuesSchema,
+  repoJiraIssuesSchema,
   reviewRequestsSchema,
   repoScanResultSchema,
   repoSchema,
@@ -93,6 +94,7 @@ import {
   type RepoBacklogRunner,
   type RepoBacklogRunnerUpdate,
   type RepoIssues,
+  type RepoJiraIssues,
   type ResolveConnectionInput,
   type Repo,
   type RepoInput,
@@ -256,6 +258,11 @@ export function listAssignedIssues(): Promise<AssignedIssues> {
 /** The repo's open GitHub issues, whoever they are assigned to, and the host when it failed. */
 export function listRepoIssues(repoId: string): Promise<RepoIssues> {
   return request(at("/api/issues/repo", repoId), repoIssuesSchema);
+}
+
+/** The open issues of the repo's Jira project, unassigned or assigned to the user, and the site when it failed. */
+export function listRepoJiraIssues(repoId: string): Promise<RepoJiraIssues> {
+  return request(at("/api/issues/jira", repoId), repoJiraIssuesSchema);
 }
 
 export function lookupIssue(url: string): Promise<IssueLookup> {

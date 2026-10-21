@@ -797,6 +797,15 @@ describe("settings and inputs", () => {
     }
   });
 
+  it("accepts a repo's Jira project key, or null to clear it, and rejects others", () => {
+    for (const jiraProject of ["ABC", "A1_B", null]) {
+      expect(repoUpdateSchema.parse({ jiraProject })).toEqual({ jiraProject });
+    }
+    for (const jiraProject of ["abc", "1AB", "AB-1"]) {
+      expect(repoUpdateSchema.safeParse({ jiraProject }).success).toBe(false);
+    }
+  });
+
   it("accepts a repo's default branch and rejects names git would misread", () => {
     expect(repoUpdateSchema.parse({ defaultBranch: "develop" })).toEqual({
       defaultBranch: "develop",

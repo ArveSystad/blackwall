@@ -1,0 +1,1 @@
+ALTER TABLE `repos` ADD `jira_project` text;

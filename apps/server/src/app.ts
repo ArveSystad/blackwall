@@ -32,6 +32,7 @@ import { connectionRoutes, type ConnectionRoutesOptions } from "./connections.js
 import { dataRoutes } from "./data.js";
 import { errorResponse } from "./errors.js";
 import { issueRoutes, pullRequestRoutes } from "./github.js";
+import { jiraIssueRoutes } from "./jira.js";
 import { mcpRoutes, type McpCommandService } from "./mcp.js";
 import { quotaRoutes } from "./quota.js";
 import { repoRoutes } from "./repos.js";
@@ -164,6 +165,7 @@ export function createApp({
       pullRequestRoutes({ connections: connections.connections, repos }),
     );
     app.route("/api/issues", issueRoutes({ connections: connections.connections, repos }));
+    app.route("/api/issues/jira", jiraIssueRoutes({ connections: connections.connections, repos }));
   }
   if (agents) app.route("/api/agents", agentRoutes(agents));
   if (settings) {

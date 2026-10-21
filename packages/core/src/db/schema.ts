@@ -105,6 +105,8 @@ export const repos = sqliteTable("repos", {
   position: integer("position").notNull().default(0),
   /** Watch CI on GitHub/GHE remotes after a task pushes its branch. */
   watchCi: integer("watch_ci", { mode: "boolean" }).notNull().default(true),
+  /** Jira project key whose open issues the Backlog lists; null = none. */
+  jiraProject: text("jira_project"),
   /** Other registered repos whose files read-only agents and the chat may read. */
   referenceRepoIds: text("reference_repo_ids", { mode: "json" })
     .$type<string[]>()

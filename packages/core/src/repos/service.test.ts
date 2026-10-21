@@ -234,6 +234,10 @@ describe("repo service", () => {
     expect(() => service.update(repo.id, { maxBacklogTasks: 0 })).toThrow(InvalidRepoError);
     expect(service.update(repo.id, { watchCi: false }).watchCi).toBe(false);
     expect(service.get(repo.id).watchCi).toBe(false);
+    expect(service.update(repo.id, { jiraProject: " ABC " }).jiraProject).toBe("ABC");
+    expect(service.get(repo.id).jiraProject).toBe("ABC");
+    expect(() => service.update(repo.id, { jiraProject: "abc" })).toThrow(InvalidRepoError);
+    expect(service.update(repo.id, { jiraProject: null }).jiraProject).toBeNull();
     expect(service.update(repo.id, { defaultBranch: " trunk " })).toMatchObject({
       defaultBranch: "trunk",
     });

@@ -92,6 +92,14 @@ describe("connections and repos", () => {
     expect(r.repos.get(repo.id)?.watchCi).toBe(false);
   });
 
+  it("starts repos without a Jira project and round-trips it", () => {
+    const repo = r.repos.create({ path: "/code/app", name: "app" });
+    expect(repo.jiraProject).toBeNull();
+    expect(r.repos.update(repo.id, { jiraProject: "ABC" }).jiraProject).toBe("ABC");
+    expect(r.repos.get(repo.id)?.jiraProject).toBe("ABC");
+    expect(r.repos.update(repo.id, { jiraProject: null }).jiraProject).toBeNull();
+  });
+
   it("starts repos without reference repos and round-trips the list", () => {
     const repo = r.repos.create({ path: "/code/app", name: "app" });
     const lib = r.repos.create({ path: "/code/lib", name: "lib" });

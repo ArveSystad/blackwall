@@ -1,8 +1,10 @@
 import {
   MissingCredentialError,
   branchForTask,
+  connectionHost,
   type ConnectionService,
   type OriginContextProvider,
+  type RepoService,
 } from "@blackwall/core";
 import {
   createJiraClient,
@@ -10,9 +12,27 @@ import {
   type Fetch,
   type JiraCredentials,
 } from "@blackwall/integrations";
-import { JIRA_EMAIL_META, type Task } from "@blackwall/shared";
+import {
+  JIRA_EMAIL_META,
+  type Repo,
+  type RepoJiraIssue,
+  type RepoJiraIssues,
+  type Task,
+} from "@blackwall/shared";
+import { Hono } from "hono";
 
 type JiraOrigin = Extract<Task["origin"], { kind: "jira-issue" }>;
+
+/** The site and account of a Jira connection; throws when it has no account email. */
+async function jiraCredentialsFor(
+  connections: Pick<ConnectionService, "credentialById">,
+  id: string,
+): Promise<JiraCredentials> {
+  const { connection, token } = await connections.credentialById(id);
+  const email = connection.authMeta[JIRA_EMAIL_META];
+  if (!email) throw new Error(`Jira connection ${connection.name} has no account email`);
+  return { baseUrl: connection.baseUrl, email, token };
+}
 
 export interface JiraOriginOptions {
   connections: Pick<ConnectionService, "list" | "credentialById">;
@@ -36,10 +56,7 @@ export function createJiraOrigin({ connections, fetch: fetchImpl }: JiraOriginOp
       }
       id = jira[0]!.id;
     }
-    const { connection, token } = await connections.credentialById(id);
-    const email = connection.authMeta[JIRA_EMAIL_META];
-    if (!email) throw new Error(`Jira connection ${connection.name} has no account email`);
-    return { baseUrl: connection.baseUrl, email, token };
+    return jiraCredentialsFor(connections, id);
   }
 
   const jiraOrigin = (task: Task): JiraOrigin | undefined =>
@@ -101,4 +118,106 @@ export function createJiraOrigin({ connections, fetch: fetchImpl }: JiraOriginOp
       return { url: id ? `${issue}?focusedCommentId=${id}` : issue };
     },
   };
+}
+
+export interface JiraIssueSourceOptions {
+  connections: Pick<ConnectionService, "list" | "credentialById">;
+  fetch?: Fetch;
+}
+
+export type JiraIssueSource = ReturnType<typeof createJiraIssueSource>;
+
+/** Issues the Backlog lists: open, and unassigned or assigned to the token's account. */
+function backlogJql(project: string): string {
+  return (
+    `project = "${project}" AND statusCategory != Done ` +
+    `AND (assignee is EMPTY OR assignee = currentUser()) ORDER BY updated DESC`
+  );
+}
+
+/**
+ * Reads a repo's open Jira issues for the Backlog, never asking for a token:
+ * only Jira connections with a token count.
+ */
+export function createJiraIssueSource({ connections, fetch: fetchImpl }: JiraIssueSourceOptions) {
+  return {
+    /**
+     * The open issues of the repo's Jira project, unassigned or assigned to
+     * the user, at most the 100 most recently updated, newest first. Empty
+     * when the repo has no project or no Jira connection has a token; several
+     * such connections, or a site failure, are listed in `errors`, never thrown.
+     */
+    async listRepoJiraIssues(repo: Repo): Promise<RepoJiraIssues> {
+      const none: RepoJiraIssues = { issues: [], errors: [] };
+      if (!repo.jiraProject) return none;
+      const jira = connections.list().filter((c) => c.kind === "jira" && c.hasToken);
+      if (jira.length === 0) return none;
+      if (jira.length > 1) {
+        const host = jira.map(connectionHost).join(", ");
+        const message = "Several Jira sites exist; keep a token on only one to list issues";
+        return { issues: [], errors: [{ host, message }] };
+      }
+      const connection = jira[0]!;
+      const host = connectionHost(connection);
+      try {
+        const client = createJiraClient(
+          await jiraCredentialsFor(connections, connection.id),
+          fetchImpl,
+        );
+        const rows = await client.searchIssues(backlogJql(repo.jiraProject));
+        const issues = rows
+          .map((issue): RepoJiraIssue => ({
+            host,
+            key: issue.key,
+            title: issue.fields.summary ?? "",
+            url: `${client.baseUrl}/browse/${issue.key}`,
+            issueType: issue.fields.issuetype?.name ?? null,
+            status: issue.fields.status?.name ?? null,
+            author: issue.fields.reporter?.displayName ?? null,
+            assignee: issue.fields.assignee?.displayName ?? null,
+            updatedAt: new Date(issue.fields.updated ?? 0),
+            repoId: repo.id,
+            connectionId: connection.id,
+          }))
+          .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+        return { issues, errors: [] };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { issues: [], errors: [{ host, message }] };
+      }
+    },
+  };
+}
+
+export interface JiraIssueRoutesOptions {
+  connections: Pick<ConnectionService, "list" | "credentialById">;
+  repos: Pick<RepoService, "list">;
+  fetch?: Fetch;
+  /** Built from `connections` and `fetch` when omitted. */
+  source?: Pick<JiraIssueSource, "listRepoJiraIssues">;
+}
+
+/**
+ * `GET /:repoId`: the open issues of the repo's Jira project, unassigned or
+ * assigned to the user, at most the 100 most recently updated, newest first.
+ * Empty when the repo has no project or no Jira connection has a token, so
+ * polling never asks for one; several Jira sites with a token, or a site
+ * failure, are listed in `errors`.
+ */
+export function jiraIssueRoutes({
+  connections,
+  repos,
+  fetch: fetchImpl,
+  source = createJiraIssueSource({ connections, ...(fetchImpl ? { fetch: fetchImpl } : {}) }),
+}: JiraIssueRoutesOptions): Hono {
+  const routes = new Hono();
+
+  routes.get("/:repoId", async (c) => {
+    const repoId = c.req.param("repoId");
+    const repo = repos.list().find((r) => r.id === repoId);
+    if (!repo) return c.json({ error: `Repo ${repoId} not found` }, 404);
+    return c.json<RepoJiraIssues>(await source.listRepoJiraIssues(repo));
+  });
+
+  return routes;
 }

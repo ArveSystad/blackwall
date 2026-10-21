@@ -38,6 +38,7 @@ import {
   listAssignedIssues,
   listConnections,
   listRepoIssues,
+  listRepoJiraIssues,
   listRepos,
   listReviewRequests,
   listTags,
@@ -104,6 +105,9 @@ export const queryKeys = {
   reviewRequests: ["review-requests"] as const,
   assignedIssues: ["assigned-issues"] as const,
   repoIssues: (repoId: string) => ["repo-issues", repoId] as const,
+  /** Keyed by the repo's Jira project too; `["repo-jira-issues", repoId]` matches every project. */
+  repoJiraIssues: (repoId: string, jiraProject: string | null) =>
+    ["repo-jira-issues", repoId, jiraProject] as const,
   search: (q: string, repoId: string | null, scope: SearchScope) =>
     ["search", q, repoId, scope] as const,
 };
@@ -329,6 +333,24 @@ export const repoIssuesQuery = (repoId: string, refreshSeconds: number) =>
   queryOptions({
     queryKey: queryKeys.repoIssues(repoId),
     queryFn: () => listRepoIssues(repoId),
+    ...issuesPolling(refreshSeconds),
+  });
+
+/**
+ * A repo's open Jira issues, unassigned or assigned to the user. Jira sends no
+ * live events either, so it polls at the GitHub issues refresh interval. The
+ * project is part of the key, so a project change refetches and a cleared
+ * project holds no data.
+ */
+export const repoJiraIssuesQuery = (
+  repoId: string,
+  jiraProject: string | null,
+  refreshSeconds: number,
+) =>
+  queryOptions({
+    queryKey: queryKeys.repoJiraIssues(repoId, jiraProject),
+    queryFn: () => listRepoJiraIssues(repoId),
+    enabled: jiraProject !== null,
     ...issuesPolling(refreshSeconds),
   });
 
