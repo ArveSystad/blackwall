@@ -71,6 +71,7 @@ import { StatusBadge } from "./StatusBadge";
 import { answerGate, messageRoute, resume, stop } from "./task/actions";
 import { useTaskAction } from "./task/use-task-action";
 import { Button } from "./ui/button";
+import { useChatFlavour } from "./use-chat-flavour";
 import { ErrorText } from "./ui/field";
 import { Kbd } from "./ui/kbd";
 
@@ -413,6 +414,7 @@ function ChatBody({
 
   const count = messages?.length ?? 0;
   const activity = state?.activity ?? null;
+  const flavour = useChatFlavour(busy, activity);
   useEffect(() => {
     if (following.current) end.current?.scrollIntoView({ block: "end" });
   }, [count, activity, busy]);
@@ -532,12 +534,15 @@ function ChatBody({
         </div>
       )}
       {busy && (
-        <div className="flex flex-none items-center gap-2 border-t border-border px-4 py-1.5 text-meta text-cyan">
+        <div
+          className="flex flex-none items-center gap-2 border-t border-border px-4 py-1.5 text-meta text-cyan"
+          aria-hidden="true"
+        >
           <span
             className="size-1.5 flex-none rounded-full bg-running animate-pulse-running"
             aria-hidden="true"
           />
-          <span className="mono min-w-0 truncate">{activity ?? "Thinking…"}</span>
+          <span className="mono min-w-0 truncate">{flavour}</span>
         </div>
       )}
       <div role="status" className="sr-only">
