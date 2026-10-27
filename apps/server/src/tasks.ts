@@ -34,6 +34,7 @@ import {
   type GrillAnswerResult,
   type GrillQuestion,
   type PullRequestComments,
+  type PullRequestRefresh,
   type RoleAgents,
   type Run,
   type Step,
@@ -67,6 +68,8 @@ export type TaskPipeline = Pick<
   | "deliveryPlan"
   | "fixCi"
   | "fixPrComments"
+  | "refreshPullRequest"
+  | "reReviewPullRequest"
   | "autopilotRepo"
 >;
 
@@ -483,6 +486,22 @@ export function taskRoutes(
      */
     routes.post("/:id/pr-comments/fix", async (c) =>
       c.json<Task>(await pipeline.fixPrComments(c.req.param("id"))),
+    );
+
+    /**
+     * Refresh: fetches a done Review PR task's head branch and reports whether
+     * it moved since the review (409 when the task can't be re-reviewed).
+     */
+    routes.post("/:id/pr/refresh", async (c) =>
+      c.json<PullRequestRefresh>(await pipeline.refreshPullRequest(c.req.param("id"))),
+    );
+
+    /**
+     * Re-review: queues a review of the commits pushed to a done Review PR
+     * task's pull request since its review (409 when it can't, or there are none).
+     */
+    routes.post("/:id/pr/re-review", async (c) =>
+      c.json<Task>(await pipeline.reReviewPullRequest(c.req.param("id"))),
     );
 
     /**

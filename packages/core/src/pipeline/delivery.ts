@@ -167,7 +167,7 @@ export interface Deliverer {
 
 export interface DelivererOptions {
   git: DeliveryGit;
-  repositories: Pick<Repositories, "repos" | "findings" | "backlogItems">;
+  repositories: Pick<Repositories, "repos" | "findings" | "backlogItems" | "runs">;
   ports: DeliveryPorts;
   /** Called once per repo that `create-tasks` added backlog items to. */
   onBacklogChanged?(repoId: string): void;
@@ -335,6 +335,10 @@ export function createDeliverer({
     return [...merge, { kind: "push-branch", branch: head, remote: remoteUrl, ...from }, ...pr];
   }
 
+  /**
+   * The task's delivery actions. A Review PR task posts its review with the
+   * latest run's postable findings, so a re-review offers only its own.
+   */
   async function actions(
     task: Task,
     completed: readonly DeliveryStep[],
@@ -342,7 +346,11 @@ export function createDeliverer({
     const { origin, branch } = task;
     if (pipelineKind(task.mode) === "review") {
       if (origin.kind !== "github-pr") return [];
-      const findingIds = postableFindings(r.findings.listByTask(task.id)).map((f) => f.id);
+      // Only the latest run's review: earlier runs' findings were offered already.
+      const runId = r.runs.listByTask(task.id).at(-1)?.id;
+      const findingIds = postableFindings(
+        r.findings.listByTask(task.id).filter((f) => f.runId === runId),
+      ).map((f) => f.id);
       return [{ kind: "pr-review", url: origin.url, findingIds }];
     }
     if (!branch) return [];

@@ -27,6 +27,7 @@ import {
   missingCredentialSchema,
   issueLookupSchema,
   pullRequestCommentsSchema,
+  pullRequestRefreshSchema,
   pullRequestLookupSchema,
   quotaStateSchema,
   repoBacklogRunnerSchema,
@@ -63,6 +64,7 @@ import {
   type BacklogItemView,
   type BranchDiff,
   type PullRequestComments,
+  type PullRequestRefresh,
   type ChatActionProposal,
   type ChatState,
   type CliStatus,
@@ -367,6 +369,22 @@ export function fixCi(taskId: string): Promise<Task> {
  */
 export function fixPrComments(taskId: string): Promise<Task> {
   return request(`${taskPath(taskId)}/pr-comments/fix`, taskSchema, { method: "POST" });
+}
+
+/**
+ * Refresh: fetches a done Review PR task's head branch and reports whether it
+ * moved since the review. Changes nothing.
+ */
+export function refreshPullRequest(taskId: string): Promise<PullRequestRefresh> {
+  return request(`${taskPath(taskId)}/pr/refresh`, pullRequestRefreshSchema, { method: "POST" });
+}
+
+/**
+ * Re-review: queues a review of the commits pushed to a Review PR task's pull
+ * request since its review; it stops at triage for a follow-up review.
+ */
+export function reReviewPullRequest(taskId: string): Promise<Task> {
+  return request(`${taskPath(taskId)}/pr/re-review`, taskSchema, { method: "POST" });
 }
 
 /**

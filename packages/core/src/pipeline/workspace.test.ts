@@ -1,8 +1,14 @@
 import type { Repo, Task } from "@blackwall/shared";
 import { describe, expect, it, vi } from "vitest";
-import { GitError, type CreateWorktreeInput, type RemoveWorktreeInput } from "../git/service.js";
+import {
+  GitError,
+  type CreateWorktreeInput,
+  type GitService,
+  type RemoveWorktreeInput,
+} from "../git/service.js";
 import { worktreePathFor } from "../git/branches.js";
 import {
+  createPrHeadSync,
   createWorkspacePreparer,
   createWorkspaceRemover,
   createWorkspaceSyncer,
@@ -204,6 +210,43 @@ describe("createWorkspacePreparer", () => {
         branch: "fix/7-export-drops-a-row",
         checkout: { kind: "new", base: "main" },
       }),
+    );
+  });
+});
+
+describe("createPrHeadSync", () => {
+  function prHead(forRepo: Repo = repo) {
+    const fetchBranch = vi.fn<GitService["fetchBranch"]>(async () => "sha-remote");
+    const moveBranchTo = vi.fn<GitService["moveBranchTo"]>(async () => true);
+    const sync = createPrHeadSync({
+      git: { fetchBranch, moveBranchTo },
+      repos: { get: (id) => (id === forRepo.id ? forRepo : undefined) },
+    });
+    return { sync, fetchBranch, moveBranchTo };
+  }
+
+  const origin = {
+    kind: "github-pr" as const,
+    url: "https://github.com/acme/app/pull/7",
+    owner: "acme",
+    repo: "app",
+    number: 7,
+    connectionId: null,
+  };
+  const pr = task({ origin, branch: "feature/pr", worktreePath: "/wt/pr" });
+
+  it("fetches and moves the PR branch in its worktree, naming the repo's default branch", async () => {
+    const { sync, fetchBranch, moveBranchTo } = prHead({ ...repo, defaultBranch: "develop" });
+    await expect(sync.fetch(pr)).resolves.toBe("sha-remote");
+    expect(fetchBranch).toHaveBeenCalledWith("/wt/pr", "feature/pr");
+
+    await expect(sync.moveTo(pr, "sha-remote", "sha-local")).resolves.toBe(true);
+    expect(moveBranchTo).toHaveBeenCalledWith(
+      "/wt/pr",
+      "feature/pr",
+      "sha-remote",
+      "sha-local",
+      "develop",
     );
   });
 });

@@ -29,6 +29,7 @@ import {
   createVoiceModelDownloads,
   createVoiceService,
   createTaskDiffs,
+  createPrHeadSync,
   createWorkspacePreparer,
   createWorkspaceRemover,
   createWorkspaceSyncer,
@@ -213,6 +214,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       }),
       syncWorkspace: createWorkspaceSyncer({ git, repos: repositories.repos }),
       removeWorkspace: createWorkspaceRemover({ git, repos: repositories.repos }),
+      prHead: createPrHeadSync({ git, repos: repositories.repos }),
       // Uses the chat only once a task is deleted, after the chat below exists.
       beforeDelete: (taskId) => chat.forgetTask(taskId),
       delivery: createDeliverer({

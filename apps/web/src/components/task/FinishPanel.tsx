@@ -6,12 +6,13 @@ import {
   type DeliveryPlan,
   type DeliveryTarget,
   type Finding,
+  type PullRequestRefresh,
   type Task,
   type TaskCi,
 } from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { deleteFinding } from "../../api";
+import { deleteFinding, refreshPullRequest } from "../../api";
 import { isModKey, isTypingTarget, modKeyLabel, useWindowKeydown } from "../../keyboard";
 import { queryKeys, taskDeliveryQuery } from "../../query";
 import { errorMessage } from "../../settings-forms";
@@ -19,6 +20,7 @@ import { ranUnrestricted } from "../../trust";
 import {
   canDeleteFinding,
   canFixPrComments,
+  canReReview,
   carryPicks,
   checkPassed,
   confirmLabel,
@@ -36,7 +38,7 @@ import { SeverityChip } from "../SeverityChip";
 import { Button } from "../ui/button";
 import { ErrorText } from "../ui/field";
 import { Kbd } from "../ui/kbd";
-import { answerGate, fixCi, fixPrComments } from "./actions";
+import { answerGate, fixCi, fixPrComments, reReview } from "./actions";
 import type { TaskData } from "./use-task-data";
 import type { TaskAction } from "./use-task-action";
 
@@ -591,12 +593,87 @@ function Delivered({ url, task, action }: { url: string; task: Task; action: Tas
 }
 
 /**
+ * A posted review's pull request, with Refresh to check whether its head
+ * branch moved since the review and, when it did, Re-review to review the
+ * new commits. The Refresh result lives only here, so a reload asks again.
+ */
+export function Reviewed({ task, action }: { task: Task; action: TaskAction }) {
+  const [refreshing, setRefreshing] = useState(false);
+  const [result, setResult] = useState<PullRequestRefresh | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const url = task.origin.kind === "github-pr" ? task.origin.url : null;
+
+  async function refresh() {
+    setRefreshing(true);
+    setError(null);
+    try {
+      setResult(await refreshPullRequest(task.id));
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  const short = (sha: string) => (
+    <span className="mono text-foreground-strong">{sha.slice(0, 7)}</span>
+  );
+  return (
+    <div className="flex flex-col gap-2 px-4 pt-3 pb-3.5">
+      <span className="label text-muted-foreground">Reviewed</span>
+      {result && !result.changed && (
+        <p className="m-0 text-meta text-muted-foreground">
+          No new commits since the review ({short(result.reviewedSha)})
+        </p>
+      )}
+      {result?.changed && (
+        <p className="m-0 text-meta text-foreground">
+          New commits since the review ({short(result.reviewedSha)} → {short(result.headSha)})
+        </p>
+      )}
+      {error && <ErrorText>{error}</ErrorText>}
+      {result?.changed && (
+        <Button
+          variant="needs"
+          className="h-9 justify-center text-body"
+          disabled={action.pending || refreshing}
+          onClick={() => void reReview(action, task)}
+        >
+          Re-review
+        </Button>
+      )}
+      <Button
+        variant="default"
+        className="h-9 justify-center text-body"
+        disabled={refreshing || action.pending}
+        onClick={() => void refresh()}
+      >
+        {refreshing ? "Refreshing…" : "Refresh"}
+      </Button>
+      {url && (
+        <>
+          <Button variant="default" asChild className="h-9 justify-center text-body">
+            <a href={url} target="_blank" rel="noreferrer">
+              Open pull request
+            </a>
+          </Button>
+          <span className="mono truncate text-meta text-muted-foreground" title={url}>
+            {url}
+          </span>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
  * Finish: the summary on the left, and on the right every outbound action
  * as a pre-ticked checkbox showing exactly what is sent. Nothing leaves the
  * machine until the user confirms here. Once done, a delivered pull request
  * stays linked from the same panel, with Fetch comments and fix for its
  * review comments, and CI on the pushed commit shows there with Fix CI when
- * it failed.
+ * it failed. A posted review links its pull request, with Refresh and
+ * Re-review for the commits pushed since.
  */
 export function FinishPanel({
   task,
@@ -612,6 +689,7 @@ export function FinishPanel({
   const resolving =
     data.deliveryStep?.status === "running" ? data.deliveryConflicts.at(-1) : undefined;
   const delivered = task.status === "done" ? data.pullRequestUrl : undefined;
+  const reviewed = canReReview(task);
   // The review picks outlive the Outbound remount each plan refetch causes.
   const picks = useRef<(ReviewPicks & { taskId: string }) | null>(null);
   const taskId = task.id;
@@ -629,7 +707,7 @@ export function FinishPanel({
   return (
     <div className="flex min-h-0 flex-1 flex-wrap">
       <Summary task={task} data={data} />
-      {(atGate || delivered || task.ci) && (
+      {(atGate || delivered || reviewed || task.ci) && (
         <aside
           aria-label="Outbound actions"
           className="flex h-full max-w-[500px] min-w-0 flex-[1_1_440px] flex-col border-l border-border bg-sidebar"
@@ -644,9 +722,11 @@ export function FinishPanel({
             <span className="text-[12.5px] text-foreground">
               {atGate
                 ? "Nothing leaves this machine until you confirm. Untick anything you want to keep local."
-                : delivered
-                  ? "Delivered. The pull request is linked below."
-                  : "Delivered. CI on the pushed commit is below."}
+                : reviewed
+                  ? "Review posted. Refresh to check the pull request for new commits."
+                  : delivered
+                    ? "Delivered. The pull request is linked below."
+                    : "Delivered. CI on the pushed commit is below."}
             </span>
           </div>
           {atGate && ranUnrestricted(data.steps) && (
@@ -663,6 +743,7 @@ export function FinishPanel({
           )}
           {task.ci && <CiSection task={task} ci={task.ci} action={action} />}
           {!atGate && delivered && <Delivered url={delivered} task={task} action={action} />}
+          {!atGate && reviewed && <Reviewed key={task.id} task={task} action={action} />}
           {atGate && resolving && (
             <p
               role="status"

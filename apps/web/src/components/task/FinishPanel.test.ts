@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { modKeyLabel } from "../../keyboard";
 import { makeTask } from "../../test-fixtures";
-import { Outbound } from "./FinishPanel";
+import { Outbound, Reviewed } from "./FinishPanel";
 import type { TaskAction } from "./use-task-action";
 
 const plan: DeliveryPlan = {
@@ -58,5 +58,40 @@ describe("Outbound", () => {
     expect(confirm).not.toContain('disabled=""');
     expect(confirm).not.toContain("animate-spin");
     expect(confirm).toContain(modKeyLabel("↵"));
+  });
+});
+
+describe("Reviewed", () => {
+  function renderReviewed(task: Task): string {
+    const action: TaskAction = { pending: false, error: null, run: vi.fn(), clearError: vi.fn() };
+    return renderToStaticMarkup(
+      createElement(
+        QueryClientProvider,
+        { client: new QueryClient() },
+        createElement(Reviewed, { task, action }),
+      ),
+    );
+  }
+
+  it("offers Refresh and the pull request, but no Re-review before a refresh shows new commits", () => {
+    const html = renderReviewed(
+      makeTask({
+        status: "done",
+        mode: "review",
+        deliveryTargets: ["pr-review"],
+        origin: {
+          kind: "github-pr",
+          url: "https://github.com/acme/web/pull/914",
+          owner: "acme",
+          repo: "web",
+          number: 914,
+          connectionId: null,
+        },
+      }),
+    );
+    expect(button(html, "Refresh")).not.toContain('disabled=""');
+    expect(html).toContain("Open pull request");
+    expect(html).toContain('href="https://github.com/acme/web/pull/914"');
+    expect(html).not.toContain("Re-review");
   });
 });

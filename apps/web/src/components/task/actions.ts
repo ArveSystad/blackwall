@@ -3,6 +3,7 @@ import {
   archiveTask,
   fixCi as fixCiRequest,
   fixPrComments as fixPrCommentsRequest,
+  reReviewPullRequest,
   respondToGate,
   resumeTask,
   stopTask,
@@ -69,6 +70,11 @@ export function fixCi(action: TaskAction, task: Task) {
 /** Runs a fix round on the new comments on the task's pull request; it stops at Finish to push again. */
 export function fixPrComments(action: TaskAction, task: Task) {
   return action.run("Fetch comments and fix", () => fixPrCommentsRequest(task.id));
+}
+
+/** Reviews the commits pushed to the task's pull request since its review; it stops at triage. */
+export function reReview(action: TaskAction, task: Task) {
+  return action.run("Re-review", () => reReviewPullRequest(task.id));
 }
 
 export interface MessageRoute {

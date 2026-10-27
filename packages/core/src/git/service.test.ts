@@ -1209,6 +1209,131 @@ describe("fastForwardTo", () => {
   });
 });
 
+describe("fetchBranch, isAncestor and moveBranchTo", () => {
+  /** Another clone pushes `feature/pr` to origin; returns the clone and its tip. */
+  function pushPrBranch(): { other: string; tip: string } {
+    const other = join(root, "pr-author");
+    git(root, "clone", "--quiet", origin, other);
+    git(other, "config", "user.name", "Other");
+    git(other, "config", "user.email", "other@example.com");
+    git(other, "config", "commit.gpgsign", "false");
+    git(other, "switch", "--quiet", "-c", "feature/pr");
+    const tip = commit(other, "pr.txt", "pr\n", "pr work");
+    git(other, "push", "--quiet", "origin", "feature/pr");
+    return { other, tip };
+  }
+
+  async function prWorktree(id: string): Promise<string> {
+    const path = worktreePathFor(repo, id);
+    await service.createWorktree({
+      repoPath: repo,
+      worktreePath: path,
+      branch: "feature/pr",
+      checkout: { kind: "existing", fetch: true },
+    });
+    return path;
+  }
+
+  describe("fetchBranch", () => {
+    it("fetches a commit pushed to the remote branch, leaving the local branch alone", async () => {
+      const { other } = pushPrBranch();
+      const path = await prWorktree("pr1");
+      const before = git(path, "rev-parse", "HEAD");
+      const pushed = commit(other, "more.txt", "more\n", "more work");
+      git(other, "push", "--quiet", "origin", "feature/pr");
+
+      await expect(service.fetchBranch(path, "feature/pr")).resolves.toBe(pushed);
+      expect(git(repo, "rev-parse", "refs/remotes/origin/feature/pr")).toBe(pushed);
+      expect(git(path, "rev-parse", "HEAD")).toBe(before);
+    });
+
+    it("fetches a force-pushed remote branch and returns its rewritten sha", async () => {
+      const { other } = pushPrBranch();
+      const path = await prWorktree("pr2");
+      git(other, "reset", "--quiet", "--hard", "HEAD~1");
+      const rewritten = commit(other, "rewrite.txt", "rewrite\n", "rewritten");
+      git(other, "push", "--quiet", "--force", "origin", "feature/pr");
+
+      await expect(service.fetchBranch(path, "feature/pr")).resolves.toBe(rewritten);
+      expect(git(repo, "rev-parse", "refs/remotes/origin/feature/pr")).toBe(rewritten);
+    });
+  });
+
+  describe("isAncestor", () => {
+    /** A task branch forked from main's current tip with one commit of its own; returns that commit. */
+    async function forkCommit(id: string): Promise<string> {
+      const path = worktreePathFor(repo, id);
+      await service.createWorktree({
+        repoPath: repo,
+        worktreePath: path,
+        branch: `agent/${id}`,
+        checkout: { kind: "new" },
+      });
+      return commit(path, `${id}.txt`, `${id}\n`, `${id} work`);
+    }
+
+    it("is true for an ancestor and false for a non-ancestor", async () => {
+      const base = git(repo, "rev-parse", "HEAD");
+      const sibling = await forkCommit("side");
+      const tip = commit(repo, "tip.txt", "tip\n", "tip");
+
+      await expect(service.isAncestor(repo, base, tip)).resolves.toBe(true);
+      await expect(service.isAncestor(repo, tip, base)).resolves.toBe(false);
+      await expect(service.isAncestor(repo, sibling, tip)).resolves.toBe(false);
+      await expect(service.isAncestor(repo, tip, sibling)).resolves.toBe(false);
+    });
+  });
+
+  describe("moveBranchTo", () => {
+    it("resets the branch to the new sha and returns true", async () => {
+      const { other } = pushPrBranch();
+      const path = await prWorktree("pr3");
+      const head = git(path, "rev-parse", "HEAD");
+      commit(other, "more.txt", "more\n", "more work");
+      git(other, "push", "--quiet", "origin", "feature/pr");
+      const next = await service.fetchBranch(path, "feature/pr");
+
+      await expect(service.moveBranchTo(path, "feature/pr", next, head, "main")).resolves.toBe(
+        true,
+      );
+      expect(git(path, "rev-parse", "HEAD")).toBe(next);
+      expect(git(path, "status", "--porcelain")).toBe("");
+    });
+
+    it("leaves a dirty worktree alone, keeping its changes", async () => {
+      pushPrBranch();
+      const path = await prWorktree("pr4");
+      const head = git(path, "rev-parse", "HEAD");
+      write(path, "README.md", "edited\n");
+
+      await expect(service.moveBranchTo(path, "feature/pr", head, head, "main")).resolves.toBe(
+        false,
+      );
+      expect(git(path, "rev-parse", "HEAD")).toBe(head);
+      expect(readFileSync(join(path, "README.md"), "utf8")).toBe("edited\n");
+    });
+
+    it("leaves the branch alone when HEAD is not the expected head", async () => {
+      pushPrBranch();
+      const path = await prWorktree("pr5");
+      const head = git(path, "rev-parse", "HEAD");
+      const elsewhere = git(repo, "rev-parse", "main");
+
+      await expect(
+        service.moveBranchTo(path, "feature/pr", elsewhere, elsewhere, "main"),
+      ).resolves.toBe(false);
+      expect(git(path, "rev-parse", "HEAD")).toBe(head);
+    });
+
+    it("refuses a protected branch", async () => {
+      const main = git(repo, "rev-parse", "HEAD");
+      await expect(service.moveBranchTo(repo, "main", main, main)).rejects.toBeInstanceOf(
+        ProtectedBranchError,
+      );
+    });
+  });
+});
+
 describe("finishIntoMain after a fast-forward to origin/main", () => {
   async function syncedTask(id: string) {
     const path = worktreePathFor(repo, id);
