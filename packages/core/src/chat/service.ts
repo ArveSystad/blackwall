@@ -55,6 +55,8 @@ export interface ChatServiceOptions {
   /** Grill questions; the open ones of tasks at the `questions` gate reach the prompt. */
   questions: Pick<Repositories["grillQuestions"], "listByTask">;
   backlogItems: Pick<Repositories["backlogItems"], "list">;
+  /** The repo's memories; those relevant to the message (and the focused task) reach the prompt. */
+  memories: Pick<Repositories["memories"], "relevant">;
   messages: Pick<
     Repositories["chatMessages"],
     "list" | "latestSession" | "insert" | "setActions" | "deleteConversation"
@@ -142,6 +144,7 @@ export function createChatService({
   tasks,
   questions,
   backlogItems,
+  memories,
   messages,
   historyLimit = CHAT_HISTORY_LIMIT,
   modelFor,
@@ -311,6 +314,7 @@ export function createChatService({
         backlog: backlogItems.list(repo.id),
         questions: open,
         ...(focus ? { focus } : {}),
+        memories: memories.relevant(repo.id, [text, focusTask?.title].filter(Boolean).join(" ")),
         text,
       };
       // The user and assistant messages before the one being answered.

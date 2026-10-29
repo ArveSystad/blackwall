@@ -8,6 +8,7 @@ import {
   connectionSchema,
   findingSchema,
   grillQuestionSchema,
+  memorySchema,
   repoSchema,
   runSchema,
   stepEventSchema,
@@ -904,5 +905,171 @@ describe("shared schemas", () => {
     expect(
       grillQuestionSchema.parse(r.grillQuestions.create({ taskId: task.id, question: "?" })),
     ).toBeTruthy();
+  });
+});
+
+describe("memories", () => {
+  const note = (repoId: string, text: string, extra: Record<string, unknown> = {}) =>
+    r.memories.create({ repoId, kind: "convention", text, ...extra });
+  const texts = (ms: { text: string }[]) => ms.map((m) => m.text);
+
+  it("has FTS5 in the bundled SQLite", () => {
+    expect(() => opened.db.$client.exec("CREATE VIRTUAL TABLE t USING fts5(x)")).not.toThrow();
+  });
+
+  it("round-trips against the shared schema and marks user edits", () => {
+    const task = seedTask();
+    const m = note(task.repoId, "Use pnpm", { sourceTaskId: task.id, files: ["package.json"] });
+    expect(memorySchema.parse(m)).toEqual(m);
+    expect(m).toMatchObject({ pinned: false, awaitingMerge: false, editedAt: null });
+    expect(r.memories.update(m.id, { pinned: true }).editedAt).toBeNull();
+    const edited = r.memories.update(m.id, { text: "Use pnpm 11" }, { byUser: true });
+    expect(edited.editedAt).toBeInstanceOf(Date);
+    expect(edited).toMatchObject({ text: "Use pnpm 11", pinned: true });
+  });
+
+  it("ranks notes matching more terms higher and keeps repos apart", () => {
+    const task = seedTask();
+    const other = r.repos.create({ path: "/code/other", name: "other" });
+    note(task.repoId, "Unrelated note about colours");
+    note(task.repoId, "The login form posts to the auth service");
+    note(task.repoId, "The login page lives under routes");
+    note(other.id, "The login form in another repo posts to auth");
+    expect(texts(r.memories.relevant(task.repoId, "login form auth"))).toEqual([
+      "The login form posts to the auth service",
+      "The login page lives under routes",
+    ]);
+    expect(texts(r.memories.relevant(task.repoId, "login", { limit: 1 }))).toHaveLength(1);
+  });
+
+  it("puts pinned notes first and returns only them without usable terms", () => {
+    const task = seedTask();
+    note(task.repoId, "Pinned and unrelated", { pinned: true });
+    note(task.repoId, "Pinned about login", { pinned: true });
+    note(task.repoId, "Login matches strongly login");
+    expect(texts(r.memories.relevant(task.repoId, "login"))).toEqual([
+      "Pinned about login",
+      "Pinned and unrelated",
+      "Login matches strongly login",
+    ]);
+    for (const text of ["a an", ""]) {
+      expect(texts(r.memories.relevant(task.repoId, text))).toEqual([
+        "Pinned about login",
+        "Pinned and unrelated",
+      ]);
+    }
+  });
+
+  it("never throws on FTS syntax and matches on files", () => {
+    const task = seedTask();
+    note(task.repoId, "Keep the parser pure", { files: ["src/parser.ts"] });
+    for (const text of ['AND OR NOT ( ) * NEAR col: "x', '"""', "files:foo -bar ^baz"]) {
+      expect(() => r.memories.relevant(task.repoId, text)).not.toThrow();
+    }
+    expect(texts(r.memories.relevant(task.repoId, "parser.ts"))).toEqual(["Keep the parser pure"]);
+  });
+
+  it("leaves out the excluded task's unedited notes but keeps its user-edited ones", () => {
+    const task = seedTask();
+    note(task.repoId, "Own login note", { sourceTaskId: task.id });
+    const edited = note(task.repoId, "Edited login note", { sourceTaskId: task.id });
+    r.memories.update(edited.id, { pinned: true }, { byUser: true });
+    note(task.repoId, "Orphan login note");
+    expect(texts(r.memories.relevant(task.repoId, "login", { excludeTaskId: task.id }))).toEqual([
+      "Edited login note",
+      "Orphan login note",
+    ]);
+  });
+
+  it("replaces a task's unedited notes, keeps user edits and skips duplicates", () => {
+    const task = seedTask();
+    note(task.repoId, "Run codegen first");
+    const first = r.memories.replaceForTask(task.id, task.repoId, [
+      { kind: "pitfall", text: "Old note" },
+      { kind: "pitfall", text: "Kept by the user" },
+    ]);
+    r.memories.update(first[1]!.id, { text: "Kept by the user" }, { byUser: true });
+    const second = r.memories.replaceForTask(task.id, task.repoId, [
+      { kind: "command", text: "pnpm db:generate", files: ["drizzle.config.ts"] },
+      { kind: "pitfall", text: "  RUN CODEGEN FIRST " },
+      { kind: "pitfall", text: "kept by the user" },
+      { kind: "command", text: "PNPM db:generate" },
+    ]);
+    expect(texts(second)).toEqual(["pnpm db:generate"]);
+    expect(second[0]).toMatchObject({ sourceTaskId: task.id, files: ["drizzle.config.ts"] });
+    expect(texts(r.memories.listByRepo(task.repoId)).sort()).toEqual([
+      "Kept by the user",
+      "Run codegen first",
+      "pnpm db:generate",
+    ]);
+  });
+
+  it("holds review notes out of every read until they are released", () => {
+    const task = seedTask();
+    note(task.repoId, "Active login note");
+    const held = r.memories.replaceForTask(
+      task.id,
+      task.repoId,
+      [
+        { kind: "convention", text: "Held login note" },
+        { kind: "convention", text: "Second held login" },
+      ],
+      { awaitingMerge: true },
+    );
+    expect(held.every((m) => m.awaitingMerge)).toBe(true);
+    r.memories.update(held[1]!.id, { pinned: true });
+    expect(texts(r.memories.relevant(task.repoId, "login held"))).toEqual(["Active login note"]);
+    expect(texts(r.memories.listByRepo(task.repoId))).toEqual(["Active login note"]);
+    expect(r.memories.tasksAwaitingMerge()).toEqual([task.id]);
+
+    // Held notes are not duplicates of each other across tasks; release dedupes.
+    const other = r.tasks.create({
+      title: "x",
+      origin: { kind: "free-text" },
+      repoId: task.repoId,
+    });
+    r.memories.replaceForTask(other.id, task.repoId, [
+      { kind: "convention", text: "held login note" },
+    ]);
+    const released = r.memories.releaseForTask(task.id);
+    expect(texts(released)).toEqual(["Second held login"]);
+    expect(released[0]?.awaitingMerge).toBe(false);
+    expect(texts(r.memories.listByRepo(task.repoId)).sort()).toEqual([
+      "Active login note",
+      "Second held login",
+      "held login note",
+    ]);
+    expect(r.memories.tasksAwaitingMerge()).toEqual([]);
+  });
+
+  it("discards one task's held notes, or those whose task was deleted", () => {
+    const task = seedTask();
+    const other = r.tasks.create({
+      title: "x",
+      origin: { kind: "free-text" },
+      repoId: task.repoId,
+    });
+    r.memories.replaceForTask(task.id, task.repoId, [{ kind: "context", text: "A" }], {
+      awaitingMerge: true,
+    });
+    r.memories.replaceForTask(other.id, task.repoId, [{ kind: "context", text: "B" }], {
+      awaitingMerge: true,
+    });
+    note(task.repoId, "Orphan held", { awaitingMerge: true });
+    note(task.repoId, "Active", { sourceTaskId: task.id });
+    r.memories.discardAwaiting(task.id);
+    expect(r.memories.tasksAwaitingMerge()).toEqual([other.id]);
+    r.memories.discardAwaiting(null);
+    const all = opened.db.$client.prepare("SELECT text FROM memories ORDER BY text").all();
+    expect(all).toEqual([{ text: "Active" }, { text: "B" }]);
+  });
+
+  it("cascades with the repo and nulls the source when its task is deleted", () => {
+    const task = seedTask();
+    const m = note(task.repoId, "From the task", { sourceTaskId: task.id });
+    r.tasks.delete(task.id);
+    expect(r.memories.get(m.id)?.sourceTaskId).toBeNull();
+    r.repos.delete(task.repoId);
+    expect(r.memories.get(m.id)).toBeUndefined();
   });
 });

@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { SystemInfo, SystemTableStat } from "@blackwall/shared";
+import { rebuildMemoryIndex } from "../data/archive.js";
 import { DB_FILENAME, MIGRATIONS_DIR, type Db } from "../db/database.js";
 import type { Repositories } from "../db/repositories.js";
 import { ARTIFACTS_DIR } from "../pipeline/artifacts.js";
@@ -184,6 +185,8 @@ export function createSystemService({ dataDir, db, tasks }: SystemServiceOptions
       if (tasks.list().some((task) => task.status === "running")) throw new DatabaseBusyError();
       const before = files().totalBytes;
       sqlite.exec("VACUUM");
+      // VACUUM may renumber the memories' rowids, which their full-text index joins on.
+      rebuildMemoryIndex(sqlite);
       sqlite.pragma("wal_checkpoint(TRUNCATE)");
       const info = await snapshot();
       return { info, freedBytes: Math.max(0, before - info.database.totalBytes) };

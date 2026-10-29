@@ -1,6 +1,8 @@
 import {
   MAX_CHECK_RETRIES,
   MAX_GRILL_ROUNDS,
+  MAX_MEMORIES_PER_TASK,
+  MAX_MEMORY_CHARS,
   planAnswersOutputJsonSchema,
   planAnswersOutputSchema,
   planReviewOutputJsonSchema,
@@ -9,6 +11,7 @@ import {
   reviewOutputSchema,
   originRef,
   parseFollowUps,
+  parseMemories,
   shortSummarySchema,
   summaryCoreSchema,
   summaryOutputJsonSchema,
@@ -21,6 +24,7 @@ import {
   type Task,
 } from "@blackwall/shared";
 import type { AgentResult } from "../agents/adapters/types.js";
+import { memoriesPromptSection } from "../agents/prompts.js";
 import type { Repositories } from "../db/repositories.js";
 import type { NewFinding } from "../db/schema.js";
 import { describeGitError, hookOutput } from "../git/errors.js";
@@ -74,6 +78,19 @@ function section(title: string, body: string | null | undefined): string {
 
 function prompt(...parts: string[]): string {
   return parts.filter(Boolean).join("\n\n");
+}
+
+/**
+ * What blackwall remembers about the task's repo that bears on the task, as a
+ * prompt section; `excludeTaskId` leaves out that task's own unedited notes.
+ */
+function memoriesFor(ctx: StageContext, excludeTaskId?: string): string {
+  const { task } = ctx;
+  return memoriesPromptSection(
+    ctx.repositories.memories.relevant(task.repoId, `${task.title}\n${task.freeText}`, {
+      excludeTaskId,
+    }),
+  );
 }
 
 function describeOrigin(task: Task): string {
@@ -229,6 +246,7 @@ async function planReview(ctx: StageContext): Promise<StageResults["plan-review"
   const questions = repositories.grillQuestions.listByTask(task.id);
   const earlier = questionsByVisit(questions, steps).filter((q) => q.visit < visit);
   const open = () => openHumanQuestions(repositories.grillQuestions.listByTask(task.id));
+  const remembered = memoriesFor(ctx);
 
   // Earlier plan-review visits since Inform last wrote the plan; grill rounds are those the reviewers ran in.
   const sinceInform = steps
@@ -251,6 +269,7 @@ async function planReview(ctx: StageContext): Promise<StageResults["plan-review"
         `# Task\n\n${describeOrigin(task)}`,
         section("Plan", task.plan),
         section("Questions and answers", lastRound.map(describeQuestion).join("\n")),
+        remembered,
         "The user has answered the reviewers' open questions. Revise the plan so it follows every answer above, and reply with the full revised plan in markdown.",
       ),
     });
@@ -271,6 +290,7 @@ async function planReview(ctx: StageContext): Promise<StageResults["plan-review"
         section("Details", task.freeText),
         section("Plan", task.plan),
         section("Already answered", history.map(describeQuestion).join("\n")),
+        remembered,
         [
           "Grill this plan against the repository: gaps, ambiguities, risky assumptions and missing verification.",
           "Ask only questions whose answers would change the plan, and do not repeat questions already answered.",
@@ -321,6 +341,7 @@ async function planReview(ctx: StageContext): Promise<StageResults["plan-review"
       section("Plan", task.plan),
       section("Already answered", history.map(describeQuestion).join("\n")),
       section("Reviewers' questions", numbered),
+      remembered,
       [
         ...(ctx.autonomous
           ? [
@@ -1186,7 +1207,10 @@ export function withoutLeftovers(summary: string): string {
  * open to the full summary only. A reply that misses the output contract
  * still counts: its text becomes the summary. An invalid short summary is
  * stored as null and invalid follow-ups are dropped, without losing the
- * summary; each visit replaces the stored ones.
+ * summary; each visit replaces the stored ones. The summarizer also proposes
+ * memories: lasting facts about the repo, saved for later tasks in it. Each
+ * visit replaces the task's unedited ones; a pull request task's are held
+ * until its pull request merges into the repo's default branch.
  */
 async function summarize(ctx: StageContext): Promise<void> {
   const { task } = ctx;
@@ -1194,6 +1218,13 @@ async function summarize(ctx: StageContext): Promise<void> {
   const leftovers = leftoverFindings(findings);
   const ignored = findings.filter((f) => f.status === "force-ignore");
   const key = commitKey(task);
+  const userAnswers = ctx.repositories.grillQuestions
+    .listByTask(task.id)
+    .filter((q) => q.answeredBy === "user");
+  // A pull request task's memories count only once the pull request merges.
+  // Review PR tasks never reach Summarize today; the check covers them too.
+  const fromPr = ctx.pipeline === "review" || task.origin.kind === "github-pr";
+  const defaultBranch = ctx.repositories.repos.get(task.repoId)?.defaultBranch ?? "main";
   const result = await ctx.runAgent({
     agentId: single(task, "summarizer"),
     prompt: prompt(
@@ -1202,7 +1233,9 @@ async function summarize(ctx: StageContext): Promise<void> {
       section("Plan", task.plan),
       section("Findings left open", leftovers.map(describeFinding).join("\n")),
       section("Findings the user chose to ignore", ignored.map(describeFinding).join("\n")),
+      section("Answers the user gave", userAnswers.map(describeQuestion).join("\n")),
       followUpsPromptSection(ctx.repositories.repos.list(), task),
+      memoriesFor(ctx, task.id),
       [
         "Summarize the changes on this branch for the people reviewing it: what changed, the decisions made and why, and any findings the user chose to ignore.",
         "Read the branch's commits (`git log`, `git diff`) as needed. Do not list the findings left open; the harness appends them.",
@@ -1213,7 +1246,14 @@ async function summarize(ctx: StageContext): Promise<void> {
           ? `Do not mention ${key} in the commit message; the harness adds it after the type prefix.`
           : "",
         "Also write `shortSummary`: a brief description for the pull request and the issue comments, in 1–3 sentences or a few bullets, of the behavioural or visual change as users or reviewers see it. Leave out implementation details (files, functions, findings, design decisions) unless the task asks for them. No headings.",
-        'Reply with a JSON object `{ "summary": "<markdown>", "commitMessage": "<message>", "shortSummary": "<markdown>", "followUps": [{ "title": "<short title>", "description": "<what to do and why>", "repoId": null }] }`.',
+        `Also propose up to ${MAX_MEMORIES_PER_TASK} \`memories\`: lasting facts about this repo that a future task in it would want to know, each \`{ "kind", "text", "files" }\` with \`text\` at most ${MAX_MEMORY_CHARS} characters and \`files\` the repo-relative paths it is about, if any. Save only what stays true about the repo, not what this task changed.`,
+        "Kinds: `convention` (a rule the code follows), `pitfall` (a trap that cost time), `decision` (a lasting choice and why), `command` (how to build, test or run something), `context` (background the code does not explain).",
+        "An answer the user gave becomes a `decision` memory only when it sets a lasting rule for the repo, not just for this task.",
+        "Propose nothing the memories listed above already cover, even in other words; leave `memories` empty when there is nothing new worth keeping.",
+        fromPr
+          ? `These notes are kept only if this pull request is merged into \`${defaultBranch}\`; describe the repo as it will be once it is merged, and nothing that depends on review feedback being acted on.`
+          : "",
+        'Reply with a JSON object `{ "summary": "<markdown>", "commitMessage": "<message>", "shortSummary": "<markdown>", "followUps": [{ "title": "<short title>", "description": "<what to do and why>", "repoId": null }], "memories": [{ "kind": "convention", "text": "<one lasting fact>", "files": ["<path>"] }] }`.',
       ]
         .filter(Boolean)
         .join("\n"),
@@ -1224,13 +1264,20 @@ async function summarize(ctx: StageContext): Promise<void> {
   const text = parsed.success ? parsed.data.summary : result.text;
   const squash = parsed.success ? parsed.data.commitMessage : task.title;
   const short = shortSummarySchema.safeParse(result.structured);
-  const structured = result.structured as { followUps?: unknown } | null | undefined;
+  const structured = result.structured as
+    { followUps?: unknown; memories?: unknown } | null | undefined;
   ctx.updateTask({
     summary: finalSummary(text, findings),
     shortSummary: short.success ? short.data.shortSummary : null,
     squashMessage: commitMessage(squash, key),
     followUps: parseFollowUps(structured?.followUps),
   });
+  ctx.repositories.memories.replaceForTask(
+    task.id,
+    task.repoId,
+    parseMemories(structured?.memories),
+    { awaitingMerge: fromPr },
+  );
 }
 
 /**
@@ -1298,6 +1345,7 @@ export function createDefaultStages({
           context?.trim() ?? "",
           section("Details", task.freeText),
           section("Current plan", task.plan),
+          memoriesFor(ctx),
           section("Requested changes to the plan", ctx.instructions),
           followUpsPromptSection(ctx.repositories.repos.list(), task),
           [
@@ -1321,6 +1369,7 @@ export function createDefaultStages({
         prompt: prompt(
           `# Task\n\n${describeOrigin(task)}`,
           section("Approved plan", task.plan),
+          memoriesFor(ctx),
           section("Findings to fix", toFix.map(describeFinding).join("\n")),
           section(
             "Failed check",

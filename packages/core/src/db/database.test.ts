@@ -454,6 +454,38 @@ describe("openDatabase", () => {
     expect(createRepositories(opened.db).repos.get("r1")?.jiraProject).toBeNull();
   });
 
+  it("creates the memories table with its full-text index kept in sync by triggers", () => {
+    opened = openDatabase(dir);
+    const sqlite = opened.db.$client;
+    const tables = sqlite
+      .prepare("select name from sqlite_master where type = 'table' order by name")
+      .pluck()
+      .all();
+    expect(tables).toEqual(expect.arrayContaining(["memories", "memories_fts"]));
+    const columns = sqlite.prepare("select name from pragma_table_info('memories')").pluck().all();
+    expect(columns).toContain("awaiting_merge");
+
+    const matches = (q: string) =>
+      sqlite
+        .prepare(
+          "select memories.id from memories_fts join memories on memories.rowid = memories_fts.rowid where memories_fts match ?",
+        )
+        .pluck()
+        .all(q);
+    sqlite.exec(
+      `insert into repos (id, path, name, created_at, updated_at) values ('r1', '/code/app', 'app', 0, 0);
+       insert into memories (id, repo_id, kind, text, files, created_at, updated_at)
+         values ('m1', 'r1', 'pitfall', 'Run codegen first', '["gen.ts"]', 0, 0);`,
+    );
+    expect(matches("codegen")).toEqual(["m1"]);
+    expect(matches("gen")).toEqual(["m1"]);
+    sqlite.exec("update memories set text = 'Run migrations first' where id = 'm1'");
+    expect(matches("codegen")).toEqual([]);
+    expect(matches("migrations")).toEqual(["m1"]);
+    sqlite.exec("delete from memories where id = 'm1'");
+    expect(matches("migrations")).toEqual([]);
+  });
+
   it("keeps the backlog's pick order when priority is dropped", () => {
     // Build a database at the migration before the backlog priority was dropped.
     const oldMigrations = join(dir, "..", "migrations-0019");

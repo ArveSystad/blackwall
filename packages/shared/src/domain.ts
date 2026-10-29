@@ -325,6 +325,82 @@ export function parseFollowUps(raw: unknown): FollowUp[] {
 }
 
 // ---------------------------------------------------------------------------
+// Memories
+// ---------------------------------------------------------------------------
+
+/**
+ * What a memory is about: a convention to follow, a pitfall to avoid, a
+ * decision the user made, a command to run, or background context.
+ */
+export const MEMORY_KINDS = ["convention", "pitfall", "decision", "command", "context"] as const;
+export const memoryKindSchema = z.enum(MEMORY_KINDS);
+export type MemoryKind = z.infer<typeof memoryKindSchema>;
+
+/** Longest memory text. */
+export const MAX_MEMORY_CHARS = 500;
+
+/** Most memories kept from one summary. */
+export const MAX_MEMORIES_PER_TASK = 5;
+
+/**
+ * A lasting fact about a repo, saved by the summarizer and shown to later
+ * tasks and chats in that repo. Notes from reviews of someone else's pull
+ * request are held (`awaitingMerge`) until it merges into the repo's default
+ * branch.
+ */
+export const memorySchema = z.object({
+  id,
+  repoId: id,
+  /** The task that saved it; null once that task is deleted. */
+  sourceTaskId: id.nullable(),
+  kind: memoryKindSchema,
+  text: z.string().trim().min(1).max(MAX_MEMORY_CHARS),
+  /** Repo-relative paths it is about; null when none. */
+  files: z.array(z.string().min(1)).nullable(),
+  /** Always included in prompts, ahead of the search matches. */
+  pinned: z.boolean(),
+  /** Held until the reviewed pull request merges into the repo's default branch. */
+  awaitingMerge: z.boolean(),
+  /** When the user last edited it; null if never. Edited notes are never replaced. */
+  editedAt: timestamp.nullable(),
+  createdAt: timestamp,
+  updatedAt: timestamp,
+});
+export type Memory = z.infer<typeof memorySchema>;
+
+/** A memory to save. */
+export const memoryInputSchema = z.object({
+  kind: memoryKindSchema,
+  text: z.string().trim().min(1).max(MAX_MEMORY_CHARS),
+  files: z.array(z.string().trim().min(1)).nullable().optional(),
+});
+export type MemoryInput = z.infer<typeof memoryInputSchema>;
+
+/** A memory as the summarizer sends it; no caps, so the CLI never rejects the reply for one. */
+export const memoryWireSchema = z.object({
+  kind: z.string(),
+  text: z.string(),
+  files: z.array(z.string()).nullable().optional(),
+});
+
+/**
+ * The valid memories of a summarizer's reply: anything but an array gives
+ * none, invalid entries are dropped, empty `files` become null, and at most
+ * {@link MAX_MEMORIES_PER_TASK} kept.
+ */
+export function parseMemories(raw: unknown): MemoryInput[] {
+  if (!Array.isArray(raw)) return [];
+  const valid: MemoryInput[] = [];
+  for (const entry of raw) {
+    const parsed = memoryInputSchema.safeParse(entry);
+    if (!parsed.success) continue;
+    const files = parsed.data.files?.length ? parsed.data.files : null;
+    valid.push({ ...parsed.data, files });
+  }
+  return valid.slice(0, MAX_MEMORIES_PER_TASK);
+}
+
+// ---------------------------------------------------------------------------
 // Connections, repos, agents, tags, settings
 // ---------------------------------------------------------------------------
 
@@ -2192,14 +2268,16 @@ export const shortSummarySchema = z.object({
 /**
  * The summarizer's final answer: the task summary in markdown, a commit
  * message for squashing the task's commits into one, a short outward summary
- * for PR bodies and comments, and optional follow-up tasks. The follow-ups are
- * only checked for shape here (the CLI enforces this schema);
- * {@link parseFollowUps} drops the invalid ones.
+ * for PR bodies and comments, optional follow-up tasks and optional memories
+ * about the repo. The follow-ups and memories are only checked for shape here
+ * (the CLI enforces this schema); {@link parseFollowUps} and
+ * {@link parseMemories} drop the invalid ones.
  */
 export const summaryOutputSchema = summaryCoreSchema
   .extend({
     shortSummary: z.string().trim().min(1),
     followUps: z.array(followUpWireSchema).optional(),
+    memories: z.array(memoryWireSchema).optional(),
   })
   .strict();
 export type SummaryOutput = z.infer<typeof summaryOutputSchema>;

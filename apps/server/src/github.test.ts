@@ -314,6 +314,65 @@ describe("prBranchOwned", () => {
   });
 });
 
+describe("pullRequestMergeState", () => {
+  const signal = () => new AbortController().signal;
+
+  function fakePr(pr: { state: string; merged?: boolean; base?: string }) {
+    return vi.fn<typeof fetch>((input) => {
+      const path = new URL(String(input)).pathname;
+      const json = (body: unknown) =>
+        new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+      if (path === "/repos/acme/shop/pulls/42") {
+        return Promise.resolve(
+          json({
+            number: 42,
+            html_url: "https://acme.ghe.com/acme/shop/pull/42",
+            title: "Round invoice totals once",
+            state: pr.state,
+            ...(pr.merged === undefined ? {} : { merged: pr.merged }),
+            head: { ref: "fix/abc-123-rounding", sha: "abc" },
+            base: { ref: pr.base ?? "main", sha: "def" },
+          }),
+        );
+      }
+      return Promise.resolve(json([]));
+    });
+  }
+
+  it("reports an open, a merged and a closed unmerged pull request", async () => {
+    const cases = [
+      [{ state: "open" }, { state: "open", merged: false, baseRef: "main" }],
+      [
+        { state: "closed", merged: true, base: "develop" },
+        { state: "closed", merged: true, baseRef: "develop" },
+      ],
+      [
+        { state: "closed", merged: false },
+        { state: "closed", merged: false, baseRef: "main" },
+      ],
+    ] as const;
+    for (const [pr, expected] of cases) {
+      const github = createGitHubOrigin({ connections: connections([ghe]), fetch: fakePr(pr) });
+      expect(await github.pullRequestMergeState(prTask("g1"), signal())).toEqual(expected);
+    }
+  });
+
+  it("throws for a task that is not a pull request, or without a token", async () => {
+    const list = connections([ghe]);
+    const github = createGitHubOrigin({ connections: list, fetch: fakePr({ state: "open" }) });
+    const freeText = { ...prTask(null), origin: { kind: "free-text" } } as Task;
+    await expect(github.pullRequestMergeState(freeText, signal())).rejects.toThrow(
+      /has no pull request/,
+    );
+    list.requireCredential.mockRejectedValueOnce(
+      new MissingCredentialError("github", "acme.ghe.com", null),
+    );
+    await expect(github.pullRequestMergeState(prTask(null), signal())).rejects.toThrow(
+      MissingCredentialError,
+    );
+  });
+});
+
 describe("pullRequestComments", () => {
   const rootComment = {
     id: 101,

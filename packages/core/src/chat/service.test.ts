@@ -50,13 +50,18 @@ beforeEach(() => {
 function createService({
   cli = adapter,
   ...options
-}: { historyLimit?: number; cli?: AgentAdapter } = {}): ChatService {
+}: {
+  historyLimit?: number;
+  cli?: AgentAdapter;
+  memories?: Pick<Repositories["memories"], "relevant">;
+} = {}): ChatService {
   return createChatService({
     adapters: { claude: cli, copilot: cli },
     repos: r.repos,
     tasks: r.tasks,
     questions: r.grillQuestions,
     backlogItems: r.backlogItems,
+    memories: { relevant: () => [] },
     messages: r.chatMessages,
     modelFor: () => "planner-model",
     publish: (event) => events.push(event),
@@ -344,6 +349,25 @@ describe("chat service", () => {
     expect(focus).toContain(`- id \`${failed.id}\``);
     expect(focus).toContain("### Error\n\npnpm install failed: ENOTFOUND");
     expect(focus).toContain("### Plan\n\n## Plan\nSwap the hash");
+  });
+
+  it("gives the memories relevant to the message and the focused task", async () => {
+    const task = addTask("Fix login", repoId);
+    const note = r.memories.create({ repoId, kind: "pitfall", text: "Sessions expire in tests" });
+    const relevant = vi.fn(() => [note]);
+    chat.shutdown();
+    chat = createService({ memories: { relevant } });
+
+    chat.send(repoId, "Why do sessions break?", task.id);
+    await idle(repoId, task.id);
+    const prompt = adapter.calls[0]!.options.prompt;
+    expect(prompt).toContain("## What blackwall remembers about this repo");
+    expect(prompt).toContain("- [pitfall] Sessions expire in tests");
+    expect(relevant).toHaveBeenCalledWith(
+      repoId,
+      expect.stringContaining("Why do sessions break?"),
+    );
+    expect(relevant).toHaveBeenCalledWith(repoId, expect.stringContaining("Fix login"));
   });
 
   it("keeps a task's chat apart from the repo's and publishes it with the task id", async () => {

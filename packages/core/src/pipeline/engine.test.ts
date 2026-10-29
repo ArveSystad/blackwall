@@ -3324,6 +3324,167 @@ describe("summarize and finish", () => {
     });
   });
 
+  describe("memories", () => {
+    const memory = (text: string, kind = "convention") => ({ kind, text, files: null });
+    const summarizing =
+      (memories: unknown, extra: (stage: Call) => FakeScript = () => ({})) =>
+      (stage: Call) =>
+        stage === "summarize"
+          ? { structured: { summary: "Did it.", commitMessage: "Fix login", memories } }
+          : extra(stage);
+    const lowFinding: ReviewFinding = { ...highFinding, severity: "low", title: "Typo" };
+    const summaries = (h: Harness) =>
+      h.calls.filter((c) => c.stage === "summarize").map((c) => c.options.prompt);
+    const REVIEW_LINE = "These notes are kept only if this pull request is merged into";
+
+    /** Drives an already seeded task to the finish gate. */
+    async function drive(h: Harness, seeded: Task) {
+      h.engine.enqueue(seeded.id);
+      await settle(h.engine);
+      await h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" });
+      await settle(h.engine);
+      expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
+    }
+
+    /** Force-fixes the low finding at the finish gate, so Summarize runs again. */
+    async function summarizeAgain(h: Harness, seeded: Task) {
+      const [low] = r.findings.listByTask(seeded.id);
+      h.engine.overrideFinding(seeded.id, low!.id, { status: "force-fix" });
+      await settle(h.engine);
+      expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
+    }
+
+    it("saves the proposed memories for the task's repo", async () => {
+      const h = harness(summarizing([memory("Login uses argon2", "decision")]));
+      const seeded = await atFinish(h);
+      expect(r.memories.listByRepo(seeded.repoId)).toMatchObject([
+        {
+          kind: "decision",
+          text: "Login uses argon2",
+          sourceTaskId: seeded.id,
+          awaitingMerge: false,
+        },
+      ]);
+      expect(summaries(h)[0]).not.toContain(REVIEW_LINE);
+    });
+
+    it("keeps the summary and saves only the valid memories", async () => {
+      const h = harness(
+        summarizing([memory("x".repeat(501)), memory("Rumour", "gossip"), memory("Valid one")]),
+      );
+      const seeded = await atFinish(h);
+      expect(task(seeded.id).summary).toBe("Did it.");
+      expect(r.memories.listByRepo(seeded.repoId).map((m) => m.text)).toEqual(["Valid one"]);
+
+      const bad = harness(summarizing("oops"));
+      const other = await atFinish(bad);
+      expect(task(other.id).summary).toBe("Did it.");
+      expect(r.memories.listByRepo(other.repoId).map((m) => m.text)).toEqual(["Valid one"]);
+    });
+
+    it("replaces the task's own notes on another visit, keeping the user's edits", async () => {
+      let reviews = 0;
+      const h = harness(
+        summarizing([memory("Login form posts JSON")], (stage) =>
+          stage === "code-review"
+            ? { structured: { findings: reviews++ === 0 ? [lowFinding] : [] } }
+            : {},
+        ),
+      );
+      const seeded = await atFinish(h);
+      const [own] = r.memories.listByRepo(seeded.repoId);
+      const edited = r.memories.create({
+        repoId: seeded.repoId,
+        sourceTaskId: seeded.id,
+        kind: "pitfall",
+        text: "Login needs a CSRF token",
+      });
+      r.memories.update(edited.id, { text: "Login needs a CSRF token" }, { byUser: true });
+
+      await summarizeAgain(h, seeded);
+      expect(r.memories.listByRepo(seeded.repoId).map((m) => m.text)).toEqual([
+        "Login form posts JSON",
+        "Login needs a CSRF token",
+      ]);
+      expect(r.memories.listByRepo(seeded.repoId)[0]!.id).not.toBe(own!.id);
+      // The second summary sees the user's note, not its own unedited one.
+      const second = summaries(h)[1]!;
+      expect(second).toContain("Login needs a CSRF token");
+      expect(second).not.toContain("Login form posts JSON");
+    });
+
+    it("shows the repo's notes and the user's answers to the summarizer", async () => {
+      const earlier = seedTask({ title: "Earlier" });
+      r.memories.create({
+        repoId: earlier.repoId,
+        sourceTaskId: earlier.id,
+        kind: "convention",
+        text: "Login errors never name the user",
+      });
+      const seeded = seedTask();
+      r.grillQuestions.create({
+        taskId: seeded.id,
+        stepId: null,
+        question: "Should empty passwords be logged?",
+        needsHuman: true,
+        answer: "Never log passwords",
+        answeredBy: "user",
+        answeredAt: new Date(),
+      });
+      const h = harness((stage) =>
+        stage === "summarize"
+          ? { structured: { summary: "Did it.", commitMessage: "Fix login" } }
+          : {},
+      );
+      await drive(h, seeded);
+      const prompt = summaries(h)[0]!;
+      expect(prompt).toContain("## What blackwall remembers about this repo");
+      expect(prompt).toContain("- [convention] Login errors never name the user");
+      expect(prompt).toContain("even in other words");
+      expect(prompt).toContain(
+        "## Answers the user gave\n\n- Should empty passwords be logged?\n  Answer (user): Never log passwords",
+      );
+      // Only the summarizer saves memories, and it proposed none.
+      expect(r.memories.listByRepo(seeded.repoId).map((m) => m.text)).toEqual([
+        "Login errors never name the user",
+      ]);
+    });
+
+    it("holds a pull request task's memories until the pull request merges", async () => {
+      const h = harness(summarizing([memory("Login lives in src/auth")]));
+      const seeded = await atFinish(h, { origin: prOrigin(), mode: "work" });
+      expect(r.memories.listByRepo(seeded.repoId)).toEqual([]);
+      expect(r.memories.relevant(seeded.repoId, "login auth")).toEqual([]);
+      expect(r.memories.tasksAwaitingMerge()).toEqual([seeded.id]);
+      expect(summaries(h)[0]).toContain(`${REVIEW_LINE} \`main\``);
+    });
+
+    it("gives the relevant notes to Inform, Plan review and Implement", async () => {
+      const seeded = seedTask();
+      r.memories.create({
+        repoId: seeded.repoId,
+        kind: "pitfall",
+        text: "Login tests need the fake clock",
+      });
+      let asked = 0;
+      const h = harness((stage) => {
+        if (stage === "plan-review" && asked++ === 0) {
+          return { structured: { questions: [{ question: "Which hash?", needsHuman: false }] } };
+        }
+        if (stage === "plan-answers") {
+          return { structured: { answers: [{ question: 1, answer: "argon2" }], plan: "p2" } };
+        }
+        return {};
+      });
+      await drive(h, seeded);
+      for (const stage of ["inform", "plan-review", "plan-answers", "implement"] as const) {
+        const prompt = h.calls.find((c) => c.stage === stage)!.options.prompt;
+        expect(prompt, stage).toContain("## What blackwall remembers about this repo");
+        expect(prompt, stage).toContain("- [pitfall] Login tests need the fake clock");
+      }
+    });
+  });
+
   it("takes the summarizer's text when it misses the output contract", async () => {
     const h = harness((stage) => (stage === "summarize" ? { text: "Plain summary" } : {}));
     const seeded = await atFinish(h);

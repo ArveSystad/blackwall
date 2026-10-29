@@ -17,6 +17,7 @@ import {
   createDeliverer,
   createGitService,
   createKeyringSecretStore,
+  createMemoryReleaser,
   createPipelineEngine,
   createQuotaTracker,
   createRepoService,
@@ -191,6 +192,13 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       publish,
     });
     shutdown.onShutdown(() => ciWatcher.stop());
+    // Releases PR tasks' memories once their pull request merges into the default branch.
+    const memoryReleaser = createMemoryReleaser({
+      repositories,
+      prMergeState: github.pullRequestMergeState,
+    });
+    memoryReleaser.start();
+    shutdown.onShutdown(() => memoryReleaser.stop());
     const adapters = {
       claude: createClaudeAdapter(),
       copilot: createCopilotAdapter(),
@@ -268,6 +276,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       tasks: repositories.tasks,
       questions: repositories.grillQuestions,
       backlogItems: repositories.backlogItems,
+      memories: repositories.memories,
       messages: repositories.chatMessages,
       modelFor,
       publish,

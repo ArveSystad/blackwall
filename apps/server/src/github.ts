@@ -9,6 +9,7 @@ import {
   type OpenPullRequestAction,
   type OriginContextProvider,
   type PullRequestFeedback,
+  type PullRequestMergeState,
   type RepoService,
 } from "@blackwall/core";
 import {
@@ -466,6 +467,23 @@ export function createGitHubOrigin({ connections, fetch: fetchImpl }: GitHubOrig
         commits,
         viewer.login,
       );
+    },
+
+    /**
+     * Whether the PR task's pull request is open or closed, and if merged,
+     * into which branch; the memory releaser asks this. Throws for other
+     * tasks, without a token and on GitHub failures.
+     */
+    async pullRequestMergeState(task: Task, signal?: AbortSignal): Promise<PullRequestMergeState> {
+      const origin = requirePr(task);
+      const client = await prClient(origin);
+      signal?.throwIfAborted();
+      const pr = await client.getPullRequest(origin, signal);
+      return {
+        state: pr.state === "closed" ? "closed" : "open",
+        merged: pr.merged ?? false,
+        baseRef: pr.base.ref,
+      };
     },
   };
 }

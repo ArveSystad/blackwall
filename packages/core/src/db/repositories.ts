@@ -12,6 +12,8 @@ import type {
   FindingStatus,
   GrillAnswerer,
   GrillQuestion,
+  Memory,
+  MemoryInput,
   PrBranch,
   Repo,
   Run,
@@ -31,6 +33,7 @@ import {
   connections,
   findings,
   grillQuestions,
+  memories,
   repos,
   runs,
   settings,
@@ -44,6 +47,7 @@ import {
   type NewConnection,
   type NewFinding,
   type NewGrillQuestion,
+  type NewMemory,
   type NewRepo,
   type NewStep,
   type NewTask,
@@ -748,6 +752,232 @@ export function createGrillQuestionsRepository(db: Db) {
   };
 }
 
+/** Memory fields that can change after creation. */
+export type MemoryPatch = Partial<Pick<NewMemory, "kind" | "text" | "files" | "pinned">>;
+
+/** Most search terms taken from the text `relevant` matches on. */
+const MAX_MEMORY_TERMS = 32;
+
+/** How two notes are compared for duplicates. */
+const normalise = (text: string) => text.trim().toLowerCase();
+
+/**
+ * An FTS5 query matching any word of `text` of at least 3 characters, each
+ * quoted as a phrase so FTS syntax in it is never interpreted; empty when none.
+ */
+function memoryQuery(text: string): string {
+  const terms = [...new Set(text.split(/\s+/).filter((t) => t.length >= 3))];
+  return terms
+    .slice(0, MAX_MEMORY_TERMS)
+    .map((t) => `"${t.replaceAll('"', '""')}"`)
+    .join(" OR ");
+}
+
+export function createMemoriesRepository(db: Db) {
+  /** Normalised texts of the repo's active (not held) notes. */
+  const activeTexts = (tx: Tx, repoId: string) =>
+    new Set(
+      tx
+        .select({ text: memories.text })
+        .from(memories)
+        .where(and(eq(memories.repoId, repoId), eq(memories.awaitingMerge, false)))
+        .all()
+        .map((m) => normalise(m.text)),
+    );
+
+  return {
+    get(id: string): Memory | undefined {
+      return db.select().from(memories).where(eq(memories.id, id)).get();
+    },
+    create(values: NewMemory): Memory {
+      return db.insert(memories).values(values).returning().get();
+    },
+    /** Edits a note; `byUser` marks it edited, so Summarize never replaces it. */
+    update(id: string, patch: MemoryPatch, { byUser = false }: { byUser?: boolean } = {}): Memory {
+      return required(
+        db
+          .update(memories)
+          .set(byUser ? { ...patch, editedAt: new Date() } : patch)
+          .where(eq(memories.id, id))
+          .returning()
+          .get(),
+        `Memory ${id}`,
+      );
+    },
+    delete(id: string): void {
+      db.delete(memories).where(eq(memories.id, id)).run();
+    },
+    /** The repo's active notes (held ones left out): pinned first, then newest. */
+    listByRepo(repoId: string): Memory[] {
+      return db
+        .select()
+        .from(memories)
+        .where(and(eq(memories.repoId, repoId), eq(memories.awaitingMerge, false)))
+        .orderBy(desc(memories.pinned), desc(memories.createdAt), desc(rowid))
+        .all();
+    },
+    /**
+     * Replaces the task's notes the user never edited (held or not) with
+     * `items`, skipping any whose text an active note in the repo or an
+     * earlier item already has. Returns the inserted notes.
+     */
+    replaceForTask(
+      taskId: string,
+      repoId: string,
+      items: readonly MemoryInput[],
+      { awaitingMerge = false }: { awaitingMerge?: boolean } = {},
+    ): Memory[] {
+      return db.transaction((tx) => {
+        tx.delete(memories)
+          .where(and(eq(memories.sourceTaskId, taskId), isNull(memories.editedAt)))
+          .run();
+        const seen = activeTexts(tx, repoId);
+        const inserted: Memory[] = [];
+        for (const item of items) {
+          const key = normalise(item.text);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          inserted.push(
+            tx
+              .insert(memories)
+              .values({
+                repoId,
+                sourceTaskId: taskId,
+                kind: item.kind,
+                text: item.text,
+                files: item.files ?? null,
+                awaitingMerge,
+              })
+              .returning()
+              .get(),
+          );
+        }
+        return inserted;
+      });
+    },
+    /** Tasks with notes held until their pull request merges. */
+    tasksAwaitingMerge(): string[] {
+      return db
+        .selectDistinct({ taskId: memories.sourceTaskId })
+        .from(memories)
+        .where(and(eq(memories.awaitingMerge, true), isNotNull(memories.sourceTaskId)))
+        .all()
+        .flatMap((m) => (m.taskId === null ? [] : [m.taskId]));
+    },
+    /**
+     * Makes the task's held notes active, dropping any whose text an active
+     * note in the repo now has. Returns the released notes.
+     */
+    releaseForTask(taskId: string): Memory[] {
+      return db.transaction((tx) => {
+        const held = tx
+          .select()
+          .from(memories)
+          .where(and(eq(memories.sourceTaskId, taskId), eq(memories.awaitingMerge, true)))
+          .orderBy(asc(memories.createdAt), asc(rowid))
+          .all();
+        const seen = new Map<string, Set<string>>();
+        const released: Memory[] = [];
+        for (const note of held) {
+          let texts = seen.get(note.repoId);
+          if (!texts) seen.set(note.repoId, (texts = activeTexts(tx, note.repoId)));
+          const key = normalise(note.text);
+          if (texts.has(key)) {
+            tx.delete(memories).where(eq(memories.id, note.id)).run();
+            continue;
+          }
+          texts.add(key);
+          released.push(
+            required(
+              tx
+                .update(memories)
+                .set({ awaitingMerge: false })
+                .where(eq(memories.id, note.id))
+                .returning()
+                .get(),
+              `Memory ${note.id}`,
+            ),
+          );
+        }
+        return released;
+      });
+    },
+    /**
+     * Deletes the task's held notes; with null, the held notes whose task was
+     * deleted, which can never be released.
+     */
+    discardAwaiting(taskId: string | null): void {
+      db.delete(memories)
+        .where(
+          and(
+            eq(memories.awaitingMerge, true),
+            taskId === null ? isNull(memories.sourceTaskId) : eq(memories.sourceTaskId, taskId),
+          ),
+        )
+        .run();
+    },
+    /**
+     * The repo's active notes most relevant to `text`: every pinned note
+     * (matching ones first), then the best full-text matches, at most `limit`.
+     * `excludeTaskId` leaves out that task's notes the user never edited.
+     */
+    relevant(
+      repoId: string,
+      text: string,
+      {
+        limit = 8,
+        excludeTaskId,
+      }: { limit?: number | undefined; excludeTaskId?: string | undefined } = {},
+    ): Memory[] {
+      // `IS NOT`, so notes whose task was deleted (null) are kept.
+      const notOwn =
+        excludeTaskId === undefined
+          ? sql`1`
+          : sql`(${memories.sourceTaskId} IS NOT ${excludeTaskId} OR ${memories.editedAt} IS NOT NULL)`;
+      const pinned = db
+        .select()
+        .from(memories)
+        .where(
+          and(
+            eq(memories.repoId, repoId),
+            eq(memories.awaitingMerge, false),
+            eq(memories.pinned, true),
+            notOwn,
+          ),
+        )
+        .orderBy(desc(memories.createdAt), desc(rowid))
+        .all();
+      const query = memoryQuery(text);
+      if (!query) return pinned.slice(0, limit);
+      let ids: string[];
+      try {
+        ids = db
+          .all<{ id: string }>(
+            sql`SELECT memories.id AS id FROM memories_fts
+              JOIN memories ON memories.rowid = memories_fts.rowid
+              WHERE memories_fts MATCH ${query} AND memories.repo_id = ${repoId}
+                AND memories.awaiting_merge = 0 AND ${notOwn}
+              ORDER BY bm25(memories_fts) LIMIT ${limit + pinned.length}`,
+          )
+          .map((m) => m.id);
+      } catch {
+        return pinned.slice(0, limit);
+      }
+      const rank = new Map(ids.map((id, i) => [id, i]));
+      const byRank = (a: Memory, b: Memory) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0);
+      const matches =
+        ids.length === 0
+          ? []
+          : db.select().from(memories).where(inArray(memories.id, ids)).all().sort(byRank);
+      return [
+        ...pinned.filter((m) => rank.has(m.id)).sort(byRank),
+        ...pinned.filter((m) => !rank.has(m.id)),
+        ...matches.filter((m) => !m.pinned),
+      ].slice(0, limit);
+    },
+  };
+}
+
 export function createRepositories(db: Db) {
   return {
     settings: createSettingsRepository(db),
@@ -763,6 +993,7 @@ export function createRepositories(db: Db) {
     stepEvents: createStepEventsRepository(db),
     findings: createFindingsRepository(db),
     grillQuestions: createGrillQuestionsRepository(db),
+    memories: createMemoriesRepository(db),
     /** Runs `fn` in one transaction; repository calls inside it nest as savepoints. */
     transaction<T>(fn: () => T): T {
       return db.transaction(() => fn());

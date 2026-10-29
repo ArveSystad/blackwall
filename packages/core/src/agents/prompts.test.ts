@@ -6,6 +6,8 @@ import {
   chatStatePrompt,
   chatSystemPrompt,
   findingsContract,
+  MEMORIES_PROMPT_CHARS,
+  memoriesPromptSection,
   missingPlanSections,
   PLAN_SECTIONS,
   voiceCommandPrompt,
@@ -343,6 +345,51 @@ describe("chat prompts", () => {
     expect(chatSystemPrompt()).toContain(
       "When the focused task lists a worktree, the current directory is that worktree",
     );
+  });
+});
+
+describe("memoriesPromptSection", () => {
+  const memory = (text: string, extra: object = {}) => ({
+    kind: "convention" as const,
+    text,
+    files: null,
+    pinned: false,
+    ...extra,
+  });
+
+  it("is empty without notes", () => {
+    expect(memoriesPromptSection([])).toBe("");
+  });
+
+  it("shows the heading, the stale warning, kind, files and pinned", () => {
+    const section = memoriesPromptSection([
+      memory("Use pnpm", { pinned: true }),
+      memory("Run codegen first", { kind: "pitfall", files: ["gen.ts", "schema.ts"] }),
+    ]);
+    expect(section).toContain("## What blackwall remembers about this repo");
+    expect(section).toContain("when a note disagrees with the code, the code wins");
+    expect(section).toContain("- [convention] Use pnpm (pinned)\n");
+    expect(section).toContain("- [pitfall] Run codegen first (files: gen.ts, schema.ts)");
+  });
+
+  it("caps the section without cutting a note", () => {
+    const notes = Array.from({ length: 20 }, (_, i) => memory(`${i} ${"x".repeat(400)}`));
+    const section = memoriesPromptSection(notes);
+    expect(section.length).toBeLessThanOrEqual(MEMORIES_PROMPT_CHARS);
+    const bullets = section.split("\n").filter((l) => l.startsWith("- "));
+    expect(bullets.length).toBeGreaterThan(5);
+    expect(bullets.length).toBeLessThan(20);
+    for (const b of bullets) expect(b).toMatch(/x{400}$/);
+  });
+
+  it("goes into the chat state only when there are notes", () => {
+    const base = { tasks: [], backlog: [], text: "Next?" };
+    const prompt = chatStatePrompt({ ...base, memories: [memory("Use pnpm")] });
+    expect(prompt).toContain("## What blackwall remembers about this repo");
+    expect(prompt.indexOf("### Backlog")).toBeLessThan(prompt.indexOf("Use pnpm"));
+    expect(prompt.indexOf("Use pnpm")).toBeLessThan(prompt.indexOf("## Message"));
+    expect(chatStatePrompt({ ...base, memories: [] })).toBe(chatStatePrompt(base));
+    expect(chatStatePrompt(base)).not.toContain("What blackwall remembers");
   });
 });
 

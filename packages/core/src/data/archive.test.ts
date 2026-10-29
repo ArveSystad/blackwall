@@ -63,7 +63,7 @@ function dump(sqlite: Sqlite): Record<string, unknown[]> {
   const tables = sqlite
     .prepare(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' " +
-        "AND name <> '__drizzle_migrations' ORDER BY name",
+        "AND name <> '__drizzle_migrations' AND name NOT LIKE 'memories_fts%' ORDER BY name",
     )
     .pluck()
     .all() as string[];
@@ -112,6 +112,12 @@ async function seed(r: Repositories) {
     },
   ]);
   r.grillQuestions.create({ taskId: task.id, runId: run.id, question: "Why?" });
+  r.memories.create({
+    repoId: repo.id,
+    sourceTaskId: task.id,
+    kind: "pitfall",
+    text: "Regenerate the client after editing the schema",
+  });
   return { connection, repo, task, run, step };
 }
 
@@ -164,6 +170,21 @@ describe("createExportArchive", () => {
       authMeta: { login: "octo" },
       tokenSet: false,
     });
+  });
+
+  it("rebuilds the memories' full-text index on import", async () => {
+    const source = open("source");
+    const { repo } = await seed(source.r);
+    const target = open("target");
+    const archive = readImportArchive(exportOf(source.sqlite));
+    try {
+      restoreDatabase(target.sqlite, archive.dbPath);
+    } finally {
+      archive.cleanup();
+    }
+    expect(target.r.memories.relevant(repo.id, "regenerate").map((m) => m.text)).toEqual([
+      "Regenerate the client after editing the schema",
+    ]);
   });
 
   it("drops only transcript events from a light export", async () => {

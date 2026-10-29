@@ -6,6 +6,7 @@ import {
   type BacklogItem,
   type Gate,
   type GrillQuestion,
+  type Memory,
   type PermissionProfile,
   type Repo,
   type Stage,
@@ -314,6 +315,35 @@ function focusSection({ task, questions, worktree }: ChatFocus): string[] {
   ];
 }
 
+/** Longest the memories section gets; whole notes are added until the next would pass it. */
+export const MEMORIES_PROMPT_CHARS = 4000;
+
+/** A saved memory as prompts show it. */
+export type PromptMemory = Pick<Memory, "kind" | "text" | "files" | "pinned">;
+
+/**
+ * What blackwall remembers about the repo, as a prompt section: one bullet per
+ * note, most relevant first, up to {@link MEMORIES_PROMPT_CHARS}. Empty when
+ * there are no notes.
+ */
+export function memoriesPromptSection(memories: readonly PromptMemory[]): string {
+  if (memories.length === 0) return "";
+  const head = [
+    "## What blackwall remembers about this repo",
+    "",
+    "Notes saved by earlier tasks in this repo. They may be stale: when a note disagrees with the code, the code wins.",
+    "",
+  ].join("\n");
+  let out = head;
+  for (const m of memories) {
+    const files = m.files?.length ? ` (files: ${m.files.join(", ")})` : "";
+    const line = `- [${m.kind}] ${m.text.replace(/\s+/g, " ").trim()}${files}${m.pinned ? " (pinned)" : ""}\n`;
+    if (out.length + line.length > MEMORIES_PROMPT_CHARS) break;
+    out += line;
+  }
+  return out === head ? "" : out.trimEnd();
+}
+
 /** Longest earlier chat message carried into a fresh session's prompt. */
 export const CHAT_HISTORY_ENTRY_CHARS = 2000;
 
@@ -337,7 +367,8 @@ function historyEntry({ role, text }: ChatHistoryEntry): string {
  * unarchived tasks (with the error of failed and interrupted ones, and the
  * open questions per task in `questions`) and backlog items, then the user's
  * text. A `focus` task adds a `Focused task` section with its error, plan and
- * open questions in full. A turn that starts a new CLI session also gets the
+ * open questions in full. Relevant `memories` about the repo follow the
+ * backlog. A turn that starts a new CLI session also gets the
  * earlier conversation, each message truncated to
  * {@link CHAT_HISTORY_ENTRY_CHARS}.
  */
@@ -348,6 +379,7 @@ export function chatStatePrompt({
   questions = {},
   focus,
   history = [],
+  memories = [],
 }: {
   tasks: readonly ChatStateTask[];
   backlog: readonly ChatStateBacklogItem[];
@@ -356,7 +388,10 @@ export function chatStatePrompt({
   questions?: Readonly<Record<string, readonly ChatStateQuestion[]>>;
   focus?: ChatFocus;
   history?: readonly ChatHistoryEntry[];
+  /** What blackwall remembers about the repo that bears on this message. */
+  memories?: readonly PromptMemory[];
 }): string {
+  const remembered = memoriesPromptSection(memories);
   const taskLines = tasks.flatMap((t) => [
     [
       `- \`${t.id}\` ${t.title}`,
@@ -389,6 +424,7 @@ export function chatStatePrompt({
     "",
     ...(backlogLines.length > 0 ? backlogLines : ["(none)"]),
     "",
+    ...(remembered ? [remembered, ""] : []),
     ...(history.length > 0
       ? ["## Earlier conversation", "", ...history.flatMap((h) => [historyEntry(h), ""])]
       : []),

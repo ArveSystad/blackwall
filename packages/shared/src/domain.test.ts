@@ -42,6 +42,8 @@ import {
   newBacklogItemInputSchema,
   newTaskInputSchema,
   parseFollowUps,
+  parseMemories,
+  MAX_MEMORIES_PER_TASK,
   planAnswersOutputJsonSchema,
   planAnswersOutputSchema,
   planReviewOutputJsonSchema,
@@ -1241,6 +1243,19 @@ describe("delivery", () => {
     expect(summaryOutputSchema.safeParse({ ...output, extra: 1 }).success).toBe(false);
   });
 
+  it("takes optional memories in the summarizer's output", () => {
+    const output = {
+      summary: "Did it",
+      commitMessage: "Do it",
+      shortSummary: "It works",
+      memories: [{ kind: "pitfall", text: "Run codegen first", files: ["gen.ts"] }],
+    };
+    expect(summaryOutputSchema.parse(output)).toEqual(output);
+    const without = { summary: "Did it", commitMessage: "Do it", shortSummary: "It works" };
+    expect(summaryOutputSchema.parse(without)).toEqual(without);
+    expect(summaryOutputSchema.safeParse({ ...output, memories: "oops" }).success).toBe(false);
+  });
+
   it("puts no caps or dependencies on follow-ups in the JSON Schema", () => {
     const json = summaryOutputJsonSchema() as {
       properties: { followUps: { maxItems?: number; items: Record<string, unknown> } };
@@ -1288,6 +1303,37 @@ describe("parseFollowUps", () => {
     expect(parsed).toHaveLength(MAX_FOLLOW_UPS);
     expect(parsed[0]).toEqual({ title: "Add tests", description: "Cover login", repoId: "r2" });
     expect(parsed.slice(1).map((f) => f.title)).toEqual(["Task 1", "Task 2", "Task 3", "Task 4"]);
+  });
+});
+
+describe("parseMemories", () => {
+  const valid = (n: number) => ({ kind: "convention", text: `Note ${n}` });
+
+  it("gives none for anything but an array", () => {
+    expect(parseMemories(undefined)).toEqual([]);
+    expect(parseMemories("oops")).toEqual([]);
+    expect(parseMemories({ kind: "convention", text: "x" })).toEqual([]);
+  });
+
+  it("drops invalid entries, trims, nulls empty files and keeps at most five", () => {
+    const parsed = parseMemories([
+      { kind: "pitfall", text: "  Run codegen first  ", files: [], extra: 1 },
+      { kind: "rumour", text: "Unknown kind" },
+      { kind: "context", text: "   " },
+      { kind: "context", text: "x".repeat(501) },
+      { kind: "command", text: "pnpm test", files: [""] },
+      "oops",
+      ...[1, 2, 3, 4, 5].map(valid),
+    ]);
+    expect(parsed).toHaveLength(MAX_MEMORIES_PER_TASK);
+    expect(parsed[0]).toEqual({ kind: "pitfall", text: "Run codegen first", files: null });
+    expect(parsed.slice(1).map((m) => m.text)).toEqual(["Note 1", "Note 2", "Note 3", "Note 4"]);
+    expect(parseMemories([{ kind: "command", text: "pnpm db", files: ["a.ts"] }])).toEqual([
+      { kind: "command", text: "pnpm db", files: ["a.ts"] },
+    ]);
+    expect(parseMemories([valid(1)])).toEqual([
+      { kind: "convention", text: "Note 1", files: null },
+    ]);
   });
 });
 

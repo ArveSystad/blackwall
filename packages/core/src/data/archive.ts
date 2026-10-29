@@ -241,6 +241,7 @@ export function readImportArchive(bytes: Uint8Array): ImportArchive {
       throw new InvalidDataArchiveError("the database could not be migrated", { cause: error });
     }
     try {
+      rebuildMemoryIndex(sqliteOf(opened.db));
       const integrity = sqliteOf(opened.db).pragma("integrity_check", { simple: true });
       if (integrity !== "ok") throw new InvalidDataArchiveError("the database is corrupt");
     } finally {
@@ -275,10 +276,20 @@ function tableNames(sqlite: Sqlite, schema: "main" | "src"): string[] {
   return sqlite
     .prepare(
       `SELECT name FROM ${schema}.sqlite_master WHERE type = 'table' ` +
-        `AND name NOT LIKE 'sqlite_%' AND name <> '__drizzle_migrations' ORDER BY name`,
+        `AND name NOT LIKE 'sqlite_%' AND name <> '__drizzle_migrations' ` +
+        // The full-text index and its shadow tables are rebuilt from `memories`.
+        `AND name NOT LIKE 'memories_fts%' ORDER BY name`,
     )
     .pluck()
     .all() as string[];
+}
+
+/**
+ * Rebuilds the memories' full-text index from the table. The index joins on
+ * `memories.rowid`, which a copy or `VACUUM` may renumber.
+ */
+export function rebuildMemoryIndex(sqlite: Sqlite, schema: "main" | "src" = "main"): void {
+  sqlite.exec(`INSERT INTO ${schema}.memories_fts(memories_fts) VALUES('rebuild')`);
 }
 
 /**
@@ -309,6 +320,7 @@ export function restoreDatabase(sqlite: Sqlite, srcPath: string): void {
           `INSERT INTO main.${quote(table)} (${columns}) SELECT ${columns} FROM src.${quote(table)}`,
         );
       }
+      rebuildMemoryIndex(sqlite);
       sqlite
         .prepare(
           "UPDATE main.tasks SET status = 'interrupted', error = ?, delivering = 0 " +

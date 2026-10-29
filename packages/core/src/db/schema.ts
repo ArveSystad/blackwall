@@ -18,6 +18,7 @@ import {
   FINDING_STATUSES,
   GATES,
   GRILL_ANSWERERS,
+  MEMORY_KINDS,
   ORIGIN_KINDS,
   PR_BRANCH_STATES,
   PR_MODES,
@@ -427,6 +428,37 @@ export const grillQuestions = sqliteTable(
   (t) => [index("grill_questions_task_idx").on(t.taskId)],
 );
 
+/**
+ * Per-repo memory vault: lasting facts the summarizer saved, shown to later
+ * tasks and chats in the repo. Notes from reviews of someone else's pull
+ * request are held (`awaitingMerge`) and never shown until the PR merges into
+ * the repo's default branch. The `memories_fts` FTS5 index (created in the
+ * migration, kept in sync by triggers) searches `text` and `files`.
+ */
+export const memories = sqliteTable(
+  "memories",
+  {
+    id: id(),
+    repoId: text("repo_id")
+      .notNull()
+      .references(() => repos.id, { onDelete: "cascade" }),
+    /** The task that saved it. */
+    sourceTaskId: text("source_task_id").references(() => tasks.id, { onDelete: "set null" }),
+    kind: text("kind", { enum: MEMORY_KINDS }).notNull(),
+    text: text("text").notNull(),
+    /** Repo-relative paths it is about; null when none. */
+    files: text("files", { mode: "json" }).$type<string[] | null>(),
+    pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
+    /** Held until the reviewed pull request merges into the repo's default branch. */
+    awaitingMerge: integer("awaiting_merge", { mode: "boolean" }).notNull().default(false),
+    /** When the user last edited it; edited notes are never replaced. */
+    editedAt: timestamp("edited_at"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("memories_repo_idx").on(t.repoId, t.awaitingMerge, t.pinned)],
+);
+
 // Row types for inserts. Reads are typed with the domain types from @blackwall/shared,
 // so the compiler checks that every table matches its shared schema.
 export type NewConnection = typeof connections.$inferInsert;
@@ -439,3 +471,4 @@ export type NewRun = typeof runs.$inferInsert;
 export type NewStep = typeof steps.$inferInsert;
 export type NewFinding = typeof findings.$inferInsert;
 export type NewGrillQuestion = typeof grillQuestions.$inferInsert;
+export type NewMemory = typeof memories.$inferInsert;
