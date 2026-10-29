@@ -9,7 +9,9 @@ export const DialogClose = DialogPrimitive.Close;
 /**
  * Modal over a dimmed shell. Esc and the overlay close it through `onOpenChange`. It centres in
  * the area below the desktop title bar. The content sits in a chamfered HUD panel that scans open
- * in 150ms; the panel is clipped, so its drop shadow lives on the unclipped `Content`.
+ * in 150ms and scans closed in reverse over 120ms; the panel is clipped, so its drop shadow lives
+ * on the unclipped `Content`. Radix Presence keeps `Content` and `Overlay` mounted through the
+ * close via their hold animation. Under reduced motion the close is instant.
  */
 export function DialogContent({
   className,
@@ -18,15 +20,15 @@ export function DialogContent({
 }: ComponentProps<typeof DialogPrimitive.Content>) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="bw-no-drag fixed inset-0 z-50 bg-overlay backdrop-blur-[2px]" />
+      <DialogPrimitive.Overlay className="bw-no-drag fixed inset-0 z-50 bg-overlay backdrop-blur-[2px] data-[state=closed]:animate-scan-hold" />
       <DialogPrimitive.Content
         className={cn(
-          "fixed top-[calc(50%_+_var(--bw-titlebar-h)/2)] left-1/2 z-50 w-[calc(100%-32px)] max-w-[480px] -translate-x-1/2 -translate-y-1/2 drop-shadow-pop focus:outline-none",
+          "group fixed top-[calc(50%_+_var(--bw-titlebar-h)/2)] left-1/2 z-50 w-[calc(100%-32px)] max-w-[480px] -translate-x-1/2 -translate-y-1/2 drop-shadow-pop focus:outline-none data-[state=closed]:animate-scan-hold",
           className,
         )}
         {...props}
       >
-        <div className="bw-chamfer animate-scan-wipe overflow-hidden bg-modal text-foreground">
+        <div className="bw-chamfer animate-scan-wipe overflow-hidden group-data-[state=closed]:animate-scan-unwipe bg-modal text-foreground">
           {children}
         </div>
       </DialogPrimitive.Content>

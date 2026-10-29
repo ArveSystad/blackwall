@@ -402,7 +402,7 @@ repos" / "This repo", and results grouped Tasks, Backlog, Repos. Its states are 
 - **MissingTokenModal**: "Token needed for github.com". It says the token is "Stored on this machine
   only. It is never shown again", with "Save and continue". If the user cancels, the action reports
   "Cancelled: no token saved". Tokens are never displayed.
-- Every dialog opens with a 150ms left-to-right **scan-wipe**. Closing is instant.
+- Every dialog opens with a 150ms left-to-right **scan-wipe**. Closing reverses it: a 120ms wipe, right to left.
 
 ## 4. Chat
 
@@ -543,6 +543,7 @@ and JS skips the decrypt, the wordmark flicker and the chat open/close.
 | Chat panel | `.bw-chat` | open / close | 180ms width, ease-out / ease-in; content 12px slide | same | instant |
 | Chat message | `animate-fade-in` | message appended | 150ms ease-out | same | instant |
 | Dialog open | `animate-scan-wipe` | any dialog | 150ms ease-out, left to right | same | instant |
+| Dialog close | `animate-scan-unwipe` | any dialog closing | 120ms ease-in, right to left | same | instant |
 | Stats bars | `animate-bar-grow` | Stats mount | 480ms `cubic-bezier(0.2, 0.8, 0.2, 1)` | ring instead of glow | instant |
 | Pushed note | `animate-pushed-glow` | Backlog push done | 1.6s ease-out glow fade | no glow | static |
 

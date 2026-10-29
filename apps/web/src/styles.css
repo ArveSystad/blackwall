@@ -294,8 +294,13 @@
   --animate-stream: bw-sweep 1.4s linear infinite;
   /* Chat messages appended while the panel is open fade in once. */
   --animate-fade-in: bw-fade-in 150ms ease-out both;
-  /* Dialogs scan open once, left to right, keeping the chamfer; closing is instant. */
+  /* Dialogs scan open once, left to right, keeping the chamfer; closing reverses through
+     animate-scan-unwipe. */
   --animate-scan-wipe: bw-scan-wipe 150ms ease-out;
+  --animate-scan-unwipe: bw-scan-unwipe 120ms ease-in forwards;
+  /* Keeps the dialog Content/Overlay mounted through Radix Presence while the panel unwipes;
+     must match the unwipe's 120ms. */
+  --animate-scan-hold: bw-scan-hold 120ms linear forwards;
   /* Inbox rows slide in once when their task first appears; dropped on animationend, no JS mirror. */
   --animate-arrive: bw-arrive 180ms ease-out both;
 }
@@ -344,6 +349,32 @@
       0 100%,
       0 var(--bw-cut)
     );
+  }
+}
+
+/* bw-scan-wipe reversed: the panel retracts to the left. */
+@keyframes bw-scan-unwipe {
+  from {
+    clip-path: polygon(
+      var(--bw-cut) 0,
+      100% 0,
+      100% calc(100% - var(--bw-cut)),
+      calc(100% - var(--bw-cut)) 100%,
+      0 100%,
+      0 var(--bw-cut)
+    );
+  }
+  to {
+    clip-path: polygon(0 0, 0 0, 0 calc(100% - var(--bw-cut)), 0 100%, 0 100%, 0 var(--bw-cut));
+  }
+}
+
+@keyframes bw-scan-hold {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
   }
 }
 
