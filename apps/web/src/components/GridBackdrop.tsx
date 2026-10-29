@@ -2,11 +2,12 @@ import { useEffect, useRef } from "react";
 import { cn } from "../lib/utils";
 
 /**
- * Decorative resting background of the empty main pane (first-run setup steps,
- * "Nothing on deck" or the active agents; never behind a task view, Settings or
- * modals): a perspective floor that drifts toward the viewer, a horizon glow and
- * a slow scanline (dark only). `GridAgents` draws the active agents as dots on
- * top of it. Also the full-page Stats screen's background.
+ * Decorative resting background of the main pane, in GridLayout behind Home
+ * (first-run setup steps, "Nothing on deck" or the active agents) and around
+ * the task and Backlog window; never behind Settings, modals or the other
+ * shell pages: a perspective floor that drifts toward the viewer, a horizon
+ * glow and a slow scanline (dark only). `GridAgents` draws the active agents
+ * as dots on top of it. Also the full-page Stats screen's background.
  * By default the lines fade under a ~520px centre column (`calc(50% ± 260px)`)
  * so centred content stays readable; keep such content within it. `fade={false}`
  * runs the grid full width (the agents view); switching between the two eases.
@@ -20,7 +21,8 @@ import { cn } from "../lib/utils";
  * `--bg-0`). Under reduced motion the grain freezes and the flicker stops.
  * The parent must be `relative` and `isolate` (so the overlay stays within the
  * pane and below portalled dialogs), and must not scroll: put scrolling content
- * in a sibling, so the backdrop stays fixed. Pane content must stay below `z-30`.
+ * in a sibling, so the backdrop stays fixed. Pane content must stay below `z-30`,
+ * except the task and Backlog window (`z-40`), which sits above the film.
  */
 export function GridBackdrop({ fade = true }: { fade?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);

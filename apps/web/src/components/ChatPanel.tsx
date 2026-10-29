@@ -112,7 +112,7 @@ function OpenChatPanel({
   return (
     <aside
       aria-label="Chat"
-      className="bw-chat relative h-full shrink-0 border-l border-border bg-sidebar"
+      className="bw-chat relative h-full shrink-0 border-l border-border bg-chat"
       // A variable, not an inline width, so `@starting-style` in `.bw-chat` can apply.
       style={{ "--chat-w": `${width}px` } as CSSProperties}
       data-motion={chatPanelMotion(presence, dragWidth !== null) ?? undefined}

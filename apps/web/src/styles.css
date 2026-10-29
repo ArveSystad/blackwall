@@ -20,6 +20,7 @@
   --bg-3: #1e1a3f; /* hover, selected row */
   --bg-4: #2a2352; /* popover */
   --bg-modal: #141130;
+  --bg-chat: color-mix(in oklab, var(--bg-0) 80%, black); /* chat panel, under its grain */
   --border: #262046;
   --border-strong: #3a3169;
   --fg: #c4c1d9; /* body: muted off-white */
@@ -91,6 +92,9 @@
   /* Empty-pane and Stats backdrop only: the decorative use of glow (see GridBackdrop). */
   --grid-line: color-mix(in oklab, var(--primary) 44%, transparent);
   --grid-glow: color-mix(in oklab, var(--cyan) 24%, transparent);
+  /* Noise tile shared by the grid's film and the chat panel's grain: pale speckles, constant
+   * colour, alpha thresholded from the noise. */
+  --film-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 1.8 0 0 0 -0.5'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   /* Height of the desktop title bar strip: 0 outside the desktop shell, the OS button
    * overlay + 1px for the hairline inside it. */
   --bw-titlebar-h: calc(env(titlebar-area-height, -1px) + 1px);
@@ -106,6 +110,7 @@
   --bg-3: #eff0f4;
   --bg-4: #ffffff;
   --bg-modal: #ffffff;
+  --bg-chat: var(--bg-0);
   --border: #e3e3ea;
   --border-strong: #cdcdd8;
   --fg: #2b2b35;
@@ -172,6 +177,8 @@
   --wordmark-accent: var(--primary);
   --grid-line: color-mix(in oklab, var(--border-strong) 80%, transparent);
   --grid-glow: transparent;
+  /* Dark speckles (see dark). */
+  --film-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.8 0 0 0 -0.5'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 
   color-scheme: light;
 }
@@ -185,6 +192,7 @@
   --color-accent: var(--bg-3);
   --color-popover: var(--bg-4);
   --color-modal: var(--bg-modal);
+  --color-chat: var(--bg-chat);
   --color-code: var(--code-bg);
   --color-code-inline: var(--code-inline-bg);
   --color-border: var(--border);
@@ -495,6 +503,35 @@ html:active-view-transition-type(bw-route) {
   100% {
     transform: translateY(8px);
     opacity: 0;
+  }
+}
+
+/* The task and Backlog window flickering in: bw-crumble's opacity stutter in reverse. */
+@keyframes bw-window-flicker {
+  0% {
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.7;
+  }
+  24% {
+    opacity: 0.1;
+  }
+  38% {
+    opacity: 0.85;
+  }
+  52% {
+    opacity: 0.3;
+  }
+  66% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 0.75;
+  }
+  92%,
+  100% {
+    opacity: 1;
   }
 }
 
@@ -941,12 +978,11 @@ html:active-view-transition-type(bw-route) {
     --film-veil: 0.4;
   }
 
-  /* Pale speckles: constant colour, alpha thresholded from the noise. */
+  /* The --film-grain noise tile. */
   .bw-film-grain {
     position: absolute;
     inset: -50%;
     opacity: 0.14;
-    --film-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 1.8 0 0 0 -0.5'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
     background-image: var(--film-grain);
     background-size: 180px 180px;
     animation: bw-film-grain 0.9s steps(1, end) infinite;
@@ -979,6 +1015,17 @@ html:active-view-transition-type(bw-route) {
     animation: bw-wordmark-flicker 700ms steps(1, end) both;
   }
 
+  /* ---------- grid window (GridLayout.tsx) ----------
+   * The task and Backlog window flickers into view over the grid, like an
+   * archived dot crumbling in reverse, then rests at full opacity. Plays on
+   * mount only; the window stays mounted between task and Backlog pages, so
+   * it never replays there. 360ms has no JS mirror. Opacity only, so no light
+   * override. Reduced motion: the base rule drops it, and it rests at opacity 1.
+   */
+  .bw-window {
+    animation: bw-window-flicker 360ms steps(1, end) both;
+  }
+
   /* Glow is dark only: light keeps the static-feeling floor and drops the sweep;
    * its pointer spotlight darkens the lines instead of glowing. */
   :root[data-theme="light"] .bw-grid-scan {
@@ -995,7 +1042,6 @@ html:active-view-transition-type(bw-route) {
   }
 
   :root[data-theme="light"] .bw-film-grain {
-    --film-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.8 0 0 0 -0.5'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
     opacity: 0.11;
   }
 
@@ -1627,6 +1673,23 @@ html:active-view-transition-type(bw-route) {
     width: var(--chat-w);
   }
 
+  /* A faint, still film grain over the darker chat surface (--bg-chat), for a
+   * worn look. Static: nothing moves beside long text. It sits under the
+   * content (z-index 1), so text contrast is unchanged. */
+  .bw-chat::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: var(--film-grain);
+    background-size: 180px 180px;
+    opacity: 0.06;
+  }
+
+  :root[data-theme="light"] .bw-chat::before {
+    opacity: 0.05;
+  }
+
   .bw-chat[data-motion="opening"] {
     transition: width 180ms ease-out;
 
@@ -1642,6 +1705,7 @@ html:active-view-transition-type(bw-route) {
 
   /* The aside is border-box with a 1px left border. */
   .bw-chat-content {
+    z-index: 1;
     width: calc(var(--chat-w) - 1px);
   }
 
@@ -2098,6 +2162,12 @@ html:active-view-transition-type(bw-route) {
 
   ::placeholder {
     color: var(--fg-faint);
+  }
+
+  input,
+  textarea,
+  [contenteditable] {
+    caret-color: var(--cyan);
   }
 
   @media (prefers-reduced-motion: reduce) {

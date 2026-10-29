@@ -123,6 +123,7 @@ follows the OS.
 | `--needs-wash` | `rgba(255,61,207,0.07)` | `#fdf0f7` | needs-you card wash |
 | `--running-wash` | `rgba(46,230,255,0.06)` | `#f0f6ff` | running wash |
 | `--code-bg` | `#0c0b1c` | `#f6f7f9` | code blocks |
+| `--bg-chat` | `--bg-0` 80% with black (`color-mix`) | `--bg-0` | chat panel, under its grain |
 | `--overlay` | `rgba(5,4,16,0.74)` | `rgba(20,20,30,0.38)` | dialog scrim |
 | `--grid-line` | primary 44% (`color-mix`) | border-strong 80% | backdrop grid |
 | `--grid-glow` | cyan 24% (`color-mix`) | transparent | backdrop glow |
@@ -218,7 +219,11 @@ real:
 ## 3. Screen by screen
 
 The shell is a 44px top bar over a 352px inbox column on the left and the main pane on the right,
-with the chat panel optionally on the far right.
+with the chat panel optionally on the far right. Home, a task and the Backlog share one grid
+backdrop that stays put between them; a task or the Backlog floats over it as a chamfered window,
+16px in from every edge, so the grid shows around it. The window flickers in over 360ms when it
+opens from the grid, and stays in place (no flicker, no wipe) between tasks and the Backlog. The
+caret in every text field is cyan.
 
 ### Top bar
 
@@ -429,6 +434,8 @@ repos" / "This repo", and results grouped Tasks, Backlog, Repos. Its states are 
   "Adding…").
 - **/clear**: starts over. While an answer is running it asks first: "Stop and clear the chat?",
   "The answer in progress is stopped and the conversation is dropped.", "Stop and clear".
+- **Surface**: darker than the app canvas (`--bg-chat`), with a faint, still film grain under the
+  text for a worn look. The grain never moves.
 - **Motion**: the panel's width slides over 180ms (ease-out to open, ease-in to close), and its
   content fades and shifts 12px. New messages fade in over 150ms; history never does.
 
@@ -550,6 +557,7 @@ and JS skips the decrypt, the wordmark flicker and the chat open/close.
 | Film grain | `.bw-film-grain` | always | 0.9s `steps(1, end)` loop | dark speckles, 11% | static |
 | Film flicker | `.bw-film-flicker-a/-b` | always | 23s and 37s `steps(1, end)` loops | shallower (veil 0.2) | hidden |
 | Wordmark flicker | `.bw-wordmark-flicker` | every 30–100s | 700ms `steps(1, end)` | same | never scheduled |
+| Window flicker | `.bw-window` | task/Backlog window opens over the grid | 360ms `steps(1, end)`, opacity | same | instant |
 | Decrypt | `.bw-decrypt` | wordmark at load, headline number, task title | 220ms (`DECRYPT_MS`, rAF) | same | skipped |
 | Headline hover | `.bw-running-hot` | pointer near headline | 300ms opacity | darkens, no glow | instant |
 | Chat panel | `.bw-chat` | open / close | 180ms width, ease-out / ease-in; content 12px slide | same | instant |

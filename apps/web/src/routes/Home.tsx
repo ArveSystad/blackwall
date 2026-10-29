@@ -4,7 +4,6 @@ import { useMemo, useState, type ReactNode } from "react";
 import { gridDots, runningTaskCount } from "../agent-dots";
 import { pendingCount } from "../backlog";
 import { GridAgents } from "../components/GridAgents";
-import { GridBackdrop } from "../components/GridBackdrop";
 import { IssuePill } from "../components/IssuePill";
 import { BacklogIcon, CheckIcon, PlusIcon, WallIcon } from "../components/icons";
 import { NewTaskModal } from "../components/NewTaskModal";
@@ -13,6 +12,7 @@ import { RunningHeadline } from "../components/RunningHeadline";
 import { useArchive } from "../components/use-archive-launches";
 import { Button } from "../components/ui/button";
 import { Kbd } from "../components/ui/kbd";
+import { useGridFade } from "../grid-fade";
 import { cn } from "../lib/utils";
 import {
   activeAgentsQuery,
@@ -181,7 +181,8 @@ function Message({
  * backlog is empty when nothing waits there; when the tasks or agents
  * cannot load it says so, with Retry. Past first run, two pills at the
  * bottom count the pull requests waiting on the user's review and the issues
- * assigned to them.
+ * assigned to them. The grid itself is GridLayout's, behind this pane; Home
+ * sets its fade.
  */
 export function Home() {
   const tasks = useQuery(tasksQuery);
@@ -220,11 +221,11 @@ export function Home() {
     !activeFailed &&
     loaded &&
     (dots.length > 0 || launch.launches.size > 0);
+  useGridFade(!showAgents);
   const create = () => setCreating(true);
 
   return (
-    <div className="relative isolate flex h-full items-center justify-center overflow-auto px-6 py-10">
-      <GridBackdrop fade={!showAgents} />
+    <div className="relative z-10 flex h-full items-center justify-center overflow-auto px-6 py-10">
       {firstRun ? (
         <FirstRun />
       ) : tasksFailed || activeFailed ? (

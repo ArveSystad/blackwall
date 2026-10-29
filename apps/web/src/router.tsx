@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-router";
 import { ArchiveLaunchesProvider } from "./components/ArchiveLaunchesProvider";
 import { ChatPanel } from "./components/ChatPanel";
+import { GridLayout, GridWindow } from "./components/GridLayout";
 import { Inbox } from "./components/Inbox";
 import { NotFound } from "./components/NotFound";
 import { SearchPalette } from "./components/SearchPalette";
@@ -77,14 +78,28 @@ const shellRoute = createRoute({
   ),
 });
 
-const homeRoute = createRoute({
+/** The grid behind Home, the task view and the Backlog; it stays mounted between them. */
+const gridRoute = createRoute({
   getParentRoute: () => shellRoute,
+  id: "grid",
+  component: GridLayout,
+});
+
+/** The window the task view and the Backlog float in over the grid. */
+const windowRoute = createRoute({
+  getParentRoute: () => gridRoute,
+  id: "window",
+  component: GridWindow,
+});
+
+const homeRoute = createRoute({
+  getParentRoute: () => gridRoute,
   path: "/",
   component: Home,
 });
 
 const taskRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => windowRoute,
   path: "/tasks/$taskId",
   loader: () => TaskView.preload?.(),
   component: function TaskRoute() {
@@ -95,7 +110,7 @@ const taskRoute = createRoute({
 });
 
 const backlogRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => windowRoute,
   path: "/repos/$repoId/backlog",
   /** `item`: a backlog item to open in the editor, from the search palette; cleared once read. */
   validateSearch: (search: Record<string, unknown>): { item?: string } =>
@@ -158,9 +173,7 @@ const statsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   shellRoute.addChildren([
-    homeRoute,
-    taskRoute,
-    backlogRoute,
+    gridRoute.addChildren([homeRoute, windowRoute.addChildren([taskRoute, backlogRoute])]),
     activeRoute,
     reviewsRoute,
     issuesRoute,

@@ -16,9 +16,20 @@ describe("routeViewKey", () => {
 describe("routeTransitionTypes", () => {
   it("wipes between top-level views", () => {
     expect(ROUTE_TRANSITION_TYPE).toBe("bw-route");
-    expect(routeTransitionTypes("/", "/repos/x/backlog", false)).toEqual(["bw-route"]);
+    expect(routeTransitionTypes("/", "/stats", false)).toEqual(["bw-route"]);
     expect(routeTransitionTypes("/tasks/a", "/settings/connections", false)).toEqual(["bw-route"]);
     expect(routeTransitionTypes("/stats", "/", false)).toEqual(["bw-route"]);
+  });
+
+  it("wipes between a grid view and another shell page", () => {
+    expect(routeTransitionTypes("/tasks/a", "/reviews", false)).toEqual(["bw-route"]);
+    expect(routeTransitionTypes("/active", "/", false)).toEqual(["bw-route"]);
+  });
+
+  it("does not wipe between grid views", () => {
+    expect(routeTransitionTypes("/", "/repos/x/backlog", false)).toBe(false);
+    expect(routeTransitionTypes("/", "/tasks/a", false)).toBe(false);
+    expect(routeTransitionTypes("/tasks/a", "/repos/x/backlog", false)).toBe(false);
   });
 
   it("does not wipe within a view", () => {
