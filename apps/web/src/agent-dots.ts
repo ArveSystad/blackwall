@@ -23,8 +23,8 @@ export interface GridDot {
   subagent: { id: string; agentType: string; description: string | null } | null;
 }
 
-/** Minimum distance between dot centres: the 24px hit target plus a 4px gap. */
-export const DOT_SPACING = 28;
+/** Minimum distance between dot centres: the 32px hit target plus a 4px gap. */
+export const DOT_SPACING = 36;
 
 /** The floor under the horizon (58%) that home spots fall in, as fractions of the pane. */
 const HOME_X = { min: 0.08, max: 0.92 };
@@ -136,7 +136,10 @@ export function dotPosition(taskId: string): { x: number; y: number } {
   };
 }
 
-/** Mirror --animate-pulse-running/needs/done in styles.css; the grid boom runs at 2× running/needs. */
+/**
+ * Mirror --animate-pulse-running/needs/done and the .bw-hex-running/needs/done
+ * pulse durations in styles.css; the grid boom runs at 2× running/needs.
+ */
 export const PULSE_RUNNING_S = 1.6;
 export const PULSE_NEEDS_S = 1.4;
 export const PULSE_DONE_S = 2.4;

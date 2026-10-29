@@ -490,17 +490,19 @@ centre column. When agents are shown the grid runs **full width**. The fade chan
 ### Agent dots
 
 Dots sit on the floor between 64% and 90% of the height, placed by a stable hash. Hit targets are
-24px and dot centres are at least 28px apart.
+32px and dot centres are at least 36px apart. Each dot is a pointy-top hexagon (`.bw-hex`, sizes
+tip to tip) with a 1px hexagonal outline about 3px out; its pulse is a copy of the hexagon that
+grows and fades under it.
 
 | State | Dot | Motion |
 |---|---|---|
-| Running | 8px cyan with cyan glow | `pulse-running` 1.6s, plus a boom |
-| Sub-agent | 6px cyan | pulse |
-| Needs you | 10px magenta, drawn on top | `pulse-needs` 1.4s, plus a magenta boom |
-| Queued | 8px faint at 60% | still |
-| Done | 8px green with done glow | `pulse-done` 2.4s, calmer |
-| Interrupted | 8px grey | still |
-| Failed | 8px red | still |
+| Running | 12px cyan hexagon with cyan glow | pulse 1.6s, plus a boom |
+| Sub-agent | 9px cyan hexagon | pulse |
+| Needs you | 14px magenta hexagon, drawn on top | pulse 1.4s, plus a magenta boom |
+| Queued | 12px faint hexagon at 60% | still |
+| Done | 12px green hexagon with done glow | pulse 2.4s, calmer |
+| Interrupted | 12px grey hexagon | still |
+| Failed | 12px red hexagon | still |
 
 - **RunningHeadline**: centred "3 TASKS RUNNING" ("1 task running"). Geist semibold, 28–40px,
   0.18em tracking, uppercase, cyan with text glow. The number decrypts when it changes. A brighter
@@ -515,7 +517,7 @@ Dots sit on the floor between 64% and 90% of the height, placed by a stable hash
     "Ctrl+click to retry" / "Ctrl+click to resume", which becomes "Retrying…" / "Resuming…".
   - Ctrl reads ⌘ on macOS.
 - **Laser**: when a task changes stage, a 2px × 40px cyan beam fires straight up from its dot.
-- **Boom**: every running or needs-you dot sends a 72px ripple ring, and each task's first dot also
+- **Boom**: every running or needs-you dot sends an 84px round ripple ring, and each task's first dot also
   sends a wide 26rem bloom, looping at twice the pulse period.
 - **Revive**: Ctrl+click on a failed or stopped dot plays one cyan boom, and a faint cyan ring
   holds until it runs. If the request fails, the boom is red.
@@ -540,12 +542,13 @@ and JS skips the decrypt, the wordmark flicker and the chat open/close.
 | Running pulse | `animate-pulse-running` | running dot, badge | 1.6s ease-in-out, loop, 4px ring | no glow | still |
 | Needs pulse | `animate-pulse-needs` | needs-you dot | 1.4s ease-in-out, loop, 7px ring | no glow | still |
 | Done pulse | `animate-pulse-done` | done dot | 2.4s ease-in-out, loop | no glow | still |
+| Hex pulse | `.bw-hex-pulse` | grid dot (`.bw-hex`) | the three pulses above as scale + opacity, same periods and easing | no glow | hidden |
 | Needs blink | `animate-blink-needs` | needs dot in pills and badges | 1.2s `steps(2, jump-none)`, to 35% | same | still |
 | Stream sweep | `.bw-stream` | running task header | 1.4s linear loop, 120px band | no glow | static track |
 | Stage fill | `.bw-stage-fill` | stage advance | 600ms ease-out, full by ~40% | same | hidden |
 | Lock-on | `.bw-lock-on` | stage advance | 600ms ease-out after 200ms, scale to 2.2 (800ms total) | no glow | hidden |
 | Laser | `.bw-laser` | dot changes stage | 900ms ease-out, rises 55vh | no glow | hidden |
-| Boom | `.bw-boom` | running / needs dot | 3.2s running, 2.8s needs, ease-out loop; 26rem bloom + 72px ring | ring only | hidden |
+| Boom | `.bw-boom` | running / needs dot | 3.2s running, 2.8s needs, ease-out loop; 26rem bloom + 84px ring | ring only | hidden |
 | Revive | `.bw-revive` | Ctrl+click retry/resume | 1.2s once; red on failure | ring only | hidden |
 | Supernova | `.bw-supernova` | task turns done | core 150ms, ring 1.2s, sparks 700ms, 80ms stagger | no glow | static core for 300ms |
 | Launch | `.bw-launch` | archive a done dot | 900ms `cubic-bezier(0.5, 0, 0.9, 0.4)` | no glow | hidden |

@@ -50,7 +50,7 @@ function stageMap(tasks: ReadonlyMap<string, Task>): Map<string, Stage | null> {
   return new Map([...tasks.values()].map((task) => [task.id, task.stage]));
 }
 
-/** One dot: a 24px link to its task, the visible dot, its lasers and its hover/focus card. */
+/** One dot: a 32px link to its task, the visible hexagon (`.bw-hex`), its lasers and its hover/focus card. */
 function AgentDot({
   dot,
   task,
@@ -116,7 +116,7 @@ function AgentDot({
         aria-describedby={open ? cardId : undefined}
         style={{ left: x, top: y }}
         className={cn(
-          "pointer-events-auto absolute flex size-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full focus-visible:shadow-ring",
+          "pointer-events-auto absolute flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full focus-visible:shadow-ring",
           open ? "z-20" : needs ? "z-[2]" : dot.state === "running" ? "z-[1]" : "z-0",
         )}
         onClick={
@@ -151,19 +151,21 @@ function AgentDot({
       >
         <span
           aria-hidden="true"
-          style={still ? undefined : { animationDelay: `${delay}s` }}
+          style={still ? undefined : ({ "--pulse-delay": `${delay}s` } as CSSProperties)}
           className={cn(
-            "rounded-full",
-            dot.state === "running" && "animate-pulse-running bg-running shadow-glow-cyan",
-            dot.state === "running" && (subagent ? "size-1.5" : "size-2"),
-            needs && "size-2.5 animate-pulse-needs bg-needs shadow-glow-needs",
-            dot.state === "queued" && "size-2 bg-faint opacity-60",
-            done && "size-2 animate-pulse-done bg-done shadow-glow-done",
-            interrupted && "size-2 bg-interrupted",
-            failed && "size-2 bg-failed",
-            waiting && still && "ring-1 ring-running/50",
+            "bw-hex",
+            dot.state === "running" && "bw-hex-running",
+            needs && "bw-hex-needs",
+            dot.state === "queued" && "bw-hex-queued",
+            done && "bw-hex-done",
+            interrupted && "bw-hex-interrupted",
+            failed && "bw-hex-failed",
+            subagent && "bw-hex-sub",
+            waiting && still && "bw-hex-waiting",
           )}
-        />
+        >
+          {!still && <span className="bw-hex-pulse" />}
+        </span>
         {lasers > 0 && <span key={lasers} className="bw-laser" aria-hidden="true" />}
       </Link>
       {open && (
@@ -253,10 +255,11 @@ function AgentDot({
 }
 
 /**
- * The active agents as glowing dots on the empty pane's grid floor (see
- * `agent-dots.ts`): a link to each task with a hover/focus card, and a laser
- * fired upward when a task changes stage. Running and needs-you dots send a
- * ring and their task a bloom (`.bw-boom`), drawn under the dots and sharing
+ * The active agents as glowing hexagonal dots, each in a hexagonal outline
+ * (`.bw-hex`), on the empty pane's grid floor (see `agent-dots.ts`): a link to
+ * each task with a hover/focus card, and a laser fired upward when a task
+ * changes stage. Running and needs-you dots send an 84px round ring and their
+ * task a bloom (`.bw-boom`), drawn under the dots and sharing
  * each task's pulse delay. A running sub-agent is a smaller cyan dot beside
  * its task's, with no bloom. Done tasks wait as calm green dots; Ctrl+click
  * (⌘+click on macOS) archives one through `launch`, and its dot flies off

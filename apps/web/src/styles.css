@@ -471,6 +471,32 @@ html:active-view-transition-type(bw-route) {
   }
 }
 
+/* The .bw-hex pulse: bw-pulse/bw-pulse-done's shape as scale + opacity (12px → 20px = the same 4px spread). */
+@keyframes bw-hex-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.67);
+    opacity: 0;
+  }
+}
+
+/* bw-pulse-needs' shape as scale + opacity (14px → 28px = the same 7px spread). */
+@keyframes bw-hex-pulse-needs {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  70%,
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
 @keyframes bw-launch {
   0% {
     transform: translate(0, 0) scale(1);
@@ -641,14 +667,14 @@ html:active-view-transition-type(bw-route) {
   }
 }
 
-/* 56px out = 2 × DOT_SPACING (agent-dots.ts). */
+/* 72px out = 2 × DOT_SPACING (agent-dots.ts). */
 @keyframes bw-supernova-spark {
   0% {
     transform: rotate(var(--spark-angle)) translateY(-6px) scaleY(0.3);
     opacity: var(--spark-peak, 1);
   }
   100% {
-    transform: rotate(var(--spark-angle)) translateY(-56px) scaleY(1);
+    transform: rotate(var(--spark-angle)) translateY(-72px) scaleY(1);
     opacity: 0;
   }
 }
@@ -1129,6 +1155,135 @@ html:active-view-transition-type(bw-route) {
     filter: none;
   }
 
+  /* ---------- agent hex dot (GridAgents.tsx) ----------
+   * Each grid dot is a pointy-top hexagon: a core (::before), a 1px hexagonal
+   * outline 3px out (::after, an evenodd frame) and, on pulsing states, a
+   * .bw-hex-pulse child that grows and fades under the core. clip-path drops a
+   * box-shadow, so the glow is a drop-shadow on the unclipped wrapper and the
+   * pulse is transform + opacity. The pulse keyframes copy the shapes and
+   * ease-in-out of bw-pulse/bw-pulse-needs/bw-pulse-done; each emits at 0% and
+   * shares --pulse-delay (set inline) with the dot's boom, whose period is
+   * 2 × the pulse's. Periods: 1.6s/1.4s/2.4s here = PULSE_RUNNING_S/
+   * PULSE_NEEDS_S/PULSE_DONE_S (agent-dots.ts). Change them together.
+   * Light drops the glow; reduced motion hides the pulse and keeps the static
+   * core and outline.
+   */
+  .bw-hex {
+    --hex-color: var(--st-running);
+    --hex-size: 12px;
+    --hex-gap: 4px;
+    --hex-outline: color-mix(in oklab, var(--hex-color) 55%, transparent);
+    position: relative;
+    display: block;
+    width: calc(var(--hex-size) * 0.866);
+    height: var(--hex-size);
+    filter: drop-shadow(0 0 4px color-mix(in oklab, var(--hex-color) 70%, transparent));
+  }
+
+  .bw-hex::before,
+  .bw-hex::after,
+  .bw-hex-pulse {
+    content: "";
+    position: absolute;
+  }
+
+  .bw-hex::before,
+  .bw-hex-pulse {
+    inset: 0;
+    background: var(--hex-color);
+    clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  }
+
+  .bw-hex::before {
+    z-index: 1;
+  }
+
+  /* The gap is perpendicular to every edge: tips sit 1/cos 30° further out than the sides. */
+  .bw-hex::after {
+    inset: calc(-1.155 * var(--hex-gap)) calc(-1 * var(--hex-gap));
+    background: var(--hex-outline);
+    clip-path: polygon(
+      evenodd,
+      50% 0,
+      100% 25%,
+      100% 75%,
+      50% 100%,
+      0 75%,
+      0 25%,
+      50% 0,
+      50% 1.155px,
+      1px calc(25% + 0.577px),
+      1px calc(75% - 0.577px),
+      50% calc(100% - 1.155px),
+      calc(100% - 1px) calc(75% - 0.577px),
+      calc(100% - 1px) calc(25% + 0.577px),
+      50% 1.155px
+    );
+  }
+
+  .bw-hex-pulse {
+    animation-delay: var(--pulse-delay, 0s);
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+  }
+
+  .bw-hex-running .bw-hex-pulse {
+    animation-name: bw-hex-pulse;
+    animation-duration: 1.6s;
+  }
+
+  .bw-hex-needs {
+    --hex-color: var(--st-needs);
+    --hex-size: 14px;
+  }
+
+  .bw-hex-needs .bw-hex-pulse {
+    animation-name: bw-hex-pulse-needs;
+    animation-duration: 1.4s;
+  }
+
+  .bw-hex-done {
+    --hex-color: var(--st-done);
+  }
+
+  .bw-hex-done .bw-hex-pulse {
+    animation-name: bw-hex-pulse;
+    animation-duration: 2.4s;
+  }
+
+  .bw-hex-queued,
+  .bw-hex-interrupted,
+  .bw-hex-failed {
+    filter: none;
+  }
+
+  .bw-hex-queued {
+    --hex-color: var(--fg-faint);
+    opacity: 0.6;
+  }
+
+  .bw-hex-interrupted {
+    --hex-color: var(--st-interrupted);
+  }
+
+  .bw-hex-failed {
+    --hex-color: var(--st-failed);
+  }
+
+  .bw-hex-sub {
+    --hex-size: 9px;
+  }
+
+  /* A stopped dot whose resume is pending: a faint cyan outline until it runs. */
+  .bw-hex-waiting {
+    --hex-outline: color-mix(in oklab, var(--st-running) 60%, transparent);
+  }
+
+  /* Glow is dark only. */
+  :root[data-theme="light"] .bw-hex {
+    filter: none;
+  }
+
   /* ---------- agent boom (GridAgents.tsx) ----------
    * A ripple ring from each running or needs-you dot, and a faint, wide bloom
    * from each such task's first dot, drawn in one layer under all dots.
@@ -1172,9 +1327,9 @@ html:active-view-transition-type(bw-route) {
   }
 
   .bw-boom::after {
-    width: 72px;
-    height: 72px;
-    margin: -36px 0 0 -36px;
+    width: 84px;
+    height: 84px;
+    margin: -42px 0 0 -42px;
     border: 1px solid var(--boom-color);
     box-shadow: 0 0 8px color-mix(in oklab, var(--boom-color) 60%, transparent);
     animation-name: bw-ripple;
@@ -2096,6 +2251,7 @@ html:active-view-transition-type(bw-route) {
   @media (prefers-reduced-motion: reduce) {
     .bw-laser,
     .bw-boom,
+    .bw-hex-pulse,
     .bw-assigned-flash,
     .bw-tab-flash,
     .bw-launch,
