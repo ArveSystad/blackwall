@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readBranchSync } from "./git.js";
+import { listWorktreePaths, readBranchSync, repairWorktrees, setOriginRemote } from "./git.js";
 
 let root: string;
 let repo: string;
@@ -86,5 +86,23 @@ describe("readBranchSync", () => {
     git(other, "push", "--quiet", "origin", "main");
     git(repo, "fetch", "--quiet", "origin");
     expect(await readBranchSync(repo, "main")).toEqual({ branch: "main", ahead: 0, behind: 1 });
+  });
+});
+
+describe("worktree helpers", () => {
+  it("sets origin, lists linked worktrees and repairs moved ones", async () => {
+    await setOriginRemote(repo, "git@github.com:acme/shop.git");
+    expect(git(repo, "remote", "get-url", "origin")).toBe("git@github.com:acme/shop.git");
+
+    const tree = join(root, "app.worktrees", "t1");
+    git(repo, "worktree", "add", "--quiet", "-b", "t1", tree);
+    expect((await listWorktreePaths(repo)).map((path) => resolve(path))).toEqual([tree]);
+
+    const moved = join(root, "moved", "t1");
+    mkdirSync(join(root, "moved"));
+    renameSync(tree, moved);
+    await repairWorktrees(repo, [moved]);
+    expect(git(moved, "status", "--porcelain")).toBe("");
+    expect((await listWorktreePaths(repo)).map((path) => resolve(path))).toEqual([moved]);
   });
 });

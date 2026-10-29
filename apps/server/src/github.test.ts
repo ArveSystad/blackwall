@@ -1,4 +1,4 @@
-import { CiRateLimitedError, MissingCredentialError } from "@blackwall/core";
+import { CiRateLimitedError, MissingCredentialError, RepoRenameStepError } from "@blackwall/core";
 import type {
   AssignedIssues,
   Connection,
@@ -1639,6 +1639,51 @@ describe("ciChecks", () => {
     });
     expect(String(fetchImpl.mock.calls[0]![0])).toContain(
       "https://api.github.com/repos/acme/web/commits/abc123/check-runs?",
+    );
+  });
+});
+
+describe("repo rename port", () => {
+  const remote = "https://acme.ghe.com/acme/shop.git";
+  const answer = (status: number, body: unknown) =>
+    vi.fn<typeof fetch>(() =>
+      Promise.resolve(
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+
+  it("reads the current name and renames", async () => {
+    const fetchImpl = answer(200, { name: "store", full_name: "acme/store" });
+    const github = createGitHubOrigin({ connections: connections([ghe]), fetch: fetchImpl });
+    expect(await github.currentName(remote)).toBe("store");
+    await github.renameRepo(remote, "store");
+    const [input, init] = fetchImpl.mock.calls[1]!;
+    expect(new URL(String(input)).pathname).toMatch(/\/repos\/acme\/shop$/);
+    expect(init?.method).toBe("PATCH");
+  });
+
+  it("explains a refused rename as missing admin rights", async () => {
+    const github = createGitHubOrigin({
+      connections: connections([ghe]),
+      fetch: answer(403, { message: "Must have admin rights to Repository." }),
+    });
+    const error = await github.renameRepo(remote, "store").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(RepoRenameStepError);
+    expect((error as Error).message).toBe(
+      "GitHub refused the rename; the token needs admin rights on acme/shop",
+    );
+  });
+
+  it("reports a repo GitHub doesn't know", async () => {
+    const github = createGitHubOrigin({
+      connections: connections([ghe]),
+      fetch: answer(404, { message: "Not Found" }),
+    });
+    await expect(github.currentName(remote)).rejects.toThrow(
+      new RepoRenameStepError("acme/shop was not found on GitHub"),
     );
   });
 });

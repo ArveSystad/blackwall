@@ -163,7 +163,7 @@ export function createApp({
     app.route("/api/repos/:repoId/chat", chatRoutes(chat));
     app.route("/api/repos/:repoId/tasks/:taskId/chat", chatRoutes(chat));
   }
-  if (repos) app.route("/api/repos", repoRoutes(repos));
+  if (repos) app.route("/api/repos", repoRoutes(repos, { broadcast }));
   if (repos && connections) {
     app.route(
       "/api/pull-requests",

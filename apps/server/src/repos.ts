@@ -2,12 +2,15 @@ import type { RepoService } from "@blackwall/core";
 import {
   reorderReposInputSchema,
   repoInputSchema,
+  repoRenameInputSchema,
   repoScanInputSchema,
   repoUpdateSchema,
   type Repo,
+  type RepoRenameResult,
   type RepoScanResult,
   type RepoSync,
   type RepoView,
+  type ServerEvent,
 } from "@blackwall/shared";
 import { Hono } from "hono";
 import { badRequest, readJson } from "./validation.js";
@@ -17,7 +20,10 @@ import { badRequest, readJson } from "./validation.js";
  * `StaleRepoError`, which the app's error handler turns into a `StaleRepo`
  * warning response after the repo has been removed from the registry.
  */
-export function repoRoutes(repos: RepoService): Hono {
+export function repoRoutes(
+  repos: RepoService,
+  { broadcast = () => undefined }: { broadcast?: (event: ServerEvent) => void } = {},
+): Hono {
   const routes = new Hono();
 
   routes.get("/", (c) => c.json<RepoView[]>(repos.list()));
@@ -77,6 +83,19 @@ export function repoRoutes(repos: RepoService): Hono {
   routes.post("/:id/push", async (c) =>
     c.json<RepoSync | null>(await repos.push(c.req.param("id"))),
   );
+
+  /**
+   * Renames the repo on GitHub, in `origin` and on disk, then in the records.
+   * A failed step comes back as `failed` in a 200 result; retrying with the
+   * same name resumes. Each task whose worktree moved is broadcast.
+   */
+  routes.post("/:id/rename", async (c) => {
+    const input = repoRenameInputSchema.safeParse(await readJson(c));
+    if (!input.success) return badRequest(c, input.error.issues);
+    const { result, tasks } = await repos.rename(c.req.param("id"), input.data.name);
+    for (const task of tasks) broadcast({ type: "task.upserted", payload: { task } });
+    return c.json<RepoRenameResult>(result);
+  });
 
   return routes;
 }

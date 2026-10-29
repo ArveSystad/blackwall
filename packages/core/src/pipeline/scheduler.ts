@@ -9,6 +9,8 @@ export interface SchedulableTask {
 export interface SchedulerOptions {
   /** How many tasks may run at once in one repo; read on every pick so Settings apply live. */
   maxPerRepo: () => number;
+  /** Whether the repo is locked (e.g. being renamed); its tasks keep their place until it isn't. */
+  held?: ((repoId: string) => boolean) | undefined;
 }
 
 export type Scheduler = ReturnType<typeof createScheduler>;
@@ -17,13 +19,14 @@ export type Scheduler = ReturnType<typeof createScheduler>;
  * FIFO admission control for running tasks: at most `maxPerRepo` tasks run
  * per repo, and only one per branch. Different repos are independent. Only
  * running tasks hold a slot; a task waiting on the user is released and
- * enqueued again once answered.
+ * enqueued again once answered. Nothing starts in a `held` repo.
  */
-export function createScheduler({ maxPerRepo }: SchedulerOptions) {
+export function createScheduler({ maxPerRepo, held }: SchedulerOptions) {
   const queue: SchedulableTask[] = [];
   const active = new Map<string, SchedulableTask>();
 
   function fits(task: SchedulableTask): boolean {
+    if (held?.(task.repoId)) return false;
     let inRepo = 0;
     for (const other of active.values()) {
       if (other.repoId !== task.repoId) continue;

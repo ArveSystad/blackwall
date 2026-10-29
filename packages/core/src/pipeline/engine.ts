@@ -38,6 +38,7 @@ import type { QuotaTracker } from "../agents/quota.js";
 import type { Repositories } from "../db/repositories.js";
 import { errorMessage } from "../git/errors.js";
 import { sameSnapshot, type GitService } from "../git/service.js";
+import type { RepoRenameLocks } from "../repos/rename-lock.js";
 import { defaultBranchOf, referenceReposFrom, type ReferenceRepo } from "../repos/service.js";
 import { MAX_CI_FAILURES, type CiWatcher } from "./ci.js";
 import {
@@ -318,6 +319,11 @@ export interface PipelineEngineOptions {
    * Refresh and Re-review. Without the port both are refused.
    */
   prHead?: PrHeadSync;
+  /**
+   * Repo rename locks: while a repo is held its queued tasks wait, and
+   * delivery, re-review and delete of its tasks are refused.
+   */
+  renaming?: Pick<RepoRenameLocks, "isHeld" | "assertFree" | "onRelease"> | undefined;
 }
 
 /** The only delivery actions autonomous mode takes: nothing leaves the machine. */
@@ -407,8 +413,13 @@ export function createPipelineEngine({
   autonomous = () => false,
   setup,
   prHead,
+  renaming,
 }: PipelineEngineOptions) {
-  const scheduler = createScheduler({ maxPerRepo: maxTasksPerRepo });
+  const scheduler = createScheduler({
+    maxPerRepo: maxTasksPerRepo,
+    held: (repoId) => renaming?.isHeld(repoId) ?? false,
+  });
+  renaming?.onRelease(() => pump());
   const drives = new Map<string, Promise<void>>();
   /** Autonomous gate answers in flight after a drive (see {@link autopilot}). */
   const autopilots = new Set<Promise<void>>();
@@ -1272,6 +1283,7 @@ export function createPipelineEngine({
     if (next.kind === "deliver") {
       if (!run) throw new TaskStateError(`Task ${taskId} has no run to deliver`);
       if (delivering.has(taskId)) throw new TaskStateError(`Task ${taskId} is already delivering`);
+      renaming?.assertFree(task.repoId);
       // Nothing leaves the machine unless the user confirmed that action.
       const confirmation = confirmed ?? deliveryConfirmationSchema.parse({});
       delivering.add(taskId);
@@ -1706,6 +1718,7 @@ export function createPipelineEngine({
      */
     async reReviewPullRequest(taskId: string): Promise<Task> {
       const task = getTask(taskId);
+      renaming?.assertFree(task.repoId);
       const port = reReviewable(task);
       if (refreshingPr.has(taskId)) {
         throw new TaskStateError(`Task ${taskId} is already re-reviewing its pull request`);
@@ -1862,6 +1875,7 @@ export function createPipelineEngine({
      */
     async delete(taskId: string): Promise<void> {
       const task = getTask(taskId);
+      renaming?.assertFree(task.repoId);
       if (delivering.has(taskId)) {
         throw new TaskStateError(`Task ${taskId} is delivering; it cannot be deleted now`);
       }

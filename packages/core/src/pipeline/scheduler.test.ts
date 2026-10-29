@@ -21,6 +21,19 @@ describe("scheduler", () => {
     expect(s.take().map((t) => t.id)).toEqual(["a4"]);
   });
 
+  it("keeps a held repo's tasks queued in order until it is free", () => {
+    const heldRepos = new Set(["a"]);
+    const s = createScheduler({ maxPerRepo: () => 3, held: (repoId) => heldRepos.has(repoId) });
+    s.enqueue({ id: "a1", repoId: "a", branch: null });
+    s.enqueue({ id: "b1", repoId: "b", branch: null });
+    s.enqueue({ id: "a2", repoId: "a", branch: null });
+
+    expect(s.take().map((t) => t.id)).toEqual(["b1"]);
+    expect(s.queuedIds()).toEqual(["a1", "a2"]);
+    heldRepos.clear();
+    expect(s.take().map((t) => t.id)).toEqual(["a1", "a2"]);
+  });
+
   it("runs one task per branch without blocking other branches behind it", () => {
     const s = createScheduler({ maxPerRepo: () => 3 });
     s.enqueue({ id: "t1", repoId: "r", branch: "feature/x" });

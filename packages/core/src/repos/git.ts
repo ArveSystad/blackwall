@@ -74,6 +74,29 @@ export async function readBranchSync(path: string, branch: string): Promise<Repo
   return { branch, ahead: ahead ?? 0, behind: behind ?? 0 };
 }
 
+/** Points the repo's `origin` remote at `url`. */
+export async function setOriginRemote(path: string, url: string): Promise<void> {
+  await runGit(path, ["remote", "set-url", "origin", url]);
+}
+
+/**
+ * Paths of the repo's linked worktrees as git records them, without the main
+ * worktree. Includes worktrees whose folder is gone or moved.
+ */
+export async function listWorktreePaths(path: string): Promise<string[]> {
+  const output = await runGit(path, ["worktree", "list", "--porcelain"]);
+  const paths = output
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("worktree "))
+    .map((line) => line.slice("worktree ".length));
+  return paths.slice(1);
+}
+
+/** Re-links moved worktrees (at their new `paths`) with the repo at `path`, both ways. */
+export async function repairWorktrees(path: string, paths: readonly string[]): Promise<void> {
+  await runGit(path, ["worktree", "repair", ...paths]);
+}
+
 /**
  * Pushes the local `branch` to `origin/<branch>`. User-initiated from the
  * Backlog only; pushes the main branch; never forces.

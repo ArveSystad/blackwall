@@ -1,15 +1,19 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createConnectionService } from "../connections/service.js";
+import { MissingCredentialError, createConnectionService } from "../connections/service.js";
 import { openDatabase, type OpenedDatabase } from "../db/database.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
+import { worktreePathFor } from "../git/branches.js";
 import { createMemorySecretStore } from "../secrets/secret-store.js";
 import { createConnectionTokens } from "../secrets/tokens.js";
+import { RepoRenamingError, createRepoRenameLocks, type RepoRenameLocks } from "./rename-lock.js";
 import {
   InvalidRepoError,
+  RepoBusyError,
   RepoInUseError,
   RepoNotFoundError,
   RepoPushError,
@@ -531,5 +535,243 @@ describe("pushing main", () => {
     expect(await service.sync(repo.id)).toEqual({ branch: "trunk", ahead: 1, behind: 0 });
     await service.push(repo.id);
     expect(out(origin, "rev-parse", "refs/heads/trunk")).toBe(sha);
+  });
+});
+
+describe("rename", () => {
+  let locks: RepoRenameLocks;
+  let github: {
+    calls: [string, string][];
+    name: string;
+    currentName: (remote: string) => Promise<string>;
+    renameRepo: (remote: string, name: string) => Promise<void>;
+  };
+  let busyIds: string[];
+  let backfilling: boolean;
+
+  function renamer(fsRename?: (from: string, to: string) => Promise<void>): RepoService {
+    const tokens = createConnectionTokens({
+      store: createMemorySecretStore(),
+      connections: r.connections,
+      env: {},
+    });
+    return createRepoService({
+      repos: r.repos,
+      connections: createConnectionService({ connections: r.connections, tokens }),
+      rename: {
+        tasks: r.tasks,
+        transaction: r.transaction,
+        busyTaskIds: () => busyIds,
+        backfillRunning: () => backfilling,
+        locks,
+        github,
+        ...(fsRename ? { fsRename } : {}),
+      },
+    });
+  }
+
+  /** Moves folders, except that `app.worktrees` is held open as on Windows. */
+  const busyWorktrees = async (from: string, to: string) => {
+    if (from.endsWith("app.worktrees")) throw Object.assign(new Error("busy"), { code: "EBUSY" });
+    await rename(from, to);
+  };
+
+  beforeEach(() => {
+    locks = createRepoRenameLocks();
+    busyIds = [];
+    backfilling = false;
+    github = {
+      calls: [],
+      name: "app",
+      currentName: () => Promise.resolve(github.name),
+      renameRepo: (remote, name) => {
+        github.calls.push([remote, name]);
+        github.name = name;
+        return Promise.resolve();
+      },
+    };
+    r.connections.create({ name: "github.com", kind: "github", baseUrl: "https://github.com" });
+  });
+
+  function gitOut(cwd: string, ...args: string[]): string {
+    return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+  }
+
+  /** The `app` repo with one commit, registered, and optionally a task with a worktree. */
+  async function appRepo({ withTask = true }: { withTask?: boolean } = {}) {
+    const path = gitRepo(["app"], "git@github.com:acme/app.git");
+    git(path, "config", "user.name", "Test");
+    git(path, "config", "user.email", "test@example.com");
+    git(path, "config", "commit.gpgsign", "false");
+    writeFileSync(join(path, "README.md"), "hi\n");
+    git(path, "add", "-A");
+    git(path, "commit", "--quiet", "-m", "init");
+    const repo = await service.add({ path });
+    if (!withTask) return { path, repo, task: undefined };
+    const created = r.tasks.create({ title: "t1", origin: { kind: "free-text" }, repoId: repo.id });
+    const worktree = worktreePathFor(path, created.id);
+    git(path, "worktree", "add", "--quiet", "-b", `task-${created.id}`, worktree);
+    const task = r.tasks.update(created.id, { worktreePath: worktree, status: "needs-you" });
+    return { path, repo, task };
+  }
+
+  it("renames on GitHub, origin, folder and records", async () => {
+    const { repo, task } = await appRepo();
+    const { result, tasks } = await renamer().rename(repo.id, "shop");
+
+    expect(github.calls).toEqual([["git@github.com:acme/app.git", "shop"]]);
+    const newPath = join(root, "shop");
+    const newWorktree = join(root, "shop.worktrees", task!.id);
+    expect(existsSync(newPath)).toBe(true);
+    expect(existsSync(newWorktree)).toBe(true);
+    expect(existsSync(join(root, "app"))).toBe(false);
+    expect(gitOut(newPath, "remote", "get-url", "origin")).toBe("git@github.com:acme/shop.git");
+    expect(repo.connectionId).not.toBeNull();
+    expect(r.repos.get(repo.id)).toMatchObject({
+      path: newPath,
+      name: "shop",
+      remoteUrl: "git@github.com:acme/shop.git",
+      remoteKey: "github.com/acme/shop",
+      connectionId: repo.connectionId,
+    });
+    expect(r.tasks.get(task!.id)?.worktreePath).toBe(newWorktree);
+    expect(tasks.map((t) => t.worktreePath)).toEqual([newWorktree]);
+    expect(() => gitOut(newWorktree, "status")).not.toThrow();
+    expect(result).toMatchObject({
+      completed: ["github", "origin", "folder", "records"],
+      skipped: [],
+      failed: null,
+      repo: { name: "shop" },
+    });
+    expect(locks.isHeld(repo.id)).toBe(false);
+    expect(locks.isRenaming(repo.id)).toBe(false);
+  });
+
+  it("holds the lock while it runs", async () => {
+    const { repo } = await appRepo({ withTask: false });
+    let resume!: () => void;
+    const waiting = new Promise<void>((done) => (resume = done));
+    github.currentName = async () => {
+      await waiting;
+      return github.name;
+    };
+    const svc = renamer();
+    const running = svc.rename(repo.id, "shop");
+    expect(locks.isHeld(repo.id)).toBe(true);
+    await expect(svc.rename(repo.id, "shop")).rejects.toThrow(RepoBusyError);
+    expect(() => svc.delete(repo.id)).toThrow(RepoRenamingError);
+    resume();
+    expect((await running).result.failed).toBeNull();
+    expect(locks.isHeld(repo.id)).toBe(false);
+  });
+
+  it("keeps the repo when something uses it mid-rename", async () => {
+    const { repo } = await appRepo({ withTask: false });
+    let error: unknown;
+    const svc: RepoService = renamer(async (from, to) => {
+      await rename(from, to);
+      try {
+        svc.use(repo.id);
+      } catch (cause) {
+        error = cause;
+      }
+    });
+    const { result } = await svc.rename(repo.id, "shop");
+    expect(error).toBeInstanceOf(StaleRepoError);
+    expect((error as StaleRepoError).removed).toBe(false);
+    expect(result.failed).toBeNull();
+    expect(svc.get(repo.id).path).toBe(join(root, "shop"));
+  });
+
+  it("keeps a custom name", async () => {
+    const { repo } = await appRepo({ withTask: false });
+    service.update(repo.id, { name: "My app" });
+    const { result } = await renamer().rename(repo.id, "shop");
+    expect(result.repo).toMatchObject({ name: "My app", path: join(root, "shop") });
+  });
+
+  it("skips GitHub when it already has the name", async () => {
+    const { repo } = await appRepo({ withTask: false });
+    github.name = "shop";
+    const { result } = await renamer().rename(repo.id, "shop");
+    expect(github.calls).toEqual([]);
+    expect(result.skipped).toEqual(["github"]);
+    expect(result.failed).toBeNull();
+  });
+
+  it("refuses a busy repo and releases the lock", async () => {
+    const { repo, task } = await appRepo();
+    const svc = renamer();
+    r.tasks.update(task!.id, { status: "running" });
+    await expect(svc.rename(repo.id, "shop")).rejects.toThrow(RepoBusyError);
+    r.tasks.update(task!.id, { status: "needs-you" });
+    busyIds = [task!.id];
+    await expect(svc.rename(repo.id, "shop")).rejects.toThrow(RepoBusyError);
+    busyIds = [];
+    backfilling = true;
+    await expect(svc.rename(repo.id, "shop")).rejects.toThrow(RepoBusyError);
+    expect(github.calls).toEqual([]);
+    expect(locks.isHeld(repo.id)).toBe(false);
+  });
+
+  it("refuses an existing target folder and invalid names", async () => {
+    const { repo } = await appRepo({ withTask: false });
+    mkdirSync(join(root, "shop"));
+    const svc = renamer();
+    await expect(svc.rename(repo.id, "shop")).rejects.toThrow(InvalidRepoError);
+    await expect(svc.rename(repo.id, "x.git")).rejects.toThrow(InvalidRepoError);
+    expect(github.calls).toEqual([]);
+    expect(locks.isHeld(repo.id)).toBe(false);
+  });
+
+  it("stops at a busy folder and resumes on retry", async () => {
+    const { repo, task } = await appRepo();
+    const first = await renamer(busyWorktrees).rename(repo.id, "shop");
+    expect(first.result.completed).toEqual(["github", "origin"]);
+    expect(first.result.failed?.step).toBe("folder");
+    expect(first.result.failed?.message).toContain("in use");
+    expect(existsSync(join(root, "shop"))).toBe(true);
+    expect(existsSync(join(root, "app.worktrees"))).toBe(true);
+    expect(r.repos.get(repo.id)?.path).toBe(repo.path);
+    expect(r.tasks.get(task!.id)?.worktreePath).toBe(task!.worktreePath);
+    expect(locks.isHeld(repo.id)).toBe(false);
+    expect(locks.isRenaming(repo.id)).toBe(true);
+
+    const retry = await renamer().rename(repo.id, "shop");
+    expect(retry.result.failed).toBeNull();
+    expect(retry.result.skipped).toEqual(expect.arrayContaining(["github", "origin"]));
+    expect(retry.result.completed).toEqual(expect.arrayContaining(["folder", "records"]));
+    expect(github.calls).toHaveLength(1);
+    const newWorktree = join(root, "shop.worktrees", task!.id);
+    expect(r.tasks.get(task!.id)?.worktreePath).toBe(newWorktree);
+    expect(() => gitOut(newWorktree, "status")).not.toThrow();
+    expect(locks.isRenaming(repo.id)).toBe(false);
+  });
+
+  it("keeps a task-less repo after a partial failure", async () => {
+    const { repo } = await appRepo({ withTask: false });
+    mkdirSync(join(root, "app.worktrees"));
+    const svc = renamer(busyWorktrees);
+    const first = await svc.rename(repo.id, "shop");
+    expect(first.result.failed?.step).toBe("folder");
+    let error: unknown;
+    try {
+      svc.use(repo.id);
+    } catch (cause) {
+      error = cause;
+    }
+    expect(error).toBeInstanceOf(StaleRepoError);
+    expect((error as StaleRepoError).removed).toBe(false);
+    expect(svc.get(repo.id)).toBeDefined();
+    expect((await renamer().rename(repo.id, "shop")).result.failed).toBeNull();
+  });
+
+  it("lets a missing token through and releases the lock", async () => {
+    const { repo } = await appRepo({ withTask: false });
+    github.currentName = () =>
+      Promise.reject(new MissingCredentialError("github", "github.com", null));
+    await expect(renamer().rename(repo.id, "shop")).rejects.toThrow(MissingCredentialError);
+    expect(locks.isHeld(repo.id)).toBe(false);
+    expect(existsSync(join(root, "app"))).toBe(true);
   });
 });

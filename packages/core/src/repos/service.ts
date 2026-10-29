@@ -1,26 +1,42 @@
 import { existsSync } from "node:fs";
-import { realpath, stat } from "node:fs/promises";
-import { basename, isAbsolute } from "node:path";
+import { realpath, rename as renameFolder, stat } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   DEFAULT_BRANCH,
+  remoteRepoSlug,
+  renamedRemoteUrl,
+  renamedRepoPath,
+  repoRenameInputSchema,
   reorderReposInputSchema,
   repoInputSchema,
   repoScanInputSchema,
   repoUpdateSchema,
   type Repo,
   type RepoInput,
+  type RepoRenameResult,
+  type RepoRenameStep,
   type RepoScanInput,
   type RepoScanResult,
   type RepoSync,
   type RepoUpdate,
   type RepoView,
+  type Task,
 } from "@blackwall/shared";
-import type { ConnectionService } from "../connections/service.js";
+import { MissingCredentialError, type ConnectionService } from "../connections/service.js";
 import type { Repositories } from "../db/repositories.js";
 import { suggestCheckCommands, suggestSetupCommands } from "./checks.js";
 import { describeGitError } from "../git/errors.js";
 import { GitError } from "../git/service.js";
-import { gitDirKind, pushBranch, readBranchSync, readOriginRemote } from "./git.js";
+import {
+  gitDirKind,
+  listWorktreePaths,
+  pushBranch,
+  readBranchSync,
+  readOriginRemote,
+  repairWorktrees,
+  setOriginRemote,
+} from "./git.js";
+import type { RepoRenameLocks } from "./rename-lock.js";
 import { findGitRepos } from "./scan.js";
 
 /** Rejected repo input (not a folder, not a git repo, already registered). Safe to show the user. */
@@ -72,9 +88,53 @@ export class RepoPushError extends Error {
   }
 }
 
+/** The repo has queued, running or delivering tasks, or is already being renamed. Maps to 409. */
+export class RepoBusyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RepoBusyError";
+  }
+}
+
+/** A rename step failed with a message safe to show the user, e.g. GitHub refused it. */
+export class RepoRenameStepError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RepoRenameStepError";
+  }
+}
+
+/**
+ * The GitHub side of a repo rename, implemented by the server. Both calls may
+ * throw `MissingCredentialError`; other failures should be `RepoRenameStepError`.
+ */
+export interface RepoRenameGitHub {
+  /** The repo's current name on GitHub; follows GitHub's redirect for a renamed repo. */
+  currentName(remoteUrl: string): Promise<string>;
+  renameRepo(remoteUrl: string, name: string): Promise<void>;
+}
+
+/** What `rename` needs beyond the registry; without it renaming is unavailable. */
+export interface RepoRenameOptions {
+  tasks: Pick<Repositories["tasks"], "list" | "update">;
+  transaction: <T>(fn: () => T) => T;
+  /** Tasks the engine is running or has queued. */
+  busyTaskIds: () => Iterable<string>;
+  /** Whether a memory backfill pass is studying the repo's tasks. */
+  backfillRunning: (repoId: string) => boolean;
+  locks: Pick<
+    RepoRenameLocks,
+    "hold" | "assertFree" | "isRenaming" | "markPartial" | "clearPartial"
+  >;
+  github: RepoRenameGitHub;
+  /** Moves a folder; defaults to `fs.promises.rename`. */
+  fsRename?: (from: string, to: string) => Promise<void>;
+}
+
 export interface RepoServiceOptions {
   repos: Repositories["repos"];
   connections: Pick<ConnectionService, "resolve">;
+  rename?: RepoRenameOptions | undefined;
 }
 
 export type RepoService = ReturnType<typeof createRepoService>;
@@ -153,7 +213,7 @@ async function canonicalFolder(path: string): Promise<string> {
  * its `origin` remote, the GitHub connection resolved from it, and the check
  * commands the Checks stage runs.
  */
-export function createRepoService({ repos, connections }: RepoServiceOptions) {
+export function createRepoService({ repos, connections, rename }: RepoServiceOptions) {
   function existing(id: string): Repo {
     const repo = repos.get(id);
     if (!repo) throw new RepoNotFoundError(id);
@@ -204,14 +264,164 @@ export function createRepoService({ repos, connections }: RepoServiceOptions) {
 
   /**
    * The repo, if its folder still exists. A repo whose folder is gone is removed
-   * from the registry (when no task references it) and `StaleRepoError` is thrown.
+   * from the registry (when no task references it and no rename of it is
+   * running or awaiting a retry) and `StaleRepoError` is thrown.
    */
   function use(id: string): Repo {
     const repo = existing(id);
     if (existsSync(repo.path)) return repo;
-    const removable = !repos.hasTasks(id);
+    const removable = !repos.hasTasks(id) && !rename?.locks.isRenaming(id);
     if (removable) remove(id);
     throw new StaleRepoError(repo, removable);
+  }
+
+  /** Throws `RepoBusyError` while a task in the repo runs, waits or delivers, or a backfill studies it. */
+  function assertRenameIdle(options: RepoRenameOptions, repo: Repo): void {
+    const engineIds = new Set(options.busyTaskIds());
+    const busy = options.tasks
+      .list()
+      .filter(
+        (task) =>
+          task.repoId === repo.id &&
+          (task.status === "running" ||
+            task.status === "queued" ||
+            task.delivering ||
+            engineIds.has(task.id)),
+      );
+    if (busy.length > 0) {
+      throw new RepoBusyError(
+        `Wait for these tasks in ${repo.name} to finish: ${busy.map((task) => task.title).join(", ")}`,
+      );
+    }
+    if (options.backfillRunning(repo.id)) {
+      throw new RepoBusyError(
+        `${repo.name}'s past tasks are being studied for notes; try again later`,
+      );
+    }
+  }
+
+  async function renameSteps(
+    options: RepoRenameOptions,
+    repo: Repo,
+    name: string,
+  ): Promise<{ result: RepoRenameResult; tasks: Task[] }> {
+    const { github } = options;
+    const fsRename = options.fsRename ?? renameFolder;
+    const oldPath = repo.path;
+    const newPath = renamedRepoPath(oldPath, name);
+    const oldWorktrees = worktreesRootOf(oldPath);
+    const newWorktrees = worktreesRootOf(newPath);
+
+    // An earlier, partial run may already have moved the folder.
+    const livePath = existsSync(oldPath) ? oldPath : existsSync(newPath) ? newPath : null;
+    if (!livePath) throw new InvalidRepoError(`${repo.name} no longer exists at ${oldPath}`);
+    const liveOrigin = (await readOriginRemote(livePath)) ?? repo.remoteUrl;
+    const slug = remoteRepoSlug(liveOrigin);
+    const newOrigin = liveOrigin && renamedRemoteUrl(liveOrigin, name);
+    if (!liveOrigin || !slug || !newOrigin) {
+      throw new InvalidRepoError(`${repo.name}'s origin is not a GitHub repo`);
+    }
+    if (!connectionIdFor(liveOrigin)) {
+      throw new InvalidRepoError(`No GitHub connection for ${slug.host}`);
+    }
+    for (const [from, to] of [
+      [oldPath, newPath],
+      [oldWorktrees, newWorktrees],
+    ] as const) {
+      if (existsSync(from) && existsSync(to) && !(await sameFolder(from, to))) {
+        throw new InvalidRepoError(`${to} already exists`);
+      }
+    }
+    const taken = repos
+      .list()
+      .find(
+        (other) =>
+          other.id !== repo.id &&
+          (samePath(other.path, newPath) || samePath(other.path, newWorktrees)),
+      );
+    if (taken) throw new InvalidRepoError(`${taken.path} is already registered as ${taken.name}`);
+
+    const completed: RepoRenameStep[] = [];
+    const skipped: RepoRenameStep[] = [];
+    const done = (step: RepoRenameStep, ran: boolean) => (ran ? completed : skipped).push(step);
+    const result = (failed: RepoRenameResult["failed"], current: Repo = repo) => ({
+      result: { repo: current, completed, skipped, failed },
+      tasks: [] as Task[],
+    });
+
+    let currentName: string;
+    try {
+      currentName = await github.currentName(liveOrigin);
+    } catch (error) {
+      if (error instanceof MissingCredentialError) throw error;
+      return result({ step: "github", message: stepMessage("github", error) });
+    }
+    if (
+      currentName === name &&
+      liveOrigin === newOrigin &&
+      basename(livePath) === name &&
+      oldPath === newPath
+    ) {
+      throw new InvalidRepoError(`Already named ${name}`);
+    }
+    try {
+      if (currentName !== name) await github.renameRepo(liveOrigin, name);
+      done("github", currentName !== name);
+    } catch (error) {
+      if (error instanceof MissingCredentialError) throw error;
+      return result({ step: "github", message: stepMessage("github", error) });
+    }
+
+    let worktrees: string[];
+    try {
+      if (liveOrigin !== newOrigin) await setOriginRemote(livePath, newOrigin);
+      done("origin", liveOrigin !== newOrigin);
+      worktrees = (await listWorktreePaths(livePath)).map((path) =>
+        movedPath(resolve(path), oldWorktrees, newWorktrees),
+      );
+    } catch (error) {
+      return result({ step: "origin", message: stepMessage("origin", error) });
+    }
+
+    try {
+      const movedRepo = await moveFolder(fsRename, oldPath, newPath);
+      const movedWorktrees = await moveFolder(fsRename, oldWorktrees, newWorktrees);
+      done("folder", movedRepo || movedWorktrees);
+    } catch (error) {
+      return result({ step: "folder", message: stepMessage("folder", error) });
+    }
+
+    try {
+      const existingWorktrees = worktrees.filter((path) => existsSync(path));
+      if (existingWorktrees.length > 0) await repairWorktrees(newPath, existingWorktrees);
+      const remoteUrl = newOrigin;
+      const saved = options.transaction(() => {
+        const tasks = options.tasks
+          .list()
+          .filter(
+            (task) =>
+              task.repoId === repo.id &&
+              task.worktreePath !== null &&
+              isUnder(task.worktreePath, oldWorktrees),
+          )
+          .map((task) =>
+            options.tasks.update(task.id, {
+              worktreePath: movedPath(task.worktreePath!, oldWorktrees, newWorktrees),
+            }),
+          );
+        const updated = repos.update(repo.id, {
+          path: newPath,
+          remoteUrl,
+          connectionId: connectionIdFor(remoteUrl),
+          ...(repo.name === basename(oldPath) ? { name } : {}),
+        });
+        return { tasks, repo: updated };
+      });
+      completed.push("records");
+      return { ...result(null, saved.repo), tasks: saved.tasks };
+    } catch (error) {
+      return result({ step: "records", message: stepMessage("records", error) });
+    }
   }
 
   function list(): RepoView[] {
@@ -315,8 +525,9 @@ export function createRepoService({ repos, connections }: RepoServiceOptions) {
       return list();
     },
 
-    /** Removes a repo from the registry; refused while tasks reference it. */
+    /** Removes a repo from the registry; refused while tasks reference it or it is being renamed. */
     delete(id: string): void {
+      rename?.locks.assertFree(id);
       const repo = existing(id);
       if (repos.hasTasks(id)) throw new RepoInUseError(repo);
       remove(id);
@@ -382,5 +593,94 @@ export function createRepoService({ repos, connections }: RepoServiceOptions) {
       }
       return readBranchSync(repo.path, mainBranch);
     },
+
+    /**
+     * Renames the repo on GitHub, points `origin` at the new address, renames
+     * the folder and its `<repo>.worktrees` sibling, then updates the records.
+     * Holds the repo's rename lock throughout, so no task in it starts meanwhile.
+     * A failed step stops the rename without rolling back; calling it again
+     * with the same name skips the steps that are already done.
+     */
+    async rename(id: string, name: string): Promise<{ result: RepoRenameResult; tasks: Task[] }> {
+      if (!rename) throw new InvalidRepoError("Renaming is not available");
+      const parsed = repoRenameInputSchema.safeParse({ name });
+      if (!parsed.success) throw invalid(parsed.error);
+      const repo = existing(id);
+      const release = rename.locks.hold(id, repo.name);
+      try {
+        assertRenameIdle(rename, repo);
+        const outcome = await renameSteps(rename, repo, parsed.data.name);
+        const { completed, skipped, failed } = outcome.result;
+        if (!failed) rename.locks.clearPartial(id);
+        else if (completed.includes("github") || skipped.includes("github")) {
+          rename.locks.markPartial(id);
+        }
+        return outcome;
+      } finally {
+        release();
+      }
+    },
   };
+}
+
+/** Where a repo's task worktrees live: the `<repo>.worktrees` folder next to it. */
+function worktreesRootOf(repoPath: string): string {
+  return join(dirname(repoPath), `${basename(repoPath)}.worktrees`);
+}
+
+/** Whether `path` is inside `root` (case-insensitively on Windows). */
+function isUnder(path: string, root: string): boolean {
+  const rel = relative(root, path);
+  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+}
+
+function samePath(a: string, b: string): boolean {
+  return relative(a, b) === "";
+}
+
+/** `path` with `from` swapped for `to` when it lies inside `from`. */
+function movedPath(path: string, from: string, to: string): string {
+  return isUnder(path, from) ? join(to, relative(from, path)) : path;
+}
+
+/** Whether two existing paths are the same folder, e.g. when only their case differs. */
+async function sameFolder(a: string, b: string): Promise<boolean> {
+  try {
+    return (await realpath(a)) === (await realpath(b));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Moves `from` to `to` unless that already happened. Handles case-only renames,
+ * where both paths name the same folder. False when nothing was moved.
+ */
+async function moveFolder(
+  fsRename: (from: string, to: string) => Promise<void>,
+  from: string,
+  to: string,
+): Promise<boolean> {
+  if (existsSync(to) && basename(await realpath(to)) === basename(to)) return false;
+  if (!existsSync(from)) return false;
+  try {
+    await fsRename(from, to);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EBUSY" || code === "EPERM" || code === "EACCES") {
+      throw new RepoRenameStepError(
+        `${from} is in use (close editors, terminals and running chats open in it) and retry`,
+      );
+    }
+    throw error;
+  }
+  return true;
+}
+
+/** A failed step's message for the user; unexpected errors are logged. */
+function stepMessage(step: RepoRenameStep, error: unknown): string {
+  if (error instanceof GitError) return describeGitError(error);
+  if (error instanceof RepoRenameStepError) return error.message;
+  console.error(`Repo rename: the ${step} step failed`, error);
+  return `${step} failed unexpectedly`;
 }

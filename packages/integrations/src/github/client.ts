@@ -670,6 +670,33 @@ export function createGitHubClient(credentials: GitHubCredentials, fetchImpl: Fe
       });
     },
 
+    /**
+     * The repository's current name. Follows GitHub's redirect, so a repo
+     * renamed since `repository` was read answers with its new name.
+     */
+    getRepo(repository: { owner: string; repo: string }, signal?: AbortSignal) {
+      return call(`${repository.owner}/${repository.repo}`, signal, async () => {
+        const res = await octokit.rest.repos.get({
+          owner: repository.owner,
+          repo: repository.repo,
+          request: requestOptions(signal),
+        });
+        return { name: res.data.name, fullName: res.data.full_name };
+      });
+    },
+
+    /** Renames the repository on GitHub; needs admin rights on it. */
+    renameRepo(repository: { owner: string; repo: string }, name: string, signal?: AbortSignal) {
+      return call(`${repository.owner}/${repository.repo}`, signal, async () => {
+        await octokit.rest.repos.update({
+          owner: repository.owner,
+          repo: repository.repo,
+          name,
+          request: requestOptions(signal),
+        });
+      });
+    },
+
     /** The token's user. */
     getViewer(signal?: AbortSignal) {
       return call("Authenticated user", signal, async () => {

@@ -1,7 +1,9 @@
 import {
   backlogItemViewSchema,
+  repoViewSchema,
   taskSchema,
   type BacklogItemView,
+  type RepoView,
   type Task,
 } from "@blackwall/shared";
 
@@ -66,6 +68,36 @@ export function makeBacklogItem(overrides: Partial<BacklogItemView> = {}): Backl
     sourceTaskId: null,
     blocked: false,
     blockedBy: [],
+    createdAt: "2026-10-08T10:00:00.000Z",
+    updatedAt: "2026-10-08T10:00:00.000Z",
+    ...overrides,
+  });
+}
+
+/** A valid listed repo for tests: `app` at `C:\Code\app` with a GitHub origin. */
+export function makeRepo(overrides: Partial<RepoView> = {}): RepoView {
+  return repoViewSchema.parse({
+    id: "r1",
+    path: "C:\\Code\\app",
+    name: "app",
+    remoteUrl: "git@github.com:acme/app.git",
+    remoteKey: "github.com/acme/app",
+    connectionId: "c1",
+    checkCommands: [],
+    setupCommands: [],
+    defaultCli: "claude",
+    defaultOrigin: "free-text",
+    maxBacklogTasks: null,
+    defaultBranch: "main",
+    favorite: false,
+    position: 0,
+    watchCi: false,
+    jiraProject: null,
+    referenceRepoIds: [],
+    agentTrust: "locked",
+    trustProjectMcp: false,
+    trustProjectHooks: false,
+    exists: true,
     createdAt: "2026-10-08T10:00:00.000Z",
     updatedAt: "2026-10-08T10:00:00.000Z",
     ...overrides,

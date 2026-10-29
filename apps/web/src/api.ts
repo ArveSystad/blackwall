@@ -38,6 +38,7 @@ import {
   repoJiraIssuesSchema,
   repoMemoriesSchema,
   reviewRequestsSchema,
+  repoRenameResultSchema,
   repoScanResultSchema,
   repoSchema,
   repoSyncSchema,
@@ -111,6 +112,7 @@ import {
   type ResolveConnectionInput,
   type Repo,
   type RepoInput,
+  type RepoRenameResult,
   type RepoScanInput,
   type RepoScanResult,
   type RepoUpdate,
@@ -552,6 +554,17 @@ export function reorderRepos(ids: string[]): Promise<RepoView[]> {
 
 export function deleteRepo(id: string): Promise<void> {
   return requestEmpty(at("/api/repos", id), { method: "DELETE" });
+}
+
+/**
+ * Renames the repo on GitHub, in `origin` and on disk. A failed step comes
+ * back in the result's `failed`; calling it again with the same name resumes.
+ */
+export function renameRepo(id: string, name: string): Promise<RepoRenameResult> {
+  return request(`${at("/api/repos", id)}/rename`, repoRenameResultSchema, {
+    method: "POST",
+    body: { name },
+  });
 }
 
 /** Re-reads the repo's origin remote and its connection; a missing folder is a `StaleRepoError`. */

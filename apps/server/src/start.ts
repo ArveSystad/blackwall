@@ -21,6 +21,7 @@ import {
   createMemoryReleaser,
   createPipelineEngine,
   createQuotaTracker,
+  createRepoRenameLocks,
   createRepoService,
   createRepositories,
   createSearch,
@@ -108,9 +109,21 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       tokens: connectionTokens,
     });
     const git = createGitService();
+    const github = createGitHubOrigin({ connections });
+    // Shared by the repo rename, the engine and the memory backfill.
+    const renameLocks = createRepoRenameLocks();
     const repos = createRepoService({
       repos: repositories.repos,
       connections,
+      // Reads the engine and the backfill only during a rename, after both exist.
+      rename: {
+        tasks: repositories.tasks,
+        transaction: repositories.transaction,
+        busyTaskIds: () => [...pipeline.activeTaskIds(), ...pipeline.queuedTaskIds()],
+        backfillRunning: (repoId) => memoryBackfill.status(repoId).running,
+        locks: renameLocks,
+        github,
+      },
     });
     const agents = createAgentService({
       agents: repositories.agents,
@@ -147,7 +160,6 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       onChange: (state) => publish({ type: "quota.changed", payload: { quota: state } }),
     });
     const jira = createJiraOrigin({ connections });
-    const github = createGitHubOrigin({ connections });
     const repoIssues = createRepoIssueSource({ connections });
     const jiraIssues = createJiraIssueSource({ connections });
     const newTask = {
@@ -230,6 +242,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
           );
       },
       onChanged: (repoId) => publish({ type: "memories.changed", payload: { repoId } }),
+      renaming: renameLocks,
     });
     shutdown.onShutdown(() => memoryBackfill.stop());
     const pipeline = createPipelineEngine({
@@ -283,6 +296,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       autonomous: (task) =>
         settings.repoBacklogRunner(task.repoId).autonomous &&
         repositories.backlogItems.list(task.repoId).some((item) => item.taskId === task.id),
+      renaming: renameLocks,
     });
     // Runs before the database closes: kills the agent CLIs and marks their steps interrupted.
     shutdown.onShutdown(() => pipeline.shutdown());

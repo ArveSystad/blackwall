@@ -1149,3 +1149,41 @@ describe("signComment", () => {
     expect(signComment("  ")).toBe(`---\n${COMMENT_SIGNATURE}`);
   });
 });
+
+describe("repo rename", () => {
+  it("renames with a PATCH of the repo's name", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(() =>
+      Promise.resolve(json('{"name":"store","full_name":"acme/store"}')),
+    );
+    await createGitHubClient(GHE, fetchImpl).renameRepo({ owner: "acme", repo: "shop" }, "store");
+    const [input, init] = fetchImpl.mock.calls[0]!;
+    expect(new URL(String(input)).pathname).toBe("/repos/acme/shop");
+    expect(init?.method).toBe("PATCH");
+    expect(JSON.parse(String(init?.body))).toEqual({ name: "store" });
+  });
+
+  it("turns a refusal into a GitHubError", async () => {
+    const client = createGitHubClient(GHE, () =>
+      Promise.resolve(json('{"message":"Must have admin rights to Repository."}', 403)),
+    );
+    const error = await client
+      .renameRepo({ owner: "acme", repo: "shop" }, "store")
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitHubError);
+    expect((error as GitHubError).status).toBe(403);
+  });
+
+  it("reads the current name, following the redirect of a renamed repo", async () => {
+    const fetchImpl = vi.fn<typeof fetch>((_input, init) => {
+      // fetch follows GitHub's 301 to /repositories/:id and answers with the target.
+      expect(init?.redirect).not.toBe("manual");
+      return Promise.resolve(json('{"id":1,"name":"store","full_name":"acme/store"}'));
+    });
+    const client = createGitHubClient(GHE, fetchImpl);
+    expect(await client.getRepo({ owner: "acme", repo: "shop" })).toEqual({
+      name: "store",
+      fullName: "acme/store",
+    });
+    expect(new URL(String(fetchImpl.mock.calls[0]![0])).pathname).toBe("/repos/acme/shop");
+  });
+});

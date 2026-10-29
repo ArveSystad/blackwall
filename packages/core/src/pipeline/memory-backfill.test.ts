@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAgentService, type AgentService } from "../agents/service.js";
 import { openDatabase, type OpenedDatabase } from "../db/database.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
+import { RepoRenamingError, createRepoRenameLocks } from "../repos/rename-lock.js";
 import { memoryBackfillKey } from "../settings/service.js";
 import { createFakeAdapter, type FakeScript } from "./fake-adapter.js";
 import {
@@ -172,6 +173,20 @@ describe("memoryBackfillPrompt", () => {
 });
 
 describe("createMemoryBackfill", () => {
+  it("refuses a pass while the repo is being renamed", async () => {
+    doneTask("First");
+    const renaming = createRepoRenameLocks();
+    const { backfill, claude } = setup({ renaming });
+    const release = renaming.hold(repoId);
+    expect(() => backfill.start(repoId)).toThrow(RepoRenamingError);
+    expect(backfill.status(repoId).running).toBe(false);
+    expect(claude.calls).toHaveLength(0);
+    release();
+    backfill.start(repoId);
+    await vi.waitFor(() => expect(backfill.status(repoId).running).toBe(false));
+    expect(claude.calls).toHaveLength(1);
+  });
+
   it("runs each eligible task once, oldest first, read-only in the repo's checkout", async () => {
     const first = doneTask("First");
     const second = doneTask("Second");

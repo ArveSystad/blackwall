@@ -17,6 +17,7 @@ import {
   InvalidRepoError,
   InvalidSettingsError,
   MissingCredentialError,
+  RepoBusyError,
   RepoInUseError,
   RepoNotFoundError,
   RepoPushError,
@@ -85,6 +86,7 @@ export function errorResponse(error: unknown, c: Context) {
   }
   if (
     error instanceof RepoInUseError ||
+    error instanceof RepoBusyError ||
     error instanceof TaskStateError ||
     error instanceof DataImportBusyError ||
     error instanceof DataImportDecisionsError ||

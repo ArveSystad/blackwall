@@ -79,6 +79,7 @@ import {
   type CiState,
   type TaskCi,
   originRef,
+  repoRenameInputSchema,
 } from "./domain.js";
 
 const now = "2026-10-08T10:00:00.000Z";
@@ -1539,5 +1540,33 @@ describe("stepSchema", () => {
   it("records the effort the step ran at, or null", () => {
     expect(stepSchema.parse(step).effort).toBeNull();
     expect(stepSchema.parse({ ...step, effort: "low" }).effort).toBe("low");
+  });
+});
+
+describe("repoRenameInputSchema", () => {
+  const valid = (name: string) => repoRenameInputSchema.safeParse({ name }).success;
+
+  it("accepts GitHub-style names and trims them", () => {
+    expect(repoRenameInputSchema.parse({ name: "  shop-api_v2.web " })).toEqual({
+      name: "shop-api_v2.web",
+    });
+    expect(valid("a".repeat(100))).toBe(true);
+  });
+
+  it("rejects names that break on GitHub or on disk", () => {
+    for (const name of [
+      "",
+      "..",
+      ".",
+      "x.git",
+      "shop.",
+      "my shop",
+      "a/b",
+      "CON",
+      "lpt1",
+      "a".repeat(101),
+    ]) {
+      expect(valid(name), name).toBe(false);
+    }
   });
 });

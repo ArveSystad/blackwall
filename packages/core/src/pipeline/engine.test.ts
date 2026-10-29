@@ -31,6 +31,7 @@ import { createAgentService } from "../agents/service.js";
 import { DB_FILENAME, openDatabase, type OpenedDatabase } from "../db/database.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
 import { GitError, createGitService, type GitService } from "../git/service.js";
+import { createRepoRenameLocks, type RepoRenameLocks } from "../repos/rename-lock.js";
 import { ARTIFACTS_DIR } from "./artifacts.js";
 import type { CiFailure, CiWatcher } from "./ci.js";
 import {
@@ -204,6 +205,7 @@ function harness(
     planActions = [],
     setup,
     prHead,
+    renaming,
   }: {
     stages?: StageHandlers;
     maxPerRepo?: number;
@@ -225,6 +227,7 @@ function harness(
     planActions?: DeliveryAction[];
     setup?: WorktreeSetup;
     prHead?: PrHeadSync;
+    renaming?: RepoRenameLocks;
   } = {},
 ): Harness {
   const agents = agentService();
@@ -277,6 +280,7 @@ function harness(
     ...(autonomous ? { autonomous } : {}),
     ...(setup ? { setup } : {}),
     ...(prHead ? { prHead } : {}),
+    ...(renaming ? { renaming } : {}),
     publish: (event) => events.push(event),
     log,
   });
@@ -1351,6 +1355,59 @@ describe("stop and delete", () => {
       // A squash alone never left the machine.
       [squashed.id, undefined],
     ]);
+  });
+});
+
+describe("repo rename lock", () => {
+  it("keeps a task queued while its repo is renamed and runs it after", async () => {
+    const seeded = seedTask();
+    const renaming = createRepoRenameLocks();
+    const prepared: string[] = [];
+    const h = harness(() => ({}), {
+      renaming,
+      prepareWorkspace: async (t) => {
+        prepared.push(t.id);
+        return { branch: `agent/${t.id}`, worktreePath: dir };
+      },
+    });
+    const release = renaming.hold(seeded.repoId);
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id).status).toBe("queued");
+    expect(h.engine.activeTaskIds()).toEqual([]);
+    expect(prepared).toEqual([]);
+
+    release();
+    await vi.waitFor(() => expect(prepared).toEqual([seeded.id]));
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "plan-approval" });
+  });
+
+  it("refuses delivery and delete while the repo is renamed", async () => {
+    const seeded = seedTask();
+    const renaming = createRepoRenameLocks();
+    const h = harness(() => ({}), { renaming });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    await h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" });
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
+
+    const release = renaming.hold(seeded.repoId);
+    await expect(
+      h.engine.respond(seeded.id, { gate: "finish", decision: "approve" }),
+    ).rejects.toThrow(TaskStateError);
+    await expect(h.engine.delete(seeded.id)).rejects.toThrow(TaskStateError);
+    expect(task(seeded.id)).toMatchObject({
+      status: "needs-you",
+      gate: "finish",
+      delivering: false,
+    });
+    expect(h.delivered).toEqual([]);
+    release();
+    await h.engine.respond(seeded.id, { gate: "finish", decision: "approve" });
+    await settle(h.engine);
+    expect(task(seeded.id).status).toBe("done");
   });
 });
 

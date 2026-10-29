@@ -6,6 +6,7 @@ import {
   createConnectionService,
   createConnectionTokens,
   createMemorySecretStore,
+  createRepoRenameLocks,
   createRepoService,
   createRepositories,
   openDatabase,
@@ -13,15 +14,20 @@ import {
 } from "@blackwall/core";
 import {
   STALE_REPO_STATUS,
+  repoRenameResultSchema,
   repoScanResultSchema,
   repoSchema,
   repoSyncSchema,
   repoViewSchema,
   staleRepoSchema,
+  type ServerEvent,
 } from "@blackwall/shared";
+import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "./app.js";
 import { tokenCookieName } from "./auth.js";
+import { errorResponse } from "./errors.js";
+import { repoRoutes } from "./repos.js";
 
 const launchToken = "test-token";
 const port = 4711;
@@ -305,5 +311,121 @@ describe("repo routes", () => {
     const res = await request(`/api/repos/${repo.id}/push`, { method: "POST" });
     expect(res.status).toBe(502);
     expect(((await res.json()) as { error: string }).error).toContain("rejected");
+  });
+});
+
+describe("repo rename route", () => {
+  let renameApp: Hono;
+  let repositories: ReturnType<typeof createRepositories>;
+  let events: ServerEvent[];
+  let renamed: string[];
+
+  beforeEach(() => {
+    events = [];
+    renamed = [];
+    repositories = createRepositories(opened.db);
+    const tokens = createConnectionTokens({
+      store: createMemorySecretStore(),
+      connections: repositories.connections,
+      env: {},
+    });
+    const connections = createConnectionService({ connections: repositories.connections, tokens });
+    repositories.connections.create({
+      name: "github.com",
+      kind: "github",
+      baseUrl: "https://github.com",
+    });
+    let current = "app";
+    const repos = createRepoService({
+      repos: repositories.repos,
+      connections,
+      rename: {
+        tasks: repositories.tasks,
+        transaction: repositories.transaction,
+        busyTaskIds: () => [],
+        backfillRunning: () => false,
+        locks: createRepoRenameLocks(),
+        github: {
+          currentName: () => Promise.resolve(current),
+          renameRepo: (_remote, name) => {
+            renamed.push(name);
+            current = name;
+            return Promise.resolve();
+          },
+        },
+      },
+    });
+    renameApp = new Hono()
+      .onError(errorResponse)
+      .route("/api/repos", repoRoutes(repos, { broadcast: (event) => events.push(event) }));
+  });
+
+  function rename(id: string, body: unknown) {
+    return renameApp.request(`http://localhost/api/repos/${id}/rename`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  async function registered(withTask: boolean) {
+    const path = gitRepo("app");
+    git(path, "remote", "add", "origin", "git@github.com:acme/app.git");
+    git(path, "config", "user.name", "Test");
+    git(path, "config", "user.email", "test@example.com");
+    git(path, "config", "commit.gpgsign", "false");
+    commit(path, "README.md");
+    const repo = repositories.repos.create({
+      path,
+      name: "app",
+      remoteUrl: "git@github.com:acme/app.git",
+    });
+    if (!withTask) return { repo, task: undefined };
+    const task = repositories.tasks.create({
+      title: "t1",
+      origin: { kind: "free-text" },
+      repoId: repo.id,
+    });
+    const worktree = join(root, "app.worktrees", task.id);
+    git(path, "worktree", "add", "--quiet", "-b", `task-${task.id}`, worktree);
+    const ready = repositories.tasks.update(task.id, {
+      worktreePath: worktree,
+      status: "needs-you",
+    });
+    return { repo, task: ready };
+  }
+
+  it("rejects an invalid name", async () => {
+    const { repo } = await registered(false);
+    expect((await rename(repo.id, { name: "x.git" })).status).toBe(400);
+    expect((await rename(repo.id, {})).status).toBe(400);
+    expect(renamed).toEqual([]);
+  });
+
+  it("is a conflict while a task in the repo runs", async () => {
+    const { repo, task } = await registered(true);
+    repositories.tasks.update(task!.id, { status: "running" });
+    const res = await rename(repo.id, { name: "shop" });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toContain("t1");
+    expect(renamed).toEqual([]);
+  });
+
+  it("renames, returns the result without secrets and broadcasts moved tasks", async () => {
+    const { repo, task } = await registered(true);
+    const res = await rename(repo.id, { name: "shop" });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).not.toMatch(/token/i);
+    const result = repoRenameResultSchema.parse(JSON.parse(text));
+    expect(result).toMatchObject({
+      completed: ["github", "origin", "folder", "records"],
+      failed: null,
+      repo: { name: "shop", path: join(root, "shop") },
+    });
+    expect(renamed).toEqual(["shop"]);
+    const moved = repositories.tasks.get(task!.id)!;
+    expect(moved.worktreePath).toBe(join(root, "shop.worktrees", task!.id));
+    expect(events).toEqual([{ type: "task.upserted", payload: { task: moved } }]);
   });
 });

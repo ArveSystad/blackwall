@@ -1,6 +1,7 @@
 import {
   CiRateLimitedError,
   MissingCredentialError,
+  RepoRenameStepError,
   branchForTask,
   connectionHost,
   type CiReadResult,
@@ -123,7 +124,44 @@ export function createGitHubOrigin({ connections, fetch: fetchImpl }: GitHubOrig
     return issue;
   }
 
+  /** A client for a repo's `origin` and its `owner/repo`; throws `MissingCredentialError` without a token. */
+  async function remoteClient(remote: string) {
+    const { connection, token } = await connections.requireCredential({ kind: "github", remote });
+    const slug = parseRemoteSlug(remote);
+    if (!slug) throw new RepoRenameStepError(`${remote} is not a GitHub repo`);
+    const client = createGitHubClient({ baseUrl: connection.baseUrl, token }, fetchImpl);
+    return { client, slug: { owner: slug.owner, repo: slug.repo } };
+  }
+
   return {
+    /** The repo's current name on GitHub, following the redirect of a renamed repo. */
+    async currentName(remote: string): Promise<string> {
+      const { client, slug } = await remoteClient(remote);
+      try {
+        return (await client.getRepo(slug)).name;
+      } catch (error) {
+        if (error instanceof GitHubError && error.status === 404) {
+          throw new RepoRenameStepError(`${slug.owner}/${slug.repo} was not found on GitHub`);
+        }
+        throw new RepoRenameStepError(error instanceof Error ? error.message : String(error));
+      }
+    },
+
+    /** Renames the repo on GitHub; refused without admin rights on it. */
+    async renameRepo(remote: string, name: string): Promise<void> {
+      const { client, slug } = await remoteClient(remote);
+      try {
+        await client.renameRepo(slug, name);
+      } catch (error) {
+        if (error instanceof GitHubError && (error.status === 403 || error.status === 404)) {
+          throw new RepoRenameStepError(
+            `GitHub refused the rename; the token needs admin rights on ${slug.owner}/${slug.repo}`,
+          );
+        }
+        throw new RepoRenameStepError(error instanceof Error ? error.message : String(error));
+      }
+    },
+
     /**
      * The PR's head branch (PRs from forks have no branch on `origin` to check
      * out), or an issue's new branch: `fix/<n>-<slug>` with a `bug` label,

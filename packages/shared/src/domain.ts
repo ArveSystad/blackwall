@@ -629,6 +629,44 @@ export const repoUpdateSchema = z.object({
 });
 export type RepoUpdate = z.infer<typeof repoUpdateSchema>;
 
+/** The steps of a repo rename, in the order they run. */
+export const REPO_RENAME_STEPS = ["github", "origin", "folder", "records"] as const;
+export const repoRenameStepSchema = z.enum(REPO_RENAME_STEPS);
+export type RepoRenameStep = z.infer<typeof repoRenameStepSchema>;
+
+const WINDOWS_RESERVED_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
+
+/**
+ * `POST /api/repos/:id/rename` body: a name valid both as a GitHub repo name
+ * and as a folder name on every OS.
+ */
+export const repoRenameInputSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, "Enter a name")
+    .max(100, "Use at most 100 characters")
+    .regex(/^[A-Za-z0-9._-]+$/, "Use only letters, digits, '.', '-' and '_'")
+    .refine((value) => value !== "." && value !== "..", "Not a valid repo name")
+    .refine((value) => !value.endsWith("."), "Can't end with '.'")
+    .refine((value) => !/\.git$/i.test(value), "Can't end with .git")
+    .refine((value) => !WINDOWS_RESERVED_NAME.test(value), "That name is reserved on Windows"),
+});
+export type RepoRenameInput = z.infer<typeof repoRenameInputSchema>;
+
+/**
+ * What a rename did. Steps that ran are `completed`; steps that were already
+ * done (from an earlier, partial run) are `skipped`. `failed` names the step
+ * that stopped it; the steps after it did not run and nothing was rolled back.
+ */
+export const repoRenameResultSchema = z.object({
+  repo: repoSchema,
+  completed: z.array(repoRenameStepSchema),
+  skipped: z.array(repoRenameStepSchema),
+  failed: z.object({ step: repoRenameStepSchema, message: z.string() }).nullable(),
+});
+export type RepoRenameResult = z.infer<typeof repoRenameResultSchema>;
+
 /** `POST /api/repos/reorder` body: every repo id in the new order. */
 export const reorderReposInputSchema = z.object({
   ids: z

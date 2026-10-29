@@ -16,6 +16,7 @@ import { permissionsFor } from "../agents/permissions.js";
 import { memoriesPromptSection } from "../agents/prompts.js";
 import type { AgentService } from "../agents/service.js";
 import type { Repositories } from "../db/repositories.js";
+import type { RepoRenameLocks } from "../repos/rename-lock.js";
 import { RepoNotFoundError } from "../repos/service.js";
 import { memoryBackfillKey } from "../settings/service.js";
 import { TaskStateError } from "./engine.js";
@@ -40,6 +41,8 @@ export interface MemoryBackfillOptions {
   onHeld?: () => void;
   /** Called with the repo's id after a task's notes are saved, so its list can refresh. */
   onChanged?: (repoId: string) => void;
+  /** Refuses a pass in a repo that is being renamed. */
+  renaming?: Pick<RepoRenameLocks, "assertFree"> | undefined;
   log?: (message: string) => void;
 }
 
@@ -148,6 +151,7 @@ export function createMemoryBackfill({
   prMergeState,
   onHeld,
   onChanged = () => undefined,
+  renaming,
   log = console.error,
 }: MemoryBackfillOptions) {
   const { tasks, repos, memories, grillQuestions, settings } = repositories;
@@ -349,10 +353,11 @@ export function createMemoryBackfill({
     /**
      * Starts a pass over the repo's eligible tasks, oldest first, one at a
      * time, and returns at once. Throws {@link MemoryBackfillBusyError} while
-     * a pass runs in the repo.
+     * a pass runs in the repo, and `RepoRenamingError` while it is renamed.
      */
     start(repoId: string): MemoryBackfillStatus {
       const repo = repoOf(repoId);
+      renaming?.assertFree(repo.id);
       if (progress.get(repo.id)?.running) throw new MemoryBackfillBusyError();
       const state: Progress = {
         running: true,

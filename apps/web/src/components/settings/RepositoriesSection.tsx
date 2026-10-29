@@ -46,6 +46,7 @@ import {
   tasksQuery,
 } from "../../query";
 import { moveRepo, reorderRepoIds } from "../../repo-order";
+import { renameDisabledReason } from "../../repo-rename";
 import { CLI_NAMES, errorMessage, parseCap, parseLines, sameList } from "../../settings-forms";
 import { TRUST_NAMES, trustRisk } from "../../trust";
 import { AgentTile } from "../AgentTile";
@@ -71,6 +72,7 @@ import { Kbd } from "../ui/kbd";
 import { MultiSelectMenu } from "../ui/multi-select-menu";
 import { Textarea } from "../ui/textarea";
 import { Empty, SaveBar, SectionHeader } from "./parts";
+import { RenameRepoDialog } from "./RenameRepoDialog";
 import { TrustHelpDialog } from "./TrustHelpDialog";
 
 type AddMode = "one" | "scan";
@@ -518,7 +520,7 @@ function MemoryVault({ repo }: { repo: RepoView }) {
   );
 }
 
-function RepoEditor({
+export function RepoEditor({
   repo,
   onRemoved,
   onStale,
@@ -532,6 +534,7 @@ function RepoEditor({
   const connections = useQuery(connectionsQuery);
   const settings = useQuery(settingsQuery);
   const repos = useQuery(reposQuery);
+  const tasks = useQuery(tasksQuery);
   const [name, setName] = useState(repo.name);
   const [setup, setSetup] = useState(repo.setupCommands.join("\n"));
   const [checks, setChecks] = useState(repo.checkCommands.join("\n"));
@@ -554,6 +557,7 @@ function RepoEditor({
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<"suggest" | "suggest-setup" | "refresh" | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [renaming, setRenaming] = useState(false);
 
   // Empty uses the global backlog cap.
   const backlogCapValue = backlogCap.trim() === "" ? null : parseCap(backlogCap);
@@ -580,6 +584,7 @@ function RepoEditor({
   const otherRepos = repos.data?.filter((other) => other.id !== repo.id) ?? [];
   const connection = connections.data?.find((c) => c.id === repo.connectionId);
   const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeys.repos });
+  const renameBlocked = renameDisabledReason(repo, connection, tasks.data ?? [], dirty);
 
   /** A stale repo was removed (or flagged) by the server; refresh the list either way. */
   async function failed(cause: unknown) {
@@ -695,6 +700,15 @@ function RepoEditor({
         <Button
           size="sm"
           variant="ghost"
+          disabled={busy !== null || renameBlocked !== null}
+          title={renameBlocked ?? "Rename on GitHub, origin and folder"}
+          onClick={() => setRenaming(true)}
+        >
+          Rename…
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
           disabled={busy !== null || !repo.exists}
           onClick={() => void refresh()}
         >
@@ -742,6 +756,24 @@ function RepoEditor({
                   : "None"}
             </span>
           </Field>
+          <Field
+            label="Default branch"
+            hint="Branch new tasks fork from, free-text tasks merge into and PRs target."
+          >
+            <Input
+              className="mono"
+              spellCheck={false}
+              placeholder="main"
+              aria-invalid={defaultBranch.trim() === ""}
+              value={defaultBranch}
+              onChange={(event) => setDefaultBranch(event.target.value)}
+            />
+          </Field>
+        </div>
+
+        <hr className="m-0 h-px border-0 bg-border" data-testid="repo-properties-divider" />
+
+        <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
           <Field label="Default CLI" group className="min-w-0">
             <Segmented
               label="Default CLI"
@@ -779,19 +811,6 @@ function RepoEditor({
             <span className="text-meta text-faint">
               New tasks and backlog items here start on this origin.
             </span>
-          </Field>
-          <Field
-            label="Default branch"
-            hint="Branch new tasks fork from, free-text tasks merge into and PRs target."
-          >
-            <Input
-              className="mono"
-              spellCheck={false}
-              placeholder="main"
-              aria-invalid={defaultBranch.trim() === ""}
-              value={defaultBranch}
-              onChange={(event) => setDefaultBranch(event.target.value)}
-            />
           </Field>
           <Field
             label="Backlog tasks at once"
@@ -1047,6 +1066,14 @@ function RepoEditor({
           remotes and read anywhere, with no sandbox. Review PR tasks and PR tasks with commits that
           aren't yours still run Locked. Takes effect when you save.
         </ConfirmDialog>
+      )}
+      {renaming && (
+        <RenameRepoDialog
+          repo={repo}
+          tasks={tasks.data ?? []}
+          onClose={() => setRenaming(false)}
+          onRenamed={(renamed) => setName(renamed.name)}
+        />
       )}
       {confirmRemove && (
         <ConfirmDialog
