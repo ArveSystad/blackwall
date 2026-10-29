@@ -1,18 +1,21 @@
 import { ciNeedsYou, type AgentCli, type AgentTrust, type Task } from "@blackwall/shared";
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
+import type { Crumble } from "../crumble";
 import { originKey, relativeTime, statusLabel } from "../inbox";
 import { cn } from "../lib/utils";
-import { CI_FAILED_REASON, GATE_REASONS } from "../task-view";
+import { canArchive, CI_FAILED_REASON, GATE_REASONS } from "../task-view";
 import { AgentTile } from "./AgentTile";
 import { CiBadge } from "./CiBadge";
-import { TrashIcon, WarnIcon } from "./icons";
+import { DecryptGlyphs } from "./DecryptText";
+import { ArchiveIcon, TrashIcon, WarnIcon } from "./icons";
 import { ORIGIN_ICONS } from "./origins";
 import { StagePips } from "./StagePips";
 import { StatusBadge } from "./StatusBadge";
 import { TrustBadge } from "./TrustBadge";
 import { DeleteTaskDialog } from "./task/DeleteTaskDialog";
 import { Button } from "./ui/button";
+import { useEncrypt } from "./use-decrypt";
 
 /**
  * Inbox card linking to the task. Needs-you tasks, and done tasks whose CI
@@ -20,7 +23,9 @@ import { Button } from "./ui/button";
  * are finishing (delivering), when the pill reads "Finishing". A task that
  * pushed shows its CI as a small badge, and one whose agents run above Locked, or are forced
  * Locked, shows their trust. Tasks show a delete button on hover or focus,
- * in place of the time.
+ * in place of the time, and done or archivable tasks an archive button next
+ * to it. An archived row crumbles out (`.bw-crumble`): its title scrambles
+ * into glyphs, then the row flickers and falls; a failed archive flashes it red.
  */
 export function TaskCard({
   task,
@@ -28,6 +33,8 @@ export function TaskCard({
   clis = [],
   trust,
   now,
+  crumble,
+  onArchive,
 }: {
   task: Task;
   repoName?: string;
@@ -36,13 +43,25 @@ export function TaskCard({
   /** The trust the task's agents run under; nothing shows for a simply Locked repo. */
   trust?: AgentTrust;
   now: Date;
+  /** The row's archive crumble, while it plays or its failure flashes. */
+  crumble?: Crumble | undefined;
+  /** Archives the task; the archive button shows only with it. */
+  onArchive?: () => void;
 }) {
   const OriginIcon = ORIGIN_ICONS[task.origin.kind];
   const ciFailed = ciNeedsYou(task);
   const needsYou = task.status === "needs-you" || ciFailed;
   const [deleting, setDeleting] = useState(false);
+  const crumbling = crumble?.phase === "crumbling";
+  const crumbleFrame = useEncrypt(task.title, crumbling, crumble?.delayMs ?? 0);
   return (
-    <div className="group relative isolate">
+    <div
+      className={cn("group relative isolate", crumbling && "bw-crumble")}
+      style={
+        crumbling ? ({ "--crumble-delay": `${crumble.delayMs}ms` } as CSSProperties) : undefined
+      }
+      inert={crumbling}
+    >
       {/* The wash is translucent, so the open needs-you card glows from a halo sibling. */}
       {needsYou && (
         <span
@@ -75,11 +94,16 @@ export function TaskCard({
         </span>
         <span
           className={cn(
-            "line-clamp-2 text-body leading-[18px] font-medium text-foreground-strong",
+            "text-body leading-[18px] font-medium text-foreground-strong",
+            !crumbling && "line-clamp-2",
             task.status === "done" && "font-normal text-foreground",
           )}
         >
-          {task.title}
+          {crumbling ? (
+            <DecryptGlyphs text={task.title} frame={crumbleFrame} className="bw-decrypt-clip" />
+          ) : (
+            task.title
+          )}
         </span>
         {needsYou && task.gate && !task.delivering && (
           <span className="flex items-center gap-1.5 text-meta font-medium text-magenta">
@@ -111,16 +135,36 @@ export function TaskCard({
           <StatusBadge status={task.status} label={statusLabel(task)} />
         </span>
       </Link>
-      <Button
-        size="icon-sm"
-        variant="ghost"
-        className="invisible absolute top-1 right-1.5 group-focus-within:visible group-hover:visible hover:text-destructive"
-        onClick={() => setDeleting(true)}
-        aria-label={`Delete ${task.title}`}
-        title="Delete task"
-      >
-        <TrashIcon size="sm" />
-      </Button>
+      <span className="invisible absolute top-1 right-1.5 flex gap-0.5 group-focus-within:visible group-hover:visible">
+        {onArchive && canArchive(task) && (
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            onClick={onArchive}
+            aria-label={`Archive ${task.title}`}
+            title="Archive task"
+          >
+            <ArchiveIcon size="sm" />
+          </Button>
+        )}
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          className="hover:text-destructive"
+          onClick={() => setDeleting(true)}
+          aria-label={`Delete ${task.title}`}
+          title="Delete task"
+        >
+          <TrashIcon size="sm" />
+        </Button>
+      </span>
+      {crumble?.phase === "failed" && (
+        <span
+          key={`crumble-failed:${crumble.failures}`}
+          aria-hidden="true"
+          className="bw-crumble-failed pointer-events-none absolute inset-0"
+        />
+      )}
       {deleting && <DeleteTaskDialog task={task} onClose={() => setDeleting(false)} />}
     </div>
   );

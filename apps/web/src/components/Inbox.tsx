@@ -2,6 +2,7 @@ import { effectiveTrust, type Task } from "@blackwall/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
+import { inboxRows } from "../crumble";
 import { useNow } from "../hooks";
 import { activeAgentsLabel, doneTasks, groupTasks, matchesFilter } from "../inbox";
 import { isPlainKey, isTypingTarget, useWindowKeydown } from "../keyboard";
@@ -31,9 +32,11 @@ function TaskList({ tasks, filter }: { tasks: Task[]; filter: string }) {
     () => new Map((repos.data ?? []).map((repo) => [repo.id, repo])),
     [repos.data],
   );
-  const groups = groupTasks(tasks.filter((task) => matchesFilter(task, filter)));
+  const launch = useArchive();
+  const rows = inboxRows(tasks, launch.crumbles);
+  const groups = groupTasks(rows.filter((task) => matchesFilter(task, filter)));
 
-  if (tasks.every((task) => task.archivedAt !== null)) {
+  if (rows.every((task) => task.archivedAt !== null)) {
     return (
       <EmptyState key="empty" title="The wall is quiet">
         Tasks you start show up here; archived tasks stay in each repo&apos;s backlog.
@@ -68,6 +71,11 @@ function TaskList({ tasks, filter }: { tasks: Task[]; filter: string }) {
                   now={now}
                   clis={agentClis(task)}
                   {...(repo ? { repoName: repo.name, trust: effectiveTrust(repo, task) } : {})}
+                  crumble={launch.crumbles.get(task.id)}
+                  onArchive={() => {
+                    launch.clearError();
+                    launch.archiveAll([task]);
+                  }}
                 />
               );
             })}
@@ -112,7 +120,10 @@ export function Inbox() {
   const [creating, setCreating] = useState(false);
   const filterInput = useRef<HTMLInputElement>(null);
   const launch = useArchive();
-  const done = doneTasks(tasks.data ?? []).filter((t) => !launch.launches.has(t.id));
+  const done = doneTasks(tasks.data ?? []).filter(
+    (t) =>
+      !launch.launches.has(t.id) && (launch.crumbles.get(t.id)?.phase ?? "failed") === "failed",
+  );
 
   useWindowKeydown((event) => {
     if (!isPlainKey(event) || isTypingTarget(event.target)) return;

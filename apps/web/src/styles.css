@@ -388,6 +388,39 @@
   }
 }
 
+@keyframes bw-crumble {
+  0% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  8% {
+    opacity: 0.25;
+  }
+  15% {
+    opacity: 0.9;
+  }
+  22% {
+    opacity: 0.15;
+  }
+  35% {
+    transform: translateY(0);
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+}
+
+@keyframes bw-crumble-failed {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 @keyframes bw-laser {
   0% {
     transform: translateY(0);
@@ -1260,6 +1293,53 @@
     filter: none;
   }
 
+  /* ---------- inbox crumble (TaskCard.tsx) ----------
+   * An archived inbox row crumbles out: its title scrambles into glyphs left
+   * to right (useEncrypt, DECRYPT_MS = 220ms), then the row flickers and falls
+   * away over 360ms. Rows archived together step down by --crumble-delay (set
+   * inline, CRUMBLE_STAGGER_MS = 70ms apart). It ends transparent, and the
+   * inbox drops the row after CRUMBLE_MS (220 + 360 = 580ms) past its delay.
+   * While crumbling, the title's two-line clamp moves inside the decrypt text,
+   * since .bw-decrypt would escape an outer line-clamp, and the glyphs wrap
+   * with it. A failed archive brings the row back and flashes it red over
+   * 1.2s (CRUMBLE_FAILED_MS). Change them together. Reduced motion drops the
+   * row at once in JS; the reduced-motion block below is a fallback.
+   */
+  .bw-crumble {
+    animation: bw-crumble 360ms ease-in calc(var(--crumble-delay, 0ms) + 220ms) both;
+  }
+
+  .bw-crumble .bw-decrypt {
+    display: block;
+  }
+
+  .bw-crumble .bw-decrypt-text {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+
+  .bw-crumble .bw-decrypt-glyphs {
+    white-space: normal;
+    text-shadow: 0 0 6px color-mix(in oklab, var(--st-done) 60%, transparent);
+  }
+
+  .bw-crumble-failed {
+    background: color-mix(in oklab, var(--st-failed) 22%, transparent);
+    box-shadow: 0 0 12px color-mix(in oklab, var(--st-failed) 50%, transparent);
+    animation: bw-crumble-failed 1.2s ease-out forwards;
+  }
+
+  /* Glow is dark only. */
+  :root[data-theme="light"] .bw-crumble .bw-decrypt-glyphs {
+    text-shadow: none;
+  }
+
+  :root[data-theme="light"] .bw-crumble-failed {
+    box-shadow: none;
+  }
+
   /* ---------- running headline (RunningHeadline.tsx) ----------
    * The agents view's centred "N tasks running". Its glow marks the running
    * state. A brighter, wider-glowing copy stacked on top shows only in a circle
@@ -1726,6 +1806,8 @@
     .bw-boom,
     .bw-assigned-flash,
     .bw-launch,
+    .bw-crumble,
+    .bw-crumble-failed,
     .bw-stage-fill,
     .bw-lock-on {
       display: none;

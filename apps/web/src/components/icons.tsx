@@ -195,6 +195,9 @@ export const TrashIcon = icon(
   <path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5M7 7v4M9 7v4" />,
 );
 
+/** Archive. */
+export const ArchiveIcon = icon(<path d="M2.5 3.5h11v3h-11zM3.5 6.5V13h9V6.5M6.5 9h3" />);
+
 export const PlayIcon = icon(<path d="M5 3.5v9l7-4.5-7-4.5Z" />);
 
 /** Drag handle for reorderable rows. */

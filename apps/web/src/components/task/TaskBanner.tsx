@@ -8,6 +8,7 @@ import { NeedsBanner } from "../NeedsBanner";
 import { Button } from "../ui/button";
 import { ErrorText } from "../ui/field";
 import { Kbd } from "../ui/kbd";
+import { useArchive } from "../use-archive-launches";
 import { answerGate, approvePlan, archive, fixCi, resume, type PlanComment } from "./actions";
 import type { TaskAction } from "./use-task-action";
 
@@ -136,11 +137,12 @@ export function TaskBanner({
   onDelete: () => void;
 }) {
   const queryClient = useQueryClient();
+  const launch = useArchive();
   const error = action.error && <ErrorText>{action.error}</ErrorText>;
 
   async function archiveTask() {
     try {
-      await archive(action, task);
+      await launch.crumble(task, async () => (await archive(action, task)) !== undefined);
     } finally {
       // The task.upserted event may arrive after the response.
       await queryClient.invalidateQueries({ queryKey: queryKeys.tasks, exact: true });

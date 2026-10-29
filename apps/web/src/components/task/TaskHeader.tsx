@@ -33,6 +33,7 @@ import { TrustBadge } from "../TrustBadge";
 import { Button } from "../ui/button";
 import { Chip } from "../ui/chip";
 import { Kbd } from "../ui/kbd";
+import { useArchive } from "../use-archive-launches";
 import { archive, stop, unarchive } from "./actions";
 import type { TaskAction } from "./use-task-action";
 
@@ -134,6 +135,7 @@ export function TaskHeader({
   onDelete: () => void;
 }) {
   const queryClient = useQueryClient();
+  const launch = useArchive();
   const repos = useQuery(reposQuery);
   const connections = useQuery(connectionsQuery);
   const agentMap = useAgentLibrary();
@@ -156,7 +158,9 @@ export function TaskHeader({
 
   async function setArchived(archived: boolean) {
     try {
-      await (archived ? archive(action, task) : unarchive(action, task));
+      await (archived
+        ? launch.crumble(task, async () => (await archive(action, task)) !== undefined)
+        : unarchive(action, task));
     } finally {
       // The task.upserted event may arrive after the response.
       await queryClient.invalidateQueries({ queryKey: queryKeys.tasks, exact: true });

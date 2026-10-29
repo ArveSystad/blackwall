@@ -4,6 +4,8 @@ import {
   DECRYPT_MS,
   decryptFrame,
   decryptStart,
+  encryptEnd,
+  encryptFrame,
   runDecrypt,
   type DecryptClock,
 } from "./decrypt";
@@ -96,7 +98,73 @@ describe("decryptStart", () => {
   });
 });
 
+describe("encryptFrame", () => {
+  it("is exactly the text at 0ms", () => {
+    expect(encryptFrame("hello world", 0, seq())).toBe("hello world");
+  });
+
+  it("scrambles left to right and never un-scrambles", () => {
+    const text = "blackwall";
+    const n = text.length;
+    let scrambled = 0;
+    for (let t = 0; t <= DECRYPT_MS; t += 5) {
+      const frame = encryptFrame(text, t, () => 0.999);
+      // 0.999 picks ">", which is in no position of the text.
+      let prefix = 0;
+      while (prefix < n && frame[prefix] === ">") prefix++;
+      expect(prefix).toBeGreaterThanOrEqual(scrambled);
+      expect(frame.slice(prefix)).toBe(text.slice(prefix));
+      scrambled = prefix;
+    }
+    expect(scrambled).toBe(n);
+  });
+
+  it("is all glyphs, spaces kept, from DECRYPT_MS on, and keeps the length", () => {
+    const text = "fix the 😀 bug";
+    for (const t of [DECRYPT_MS, DECRYPT_MS * 5]) {
+      const chars = Array.from(encryptFrame(text, t, seq()));
+      expect(chars).toHaveLength(Array.from(text).length);
+      Array.from(text).forEach((char, i) => {
+        if (char === " ") expect(chars[i]).toBe(" ");
+        else expect(glyphs).toContain(chars[i]);
+      });
+    }
+  });
+});
+
+describe("encryptEnd", () => {
+  it("is deterministic, scrambled and the same length", () => {
+    const text = "Ship the 😀 thing";
+    expect(encryptEnd(text)).toBe(encryptEnd(text));
+    const chars = Array.from(encryptEnd(text));
+    expect(chars).toHaveLength(Array.from(text).length);
+    Array.from(text).forEach((char, i) => {
+      if (char === " ") expect(chars[i]).toBe(" ");
+      else expect(glyphs).toContain(chars[i]);
+    });
+  });
+});
+
 describe("runDecrypt", () => {
+  it("plays encrypt frames with frame: encryptFrame", () => {
+    const { clock, frameAt } = fakeClock();
+    const frames: string[] = [];
+    let done = 0;
+    runDecrypt({
+      getText: () => "blackwall",
+      onFrame: (f) => frames.push(f),
+      onDone: () => done++,
+      clock,
+      random: () => 0.999,
+      frame: encryptFrame,
+    });
+    frameAt(0);
+    frameAt(DECRYPT_MS / 2);
+    frameAt(DECRYPT_MS);
+    expect(frames).toEqual(["blackwall", encryptFrame("blackwall", DECRYPT_MS / 2, () => 0.999)]);
+    expect(done).toBe(1);
+  });
+
   it("draws scrambled frames, then settles once and stops", () => {
     const { clock, queue, frameAt } = fakeClock();
     const frames: string[] = [];

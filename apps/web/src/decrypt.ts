@@ -1,4 +1,8 @@
-/** How long a decrypt takes to settle, left to right. JS only: no CSS mirrors it (see `.bw-decrypt*` in styles.css). */
+/**
+ * How long a decrypt takes to settle, left to right. JS only: no CSS mirrors
+ * it (see `.bw-decrypt*` in styles.css), but `.bw-crumble`'s delay does, via
+ * `CRUMBLE_MS` in crumble.ts.
+ */
 export const DECRYPT_MS = 220;
 
 /** The glyphs an unsettled character cycles through. */
@@ -42,7 +46,33 @@ export function decryptStart(text: string): string {
     .join("");
 }
 
-/** The frame clock; `requestAnimationFrame` in the browser, a fake in tests. */
+/**
+ * The reverse of `decryptFrame`: character `i` of `n` stays real while
+ * `elapsedMs < ((i + 1) / n) * DECRYPT_MS`, then shows a random glyph, so the
+ * frame is exactly `text` at 0ms. Whitespace is kept; from `DECRYPT_MS` on
+ * every other character is a glyph.
+ */
+export function encryptFrame(
+  text: string,
+  elapsedMs: number,
+  random: () => number = Math.random,
+): string {
+  const chars = Array.from(text);
+  const n = chars.length;
+  return chars
+    .map((char, i) => {
+      if (isSpace(char) || elapsedMs < ((i + 1) / n) * DECRYPT_MS) return char;
+      return glyphs[Math.floor(random() * glyphs.length) % glyphs.length];
+    })
+    .join("");
+}
+
+/** The fully scrambled frame an encrypt holds at its end; deterministic, like `decryptStart`. */
+export function encryptEnd(text: string): string {
+  return decryptStart(text);
+}
+
+/** The frame clock;`requestAnimationFrame` in the browser, a fake in tests. */
 export interface DecryptClock {
   now: () => number;
   request: (callback: () => void) => number;
@@ -56,11 +86,11 @@ export const browserClock: DecryptClock = {
 };
 
 /**
- * Plays one decrypt: each frame passes `decryptFrame(getText(), elapsed)` to
+ * Plays one decrypt: each frame passes `frame(getText(), elapsed)` to
  * `onFrame`, so a text change mid-run settles to the new text. Once
  * `DECRYPT_MS` has passed it calls `onDone` and stops (a background tab's
  * paused frames settle on the next one). Returns a cancel that stops it
- * without calling `onDone`.
+ * without calling `onDone`. Pass `frame: encryptFrame` to play it in reverse.
  */
 export function runDecrypt({
   getText,
@@ -68,12 +98,14 @@ export function runDecrypt({
   onDone,
   clock = browserClock,
   random = Math.random,
+  frame = decryptFrame,
 }: {
   getText: () => string;
   onFrame: (frame: string) => void;
   onDone: () => void;
   clock?: DecryptClock;
   random?: () => number;
+  frame?: (text: string, elapsedMs: number, random: () => number) => string;
 }): () => void {
   const start = clock.now();
   let id: number | null = null;
@@ -84,7 +116,7 @@ export function runDecrypt({
       onDone();
       return;
     }
-    onFrame(decryptFrame(getText(), elapsed, random));
+    onFrame(frame(getText(), elapsed, random));
     id = clock.request(tick);
   };
   id = clock.request(tick);
