@@ -1297,6 +1297,7 @@ async function summarize(ctx: StageContext): Promise<void> {
     parseMemories(structured?.memories),
     { awaitingMerge: fromPr },
   );
+  ctx.publish({ type: "memories.changed", payload: { repoId: task.repoId } });
 }
 
 /**

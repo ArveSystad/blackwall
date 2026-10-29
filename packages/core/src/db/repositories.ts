@@ -924,17 +924,21 @@ export function createMemoriesRepository(db: Db) {
     },
     /**
      * Deletes the task's held notes; with null, the held notes whose task was
-     * deleted, which can never be released.
+     * deleted, which can never be released. Returns the distinct repo ids of
+     * the deleted notes (empty when nothing was held).
      */
-    discardAwaiting(taskId: string | null): void {
-      db.delete(memories)
+    discardAwaiting(taskId: string | null): string[] {
+      const deleted = db
+        .delete(memories)
         .where(
           and(
             eq(memories.awaitingMerge, true),
             taskId === null ? isNull(memories.sourceTaskId) : eq(memories.sourceTaskId, taskId),
           ),
         )
-        .run();
+        .returning({ repoId: memories.repoId })
+        .all();
+      return [...new Set(deleted.map((row) => row.repoId))];
     },
     /**
      * The repo's active notes most relevant to `text`: every pinned note

@@ -1068,11 +1068,16 @@ describe("memories", () => {
     });
     note(task.repoId, "Orphan held", { awaitingMerge: true });
     note(task.repoId, "Active", { sourceTaskId: task.id });
-    r.memories.discardAwaiting(task.id);
+    const elsewhere = r.repos.create({ path: "/code/other", name: "other" });
+    note(task.repoId, "Second orphan", { awaitingMerge: true });
+    note(elsewhere.id, "Orphan elsewhere", { awaitingMerge: true });
+    expect(r.memories.discardAwaiting(task.id)).toEqual([task.repoId]);
     expect(r.memories.tasksAwaitingMerge()).toEqual([other.id]);
-    r.memories.discardAwaiting(null);
+    expect(r.memories.discardAwaiting(null).sort()).toEqual([task.repoId, elsewhere.id].sort());
     const all = opened.db.$client.prepare("SELECT text FROM memories ORDER BY text").all();
     expect(all).toEqual([{ text: "Active" }, { text: "B" }]);
+    expect(r.memories.discardAwaiting(null)).toEqual([]);
+    expect(r.memories.discardAwaiting(task.id)).toEqual([]);
   });
 
   it("finds the repo's tasks with any note, held or active", () => {

@@ -89,6 +89,8 @@ export const serverEventSchema = z.discriminatedUnion("type", [
   envelope("grill.upserted", z.object({ question: grillQuestionSchema })),
   /** A repo's backlog changed (item added, edited, reordered, promoted or removed); refetch it. */
   envelope("backlog.changed", z.object({ repoId: z.string() })),
+  /** A repo's memories changed (saved, replaced, released, discarded, edited or deleted); refetch them. */
+  envelope("memories.changed", z.object({ repoId: z.string() })),
   /** An agent CLI hit or recovered from its usage limit. */
   envelope("quota.changed", z.object({ quota: z.array(quotaStateSchema) })),
   /** A repo's chat changed (message, activity, busy or an applied action). */

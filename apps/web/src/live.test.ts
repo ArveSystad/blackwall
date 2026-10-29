@@ -356,6 +356,21 @@ describe("applyServerEvent", () => {
     expect(client.getQueryData(queryKeys.quota)).toEqual(quota);
   });
 
+  it("refetches a repo's memories and backfill status on memories.changed", () => {
+    for (const key of [
+      queryKeys.memories("r1"),
+      queryKeys.memoryBackfill("r1"),
+      queryKeys.memories("r2"),
+    ]) {
+      client.setQueryData(key, []);
+    }
+    const stale = (key: readonly unknown[]) => client.getQueryState(key)?.isInvalidated;
+    applyServerEvent(client, { type: "memories.changed", payload: { repoId: "r1" } });
+    expect(stale(queryKeys.memories("r1"))).toBe(true);
+    expect(stale(queryKeys.memoryBackfill("r1"))).toBe(true);
+    expect(stale(queryKeys.memories("r2"))).toBe(false);
+  });
+
   it("writes a repo's chat into its query", () => {
     const chat = {
       repoId: "r1",

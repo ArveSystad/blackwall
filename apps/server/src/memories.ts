@@ -5,6 +5,7 @@ import {
   type Memory,
   type MemoryBackfillStatus,
   type RepoMemories,
+  type ServerEvent,
 } from "@blackwall/shared";
 import { Hono, type Context } from "hono";
 import { badRequest, readJson } from "./validation.js";
@@ -30,12 +31,16 @@ function filesOrNull(files: string[] | null | undefined): string[] | null {
  * so Summarize never replaces them; edits and pins mark a note edited
  * (`editedAt`), so a later summary never replaces it either. Held notes
  * (`awaitingMerge`) are listed apart and can be edited or deleted before they
- * are released. Clients refetch after their own changes; nothing is broadcast.
+ * are released. Every change broadcasts `memories.changed` with the repo id.
  * `/backfill` reports and starts learning notes from the repo's past tasks
  * (202 on start, 409 while a pass runs); clients poll it while one runs.
  */
-export function memoryRoutes({ memories, repos, backfill }: MemoryRouteStores): Hono {
+export function memoryRoutes(
+  { memories, repos, backfill }: MemoryRouteStores,
+  { broadcast = () => undefined }: { broadcast?: (event: ServerEvent) => void } = {},
+): Hono {
   const routes = new Hono();
+  const changed = (repoId: string) => broadcast({ type: "memories.changed", payload: { repoId } });
 
   routes.use("*", async (c, next) => {
     const repoId = c.req.param("repoId") ?? "";
@@ -63,6 +68,7 @@ export function memoryRoutes({ memories, repos, backfill }: MemoryRouteStores): 
       text,
       files: filesOrNull(files),
     });
+    changed(repoId);
     return c.json<Memory>(memory, 201);
   });
 
@@ -97,13 +103,16 @@ export function memoryRoutes({ memories, repos, backfill }: MemoryRouteStores): 
       ...(files !== undefined ? { files: filesOrNull(files) } : {}),
       ...(pinned !== undefined ? { pinned } : {}),
     };
-    return c.json<Memory>(memories.update(memory.id, patch, { byUser: true }));
+    const updated = memories.update(memory.id, patch, { byUser: true });
+    changed(memory.repoId);
+    return c.json<Memory>(updated);
   });
 
   routes.delete("/:id", (c) => {
     const memory = memoryOf(c);
     if (!memory) return notFound(c);
     memories.delete(memory.id);
+    changed(memory.repoId);
     return c.body(null, 204);
   });
 

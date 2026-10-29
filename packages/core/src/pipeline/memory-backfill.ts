@@ -38,6 +38,8 @@ export interface MemoryBackfillOptions {
   prMergeState: (task: Task, signal: AbortSignal) => Promise<PullRequestMergeState>;
   /** Called after a pass that saved held notes, so the releaser can settle them. */
   onHeld?: () => void;
+  /** Called with the repo's id after a task's notes are saved, so its list can refresh. */
+  onChanged?: (repoId: string) => void;
   log?: (message: string) => void;
 }
 
@@ -145,6 +147,7 @@ export function createMemoryBackfill({
   agents,
   prMergeState,
   onHeld,
+  onChanged = () => undefined,
   log = console.error,
 }: MemoryBackfillOptions) {
   const { tasks, repos, memories, grillQuestions, settings } = repositories;
@@ -270,6 +273,7 @@ export function createMemoryBackfill({
     const saved = memories.replaceForTask(task.id, repo.id, parseMemories(structured.memories), {
       awaitingMerge: fromPr,
     });
+    onChanged(repo.id);
     markProcessed(repo.id, [task.id]);
     return { kind: "saved", notes: saved.length, held: fromPr && saved.length > 0 };
   }

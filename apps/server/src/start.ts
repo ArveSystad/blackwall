@@ -197,6 +197,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
     const memoryReleaser = createMemoryReleaser({
       repositories,
       prMergeState: github.pullRequestMergeState,
+      onChanged: (repoId) => publish({ type: "memories.changed", payload: { repoId } }),
     });
     memoryReleaser.start();
     shutdown.onShutdown(() => memoryReleaser.stop());
@@ -220,6 +221,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
             ),
           );
       },
+      onChanged: (repoId) => publish({ type: "memories.changed", payload: { repoId } }),
     });
     shutdown.onShutdown(() => memoryBackfill.stop());
     const pipeline = createPipelineEngine({

@@ -30,6 +30,14 @@ describe("protocol", () => {
     });
   });
 
+  it("parses changed memories only with their repo id", () => {
+    expect(parseServerEvent('{"type":"memories.changed","payload":{"repoId":"r1"}}')).toEqual({
+      type: "memories.changed",
+      payload: { repoId: "r1" },
+    });
+    expect(parseServerEvent('{"type":"memories.changed","payload":{}}')).toBeNull();
+  });
+
   it("parses a data import", () => {
     expect(parseServerEvent('{"type":"data.imported","payload":{}}')).toEqual({
       type: "data.imported",

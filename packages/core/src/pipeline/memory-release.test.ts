@@ -153,6 +153,55 @@ describe("createMemoryReleaser", () => {
     expect(active()).toEqual(["Run codegen first", "Use pnpm"]);
   });
 
+  describe("onChanged", () => {
+    function watched(states: Record<number, PullRequestMergeState | Error>) {
+      const onChanged = vi.fn();
+      const prMergeState = async (task: Task) => {
+        const state = states[task.origin.kind === "github-pr" ? task.origin.number : -1];
+        if (!state || state instanceof Error) throw state ?? new Error("unknown PR");
+        return state;
+      };
+      const rel = createMemoryReleaser({
+        repositories: r,
+        prMergeState,
+        log: () => undefined,
+        onChanged,
+      });
+      return { onChanged, check: () => rel.check() };
+    }
+
+    it("hears of the repo when a merged PR releases its notes", async () => {
+      heldTask(1, "Released");
+      const { onChanged, check } = watched({ 1: merged() });
+      await check();
+      expect(onChanged.mock.calls).toEqual([[repo().id]]);
+    });
+
+    it("hears of the repo when a closed PR discards its notes", async () => {
+      heldTask(1, "Discarded");
+      const { onChanged, check } = watched({
+        1: { state: "closed", merged: false, baseRef: "develop" },
+      });
+      await check();
+      expect(onChanged.mock.calls).toEqual([[repo().id]]);
+    });
+
+    it("hears of the repo when notes whose task was deleted are discarded", async () => {
+      r.tasks.delete(heldTask(1, "Orphan").id);
+      const { onChanged, check } = watched({});
+      await check();
+      expect(onChanged.mock.calls).toEqual([[repo().id]]);
+    });
+
+    it("stays quiet while the PR is open or its check fails", async () => {
+      heldTask(1, "Open");
+      heldTask(2, "Unknown");
+      const { onChanged, check } = watched({ 1: open, 2: new Error("no token") });
+      await check();
+      expect(onChanged).not.toHaveBeenCalled();
+    });
+  });
+
   it("runs one pass for concurrent checks", async () => {
     heldTask(1, "Once");
     const { releaser: rel, prMergeState } = releaser({ 1: open });

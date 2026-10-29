@@ -158,7 +158,7 @@ export function createApp({
       }),
     );
   }
-  if (memories) app.route("/api/repos/:repoId/memories", memoryRoutes(memories));
+  if (memories) app.route("/api/repos/:repoId/memories", memoryRoutes(memories, { broadcast }));
   if (chat) {
     app.route("/api/repos/:repoId/chat", chatRoutes(chat));
     app.route("/api/repos/:repoId/tasks/:taskId/chat", chatRoutes(chat));

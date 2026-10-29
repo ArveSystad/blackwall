@@ -3366,6 +3366,10 @@ describe("summarize and finish", () => {
         },
       ]);
       expect(summaries(h)[0]).not.toContain(REVIEW_LINE);
+      expect(h.events).toContainEqual({
+        type: "memories.changed",
+        payload: { repoId: seeded.repoId },
+      });
     });
 
     it("keeps the summary and saves only the valid memories", async () => {

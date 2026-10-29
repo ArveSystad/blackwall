@@ -18,6 +18,8 @@ export interface MemoryReleaserOptions {
   prMergeState: (task: Task, signal: AbortSignal) => Promise<PullRequestMergeState>;
   intervalMs?: number;
   log?: (message: string) => void;
+  /** Called with a repo's id after a pass releases or discards any of its memories. */
+  onChanged?: (repoId: string) => void;
 }
 
 export type MemoryReleaser = ReturnType<typeof createMemoryReleaser>;
@@ -27,28 +29,34 @@ export type MemoryReleaser = ReturnType<typeof createMemoryReleaser>;
  * request merges into the repo's default branch, and discards them when it is
  * closed unmerged or merged elsewhere. Checks at start and every
  * {@link MEMORY_RELEASE_INTERVAL_MS}; an open pull request, or one that cannot
- * be checked, keeps its notes for the next pass.
+ * be checked, keeps its notes for the next pass. `onChanged` hears of each
+ * repo whose memories a pass changed.
  */
 export function createMemoryReleaser({
   repositories,
   prMergeState,
   intervalMs = MEMORY_RELEASE_INTERVAL_MS,
   log = console.error,
+  onChanged = () => undefined,
 }: MemoryReleaserOptions) {
   const { memories, tasks, repos } = repositories;
   let timer: ReturnType<typeof setInterval> | undefined;
   let lifetime = new AbortController();
   let running: Promise<void> | undefined;
 
+  const discard = (taskId: string | null) => {
+    for (const repoId of memories.discardAwaiting(taskId)) onChanged(repoId);
+  };
+
   async function pass(signal: AbortSignal): Promise<void> {
     // Their task was deleted, so no pull request can release them.
-    memories.discardAwaiting(null);
+    discard(null);
     for (const taskId of memories.tasksAwaitingMerge()) {
       if (signal.aborted) return;
       const task = tasks.get(taskId);
       const repo = task && repos.get(task.repoId);
       if (!task || !repo || task.origin.kind !== "github-pr") {
-        memories.discardAwaiting(taskId);
+        discard(taskId);
         continue;
       }
       let pr: PullRequestMergeState;
@@ -63,8 +71,10 @@ export function createMemoryReleaser({
         continue;
       }
       if (signal.aborted) return;
-      if (pr.merged && pr.baseRef === repo.defaultBranch) memories.releaseForTask(taskId);
-      else if (pr.state === "closed") memories.discardAwaiting(taskId);
+      if (pr.merged && pr.baseRef === repo.defaultBranch) {
+        memories.releaseForTask(taskId);
+        onChanged(task.repoId);
+      } else if (pr.state === "closed") discard(taskId);
     }
   }
 

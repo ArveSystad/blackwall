@@ -95,7 +95,7 @@ export const queryKeys = {
    * the default branch) refresh it.
    */
   repoSync: (repoId: string) => ["backlog", repoId, "sync"] as const,
-  /** A repo's memories; only the user's own changes in Settings invalidate it. */
+  /** A repo's memories; `memories.changed` invalidates it (and, by prefix, the backfill status). */
   memories: (repoId: string) => ["memories", repoId] as const,
   /** A repo's memory backfill; polled while a pass runs. */
   memoryBackfill: (repoId: string) => ["memories", repoId, "backfill"] as const,

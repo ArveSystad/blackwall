@@ -308,6 +308,21 @@ describe("createMemoryBackfill", () => {
     expect(log).toHaveBeenCalledWith(`Memory backfill of task ${failed.id} failed: boom`);
   });
 
+  it("reports the repo changed after each saved task, not a skipped or failed one", async () => {
+    doneTask("Fails");
+    prTask("Rejected", 1);
+    const works = doneTask("Works");
+    const onChanged = vi.fn();
+    const { run } = setup({
+      onChanged,
+      script: (call) => (call === 0 ? { fail: "boom" } : reply("Kept")),
+      prMergeState: async () => ({ state: "closed", merged: false, baseRef: "develop" }),
+    });
+    expect(await run()).toMatchObject({ done: 3, saved: 1, skipped: 1, failed: 1 });
+    expect(notes(works.id)).toEqual([{ text: "Kept", awaitingMerge: false }]);
+    expect(onChanged.mock.calls).toEqual([[repoId]]);
+  });
+
   it("stops the pass at a usage limit", async () => {
     doneTask("Limited");
     doneTask("Never reached");

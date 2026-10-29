@@ -11,6 +11,7 @@ import {
   memorySchema,
   repoMemoriesSchema,
   type MemoryBackfillStatus,
+  type ServerEvent,
 } from "@blackwall/shared";
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -21,8 +22,10 @@ let opened: OpenedDatabase;
 let repositories: Repositories;
 let app: Hono;
 let repoId: string;
+let events: ServerEvent[];
 
 beforeEach(() => {
+  events = [];
   opened = openDatabase(":memory:");
   repositories = createRepositories(opened.db);
   repoId = repositories.repos.create({ path: "/code/app", name: "app" }).id;
@@ -30,7 +33,10 @@ beforeEach(() => {
     .onError(errorResponse)
     .route(
       "/api/repos/:repoId/memories",
-      memoryRoutes({ memories: repositories.memories, repos: repositories.repos }),
+      memoryRoutes(
+        { memories: repositories.memories, repos: repositories.repos },
+        { broadcast: (event) => events.push(event) },
+      ),
     );
 });
 
@@ -140,6 +146,29 @@ describe("memory routes", () => {
     });
     expect((await request(`/${held.id}`, { method: "DELETE" })).status).toBe(204);
     expect((await list()).awaitingMerge).toEqual([]);
+  });
+
+  it("broadcasts memories.changed for each change, not for reads or refused requests", async () => {
+    const changed = [{ type: "memories.changed", payload: { repoId } }];
+    const created = await request("", { method: "POST", body: { kind: "context", text: "New" } });
+    const { id } = memorySchema.parse(await created.json());
+    expect(events).toEqual(changed);
+    events.length = 0;
+    await request(`/${id}`, { method: "PATCH", body: { text: "Edited" } });
+    expect(events).toEqual(changed);
+    events.length = 0;
+    await request(`/${id}`, { method: "DELETE" });
+    expect(events).toEqual(changed);
+    events.length = 0;
+
+    const other = repositories.repos.create({ path: "/code/other", name: "other" });
+    const foreign = repositories.memories.create({ repoId: other.id, kind: "context", text: "x" });
+    expect(
+      (await request("", { method: "POST", body: { kind: "rumour", text: "x" } })).status,
+    ).toBe(400);
+    expect((await request(`/${foreign.id}`, { method: "DELETE" })).status).toBe(404);
+    await list();
+    expect(events).toEqual([]);
   });
 
   it("keeps a user-edited note when Summarize replaces the task's notes", async () => {

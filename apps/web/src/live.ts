@@ -280,6 +280,10 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       // The prefix covers the repo's runner state too.
       void client.invalidateQueries({ queryKey: queryKeys.backlog(event.payload.repoId) });
       break;
+    case "memories.changed":
+      // The prefix covers the repo's backfill status too; refetching it keeps its counts fresh.
+      void client.invalidateQueries({ queryKey: queryKeys.memories(event.payload.repoId) });
+      break;
     case "quota.changed":
       client.setQueryData<QuotaState[]>(queryKeys.quota, event.payload.quota);
       break;
