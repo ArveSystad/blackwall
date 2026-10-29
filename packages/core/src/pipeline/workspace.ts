@@ -102,6 +102,50 @@ export function createWorkspaceSyncer({ git, repos }: WorkspaceSyncerOptions) {
   };
 }
 
+export interface PrHeadSyncOptions {
+  git: Pick<GitService, "fetchBranch" | "moveBranchTo">;
+  repos: Pick<Repositories["repos"], "get">;
+}
+
+/** Fetches and moves a PR task's branch to the PR's head on the remote. */
+export interface PrHeadSync {
+  /** Fetches the PR head branch and returns the sha it points at; never touches the worktree. */
+  fetch(task: Task): Promise<string>;
+  /**
+   * Moves the task's branch to `sha` when its worktree is clean and HEAD is
+   * still `expectedHead`; `false` when it was left alone.
+   */
+  moveTo(task: Task, sha: string, expectedHead: string): Promise<boolean>;
+}
+
+/**
+ * Keeps a PR task's branch in step with the PR's head branch on `origin`,
+ * for re-reviewing the commits pushed since a review. The repo's default
+ * branch is passed along so a protected branch is refused.
+ */
+export function createPrHeadSync({ git, repos }: PrHeadSyncOptions): PrHeadSync {
+  const workspace = (task: Task) => {
+    if (!task.worktreePath || !task.branch) throw new Error("The task has no worktree");
+    return { worktreePath: task.worktreePath, branch: task.branch };
+  };
+  return {
+    async fetch(task) {
+      const { worktreePath, branch } = workspace(task);
+      return git.fetchBranch(worktreePath, branch);
+    },
+    async moveTo(task, sha, expectedHead) {
+      const { worktreePath, branch } = workspace(task);
+      return git.moveBranchTo(
+        worktreePath,
+        branch,
+        sha,
+        expectedHead,
+        repos.get(task.repoId)?.defaultBranch,
+      );
+    },
+  };
+}
+
 export interface WorkspaceRemoverOptions {
   git: Pick<GitService, "removeWorktree">;
   repos: Pick<Repositories["repos"], "get">;

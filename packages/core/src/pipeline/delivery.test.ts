@@ -1084,6 +1084,31 @@ describe("pull request tasks", () => {
     );
   });
 
+  it("offers only the latest run's findings of a re-reviewed Review PR task", async () => {
+    const { task, run: first } = await seed(
+      { branch: "feature/pr", origin: pr, mode: "review" },
+      { existing: true, commits: 0 },
+    );
+    const second = r.runs.create(task.id);
+    const finding = (runId: string, title: string) => ({
+      taskId: task.id,
+      runId,
+      severity: "high" as const,
+      title,
+      explanation: "e",
+    });
+    const [, unposted, latest] = r.findings.createMany([
+      finding(first.id, "Posted"),
+      finding(first.id, "Not posted"),
+      finding(second.id, "New"),
+    ]);
+    r.findings.setStatus(unposted!.id, "force-fix");
+    const { deliverer: d } = deliverer();
+    expect((await d.plan(task, [])).actions).toEqual([
+      { kind: "pr-review", url: pr.url, findingIds: [latest!.id] },
+    ]);
+  });
+
   it("approves a Review PR task with no findings when the user opts in", async () => {
     const { task, run: runRow } = await seed(
       { branch: "feature/pr", origin: pr, mode: "review" },

@@ -12,8 +12,10 @@ export interface TaskDiffsOptions {
  * The task branch's changes per fix round, from the latest run: each range
  * Code review reviewed (recorded on its harness step), then the commits made
  * since the last review, unreviewed. Before any review that is the whole
- * branch since its fork point. A range reviewed again shows once: a review
- * task's re-reviews cover the same range. Empty without a worktree.
+ * branch since its fork point. A range reviewed again within a run shows
+ * once: a review task's "Review again" covers the same range; a re-review
+ * opens a new run, which covers only the commits pushed since. Empty without
+ * a worktree.
  */
 export function createTaskDiffs({ repositories: r, git }: TaskDiffsOptions) {
   return async function taskDiffs(task: Task): Promise<TaskDiff[]> {

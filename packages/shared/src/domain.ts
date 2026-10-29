@@ -1699,6 +1699,17 @@ export const pullRequestCommentsSchema = z.object({
 });
 export type PullRequestComments = z.infer<typeof pullRequestCommentsSchema>;
 
+/**
+ * `POST /api/tasks/:id/pr/refresh`: the head a Review PR task last reviewed,
+ * the PR head branch's sha on the remote now, and whether it moved since.
+ */
+export const pullRequestRefreshSchema = z.object({
+  reviewedSha: z.string(),
+  headSha: z.string(),
+  changed: z.boolean(),
+});
+export type PullRequestRefresh = z.infer<typeof pullRequestRefreshSchema>;
+
 /** Scratch folder in a task's worktree; ignored by its own `.gitignore`. */
 export const SCRATCH_DIR = ".blackwall";
 

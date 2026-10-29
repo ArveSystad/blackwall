@@ -924,6 +924,53 @@ export function createGitService({
     },
 
     /**
+     * Fetches only the remote's `branch` (a PR's head branch) into its
+     * remote-tracking ref and returns the sha it points at. Forces the
+     * tracking ref (`+`), so a force-pushed branch still updates it. Never
+     * moves a local branch and never prunes. Throws {@link GitError} on
+     * failure, e.g. when the remote branch is gone.
+     */
+    async fetchBranch(worktreePath: string, branch: string): Promise<string> {
+      const tracking = `refs/remotes/${remote}/${branch}`;
+      await runGit(worktreePath, [
+        "fetch",
+        "--quiet",
+        "--no-prune",
+        remote,
+        `+refs/heads/${branch}:${tracking}`,
+      ]);
+      return runGit(worktreePath, ["rev-parse", tracking]);
+    },
+
+    /** Whether `ancestor` is an ancestor of (or equal to) `descendant` (`git merge-base --is-ancestor`). */
+    async isAncestor(cwd: string, ancestor: string, descendant: string): Promise<boolean> {
+      return succeeds(cwd, ["merge-base", "--is-ancestor", ancestor, descendant]);
+    },
+
+    /**
+     * Moves the task `branch`, checked out in the worktree, to `sha`
+     * (`git reset --hard`), e.g. a reviewed PR branch to its new remote head,
+     * force-pushed or not. Only a clean worktree whose HEAD is still at
+     * `expectedHead` is moved, so nothing local is lost; returns `false`
+     * without touching anything otherwise. Never pushes, and refuses
+     * protected branches.
+     */
+    async moveBranchTo(
+      worktreePath: string,
+      branch: string,
+      sha: string,
+      expectedHead: string,
+      defaultBranch?: string,
+    ): Promise<boolean> {
+      assertUnprotected(branch, defaultBranch);
+      if ((await currentBranch(worktreePath)) !== shortBranch(branch)) return false;
+      if (await runGit(worktreePath, ["status", "--porcelain"])) return false;
+      if ((await headSha(worktreePath)) !== expectedHead) return false;
+      await runGit(worktreePath, ["reset", "--hard", "--quiet", sha]);
+      return true;
+    },
+
+    /**
      * Fast-forwards the task `branch`, checked out in the worktree, to
      * `<remote>/<defaultBranch>` when the local default branch is an ancestor of
      * it, else to the local default branch. Only a clean worktree whose branch

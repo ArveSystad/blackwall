@@ -290,6 +290,10 @@ describe("pipeline task routes", () => {
         if (task.status !== "done") throw new TaskStateError(`Task ${id} is ${task.status}`);
         return repositories.tasks.update(id, { status: "queued" });
       }),
+      refreshPullRequest: vi.fn(async () => ({ reviewedSha: "h0", headSha: "h1", changed: true })),
+      reReviewPullRequest: vi.fn(async (id: string) =>
+        repositories.tasks.update(id, { status: "queued" }),
+      ),
       stop: vi.fn(async (id: string) =>
         repositories.tasks.update(id, { status: "interrupted", error: "Stopped by you" }),
       ),
@@ -437,6 +441,24 @@ describe("pipeline task routes", () => {
     const refused = await request(`/api/tasks/${running.id}/pr-comments/fix`, { method: "POST" });
     expect(refused.status).toBe(409);
     expect(await refused.json()).toEqual({ error: `Task ${running.id} is running` });
+  });
+
+  it("refreshes a done review's pull request: 200 with the refresh result", async () => {
+    const task = seedTask();
+    repositories.tasks.update(task.id, { status: "done" });
+    const res = await request(`/api/tasks/${task.id}/pr/refresh`, { method: "POST" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ reviewedSha: "h0", headSha: "h1", changed: true });
+    expect(pipeline.refreshPullRequest).toHaveBeenCalledWith(task.id);
+  });
+
+  it("re-reviews a done review's pull request: 200 with the task", async () => {
+    const task = seedTask();
+    repositories.tasks.update(task.id, { status: "done" });
+    const res = await request(`/api/tasks/${task.id}/pr/re-review`, { method: "POST" });
+    expect(res.status).toBe(200);
+    expect(taskSchema.parse(await res.json()).status).toBe("queued");
+    expect(pipeline.reReviewPullRequest).toHaveBeenCalledWith(task.id);
   });
 
   it("stops a task", async () => {
@@ -661,6 +683,8 @@ describe("new tasks", () => {
       unarchive: vi.fn(),
       fixCi: vi.fn(),
       fixPrComments: vi.fn(),
+      refreshPullRequest: vi.fn(),
+      reReviewPullRequest: vi.fn(),
       stop: vi.fn(),
       delete: vi.fn(),
       respond: vi.fn(),

@@ -65,7 +65,7 @@ import {
 import type { CheckOutcome, CheckRunner } from "./checks.js";
 import { SETUP_SKIPPED_EVENT, SETUP_STARTED_EVENT, type WorktreeSetup } from "./setup.js";
 import type { PullRequestFeedback, PullRequestFeedbackThread } from "./pr-feedback.js";
-import type { WorkspaceSync } from "./workspace.js";
+import type { PrHeadSync, WorkspaceSync } from "./workspace.js";
 import { InvalidGateResponseError } from "./transitions.js";
 import {
   CHECKS_SKIPPED_EVENT,
@@ -77,6 +77,7 @@ import {
   type DefaultStagesOptions,
   isDocsPath,
   type ChecksGit,
+  type ReviewGit,
 } from "./stages.js";
 
 /**
@@ -202,6 +203,7 @@ function harness(
     autonomous,
     planActions = [],
     setup,
+    prHead,
   }: {
     stages?: StageHandlers;
     maxPerRepo?: number;
@@ -222,6 +224,7 @@ function harness(
     /** The delivery actions offered at finish (none by default). */
     planActions?: DeliveryAction[];
     setup?: WorktreeSetup;
+    prHead?: PrHeadSync;
   } = {},
 ): Harness {
   const agents = agentService();
@@ -273,6 +276,7 @@ function harness(
     ...(syncWorkspace ? { syncWorkspace } : {}),
     ...(autonomous ? { autonomous } : {}),
     ...(setup ? { setup } : {}),
+    ...(prHead ? { prHead } : {}),
     publish: (event) => events.push(event),
     log,
   });
@@ -2951,6 +2955,201 @@ describe("code review panel and triage", () => {
     const seeded = await approved(h);
     expect(afterApproval(h)).toEqual(["implement", "summarize"]);
     expect(task(seeded.id)).toMatchObject({ gate: "finish" });
+  });
+});
+
+describe("re-review a posted review", () => {
+  const newFinding: ReviewFinding = {
+    ...highFinding,
+    severity: "low",
+    file: "src/session.ts",
+    title: "Session id logged",
+    explanation: "The new commit logs the session id.",
+  };
+
+  /**
+   * A Review PR task whose first review reported `highFinding` and was
+   * posted; the PR's head on the remote is `remote.sha`, and moving the
+   * worktree there moves the reviewed HEAD.
+   */
+  async function posted({
+    ancestor = true,
+    moves = true,
+    findings = (reviews: number) => (reviews === 1 ? [highFinding] : []),
+  }: {
+    ancestor?: boolean;
+    moves?: boolean;
+    findings?: (reviews: number) => ReviewFinding[];
+  } = {}) {
+    let head = "h0";
+    const remote = { sha: "h0" };
+    const reviewGit = {
+      mergeBase: vi.fn(async () => "base"),
+      headSha: vi.fn(async () => head),
+      diff: vi.fn(async (_worktree: string, from: string, to = "HEAD") => `+${from}..${to}`),
+      isAncestor: vi.fn<ReviewGit["isAncestor"]>(async () => ancestor),
+    };
+    const prHead = {
+      fetch: vi.fn<PrHeadSync["fetch"]>(async () => remote.sha),
+      moveTo: vi.fn<PrHeadSync["moveTo"]>(async (_task, sha) => {
+        if (moves) head = sha;
+        return moves;
+      }),
+    };
+    let reviews = 0;
+    const h = harness(
+      (stage) => {
+        if (stage !== "code-review") return {};
+        reviews++;
+        return { structured: { findings: findings(reviews) } };
+      },
+      { stages: createDefaultStages({ reviewGit }), prHead },
+    );
+    const seeded = seedTask({ mode: "review", origin: prOrigin(), branch: "feature/pr" });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "triage" });
+    const ids = r.findings.listByTask(seeded.id).map((f) => f.id);
+    await h.engine.respond(seeded.id, {
+      gate: "triage",
+      decision: "approve",
+      delivery: { actions: ["pr-review"], findingIds: ids },
+    });
+    expect(task(seeded.id)).toMatchObject({ status: "done", deliveryTargets: ["pr-review"] });
+    const prompts = () =>
+      h.calls.filter((c) => c.stage === "code-review").map((c) => c.options.prompt);
+    return { h, seeded, remote, prHead, reviewGit, prompts };
+  }
+
+  it("refreshes against the head the review covered", async () => {
+    const { h, seeded, remote, prHead } = await posted();
+    await expect(h.engine.refreshPullRequest(seeded.id)).resolves.toEqual({
+      reviewedSha: "h0",
+      headSha: "h0",
+      changed: false,
+    });
+    remote.sha = "h1";
+    await expect(h.engine.refreshPullRequest(seeded.id)).resolves.toEqual({
+      reviewedSha: "h0",
+      headSha: "h1",
+      changed: true,
+    });
+    expect(prHead.moveTo).not.toHaveBeenCalled();
+    expect(task(seeded.id).status).toBe("done");
+  });
+
+  it("refuses unless a done review task posted its review and a port can fetch", async () => {
+    const { h, seeded } = await posted();
+    const work = seedTask({ origin: prOrigin(), branch: "feature/w", worktreePath: dir });
+    r.tasks.update(work.id, { status: "done", deliveryTargets: ["pr-review"] });
+    const notDone = seedTask({ mode: "review", origin: prOrigin(), worktreePath: dir });
+    r.tasks.update(notDone.id, { deliveryTargets: ["pr-review"] });
+    const unposted = seedTask({ mode: "review", origin: prOrigin(), worktreePath: dir });
+    r.tasks.update(unposted.id, { status: "done" });
+    for (const t of [work, notDone, unposted]) {
+      await expect(h.engine.refreshPullRequest(t.id)).rejects.toThrow(TaskStateError);
+      await expect(h.engine.reReviewPullRequest(t.id)).rejects.toThrow(TaskStateError);
+    }
+    const noPort = harness();
+    await expect(noPort.engine.refreshPullRequest(seeded.id)).rejects.toThrow(
+      "Refreshing the pull request is not available",
+    );
+  });
+
+  it("reviews only the commits pushed since and stops at triage", async () => {
+    const { h, seeded, remote, prHead, prompts } = await posted({
+      findings: (reviews) => (reviews === 1 ? [highFinding] : reviews === 3 ? [newFinding] : []),
+    });
+    r.tasks.update(seeded.id, { archivedAt: new Date() });
+    remote.sha = "h1";
+
+    const queued = await h.engine.reReviewPullRequest(seeded.id);
+    expect(queued).toMatchObject({ status: "queued", stage: "code-review", archivedAt: null });
+    expect(prHead.moveTo).toHaveBeenCalledExactlyOnceWith(expect.anything(), "h1", "h0");
+    expect(r.runs.listByTask(seeded.id)).toHaveLength(2);
+    await settle(h.engine);
+
+    expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "triage" });
+    const again = prompts().slice(2);
+    expect(again).toHaveLength(2);
+    expect(again[0]).toContain("+h0..h1");
+    expect(again[0]).toContain(
+      "`git diff h0 h1`): the commits pushed to the pull request since the last review.",
+    );
+    expect(again[0]).toContain("## Findings already posted on the pull request");
+    expect(again[0]).toContain(highFinding.title);
+    expect(again[0]).not.toContain("## Findings already reported");
+    const run = r.runs.listByTask(seeded.id).at(-1)!;
+    expect(
+      r.findings
+        .listByTask(seeded.id)
+        .filter((f) => f.runId === run.id)
+        .map((f) => f.title),
+    ).toEqual([newFinding.title]);
+  });
+
+  it("lists each finding once on a Review again within a re-review", async () => {
+    const { h, seeded, remote, prompts } = await posted({
+      findings: (reviews) => (reviews === 1 ? [highFinding] : reviews === 3 ? [newFinding] : []),
+    });
+    remote.sha = "h1";
+    await h.engine.reReviewPullRequest(seeded.id);
+    await settle(h.engine);
+    await h.engine.respond(seeded.id, { gate: "triage", decision: "revise", message: "Again" });
+    await settle(h.engine);
+
+    const prompt = prompts()[4]!;
+    expect(prompt).toContain("+h0..h1");
+    const postedAt = prompt.indexOf("## Findings already posted on the pull request");
+    const reportedAt = prompt.indexOf("## Findings already reported");
+    expect(postedAt).toBeGreaterThan(-1);
+    expect(reportedAt).toBeGreaterThan(postedAt);
+    expect(prompt.split(highFinding.title)).toHaveLength(2);
+    expect(prompt.indexOf(highFinding.title)).toBeGreaterThan(postedAt);
+    expect(prompt.indexOf(highFinding.title)).toBeLessThan(reportedAt);
+    expect(prompt.split(newFinding.title)).toHaveLength(2);
+    expect(prompt.indexOf(newFinding.title)).toBeGreaterThan(reportedAt);
+  });
+
+  it("reviews the whole PR when a force-push orphaned the reviewed head", async () => {
+    const { h, seeded, remote, reviewGit, prompts } = await posted({ ancestor: false });
+    remote.sha = "h1";
+    await h.engine.reReviewPullRequest(seeded.id);
+    await settle(h.engine);
+    expect(reviewGit.isAncestor).toHaveBeenCalledWith(expect.any(String), "h0", "h1");
+    expect(prompts()[2]).toContain("`git diff base h1`): everything this branch changes");
+  });
+
+  it("refuses when nothing changed, the worktree moved, or a re-review runs", async () => {
+    const unchanged = await posted();
+    await expect(unchanged.h.engine.reReviewPullRequest(unchanged.seeded.id)).rejects.toThrow(
+      "No new changes on the pull request since the review",
+    );
+    expect(unchanged.prHead.moveTo).not.toHaveBeenCalled();
+
+    const dirty = await posted({ moves: false });
+    dirty.remote.sha = "h1";
+    await expect(dirty.h.engine.reReviewPullRequest(dirty.seeded.id)).rejects.toThrow(
+      "The worktree of this review has local changes; clean it, then re-review",
+    );
+    expect(task(dirty.seeded.id).status).toBe("done");
+    expect(r.runs.listByTask(dirty.seeded.id)).toHaveLength(1);
+
+    const busy = await posted();
+    let release: (sha: string) => void = () => undefined;
+    busy.prHead.fetch.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const first = busy.h.engine.reReviewPullRequest(busy.seeded.id);
+    await expect(busy.h.engine.reReviewPullRequest(busy.seeded.id)).rejects.toThrow(
+      /already re-reviewing/,
+    );
+    release("h1");
+    await expect(first).resolves.toMatchObject({ status: "queued" });
+    await settle(busy.h.engine);
   });
 });
 

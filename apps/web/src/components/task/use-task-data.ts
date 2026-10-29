@@ -13,17 +13,18 @@ import {
 import {
   checkRuns,
   checksSkipReason,
+  currentFindings,
   currentRound,
   deliveryConflicts,
   latestHarnessStep,
   latestStep,
   pullRequestUrl,
-  visibleFindings,
 } from "../../task-view";
 
 /**
  * Everything the task view reads besides the task itself: runs and the latest
- * run's steps, grill questions, findings, per-round and whole-branch diffs,
+ * run's steps, grill questions, findings (a review task's from its latest
+ * run, which a re-review starts), per-round and whole-branch diffs,
  * the artifacts, the latest Checks step's commands, the rebase conflicts of
  * the latest delivery and the pull request any delivery attempt at the task's
  * stage opened. Each panel reads the slice it needs; the header, banner and
@@ -76,7 +77,7 @@ export function useTaskData(task: Task) {
     round: currentRound(stepList),
     questions,
     findings,
-    visibleFindings: visibleFindings(findings.data ?? []),
+    visibleFindings: currentFindings(task, findings.data ?? [], latestRun?.id),
     diffs,
     branchDiff,
     artifacts,

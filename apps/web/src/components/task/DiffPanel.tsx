@@ -510,7 +510,8 @@ export function DiffPanel({
   const diff = diffs[keys.indexOf(key)]!;
   const files = parseDiff(diff.diff);
   const stat = diffStat(files);
-  // A review task's findings point at the reviewed head, which its diff shows;
+  // A review task's findings come from its latest run and point at that run's
+  // reviewed head, which its diff shows;
   // a work task's fix rounds each move the head, so its findings stay off the diff.
   const inline = task.mode === "review" ? findings : [];
   const offDiff = findingsOffDiff(files, inline);

@@ -17,6 +17,7 @@ import {
   canDeleteFinding,
   canFixPrComments,
   canOverrideFinding,
+  canReReview,
   canStepThroughDiff,
   carryPicks,
   canStop,
@@ -30,6 +31,7 @@ import {
   ciBanner,
   confirmLabel,
   currentActivity,
+  currentFindings,
   currentRound,
   defaultStepId,
   defaultTab,
@@ -544,6 +546,68 @@ describe("canFixPrComments", () => {
     expect(canFixPrComments({ ...opened, status: "needs-you" })).toBe(false);
     expect(canFixPrComments({ ...opened, mode: "review" })).toBe(false);
     expect(canFixPrComments({ ...opened, deliveryTargets: ["push-branch"] })).toBe(false);
+  });
+});
+
+const pullRequest = {
+  kind: "github-pr" as const,
+  url: "https://github.com/acme/web/pull/1",
+  owner: "acme",
+  repo: "web",
+  number: 1,
+  connectionId: null,
+};
+
+describe("canReReview", () => {
+  const posted = makeTask({
+    status: "done",
+    mode: "review",
+    origin: pullRequest,
+    deliveryTargets: ["pr-review"],
+  });
+
+  it("offers a done review task whose review was posted", () => {
+    expect(canReReview(posted)).toBe(true);
+  });
+
+  it("refuses a review task not done, a work task and one with no posted review", () => {
+    expect(canReReview({ ...posted, status: "needs-you" })).toBe(false);
+    expect(canReReview({ ...posted, mode: "work" })).toBe(false);
+    expect(canReReview({ ...posted, deliveryTargets: [] })).toBe(false);
+    expect(canReReview({ ...posted, deliveryTargets: ["open-pr"] })).toBe(false);
+  });
+});
+
+describe("currentFindings", () => {
+  it("shows a review task only the latest run's findings, not merged ones", () => {
+    const review = makeTask({ mode: "review", origin: pullRequest });
+    const first = finding({ runId: "run1" });
+    const latest = finding({ runId: "run2" });
+    const latestMerged = finding({ runId: "run2", status: "merged", mergedIntoId: latest.id });
+    const latestFixed = finding({ runId: "run2", status: "fixed" });
+    const all = [first, latest, latestMerged, latestFixed];
+    expect(currentFindings(review, all, "run2").map((f) => f.id)).toEqual([
+      latest.id,
+      latestFixed.id,
+    ]);
+  });
+
+  it("shows a work task all its findings that are not merged, whatever the run", () => {
+    const work = makeTask({ mode: "work", origin: pullRequest });
+    const first = finding({ runId: "run1" });
+    const latest = finding({ runId: "run2" });
+    const merged = finding({ runId: "run2", status: "merged", mergedIntoId: latest.id });
+    expect(currentFindings(work, [first, latest, merged], "run2").map((f) => f.id)).toEqual([
+      first.id,
+      latest.id,
+    ]);
+  });
+
+  it("shows every review finding when there is no latest run", () => {
+    const review = makeTask({ mode: "review", origin: pullRequest });
+    const a = finding({ runId: "run1" });
+    const b = finding({ runId: null });
+    expect(currentFindings(review, [a, b], undefined).map((f) => f.id)).toEqual([a.id, b.id]);
   });
 });
 

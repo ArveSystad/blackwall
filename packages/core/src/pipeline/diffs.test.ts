@@ -20,6 +20,7 @@ function fakeGit(head: string): ReviewGit {
     mergeBase: async () => "fork",
     diff: async (_worktree, from, to) => `diff ${from}..${to}`,
     commitsSince: async () => 0,
+    isAncestor: async () => true,
   };
 }
 
@@ -68,7 +69,7 @@ describe("task diffs", () => {
     ]);
   });
 
-  it("shows a range reviewed again once, as a review task's re-reviews do", async () => {
+  it("shows a range reviewed again once, as a review task's Review again does", async () => {
     const task = seedTask();
     const run = r.runs.create(task.id);
     reviewStep(run.id, 0, "fork", "c1");
@@ -77,6 +78,19 @@ describe("task diffs", () => {
     const diffs = await createTaskDiffs({ repositories: r, git: fakeGit("c1") })(task);
     expect(diffs).toEqual([
       { round: 0, from: "fork", to: "c1", reviewed: true, diff: "diff fork..c1" },
+    ]);
+  });
+
+  it("shows only the latest run's range after a re-review", async () => {
+    const task = seedTask();
+    const first = r.runs.create(task.id);
+    reviewStep(first.id, 0, "fork", "c1");
+    const second = r.runs.create(task.id);
+    reviewStep(second.id, 0, "c1", "c2");
+
+    const diffs = await createTaskDiffs({ repositories: r, git: fakeGit("c2") })(task);
+    expect(diffs).toEqual([
+      { round: 0, from: "c1", to: "c2", reviewed: true, diff: "diff c1..c2" },
     ]);
   });
 

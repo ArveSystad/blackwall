@@ -23,6 +23,7 @@ import {
   type GateResponseInput,
   type GrillAnswerInput,
   type GrillAnswerResult,
+  type PullRequestRefresh,
   type Run,
   type ServerEvent,
   type Stage,
@@ -53,7 +54,7 @@ import {
   type MergeConflict,
 } from "./delivery.js";
 import { blockingFindings } from "./findings.js";
-import type { WorkspaceSync } from "./workspace.js";
+import type { PrHeadSync, WorkspaceSync } from "./workspace.js";
 import {
   MAX_PR_COMMENT_FINDINGS,
   prConversationFinding,
@@ -84,6 +85,7 @@ import {
   commitMessageRewritePrompt,
   diffCommentFinding,
   finishStep,
+  lastReviewedRange,
   logEvent,
   startHarnessStep,
 } from "./stages.js";
@@ -311,6 +313,11 @@ export interface PipelineEngineOptions {
    * the port nothing runs (tests).
    */
   setup?: WorktreeSetup;
+  /**
+   * Fetches a Review PR task's head branch and moves its worktree there, for
+   * Refresh and Re-review. Without the port both are refused.
+   */
+  prHead?: PrHeadSync;
 }
 
 /** The only delivery actions autonomous mode takes: nothing leaves the machine. */
@@ -399,6 +406,7 @@ export function createPipelineEngine({
   worktreeGuard,
   autonomous = () => false,
   setup,
+  prHead,
 }: PipelineEngineOptions) {
   const scheduler = createScheduler({ maxPerRepo: maxTasksPerRepo });
   const drives = new Map<string, Promise<void>>();
@@ -421,6 +429,8 @@ export function createPipelineEngine({
   const fixingCi = new Set<string>();
   /** Tasks fetching their PR's comments for a fix round; Fix CI and a second fetch are refused meanwhile. */
   const fixingPrComments = new Set<string>();
+  /** Review tasks re-reviewing their PR; a second Re-review is refused meanwhile. */
+  const refreshingPr = new Set<string>();
   /**
    * The last worktree guard call queued per worktree. Parallel read-only steps
    * (the review panel) share a worktree, and their snapshots and restores must
@@ -1288,6 +1298,33 @@ export function createPipelineEngine({
     return queueStage(taskId, next, message);
   }
 
+  /**
+   * Checks that a task is a done Review PR task that posted its review and
+   * returns the PR head port, for Refresh and Re-review.
+   */
+  function reReviewable(task: Task): PrHeadSync {
+    if (pipelineKind(task.mode) !== "review" || task.origin.kind !== "github-pr") {
+      throw new TaskStateError(`Task ${task.id} does not review a pull request`);
+    }
+    if (task.status !== "done") throw new TaskStateError(`Task ${task.id} is not done`);
+    if (!task.deliveryTargets.includes("pr-review")) {
+      throw new TaskStateError(`Task ${task.id} has not posted its review`);
+    }
+    if (!task.worktreePath || !task.branch) {
+      throw new TaskStateError(`Task ${task.id} has no worktree`);
+    }
+    if (!prHead) throw new TaskStateError("Refreshing the pull request is not available");
+    return prHead;
+  }
+
+  /** The head a Review PR task last reviewed and where the PR's head is now. */
+  async function fetchPrHead(task: Task, port: PrHeadSync): Promise<PullRequestRefresh> {
+    const reviewed = lastReviewedRange(r, task.id);
+    if (!reviewed) throw new TaskStateError("No review is recorded for this task");
+    const headSha = await port.fetch(task);
+    return { reviewedSha: reviewed.to, headSha, changed: headSha !== reviewed.to };
+  }
+
   /** Queues a task to continue at `next`, with the user's instructions if any. */
   function queueStage(
     taskId: string,
@@ -1647,6 +1684,52 @@ export function createPipelineEngine({
         return queueStage(taskId, next);
       } finally {
         fixingPrComments.delete(taskId);
+      }
+    },
+
+    /**
+     * Refresh: fetches a done Review PR task's head branch and reports
+     * whether it moved since the review. Never touches the worktree.
+     */
+    async refreshPullRequest(taskId: string): Promise<PullRequestRefresh> {
+      const task = getTask(taskId);
+      return fetchPrHead(task, reReviewable(task));
+    },
+
+    /**
+     * Re-review: when a done Review PR task's head branch moved since its
+     * review, moves the clean worktree to the new head and queues Code review
+     * in a new run, which reviews only the commits pushed since (the whole PR
+     * after a force-push) and stops at triage for a follow-up review. Inform
+     * is skipped; it does nothing for review tasks. Lists the task again if it
+     * was archived.
+     */
+    async reReviewPullRequest(taskId: string): Promise<Task> {
+      const task = getTask(taskId);
+      const port = reReviewable(task);
+      if (refreshingPr.has(taskId)) {
+        throw new TaskStateError(`Task ${taskId} is already re-reviewing its pull request`);
+      }
+      refreshingPr.add(taskId);
+      try {
+        const { reviewedSha, headSha, changed } = await fetchPrHead(task, port);
+        if (!changed) {
+          throw new TaskStateError("No new changes on the pull request since the review");
+        }
+        const fresh = getTask(taskId);
+        if (fresh.status !== "done") {
+          throw new TaskStateError(`Task ${taskId} changed while fetching its pull request`);
+        }
+        if (!(await port.moveTo(fresh, headSha, reviewedSha))) {
+          throw new TaskStateError(
+            "The worktree of this review has local changes; clean it, then re-review",
+          );
+        }
+        if (fresh.archivedAt) saveTask(taskId, { archivedAt: null });
+        currentRun(taskId);
+        return queueStage(taskId, { stage: "code-review", round: 0 });
+      } finally {
+        refreshingPr.delete(taskId);
       }
     },
 

@@ -253,6 +253,16 @@ export function canOverrideFinding(task: Pick<Task, "mode">): boolean {
 }
 
 /**
+ * Whether a done Review PR task can refresh its pull request and re-review
+ * the commits pushed since: it posted its review.
+ */
+export function canReReview(task: Pick<Task, "status" | "mode" | "deliveryTargets">): boolean {
+  return (
+    task.status === "done" && task.mode === "review" && task.deliveryTargets.includes("pr-review")
+  );
+}
+
+/**
  * Whether a done work task can fetch its pull request's comments for a fix
  * round: its delivery opened the PR.
  */
@@ -342,6 +352,21 @@ export function deleteTaskCopy(
 /** Findings to list: merged duplicates are folded into the finding they were merged into. */
 export function visibleFindings(findings: readonly Finding[]): Finding[] {
   return findings.filter((f) => f.status !== "merged");
+}
+
+/**
+ * The task's findings to show: the {@link visibleFindings}, and for a review
+ * task only its latest run's, as a re-review posts only its own and its diff
+ * covers only the commits since the last review.
+ */
+export function currentFindings(
+  task: Pick<Task, "mode">,
+  findings: readonly Finding[],
+  latestRunId: string | undefined,
+): Finding[] {
+  const visible = visibleFindings(findings);
+  if (task.mode !== "review" || latestRunId === undefined) return visible;
+  return visible.filter((f) => f.runId === latestRunId);
 }
 
 /** A finding still gating the loop: Critical/High and neither fixed nor ignored, or force-fixed. */

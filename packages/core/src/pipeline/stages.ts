@@ -21,6 +21,7 @@ import {
   type Task,
 } from "@blackwall/shared";
 import type { AgentResult } from "../agents/adapters/types.js";
+import type { Repositories } from "../db/repositories.js";
 import type { NewFinding } from "../db/schema.js";
 import { describeGitError, hookOutput } from "../git/errors.js";
 import { isHookRejection, type GitService } from "../git/service.js";
@@ -791,7 +792,10 @@ export interface ReviewDiffRange {
 }
 
 /** What Code review needs from git to find the round's diff. */
-export type ReviewGit = Pick<GitService, "headSha" | "mergeBase" | "diff" | "commitsSince">;
+export type ReviewGit = Pick<
+  GitService,
+  "headSha" | "mergeBase" | "diff" | "commitsSince" | "isAncestor"
+>;
 
 /** What Checks needs from git to see what the branch changes. */
 export type ChecksGit = Pick<GitService, "mergeBase" | "commitsSince" | "changedFiles">;
@@ -827,9 +831,52 @@ async function checksSkipReason(
 /** Diffs beyond this many characters are cut in the reviewer prompt. */
 const MAX_REVIEW_DIFF_CHARS = 150_000;
 
-function storedRange(ctx: StageContext, step: Step): ReviewDiffRange | undefined {
-  const event = ctx.repositories.stepEvents.lastOfType(step.id, REVIEW_DIFF_EVENT);
+function storedRange(
+  repositories: Pick<Repositories, "stepEvents">,
+  step: Step,
+): ReviewDiffRange | undefined {
+  const event = repositories.stepEvents.lastOfType(step.id, REVIEW_DIFF_EVENT);
   return event?.payload as ReviewDiffRange | undefined;
+}
+
+/**
+ * The latest range Code review recorded for the task across its runs, or
+ * only from the runs before `beforeRunId`: its `to` is the head the task last
+ * reviewed. Undefined when no review is recorded.
+ */
+export function lastReviewedRange(
+  repositories: Pick<Repositories, "runs" | "steps" | "stepEvents">,
+  taskId: string,
+  { beforeRunId }: { beforeRunId?: string } = {},
+): ReviewDiffRange | undefined {
+  const runs = repositories.runs.listByTask(taskId);
+  const until = beforeRunId === undefined ? -1 : runs.findIndex((r) => r.id === beforeRunId);
+  let last: ReviewDiffRange | undefined;
+  for (const run of until === -1 ? runs : runs.slice(0, until)) {
+    for (const step of repositories.steps.listByRun(run.id)) {
+      if (step.stage !== "code-review" || step.agentId !== null) continue;
+      last = storedRange(repositories, step) ?? last;
+    }
+  }
+  return last;
+}
+
+/**
+ * A Review PR task's re-review: where an earlier run's review left off, when
+ * that head is behind HEAD, so only the commits pushed since are reviewed.
+ * Undefined for the first review, and when a force-push or rebase orphaned the
+ * reviewed head.
+ */
+async function reReviewStart(
+  ctx: StageContext,
+  git: ReviewGit,
+  worktree: string,
+  head: string,
+): Promise<string | undefined> {
+  if (ctx.pipeline !== "review") return undefined;
+  const earlier = lastReviewedRange(ctx.repositories, ctx.task.id, { beforeRunId: ctx.run.id });
+  if (!earlier || earlier.to === head) return undefined;
+  return (await git.isAncestor(worktree, earlier.to, head)) ? earlier.to : undefined;
 }
 
 /**
@@ -879,8 +926,10 @@ export async function forkPoint(
  * The commit range this Code review visit reviews, recorded on the visit's
  * harness step so a resumed visit reviews the same diff: the whole branch in
  * the first round, then what changed since the previous review. A Review PR
- * task's re-reviews cover the whole branch again, as its HEAD never moves.
- * Undefined when the fork point cannot be found.
+ * task's "Review again" in the same run covers the same range, as its HEAD
+ * never moves; a re-review in a new run covers the commits since the last
+ * reviewed head (the whole PR after a force-push). Undefined when the fork
+ * point cannot be found.
  */
 async function reviewRange(
   ctx: StageContext,
@@ -892,21 +941,24 @@ async function reviewRange(
     .listByRun(run.id)
     .filter((s) => s.stage === "code-review" && s.agentId === null);
   const current = harness.filter((s) => s.visit === visit).at(-1);
-  const resumed = current && storedRange(ctx, current);
+  const resumed = current && storedRange(r, current);
   if (resumed) return resumed;
 
+  const head = await git.headSha(worktree);
   const previous =
     ctx.pipeline === "review"
       ? undefined
       : harness
           .filter((s) => s.visit < visit)
-          .map((s) => storedRange(ctx, s))
+          .map((s) => storedRange(r, s))
           .filter((range) => range !== undefined)
           .at(-1);
   const from =
-    previous?.to ?? (await forkPoint(task, git, worktree, defaultBranchOf(r.repos, task.repoId)));
+    previous?.to ??
+    (await reReviewStart(ctx, git, worktree, head)) ??
+    (await forkPoint(task, git, worktree, defaultBranchOf(r.repos, task.repoId)));
   if (!from) return undefined;
-  const range = { from, to: await git.headSha(worktree) };
+  const range = { from, to: head };
   const step = startHarnessStep(ctx);
   logEvent(ctx, step.id, REVIEW_DIFF_EVENT, range);
   finishStep(ctx, step.id, { status: "succeeded", error: null });
@@ -921,7 +973,9 @@ async function reviewRange(
  * has nothing to review. The prompt carries the task's details and the user's
  * instructions, and for a stacked PR the other PRs' changes as context only
  * (from `stackContext`, whose failures never fail the review); a Review PR
- * re-review reviews the whole PR again and lists the findings already reported.
+ * "Review again" reviews the same range again and lists the run's findings
+ * already reported, and a re-review in a new run reviews the commits pushed
+ * since the last review and lists the earlier runs' findings as already posted.
  * A PR task's existing comments (from `prCommentsContext`, a snapshot taken
  * once per visit whose failures are ignored too) keep reviewers from repeating them.
  * Each visit copies the OWASP Secure Agent Playbook into the worktree's scratch
@@ -952,10 +1006,15 @@ async function codeReview(
         diff.length > MAX_REVIEW_DIFF_CHARS
           ? `${fence(diff.slice(0, MAX_REVIEW_DIFF_CHARS))}\n\n[… diff cut; run \`${command}\` for the rest]`
           : fence(diff);
+      const sincePosted =
+        ctx.pipeline === "review" &&
+        range.from === lastReviewedRange(repositories, task.id, { beforeRunId: run.id })?.to;
       scope = [
-        round === 0 || ctx.pipeline === "review"
-          ? `Review the changes above (\`${command}\`): everything this branch changes.`
-          : `Review the changes above (\`${command}\`): fix round ${round}, made since the last review.`,
+        sincePosted
+          ? `Review the changes above (\`${command}\`): the commits pushed to the pull request since the last review.`
+          : round === 0 || ctx.pipeline === "review"
+            ? `Review the changes above (\`${command}\`): everything this branch changes.`
+            : `Review the changes above (\`${command}\`): fix round ${round}, made since the last review.`,
         "Read the surrounding code as needed, but report only problems this diff introduces or leaves unfixed.",
       ].join("\n");
     }
@@ -980,9 +1039,18 @@ async function codeReview(
 
   const findings = repositories.findings.listByTask(task.id);
   const ignored = findings.filter((f) => f.status === "force-ignore");
-  // A Review PR re-review: the user asked the reviewers to look again.
+  // A Review PR "Review again": the user asked the reviewers to look again.
   const reported =
-    ctx.pipeline === "review" && round > 0 ? findings.filter((f) => f.status === "open") : [];
+    ctx.pipeline === "review" && round > 0
+      ? findings.filter((f) => f.runId === run.id && f.status === "open")
+      : [];
+  // A Review PR re-review: what earlier runs' reviews offered for posting.
+  const posted =
+    ctx.pipeline === "review"
+      ? findings.filter(
+          (f) => f.runId !== run.id && (f.status === "open" || f.status === "force-fix"),
+        )
+      : [];
   const results = await runPanel(
     ctx,
     reviewers.map((agentId) => ({
@@ -1000,6 +1068,12 @@ async function codeReview(
             : "",
         ),
         section("Changes to review", changes),
+        section(
+          "Findings already posted on the pull request",
+          posted.length > 0
+            ? `${posted.map(describeFinding).join("\n")}\n\nDo not report these again.`
+            : "",
+        ),
         section(
           "Findings already reported",
           reported.length > 0
