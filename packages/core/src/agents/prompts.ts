@@ -56,7 +56,14 @@ export function referenceReposSection(referenceRepos: readonly ReferenceRepoProm
 }
 
 /** The sections every plan has, in order, as `## <section>` headings. */
-export const PLAN_SECTIONS = ["Goal", "Approach", "Changes", "Risks", "Verification"] as const;
+export const PLAN_SECTIONS = [
+  "Summary",
+  "Goal",
+  "Approach",
+  "Changes",
+  "Risks",
+  "Verification",
+] as const;
 
 /**
  * The plan output contract, injected for the planner and plan reviewers: the
@@ -69,6 +76,7 @@ export function planContract(): string {
     "",
     "A plan is markdown with exactly these second-level headings, in this order:",
     "",
+    "- `## Summary`: a short plain-language summary for the human who approves the plan: 2–5 sentences or bullets on what changes, why, and anything they should decide or watch out for. No file paths, code identifiers or jargon.",
     "- `## Goal`: what the change achieves and for whom, in one or two sentences.",
     "- `## Approach`: the design, the decisions taken and why; name the existing code it builds on.",
     "- `## Changes`: one bullet per file to add, change or delete: `` `path/to/file` `` and what changes there.",

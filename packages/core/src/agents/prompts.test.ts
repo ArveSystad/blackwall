@@ -7,6 +7,7 @@ import {
   chatSystemPrompt,
   findingsContract,
   missingPlanSections,
+  PLAN_SECTIONS,
   voiceCommandPrompt,
   voiceSystemPrompt,
 } from "./prompts.js";
@@ -64,6 +65,8 @@ describe("buildSystemPrompt", () => {
       tags: [],
     });
     expect(prompt).toContain("## Plan output contract");
+    expect(prompt).toContain("## Summary");
+    expect(prompt.indexOf("## Summary")).toBeLessThan(prompt.indexOf("## Goal"));
     expect(prompt).not.toContain("Questions output contract");
   });
 
@@ -166,13 +169,11 @@ describe("buildSystemPrompt", () => {
 describe("missingPlanSections", () => {
   it("lists the contract headings a plan lacks", () => {
     const plan = "## Goal\n\nx\n\n## approach\n\ny\n\n## Changes ##\n\n- `a.ts`\n";
-    expect(missingPlanSections(plan)).toEqual(["Risks", "Verification"]);
+    expect(missingPlanSections(plan)).toEqual(["Summary", "Risks", "Verification"]);
   });
 
   it("accepts a plan with every section", () => {
-    const plan = ["Goal", "Approach", "Changes", "Risks", "Verification"]
-      .map((s) => `## ${s}\n\ntext`)
-      .join("\n\n");
+    const plan = PLAN_SECTIONS.map((s) => `## ${s}\n\ntext`).join("\n\n");
     expect(missingPlanSections(plan)).toEqual([]);
   });
 });

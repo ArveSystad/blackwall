@@ -41,6 +41,8 @@ const TASK =
   "# Task\n\nAdd a `subtract(a, b)` function to `src/math.js`, exported next to `add`, with a test.";
 
 const PLAN = [
+  "## Summary",
+  "Adds a way to subtract one number from another, next to the existing way to add them.",
   "## Goal",
   "Add `subtract(a, b)` to `src/math.js` so callers can subtract numbers.",
   "## Approach",
