@@ -137,9 +137,10 @@ export function Inbox() {
   });
 
   return (
+    // Named so the inbox stays out of the route wipe (see route-transition.ts).
     <aside
       aria-label="Task inbox"
-      className="flex h-full w-[352px] min-w-0 shrink-0 flex-col border-r border-border bg-sidebar"
+      className="flex h-full w-[352px] min-w-0 shrink-0 flex-col border-r border-border bg-sidebar [view-transition-name:bw-inbox]"
     >
       <div className="border-b border-border py-3 pr-3 pl-3.5">
         <div className="flex items-center gap-2">

@@ -26,9 +26,11 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
    `.bw-revive`/`.bw-revive-failed`, `.bw-supernova` and `.bw-launch` for GridAgents.tsx, `.bw-assigned`/
    `.bw-assigned-flash` for CountPill.tsx, `.bw-running*` for RunningHeadline.tsx, `.bw-chat`/
    `.bw-chat-content` for ChatPanel.tsx, `.bw-decrypt*` for DecryptText.tsx,
-   `.bw-wordmark-flicker` for Wordmark.tsx, `bw-scan-wipe`/`--animate-scan-wipe` for ui/dialog.tsx).
+   `.bw-wordmark-flicker` for Wordmark.tsx, `bw-scan-wipe`/`--animate-scan-wipe` for ui/dialog.tsx), and `bw-route-wipe` with the
+   `::view-transition-*(bw-route|bw-inbox|root)` rules for the route wipe (router.tsx, Inbox.tsx,
+   route-transition.ts).
 2. `.claude/skills/blackwall-design/SKILL.md` § Color semantics / Rules: the state-only rule and its
-   three decorative exceptions (GridBackdrop, Stats, the wordmark flicker).
+   four decorative exceptions (GridBackdrop, Stats, the wordmark flicker, the route wipe).
 3. Reference code: `apps/web/src/components/GridBackdrop.tsx`, `apps/web/src/components/GridAgents.tsx`,
    `apps/web/src/components/RunningHeadline.tsx`, `apps/web/src/routes/Stats.tsx`, `apps/web/src/routes/Backlog.tsx`, `apps/web/src/agent-dots.ts`,
    `apps/web/src/components/use-archive-launches.ts`, `apps/web/src/components/use-resume-bursts.ts`,
@@ -43,7 +45,7 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
 
 ## Procedure
 
-1. Confirm the motion marks state, or falls under the GridBackdrop/Stats/wordmark-flicker
+1. Confirm the motion marks state, or falls under the GridBackdrop/Stats/wordmark-flicker/route-wipe
    exceptions. Otherwise don't animate.
 2. Search the existing `bw-*` keyframes and `--animate-*` tokens; reuse one if it fits.
 3. Add `@keyframes bw-<name>` next to the others.
@@ -84,6 +86,17 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
 - Another exception: the dialog open wipe (`animate-scan-wipe`) animates the inner panel's
   `clip-path`, polygon to polygon with the same 6 points, for 150ms on mount. Closing is instant
   (Radix unmounts), and the base rule covers reduced motion (the resting state is the full chamfer).
+- Route wipe (`router.tsx`, `route-transition.ts`, `Inbox.tsx`): a View Transition that animates
+  `clip-path` (`bw-route-wipe`, `inset`, 150ms) on `::view-transition-new(bw-route)` only; the old
+  page stays underneath. The `root` and `bw-inbox` pseudos snap (old hidden), so the TopBar, chat
+  and inbox don't wipe. Every pseudo needs `mix-blend-mode: normal` to override the UA
+  `plus-lighter`, or the opaque snapshots brighten. Driven by TanStack's
+  `defaultViewTransition.types` → `routeTransitionTypes`, it plays only when `routeViewKey` (the
+  first path segment) changes, and is gated on `:active-view-transition-type` support
+  (`supportsRouteTransition`) so other browsers get no untyped crossfade. Reduced motion returns
+  `false` in JS, with a `::view-transition-*(*)` backstop in the base reduced-motion rule. No glow,
+  no JS timer. Never call `document.startViewTransition` elsewhere. A new top-level route needs its
+  own first segment to get the wipe.
 - Colors come from tokens only: `var(--cyan)`, `--st-*`, `--grid-*`, `color-mix(...)`. No raw hex in
   keyframes or effect classes.
 - Glow is dark only. Every glowing effect needs a light override.
@@ -158,8 +171,8 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
   - Never put it behind a task view, Settings or modals.
   - The only JS is the pointer spotlight's `--mx`/`--my`, and RunningHeadline's own `--mx`/`--my`
     and `data-hover` for its local hover glow.
-- Neon and motion mark state only (`blackwall-design` § Color semantics / Rules). GridBackdrop, Stats
-  and the wordmark flicker are the only sanctioned decorative exceptions.
+- Neon and motion mark state only (`blackwall-design` § Color semantics / Rules). GridBackdrop, Stats,
+  the wordmark flicker and the route wipe are the only sanctioned decorative exceptions.
 - When a motion pattern, token or pairing changes, update this skill in the same commit.
 
 ## Checks

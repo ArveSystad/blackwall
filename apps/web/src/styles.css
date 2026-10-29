@@ -338,6 +338,52 @@
   }
 }
 
+/* Route change wipe; same 150ms left-to-right reveal as bw-scan-wipe, rectangular. */
+@keyframes bw-route-wipe {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0);
+  }
+}
+
+/* ---------- Route wipe (router.tsx) ---------- */
+/* Only inside a typed `bw-route` transition (route-transition.ts); reduced motion is skipped in
+   JS and the wipe ends by itself. The new page area clips in over the old one, which stays put;
+   the root and the inbox snap. `mix-blend-mode: normal` overrides the UA `plus-lighter`, which
+   would otherwise brighten the overlapping opaque snapshots. */
+html:active-view-transition-type(bw-route) {
+  &::view-transition-group(bw-route),
+  &::view-transition-group(root),
+  &::view-transition-group(bw-inbox) {
+    animation: none;
+  }
+
+  &::view-transition-old(bw-route) {
+    animation: none;
+    mix-blend-mode: normal;
+  }
+
+  &::view-transition-new(bw-route) {
+    animation: bw-route-wipe 150ms ease-out;
+    mix-blend-mode: normal;
+  }
+
+  &::view-transition-old(root),
+  &::view-transition-old(bw-inbox) {
+    animation: none;
+    opacity: 0;
+    mix-blend-mode: normal;
+  }
+
+  &::view-transition-new(root),
+  &::view-transition-new(bw-inbox) {
+    animation: none;
+    mix-blend-mode: normal;
+  }
+}
+
 @keyframes bw-sweep {
   0% {
     background-position: -120px 0;
@@ -1876,6 +1922,12 @@
     *::after {
       animation: none !important;
       transition: none !important;
+    }
+
+    ::view-transition-group(*),
+    ::view-transition-old(*),
+    ::view-transition-new(*) {
+      animation: none !important;
     }
   }
 }

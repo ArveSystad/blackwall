@@ -110,6 +110,11 @@ Rules:
   30–100s the top-bar wordmark (icon and text) stutters through opacity for 700ms like a failing neon
   tube (`.bw-wordmark-flicker`), then settles. It adds no glow or colour, never plays on first mount
   and is skipped under reduced motion. Only the wordmark may do this. Details in `blackwall-motion`.
+- The route wipe is the fourth sanctioned exception: a 150ms left-to-right `clip-path` reveal of the
+  page area when the top-level view changes (Home, Active, Backlog, a task, Reviews, Issues,
+  Settings, Stats). Never on task → task, Settings sections, switching the Backlog repo, search
+  params or data updates. It adds no colour or glow and is skipped under reduced motion and in
+  browsers without View Transition types. Details in `blackwall-motion`.
 - Never put glow or neon on diffs, transcripts, long text, or table rows.
 - Glow is dark only. Light replaces it with a 1px border plus a 3px tinted ring (`--glow-*` handles this).
 - Chamfered surfaces (see Density and shape) keep their glow through the `--drop-glow-*` / `--drop-pop`

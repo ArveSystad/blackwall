@@ -16,6 +16,8 @@ import { TopBar } from "./components/TopBar";
 import { useVoiceActions } from "./components/use-voice-actions";
 import { VoiceTaskModal } from "./components/VoiceTaskModal";
 import { Home } from "./routes/Home";
+import { prefersReducedMotion } from "./reduced-motion";
+import { routeTransitionTypes, supportsRouteTransition } from "./route-transition";
 import { isSettingsSection } from "./settings-sections";
 import { useChatHotkey } from "./chat";
 import { useSearchHotkey } from "./search-palette";
@@ -40,7 +42,7 @@ const rootRoute = createRootRoute({
         <TopBar />
         {/* The chat stays open beside every page: the shell, Settings and Stats. */}
         <div className="flex min-h-0 flex-1">
-          <div className="min-h-0 min-w-0 flex-1">
+          <div className="min-h-0 min-w-0 flex-1 [view-transition-name:bw-route]">
             <Outlet />
           </div>
           <ChatPanel />
@@ -162,7 +164,18 @@ const routeTree = rootRoute.addChildren([
   statsRoute,
 ]);
 
-export const router = createRouter({ routeTree, defaultPreload: "intent" });
+// Top-level view changes wipe in (route-transition.ts). Gated on View Transition types: without
+// them the router would run an untyped crossfade on every navigation instead.
+export const router = createRouter({
+  routeTree,
+  defaultPreload: "intent",
+  defaultViewTransition: supportsRouteTransition()
+    ? {
+        types: ({ fromLocation, toLocation }) =>
+          routeTransitionTypes(fromLocation?.pathname, toLocation.pathname, prefersReducedMotion()),
+      }
+    : false,
+});
 
 declare module "@tanstack/react-router" {
   interface Register {
