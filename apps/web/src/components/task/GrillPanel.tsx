@@ -8,6 +8,7 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { answerQuestion } from "../../api";
+import { useDraft } from "../../drafts";
 import { useAgentLibrary } from "../../hooks";
 import { isModKey, modKeyLabel } from "../../keyboard";
 import { cn } from "../../lib/utils";
@@ -47,7 +48,7 @@ function QuestionStatus({ question }: { question: GrillQuestion }) {
 
 function AnswerForm({ task, question }: { task: Task; question: GrillQuestion }) {
   const queryClient = useQueryClient();
-  const [answer, setAnswer] = useState("");
+  const [answer, setAnswer, clearAnswer] = useDraft(`task:${task.id}:grill:${question.id}`);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,6 +58,7 @@ function AnswerForm({ task, question }: { task: Task; question: GrillQuestion })
     setError(null);
     try {
       const result = await answerQuestion(task.id, question.id, answer.trim());
+      clearAnswer();
       // The answer lands in the same render that drops the form, before the refetch.
       queryClient.setQueryData<GrillQuestion[]>(queryKeys.taskGrill(task.id), (questions) =>
         questions?.map((q) => (q.id === result.question.id ? result.question : q)),

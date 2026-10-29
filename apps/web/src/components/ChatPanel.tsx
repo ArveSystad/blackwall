@@ -59,6 +59,7 @@ import {
   type ComposerRoute,
 } from "../chat";
 import { commonPrefixLength } from "../chat-stream";
+import { useDraft } from "../drafts";
 import { isPlainKey, modKeyLabel } from "../keyboard";
 import { cn } from "../lib/utils";
 import { chatQuery, queryKeys, reposQuery, taskGrillQuery, taskQuery, tasksQuery } from "../query";
@@ -391,7 +392,9 @@ function ChatBody({
   const chat = useQuery(chatQuery(repo.id, taskId));
   const tasks = useQuery(tasksQuery);
   const repoTasks = (tasks.data ?? []).filter((t) => t.repoId === repo.id);
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft, clearDraft] = useDraft(
+    taskId ? `task:${taskId}:chat` : `repo:${repo.id}:chat`,
+  );
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   /** Set while the Stop and clear dialog is open; `fromDraft` when `/clear` was typed. */
@@ -484,7 +487,7 @@ function ChatBody({
     }
     try {
       await post(draft.trim());
-      setDraft("");
+      clearDraft();
     } catch (error) {
       setSendError(errorMessage(error));
     }
@@ -643,7 +646,7 @@ function ChatBody({
                 draft={draft}
                 buttonRef={directButton}
                 onStart={() => setSendError(null)}
-                onSent={() => setDraft("")}
+                onSent={clearDraft}
                 onError={setSendError}
               />
             )}
@@ -667,7 +670,7 @@ function ChatBody({
           confirmVariant="destructive"
           onConfirm={async () => {
             await post(CHAT_CLEAR_COMMAND);
-            if (confirmClear.fromDraft) setDraft("");
+            if (confirmClear.fromDraft) clearDraft();
           }}
           onClose={() => setConfirmClear(null)}
           onCloseAutoFocus={(event) => {

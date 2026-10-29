@@ -1,6 +1,7 @@
 import type { Task } from "@blackwall/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { deleteTask } from "../../api";
+import { clearTaskDrafts } from "../../drafts";
 import { forgetTask } from "../../live";
 import { deleteTaskCopy } from "../../task-view";
 import { ConfirmDialog } from "../ConfirmDialog";
@@ -23,6 +24,7 @@ export function DeleteTaskDialog({ task, onClose }: { task: Task; onClose: () =>
       onClose={onClose}
       onConfirm={async () => {
         await deleteTask(task.id);
+        clearTaskDrafts(task.id);
         forgetTask(queryClient, task.id);
       }}
     >

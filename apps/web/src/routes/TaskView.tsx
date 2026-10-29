@@ -22,6 +22,7 @@ import { TaskHeader } from "../components/task/TaskHeader";
 import { useTaskAction } from "../components/task/use-task-action";
 import { useTaskData, type TaskData } from "../components/task/use-task-data";
 import { focusChat } from "../chat";
+import { draftStamp, useDraft, type DraftCodec } from "../drafts";
 import { uiStageIndex } from "../inbox";
 import { isPlainKey, isTypingTarget, useEscapeTo, useWindowKeydown } from "../keyboard";
 import { cn } from "../lib/utils";
@@ -145,14 +146,55 @@ function MissingWorktreeNotice({ taskId }: { taskId: string }) {
   );
 }
 
+/** The plan approval comment as kept: `gate` ties it to the status, gate and plan it was written for. */
+type PlanCommentDraft = PlanComment & { gate: string };
+
+function parsePlanCommentDraft(raw: unknown, gate: string): PlanCommentDraft | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const { enabled, body, gate: stored } = raw as Record<string, unknown>;
+  if (typeof enabled !== "boolean" || typeof body !== "string" || stored !== gate) return undefined;
+  return { enabled, body, gate };
+}
+
+/** Unsent hunk comments, with the branch head they were written against. */
+interface DiffDraft {
+  head: string | null;
+  drafts: DiffDrafts;
+}
+
+const diffDraftCodec: DraftCodec<DiffDraft> = {
+  empty: { head: null, drafts: {} },
+  isEmpty: (v) => Object.values(v.drafts).every((d) => !d.trim()),
+  parse: (raw) => {
+    if (typeof raw !== "object" || raw === null) return undefined;
+    const { head, drafts } = raw as Record<string, unknown>;
+    if (head !== null && typeof head !== "string") return undefined;
+    if (typeof drafts !== "object" || drafts === null) return undefined;
+    if (!Object.values(drafts).every((d) => typeof d === "string")) return undefined;
+    return { head, drafts: drafts as DiffDrafts };
+  },
+};
+
 function TaskScreen({ task }: { task: Task }) {
   const data = useTaskData(task);
   const action = useTaskAction(task);
   const [tab, setTab] = useState<TaskTab>(() => defaultTab(task));
   const [deleting, setDeleting] = useState(false);
-  // Opt-in, so it starts unticked each time the task reaches plan approval.
-  const freshPlanComment = (): PlanComment => ({ enabled: false, body: planApprovalComment(task) });
-  const [planComment, setPlanComment] = useState<PlanComment>(freshPlanComment);
+  // Opt-in, so it starts unticked each time the task reaches plan approval. An edited comment
+  // is kept as a draft for this gate and plan, and comes back when the user returns to it.
+  const planGate = `${task.status}:${task.gate}:${draftStamp(task.plan ?? "")}`;
+  const defaultPlanBody = planApprovalComment(task);
+  const freshPlanComment = (): PlanCommentDraft => ({
+    enabled: false,
+    body: defaultPlanBody,
+    gate: planGate,
+  });
+  const [planComment, setPlanComment] = useDraft<PlanCommentDraft>(`task:${task.id}:plan-comment`, {
+    empty: freshPlanComment(),
+    isEmpty: (c) => !c.enabled && c.body === defaultPlanBody,
+    parse: (raw) => parsePlanCommentDraft(raw, planGate),
+  });
+  const onPlanComment = (c: PlanComment) => setPlanComment({ ...c, gate: planGate });
 
   // A new gate or status opens the tab where the user is needed (or the work is),
   // except that a review task stepping through its diff stays there, and a user on
@@ -178,13 +220,16 @@ function TaskScreen({ task }: { task: Task }) {
   };
   const current = isTabEnabled(task, tab) ? tab : defaultTab(task);
 
-  // Unsent hunk comments survive tab switches, but not new commits on the branch.
-  const [diffDrafts, setDiffDrafts] = useState<DiffDrafts>({});
+  // Unsent hunk comments survive navigation and reloads, but not new commits on the branch.
+  const [diffDraft, setDiffDraft, clearDiffDraft] = useDraft<DiffDraft>(
+    `task:${task.id}:diff`,
+    diffDraftCodec,
+  );
   const branchHead = data.branchDiff.data?.to ?? null;
-  const [draftsHead, setDraftsHead] = useState(branchHead);
-  if (draftsHead !== branchHead) {
-    setDraftsHead(branchHead);
-    setDiffDrafts({});
+  if (branchHead !== null && diffDraft.head !== null && diffDraft.head !== branchHead) {
+    clearDiffDraft();
+  } else if (branchHead !== null && diffDraft.head === null && !diffDraftCodec.isEmpty(diffDraft)) {
+    setDiffDraft({ head: branchHead, drafts: diffDraft.drafts });
   }
 
   async function sendDiffComments(comments: DiffCommentInput[]): Promise<boolean> {
@@ -193,7 +238,7 @@ function TaskScreen({ task }: { task: Task }) {
       async () => (await commentOnDiff(task.id, comments)).task,
     );
     if (!sent) return false;
-    setDiffDrafts({});
+    clearDiffDraft();
     return true;
   }
 
@@ -234,7 +279,7 @@ function TaskScreen({ task }: { task: Task }) {
             action={action}
             openQuestions={openQuestions}
             comment={planComment}
-            onComment={setPlanComment}
+            onComment={onPlanComment}
             className="flex-1"
           />
         );
@@ -246,7 +291,7 @@ function TaskScreen({ task }: { task: Task }) {
             steps={data.steps}
             action={action}
             planComment={planComment}
-            onPlanComment={setPlanComment}
+            onPlanComment={onPlanComment}
           />
         );
       case "output":
@@ -269,8 +314,8 @@ function TaskScreen({ task }: { task: Task }) {
             loading={data.diffs.isPending}
             branchDiff={data.branchDiff.data}
             findings={data.visibleFindings}
-            drafts={diffDrafts}
-            onDraftsChange={setDiffDrafts}
+            drafts={diffDraft.drafts}
+            onDraftsChange={(drafts) => setDiffDraft({ head: branchHead, drafts })}
             onSend={sendDiffComments}
             action={action}
           />
