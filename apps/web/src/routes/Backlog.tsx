@@ -10,7 +10,15 @@ import {
 } from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import {
   MissingCredentialError,
   archiveTask,
@@ -27,6 +35,7 @@ import {
 } from "../api";
 import {
   PUSHED_NOTE_MS,
+  backlogCrumbleDelays,
   backlogSections,
   itemState,
   moveItem,
@@ -49,6 +58,7 @@ import {
 } from "../assigned-issues";
 import { paneBody, paneHeader, paneTitle } from "../components/classes";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { DecryptGlyphs } from "../components/DecryptText";
 import { EmptyState } from "../components/EmptyState";
 import { IssueRow, IssueWorkLink, JiraIssueRow } from "../components/IssueRow";
 import {
@@ -68,7 +78,10 @@ import { Button } from "../components/ui/button";
 import { ErrorText } from "../components/ui/field";
 import { Input } from "../components/ui/input";
 import { Kbd } from "../components/ui/kbd";
+import { useArchive } from "../components/use-archive-launches";
+import { useEncrypt } from "../components/use-decrypt";
 import { useWithCredential } from "../credentials";
+import { backlogTasks, type Crumble } from "../crumble";
 import { useNow } from "../hooks";
 import { matchesFilter, originKey, stackLabel, statusLabel } from "../inbox";
 import { cn } from "../lib/utils";
@@ -294,34 +307,56 @@ function RunnerBar({
 /**
  * Bottom bar of the backlog view: how many tasks are archived, a toggle that
  * lists them, and a bulk action that archives every done task still listed.
+ * Their rows crumble out one after another, top to bottom, by `delays`.
  */
 function ArchiveBar({
   archived,
   archivable,
+  delays,
   shown,
   onToggle,
 }: {
   archived: number;
   /** Done tasks not archived yet. */
   archivable: readonly Task[];
+  /** Each done task's crumble delay, by task id; see `backlogCrumbleDelays`. */
+  delays: ReadonlyMap<string, number>;
   shown: boolean;
   onToggle: () => void;
 }) {
-  const queryClient = useQueryClient();
+  const launch = useArchive();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function archiveDone() {
+    // Rows already crumbling out are on their way.
+    const tasks = archivable.filter(
+      (task) => (launch.crumbles.get(task.id)?.phase ?? "failed") === "failed",
+    );
+    if (tasks.length === 0) return;
     setPending(true);
     setError(null);
-    const results = await Promise.allSettled(archivable.map((task) => archiveTask(task.id)));
-    const failed = results.filter((r) => r.status === "rejected");
-    if (failed.length > 0) {
-      setError(
-        `Archived ${results.length - failed.length} of ${results.length}: ${errorMessage(failed[0]!.reason)}`,
-      );
+    let reason: unknown;
+    const results = await Promise.all(
+      tasks.map((task) =>
+        launch.crumble(
+          task,
+          () =>
+            archiveTask(task.id).then(
+              () => true,
+              (cause: unknown) => {
+                reason ??= cause;
+                return false;
+              },
+            ),
+          delays.get(task.id) ?? 0,
+        ),
+      ),
+    );
+    const failed = results.filter((ok) => !ok).length;
+    if (failed > 0) {
+      setError(`Archived ${results.length - failed} of ${results.length}: ${errorMessage(reason)}`);
     }
-    await queryClient.invalidateQueries({ queryKey: queryKeys.tasks, exact: true });
     setPending(false);
   }
 
@@ -389,6 +424,45 @@ function StateChip({ state }: { state: BacklogItemState }) {
   }
 }
 
+/**
+ * A crumbling row's props, as on `TaskCard`: it flickers and falls
+ * (`.bw-crumble`) after its stagger, and takes no input meanwhile.
+ */
+function crumbleRowProps(crumble: Crumble | undefined): {
+  className: string | undefined;
+  style: CSSProperties | undefined;
+  inert: boolean;
+} {
+  const crumbling = crumble?.phase === "crumbling";
+  return {
+    className: crumbling ? "bw-crumble" : undefined,
+    style: crumbling ? ({ "--crumble-delay": `${crumble.delayMs}ms` } as CSSProperties) : undefined,
+    inert: crumbling,
+  };
+}
+
+/** A row's title, scrambling into glyphs while the row crumbles out. */
+function CrumbleTitle({ title, crumble }: { title: string; crumble: Crumble | undefined }) {
+  const crumbling = crumble?.phase === "crumbling";
+  const frame = useEncrypt(title, crumbling, crumble?.delayMs ?? 0);
+  return crumbling ? (
+    <DecryptGlyphs text={title} frame={frame} className="bw-decrypt-clip" />
+  ) : (
+    <>{title}</>
+  );
+}
+
+/** The red flash over a row whose archive failed; each failure replays it. */
+function CrumbleFailed({ crumble }: { crumble: Crumble | undefined }) {
+  return crumble?.phase === "failed" ? (
+    <span
+      key={`crumble-failed:${crumble.failures}`}
+      aria-hidden="true"
+      className="bw-crumble-failed pointer-events-none absolute inset-0"
+    />
+  ) : null;
+}
+
 function BacklogRow({
   item,
   state,
@@ -407,6 +481,7 @@ function BacklogRow({
   onTogglePause,
   onDelete,
   onArchive,
+  crumble,
 }: {
   item: BacklogItemView;
   state: BacklogItemState;
@@ -430,14 +505,19 @@ function BacklogRow({
   onDelete: () => void;
   /** Archives the item's done task. */
   onArchive?: () => void;
+  /** The archive crumble of the item's task, while it plays or its failure flashes. */
+  crumble?: Crumble | undefined;
 }) {
   const OriginIcon = ORIGIN_ICONS[item.origin.kind];
   const promoted = item.status === "promoted";
   const archivable =
     state.kind === "promoted" && state.task?.status === "done" && state.task.archivedAt === null;
   const dropTarget = dragging !== null && dragging.id !== item.id;
+  const crumbleProps = crumbleRowProps(crumble);
   return (
     <li
+      style={crumbleProps.style}
+      inert={crumbleProps.inert}
       data-item-id={item.id}
       tabIndex={0}
       draggable
@@ -489,10 +569,11 @@ function BacklogRow({
         }
       }}
       className={cn(
-        "group bw-chamfer bw-chamfer-focus flex min-h-10 items-center gap-2.5 py-1.5 pr-2 pl-1.5 [--bw-chamfer-line:transparent] hover:bg-card focus-visible:outline-none",
+        "group bw-chamfer bw-chamfer-focus relative isolate flex min-h-10 items-center gap-2.5 py-1.5 pr-2 pl-1.5 [--bw-chamfer-line:transparent] hover:bg-card focus-visible:outline-none",
         onOpen && "cursor-pointer",
         dragging?.id === item.id && "opacity-50",
         dropTarget && "[--bw-chamfer-line:var(--border-strong)]",
+        crumbleProps.className,
       )}
     >
       <GripIcon className="cursor-grab text-faint" />
@@ -504,7 +585,7 @@ function BacklogRow({
             promoted && "font-normal text-foreground",
           )}
         >
-          {item.title}
+          <CrumbleTitle title={item.title} crumble={crumble} />
         </span>
         <span className="flex min-w-0 items-center gap-2 text-label text-faint">
           <span className="mono truncate">{originKey(item)}</span>
@@ -566,6 +647,7 @@ function BacklogRow({
           Delete
         </Button>
       </span>
+      <CrumbleFailed crumble={crumble} />
     </li>
   );
 }
@@ -580,19 +662,33 @@ function StackLabel({ origin }: { origin: TaskOrigin }) {
   ) : null;
 }
 
-/** A task in the backlog view; the row opens it, except for its trailing `action`. */
+/**
+ * A task in the backlog view; the row opens it, except for its trailing
+ * `action`. An archived row crumbles out, and a failed archive flashes it red.
+ */
 function TaskRow({
   task,
   fromBacklog,
   action,
+  crumble,
 }: {
   task: Task;
   fromBacklog: boolean;
   action?: ReactNode;
+  /** The row's archive crumble, while it plays or its failure flashes. */
+  crumble?: Crumble | undefined;
 }) {
   const OriginIcon = ORIGIN_ICONS[task.origin.kind];
+  const crumbleProps = crumbleRowProps(crumble);
   return (
-    <li className="bw-chamfer flex items-center gap-1 [--bw-chamfer-line:transparent] hover:bg-card">
+    <li
+      className={cn(
+        "bw-chamfer relative isolate flex items-center gap-1 [--bw-chamfer-line:transparent] hover:bg-card",
+        crumbleProps.className,
+      )}
+      style={crumbleProps.style}
+      inert={crumbleProps.inert}
+    >
       <Link
         to="/tasks/$taskId"
         params={{ taskId: task.id }}
@@ -600,7 +696,9 @@ function TaskRow({
       >
         <OriginIcon size="sm" className="text-muted-foreground" />
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate font-medium text-foreground-strong">{task.title}</span>
+          <span className="truncate font-medium text-foreground-strong">
+            <CrumbleTitle title={task.title} crumble={crumble} />
+          </span>
           <span className="flex min-w-0 items-center gap-2 text-label text-faint">
             <span className="mono truncate">{originKey(task)}</span>
             <StackLabel origin={task.origin} />
@@ -610,6 +708,7 @@ function TaskRow({
         <StatusBadge status={task.status} label={statusLabel(task)} />
       </Link>
       {action && <span className="flex flex-none items-center pr-2">{action}</span>}
+      <CrumbleFailed crumble={crumble} />
     </li>
   );
 }
@@ -794,6 +893,7 @@ export function Backlog({
 }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const launch = useArchive();
   const repos = useQuery(reposQuery);
   const backlog = useQuery(backlogQuery(repoId));
   const runner = useQuery(backlogRunnerQuery(repoId));
@@ -829,14 +929,20 @@ export function Backlog({
     () => (tasks.data ?? []).filter((t) => t.repoId === repoId),
     [tasks.data, repoId],
   );
+  // Rows crumbling out stay put, then join the archive; see `backlogTasks`.
+  const shownTasks = useMemo(
+    () => backlogTasks(repoTasks, launch.crumbles, new Date()),
+    [repoTasks, launch.crumbles],
+  );
   const taskById = useMemo(
-    () => new Map<string, Task>(repoTasks.map((t) => [t.id, t])),
-    [repoTasks],
+    () => new Map<string, Task>(shownTasks.map((t) => [t.id, t])),
+    [shownTasks],
   );
   const sections = useMemo(
-    () => backlogSections(items, tasks.isError ? [] : repoTasks),
-    [items, repoTasks, tasks.isError],
+    () => backlogSections(items, tasks.isError ? [] : shownTasks),
+    [items, shownTasks, tasks.isError],
   );
+  const crumbleDelays = useMemo(() => backlogCrumbleDelays(sections), [sections]);
   const shown = useMemo(() => new Set(sections.items.map((i) => i.id)), [sections]);
   // Filtered in the view only: the archive bar keeps counting every archived task.
   const archivedShown = useMemo(
@@ -947,8 +1053,21 @@ export function Backlog({
 
   async function setArchived(task: Task, archived: boolean) {
     setError(null);
+    if (archived) {
+      // `crumble` refetches the tasks itself.
+      await launch.crumble(task, () =>
+        archiveTask(task.id).then(
+          () => true,
+          (cause: unknown) => {
+            setError(errorMessage(cause));
+            return false;
+          },
+        ),
+      );
+      return;
+    }
     try {
-      await (archived ? archiveTask(task.id) : unarchiveTask(task.id));
+      await unarchiveTask(task.id);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -1127,6 +1246,11 @@ export function Backlog({
                         const task = item.taskId ? taskById.get(item.taskId) : undefined;
                         if (task) void setArchived(task, true);
                       }}
+                      crumble={
+                        state.kind === "promoted" && state.task
+                          ? launch.crumbles.get(state.task.id)
+                          : undefined
+                      }
                     />
                   );
                 })}
@@ -1202,6 +1326,7 @@ export function Backlog({
                     key={task.id}
                     task={task}
                     fromBacklog={false}
+                    crumble={launch.crumbles.get(task.id)}
                     action={
                       task.status === "done" && (
                         <Button
@@ -1277,6 +1402,7 @@ export function Backlog({
         <ArchiveBar
           archived={sections.archived.length}
           archivable={sections.archivable}
+          delays={crumbleDelays}
           shown={showArchive}
           onToggle={() => {
             if (showArchive) setArchiveFilter("");

@@ -40,10 +40,12 @@ export interface ArchiveLaunches {
   /** Archives done tasks at once, launching every dot `setLocate` placed together. */
   archiveAll: (tasks: readonly Task[]) => void;
   /**
-   * Crumbles the task's inbox row while `run` archives it (the task page's
-   * Archive buttons); `run` resolves whether it did. Resolves the same.
+   * Crumbles the task's inbox and Backlog rows while `run` archives it (the
+   * task page's and the Backlog's Archive buttons), starting after `delayMs`
+   * so the Backlog's "Archive done" staggers; `run` resolves whether it did.
+   * Resolves the same.
    */
-  crumble: (task: Task, run: () => Promise<boolean>) => Promise<boolean>;
+  crumble: (task: Task, run: () => Promise<boolean>, delayMs?: number) => Promise<boolean>;
 }
 
 export const ArchiveLaunchesContext = createContext<ArchiveLaunches | null>(null);
@@ -254,8 +256,8 @@ export function useArchiveLaunches(): ArchiveLaunches {
   );
 
   const crumble = useCallback(
-    async (task: Task, run: () => Promise<boolean>) => {
-      startCrumble(task, 0);
+    async (task: Task, run: () => Promise<boolean>, delayMs = 0) => {
+      startCrumble(task, delayMs);
       const ok = await run().catch(() => false);
       await queryClient.invalidateQueries({ queryKey: queryKeys.tasks, exact: true });
       settleCrumble(task.id, ok);

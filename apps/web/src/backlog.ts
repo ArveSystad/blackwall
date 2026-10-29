@@ -9,6 +9,7 @@ import {
   type RepoSync,
   type Task,
 } from "@blackwall/shared";
+import { CRUMBLE_STAGGER_MS } from "./crumble";
 import { groupTasks } from "./inbox";
 import { CLI_NAMES } from "./settings-forms";
 
@@ -53,6 +54,28 @@ export function backlogSections(
     archived,
     archivable: tasks.filter((t) => t.status === "done" && t.archivedAt === null),
   };
+}
+
+/**
+ * Each done task's crumble delay for "Archive done", staggered top to bottom
+ * as the Backlog shows them: promoted queue items, then "Other tasks"; any
+ * other archivable task after those.
+ */
+export function backlogCrumbleDelays(sections: BacklogSections): Map<string, number> {
+  const byId = new Map(sections.archivable.map((t) => [t.id, t]));
+  const ordered = [
+    ...sections.items.flatMap((i) => {
+      const task = i.status === "promoted" && i.taskId ? byId.get(i.taskId) : undefined;
+      return task ? [task] : [];
+    }),
+    ...sections.earlier.filter((t) => byId.has(t.id)),
+    ...sections.archivable,
+  ];
+  const delays = new Map<string, number>();
+  for (const task of ordered) {
+    if (!delays.has(task.id)) delays.set(task.id, delays.size * CRUMBLE_STAGGER_MS);
+  }
+  return delays;
 }
 
 /** Items not yet promoted to a task (waiting or paused). */

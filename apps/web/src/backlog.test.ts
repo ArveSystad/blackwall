@@ -1,6 +1,7 @@
 import type { QuotaState, RepoBacklogRunner } from "@blackwall/shared";
 import { describe, expect, it } from "vitest";
 import {
+  backlogCrumbleDelays,
   backlogSections,
   countdown,
   dependencyChoices,
@@ -16,6 +17,7 @@ import {
   syncControl,
   type RunnerStatusInput,
 } from "./backlog";
+import { CRUMBLE_STAGGER_MS, backlogTasks } from "./crumble";
 import { makeBacklogItem, makeTask } from "./test-fixtures";
 
 describe("referenceRepoChoice", () => {
@@ -150,6 +152,51 @@ describe("backlogSections", () => {
     const running = makeTask({ status: "running" });
     const { archivable } = backlogSections([], [done, archived, failed, interrupted, running]);
     expect(archivable).toEqual([done]);
+  });
+
+  it("hides a promoted item whose task crumbled out, listing the task as archived", () => {
+    const task = makeTask({ status: "done" });
+    const item = makeBacklogItem({ status: "promoted", taskId: task.id });
+    const now = at(30);
+    const crumbles = new Map([
+      [task.id, { task, delayMs: 0, phase: "gone" as const, archived: false, failures: 0 }],
+    ]);
+    const { items, archived, archivable } = backlogSections(
+      [item],
+      backlogTasks([task], crumbles, now),
+    );
+    expect(items).toEqual([]);
+    expect(archived).toEqual([{ ...task, archivedAt: now }]);
+    expect(archivable).toEqual([]);
+  });
+});
+
+describe("backlogCrumbleDelays", () => {
+  const at = (minute: number) => new Date(`2026-10-08T10:${String(minute).padStart(2, "0")}:00Z`);
+
+  it("staggers queue items' tasks, then other tasks, in display order", () => {
+    const queuedLater = makeTask({ status: "done", updatedAt: at(9) });
+    const queuedFirst = makeTask({ status: "done", updatedAt: at(1) });
+    const otherOld = makeTask({ status: "done", updatedAt: at(2) });
+    const otherNew = makeTask({ status: "done", updatedAt: at(5) });
+    const failed = makeTask({ status: "failed", updatedAt: at(7) });
+    const items = [
+      makeBacklogItem({ status: "promoted", taskId: queuedFirst.id }),
+      makeBacklogItem(),
+      makeBacklogItem({ status: "promoted", taskId: queuedLater.id }),
+    ];
+    const sections = backlogSections(items, [otherOld, queuedLater, failed, otherNew, queuedFirst]);
+    expect([...backlogCrumbleDelays(sections)]).toEqual([
+      [queuedFirst.id, 0],
+      [queuedLater.id, CRUMBLE_STAGGER_MS],
+      [otherNew.id, 2 * CRUMBLE_STAGGER_MS],
+      [otherOld.id, 3 * CRUMBLE_STAGGER_MS],
+    ]);
+  });
+
+  it("gives a lone task no delay", () => {
+    const task = makeTask({ status: "done" });
+    expect(backlogCrumbleDelays(backlogSections([], [task])).get(task.id)).toBe(0);
   });
 });
 

@@ -2,11 +2,11 @@ import type { Task } from "@blackwall/shared";
 import { DECRYPT_MS } from "./decrypt";
 import { groupTasks } from "./inbox";
 
-/** How long an archived inbox row flickers and falls; mirrors `.bw-crumble`'s duration in styles.css. */
+/** How long an archived inbox or Backlog row flickers and falls; mirrors `.bw-crumble`'s duration in styles.css. */
 export const CRUMBLE_FALL_MS = 360;
 
 /**
- * How long an archived inbox row crumbles before it is dropped: the title
+ * How long an archived inbox or Backlog row crumbles before it is dropped: the title
  * scrambles (`DECRYPT_MS`), then the row falls. Mirrors `.bw-crumble`'s delay
  * plus duration in styles.css, like `LAUNCH_MS`.
  */
@@ -19,7 +19,7 @@ export const CRUMBLE_STAGGER_MS = 70;
 export const CRUMBLE_FAILED_MS = 1200;
 
 /**
- * An inbox row being archived. `task` is the row as it was when the archive
+ * An inbox or Backlog row being archived. `task` is the row as it was when the archive
  * started, so it stays put while it crumbles. The row is dropped once it is
  * `gone` and `archived`; `failed` brings it back with a red flash, and
  * `failures` counts them so each flash replays.
@@ -49,5 +49,25 @@ export function inboxRows(tasks: readonly Task[], crumbles: ReadonlyMap<string, 
     const crumble = crumbles.get(task.id);
     if (!crumble || crumble.phase === "failed") return [task];
     return crumble.phase === "gone" ? [] : [crumble.task];
+  });
+}
+
+/**
+ * The repo's tasks as the Backlog lays them out, given the rows crumbling
+ * out. Unlike `inboxRows`, a `gone` row is not left out, since the Backlog
+ * reads a promoted item whose task is missing as "task removed": it shows as
+ * archived at `now` until the live task is, so it joins the archive without
+ * popping back. A `crumbling` row shows its snapshot, so it stays put.
+ */
+export function backlogTasks(
+  tasks: readonly Task[],
+  crumbles: ReadonlyMap<string, Crumble>,
+  now: Date,
+): Task[] {
+  return tasks.map((task) => {
+    const crumble = crumbles.get(task.id);
+    if (!crumble || crumble.phase === "failed") return task;
+    if (crumble.phase === "crumbling") return crumble.task;
+    return task.archivedAt !== null ? task : { ...crumble.task, archivedAt: now };
   });
 }

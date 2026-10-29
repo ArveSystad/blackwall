@@ -1617,7 +1617,7 @@ html:active-view-transition-type(bw-route) {
     filter: none;
   }
 
-  /* ---------- inbox crumble (TaskCard.tsx) ----------
+  /* ---------- inbox and Backlog crumble (TaskCard.tsx, routes/Backlog.tsx) ----------
    * An archived inbox row crumbles out: its title scrambles into glyphs left
    * to right (useEncrypt, DECRYPT_MS = 220ms), then the row flickers and falls
    * away over 360ms. Rows archived together step down by --crumble-delay (set
