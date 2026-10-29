@@ -73,11 +73,21 @@ function SectionBody({ section }: { section: SettingsSection }) {
   }
 }
 
-/** Settings replaces both panes: a section nav on the left, the section on the right. */
-export function Settings({ section }: { section: SettingsSection }) {
+/**
+ * Settings drops down over the current page from under the TopBar like a shutter
+ * (SettingsShutter): a section nav on the left, the section on the right. `escapeEnabled` is off
+ * while the shutter slides, so Esc never leaves a page that isn't showing.
+ */
+export function Settings({
+  section,
+  escapeEnabled = true,
+}: {
+  section: SettingsSection;
+  escapeEnabled?: boolean;
+}) {
   const navigate = useNavigate();
 
-  useEscapeTo(() => void navigate({ to: "/" }));
+  useEscapeTo(() => void navigate({ to: "/" }), escapeEnabled);
 
   return (
     <div className="flex h-full min-w-0">
@@ -98,10 +108,11 @@ export function Settings({ section }: { section: SettingsSection }) {
           <Button
             key={s.id}
             variant="ghost"
-            className="justify-start text-foreground data-[status=active]:bg-muted data-[status=active]:[--bw-chamfer-line:var(--border-strong)] data-[status=active]:text-foreground-strong"
+            className="justify-start text-foreground data-[active=true]:bg-muted data-[active=true]:[--bw-chamfer-line:var(--border-strong)] data-[active=true]:text-foreground-strong"
             asChild
           >
-            <Link to="/settings/$section" params={{ section: s.id }}>
+            {/* From the section, not the URL: while the shutter opens, the URL is the old page. */}
+            <Link to="/settings/$section" params={{ section: s.id }} data-active={s.id === section}>
               {s.label}
               <span className="flex-1" />
               <NavCount section={s.id} />

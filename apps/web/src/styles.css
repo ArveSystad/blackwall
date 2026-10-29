@@ -1513,6 +1513,48 @@ html:active-view-transition-type(bw-route) {
     animation: bw-chat-out 180ms ease-in both;
   }
 
+  /* ---------- settings shutter (SettingsShutter.tsx) ----------
+   * Settings overlays the outlet column and moves by transform only, clipped by its
+   * overflow-clip wrapper, so it drops from under the TopBar and never covers the chat.
+   * A router blocker holds in-app opens until the panel covers the page; closing commits
+   * at once and slides up to reveal the next page, already mounted beneath. Transitions,
+   * not keyframes, so a reversal mid-slide is smooth. SettingsShutter settles on the
+   * transform's transitionend, or after SHUTTER_FALLBACK_MS; 200ms here pairs with
+   * SHUTTER_MS in settings-shutter.ts. Change them together. Reduced motion and first
+   * load skip the opening/closing presences in JS. The bottom-edge scanline shows only
+   * while moving: the sanctioned decorative glow, dark theme only.
+   */
+  .bw-shutter[data-shutter="opening"] {
+    transition: transform 200ms ease-out;
+
+    @starting-style {
+      transform: translateY(-100%);
+    }
+  }
+
+  .bw-shutter[data-shutter="closing"] {
+    transform: translateY(-100%);
+    transition: transform 200ms ease-in;
+  }
+
+  .bw-shutter[data-shutter="opening"]::after,
+  .bw-shutter[data-shutter="closing"]::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0;
+    height: 2px;
+    background: var(--cyan);
+    box-shadow:
+      0 0 8px color-mix(in oklab, var(--cyan) 80%, transparent),
+      0 0 20px color-mix(in oklab, var(--cyan) 45%, transparent);
+    pointer-events: none;
+  }
+
+  :root[data-theme="light"] .bw-shutter::after {
+    box-shadow: none;
+  }
+
   /* ---------- HUD chrome (every rectangle: buttons, fields, chips, cards, rows, popovers, code) ----------
    * Square surfaces with the top-left and bottom-right corners cut by --bw-cut (per corner:
    * --bw-cut-tl, --bw-cut-br). Nothing in the app is rounded except true circles.

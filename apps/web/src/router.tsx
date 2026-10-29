@@ -12,13 +12,16 @@ import { ChatPanel } from "./components/ChatPanel";
 import { Inbox } from "./components/Inbox";
 import { NotFound } from "./components/NotFound";
 import { SearchPalette } from "./components/SearchPalette";
+import { SettingsShutter } from "./components/SettingsShutter";
 import { TopBar } from "./components/TopBar";
 import { useVoiceActions } from "./components/use-voice-actions";
 import { VoiceTaskModal } from "./components/VoiceTaskModal";
 import { Home } from "./routes/Home";
 import { prefersReducedMotion } from "./reduced-motion";
 import { routeTransitionTypes, supportsRouteTransition } from "./route-transition";
+import { Settings } from "./settings-chunk";
 import { isSettingsSection } from "./settings-sections";
+import { isSettingsPath } from "./settings-shutter";
 import { useChatHotkey } from "./chat";
 import { useSearchHotkey } from "./search-palette";
 import { useThemeHotkey } from "./theme";
@@ -27,7 +30,6 @@ import { useThemeHotkey } from "./theme";
 // chunk, since the router only preloads a route's own `component` on hover.
 const TaskView = lazyRouteComponent(() => import("./routes/TaskView"), "TaskView");
 const Backlog = lazyRouteComponent(() => import("./routes/Backlog"), "Backlog");
-const Settings = lazyRouteComponent(() => import("./routes/Settings"), "Settings");
 
 const rootRoute = createRootRoute({
   component: function Root() {
@@ -42,8 +44,10 @@ const rootRoute = createRootRoute({
         <TopBar />
         {/* The chat stays open beside every page: the shell, Settings and Stats. */}
         <div className="flex min-h-0 flex-1">
-          <div className="min-h-0 min-w-0 flex-1 [view-transition-name:bw-route]">
+          {/* Settings slides down over the outlet as a shutter, under the TopBar and beside the chat. */}
+          <div className="relative min-h-0 min-w-0 flex-1 [view-transition-name:bw-route]">
             <Outlet />
+            <SettingsShutter />
           </div>
           <ChatPanel />
         </div>
@@ -137,13 +141,15 @@ const settingsRoute = createRoute({
     if (!isSettingsSection(params.section)) throw notFound();
   },
   loader: () => Settings.preload?.(),
+  // The shutter in Root draws Settings over the outlet; the route keeps the URL, the redirect,
+  // not found and the chunk preload.
   component: function SettingsRoute() {
     const { section } = settingsRoute.useParams();
-    return isSettingsSection(section) ? <Settings section={section} /> : <NotFound />;
+    return isSettingsSection(section) ? null : <NotFound />;
   },
 });
 
-/** Stats replaces both panes, like Settings. */
+/** Stats replaces both panes. */
 const statsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/stats",
@@ -165,14 +171,22 @@ const routeTree = rootRoute.addChildren([
 ]);
 
 // Top-level view changes wipe in (route-transition.ts). Gated on View Transition types: without
-// them the router would run an untyped crossfade on every navigation instead.
+// them the router would run an untyped crossfade on every navigation instead. Navigations into or
+// out of Settings skip the wipe: the shutter animates those.
 export const router = createRouter({
   routeTree,
   defaultPreload: "intent",
   defaultViewTransition: supportsRouteTransition()
     ? {
         types: ({ fromLocation, toLocation }) =>
-          routeTransitionTypes(fromLocation?.pathname, toLocation.pathname, prefersReducedMotion()),
+          (fromLocation !== undefined && isSettingsPath(fromLocation.pathname)) ||
+          isSettingsPath(toLocation.pathname)
+            ? false
+            : routeTransitionTypes(
+                fromLocation?.pathname,
+                toLocation.pathname,
+                prefersReducedMotion(),
+              ),
       }
     : false,
 });

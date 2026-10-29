@@ -112,9 +112,12 @@ Rules:
   and is skipped under reduced motion. Only the wordmark may do this. Details in `blackwall-motion`.
 - The route wipe is the fourth sanctioned exception: a 150ms left-to-right `clip-path` reveal of the
   page area when the top-level view changes (Home, Active, Backlog, a task, Reviews, Issues,
-  Settings, Stats). Never on task → task, Settings sections, switching the Backlog repo, search
-  params or data updates. It adds no colour or glow and is skipped under reduced motion and in
-  browsers without View Transition types. Details in `blackwall-motion`.
+  Stats). Never into or out of Settings (the shutter animates those), on task → task, switching
+  the Backlog repo, search params or data updates. It adds no colour or glow and is skipped under
+  reduced motion and in browsers without View Transition types. Details in `blackwall-motion`.
+- The Settings shutter scanline is the fifth sanctioned exception. The shutter's bottom edge is a
+  2px cyan scanline with glow, only during its 200ms slide, never at rest. Dark only; absent under
+  reduced motion and on first load. Only the shutter may do this. Details in `blackwall-motion`.
 - Never put glow or neon on diffs, transcripts, long text, or table rows.
 - Glow is dark only. Light replaces it with a 1px border plus a 3px tinted ring (`--glow-*` handles this).
 - Chamfered surfaces (see Density and shape) keep their glow through the `--drop-glow-*` / `--drop-pop`

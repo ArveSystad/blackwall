@@ -25,18 +25,20 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
    GridBackdrop.tsx, `.bw-stream` for TaskHeader.tsx, `.bw-laser`, `.bw-boom`,
    `.bw-revive`/`.bw-revive-failed`, `.bw-supernova` and `.bw-launch` for GridAgents.tsx, `.bw-assigned`/
    `.bw-assigned-flash` for CountPill.tsx, `.bw-running*` for RunningHeadline.tsx, `.bw-chat`/
-   `.bw-chat-content` for ChatPanel.tsx, `.bw-decrypt*` for DecryptText.tsx,
+   `.bw-chat-content` for ChatPanel.tsx, `.bw-shutter` for SettingsShutter.tsx, `.bw-decrypt*` for DecryptText.tsx,
    `.bw-wordmark-flicker` for Wordmark.tsx, `bw-scan-wipe`/`--animate-scan-wipe` for ui/dialog.tsx), and `bw-route-wipe` with the
    `::view-transition-*(bw-route|bw-inbox|root)` rules for the route wipe (router.tsx, Inbox.tsx,
    route-transition.ts).
 2. `.claude/skills/blackwall-design/SKILL.md` § Color semantics / Rules: the state-only rule and its
-   four decorative exceptions (GridBackdrop, Stats, the wordmark flicker, the route wipe).
+   five decorative exceptions (GridBackdrop, Stats, the wordmark flicker, the route wipe, the
+   Settings shutter scanline).
 3. Reference code: `apps/web/src/components/GridBackdrop.tsx`, `apps/web/src/components/GridAgents.tsx`,
    `apps/web/src/components/RunningHeadline.tsx`, `apps/web/src/routes/Stats.tsx`, `apps/web/src/routes/Backlog.tsx`, `apps/web/src/agent-dots.ts`,
    `apps/web/src/components/use-archive-launches.ts`, `apps/web/src/components/use-resume-bursts.ts`,
    `apps/web/src/components/use-supernovas.ts`, `apps/web/src/decrypt.ts`,
    `apps/web/src/components/use-decrypt.ts`, `apps/web/src/chat-stream.ts`,
-   `apps/web/src/components/use-chat-stream.ts`, `apps/web/src/components/Wordmark.tsx`,
+   `apps/web/src/components/use-chat-stream.ts`, `apps/web/src/settings-shutter.ts`,
+   `apps/web/src/components/SettingsShutter.tsx`, `apps/web/src/components/Wordmark.tsx`,
    `apps/web/src/wordmark-flicker.ts`, `apps/web/src/components/use-wordmark-flicker.ts`,
    `apps/web/src/components/use-count-boom.ts` (detects the rise during render and keeps its timer in
    a `[boom]` effect, so StrictMode's effect replay can't strand it).
@@ -45,8 +47,8 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
 
 ## Procedure
 
-1. Confirm the motion marks state, or falls under the GridBackdrop/Stats/wordmark-flicker/route-wipe
-   exceptions. Otherwise don't animate.
+1. Confirm the motion marks state, or falls under the GridBackdrop/Stats/wordmark-flicker/route-wipe/
+   shutter scanline exceptions. Otherwise don't animate.
 2. Search the existing `bw-*` keyframes and `--animate-*` tokens; reuse one if it fits.
 3. Add `@keyframes bw-<name>` next to the others.
 4. Expose it one of two ways:
@@ -65,7 +67,8 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
    (modifiers of `.bw-boom`, e.g. `.bw-revive` and `.bw-assigned`, inherit it and need no entry).
    `.bw-supernova` is the exception: it keeps a static core (`::before` at `opacity: 1`) and hides
    only its ring and sparks, and JS shortens its lifetime to a brief flash. ChatPanel needs no entry:
-   it skips its `opening`/`closing` presences in JS, so it opens and closes at once. Decrypt text
+   it skips its `opening`/`closing` presences in JS, so it opens and closes at once. SettingsShutter
+   needs no entry: under reduced motion it never enters `opening`/`closing`. Decrypt text
    also skips in JS (`useDecrypt` never plays); its reduced-motion entry hides `.bw-decrypt-glyphs`
    and shows the real text as a fallback. The wordmark flicker skips in JS too
    (`useWordmarkFlicker` never schedules one), and the base rule covers it: it is opacity only and
@@ -92,7 +95,7 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
   and inbox don't wipe. Every pseudo needs `mix-blend-mode: normal` to override the UA
   `plus-lighter`, or the opaque snapshots brighten. Driven by TanStack's
   `defaultViewTransition.types` → `routeTransitionTypes`, it plays only when `routeViewKey` (the
-  first path segment) changes, and is gated on `:active-view-transition-type` support
+  first path segment) changes and neither path is a Settings path (`isSettingsPath`), and is gated on `:active-view-transition-type` support
   (`supportsRouteTransition`) so other browsers get no untyped crossfade. Reduced motion returns
   `false` in JS, with a `::view-transition-*(*)` backstop in the base reduced-motion rule. No glow,
   no JS timer. Never call `document.startViewTransition` elsewhere. A new top-level route needs its
@@ -112,7 +115,9 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
     `.bw-supernova` 1.2s ↔ `SUPERNOVA_MS` (1200), its reduced-motion flash ↔ `SUPERNOVA_FLASH_MS`
     (300) and its 80ms stagger (`--supernova-delay`) ↔ `SUPERNOVA_STAGGER_MS`, all in `agent-dots.ts`;
     `.bw-chat` 180ms ↔ `CHAT_PANEL_MS` (180) in `chat.ts`, with the JS fallback at
-    `CHAT_PANEL_FALLBACK_MS` (it settles the presence, since `transitionend` may not come).
+    `CHAT_PANEL_FALLBACK_MS` (it settles the presence, since `transitionend` may not come);
+    `.bw-shutter` 200ms ↔ `SHUTTER_MS` (200) in `settings-shutter.ts`, with the JS fallback at
+    `SHUTTER_FALLBACK_MS` (it settles the presence and releases a held open).
   - `DECRYPT_MS` (300) in `decrypt.ts` is JS only (an rAF loop); no CSS mirrors it.
   - `STREAM_*` in `chat-stream.ts` are JS only (an rAF loop); no CSS mirrors them.
   - `.bw-wordmark-flicker` 700ms ↔ `WORDMARK_FLICKER_MS` (700) in `wordmark-flicker.ts`. No drop
@@ -161,6 +166,14 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
   pending timer, so StrictMode's effect replay is safe. Opacity only, so no light override.
   Reduced motion is read on mount and never schedules one. It is decoration, not state: keep it
   rare, subtle and confined to the wordmark.
+- Settings shutter (`SettingsShutter.tsx`, `settings-shutter.ts`): Settings is an overlay rendered
+  by Root over the outlet column (never the TopBar or the chat), moving by `transform` only and
+  clipped by an `overflow-clip` wrapper. The path drives presence; a `useBlocker` only holds an
+  animated in-app open until the panel covers the page, then the URL commits unseen. Leaving
+  Settings commits at once and the panel slides up over the new page, already mounted beneath.
+  Transitions, not keyframes, so a reversal mid-slide is smooth. Section switches and first load
+  don't animate. The bottom-edge cyan scanline shows only while moving, without glow in light. Any
+  future route transition must skip navigations into or out of Settings (`isSettingsPath`).
 - Mount-only animations follow `animate-bar-grow` (Stats.tsx: `origin-bottom animate-bar-grow`):
   fill mode `both`, set `transform-origin`, and don't animate later value changes.
 - GridBackdrop:
@@ -172,7 +185,8 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
   - The only JS is the pointer spotlight's `--mx`/`--my`, and RunningHeadline's own `--mx`/`--my`
     and `data-hover` for its local hover glow.
 - Neon and motion mark state only (`blackwall-design` § Color semantics / Rules). GridBackdrop, Stats,
-  the wordmark flicker and the route wipe are the only sanctioned decorative exceptions.
+  the wordmark flicker, the route wipe and the Settings shutter scanline are the only sanctioned
+  decorative exceptions.
 - When a motion pattern, token or pairing changes, update this skill in the same commit.
 
 ## Checks

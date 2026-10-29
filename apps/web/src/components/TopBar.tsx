@@ -1,5 +1,5 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { pendingCount, repoStatusLine } from "../backlog";
 import { backlogQuery, backlogRunnerQuery, reposQuery, settingsQuery, tasksQuery } from "../query";
 import { modKeyLabel } from "../keyboard";
@@ -10,6 +10,7 @@ import {
   setSelectedRepo,
   useSelectedRepoId,
 } from "../selected-repo";
+import { isSettingsPath } from "../settings-shutter";
 import { ChatToggle } from "./ChatToggle";
 import { BacklogIcon, GearIcon, SearchIcon, StatsIcon } from "./icons";
 import { PushToTalk } from "./PushToTalk";
@@ -46,6 +47,7 @@ export function TopBar() {
   const tasks = useQuery(tasksQuery);
   const settings = useQuery(settingsQuery);
   const runner = useQuery({ ...backlogRunnerQuery(repo?.id ?? ""), enabled: !!repo });
+  const inSettings = useRouterState({ select: (s) => isSettingsPath(s.location.pathname) });
 
   const repoTasks = repo ? (tasks.data ?? []).filter((t) => t.repoId === repo.id) : [];
   const status =
@@ -145,7 +147,14 @@ export function TopBar() {
           </Link>
         </Button>
         <Button variant="ghost" size="icon" className={ACTIVE_ICON} asChild>
-          <Link to="/settings" aria-label="Settings" title="Settings">
+          {/* Straight to a section, so the shutter's open has no redirect hop; lit on every section. */}
+          <Link
+            to="/settings/$section"
+            params={{ section: "connections" }}
+            data-status={inSettings ? "active" : undefined}
+            aria-label="Settings"
+            title="Settings"
+          >
             <GearIcon />
           </Link>
         </Button>
