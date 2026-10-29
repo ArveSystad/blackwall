@@ -1323,7 +1323,14 @@ describe("chat schemas", () => {
   });
 
   it("requires a chat state's task id, null for the repo's chat", () => {
-    const repoChat = { repoId: "r1", taskId: null, busy: false, activity: null, messages: [] };
+    const repoChat = {
+      repoId: "r1",
+      taskId: null,
+      busy: false,
+      activity: null,
+      draft: null,
+      messages: [],
+    };
     expect(chatStateSchema.parse(repoChat)).toEqual(repoChat);
     expect(chatStateSchema.parse({ ...repoChat, taskId: "t1" }).taskId).toBe("t1");
     expect(chatStateSchema.safeParse({ ...repoChat, taskId: undefined }).success).toBe(false);
@@ -1341,6 +1348,7 @@ describe("chat schemas", () => {
       taskId: null,
       busy: false,
       activity: null,
+      draft: null,
       messages: [
         {
           id: "m1",

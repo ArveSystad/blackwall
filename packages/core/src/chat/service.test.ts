@@ -2,14 +2,21 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ChatState, ServerEvent } from "@blackwall/shared";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { openDatabase, type OpenedDatabase } from "../db/database.js";
-import type { AgentAdapter } from "../agents/adapters/types.js";
+import type {
+  AgentAdapter,
+  AgentEvent,
+  AgentResult,
+  AgentRunOptions,
+} from "../agents/adapters/types.js";
+import { emptyUsage } from "../agents/adapters/types.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
 import { TaskNotFoundError } from "../pipeline/engine.js";
 import { createFakeAdapter, type FakeAdapter, type FakeScript } from "../pipeline/fake-adapter.js";
 import { RepoNotFoundError } from "../repos/service.js";
 import {
+  CHAT_DRAFT_THROTTLE_MS,
   ChatActionNotFoundError,
   ChatBusyError,
   ChatMessageNotFoundError,
@@ -90,10 +97,145 @@ function addTask(title: string, repo: string) {
   });
 }
 
+/** A run the test drives: it streams what the test emits and ends when the test finishes it. */
+interface DrivenRun {
+  options: AgentRunOptions;
+  emit: (event: AgentEvent) => void;
+  finish: (structured: unknown) => void;
+}
+
+/** An adapter whose runs the test drives event by event. */
+function drivenAdapter(): { adapter: AgentAdapter; runs: DrivenRun[] } {
+  const runs: DrivenRun[] = [];
+  const adapter: AgentAdapter = {
+    cli: "claude",
+    run(options) {
+      const queue: AgentEvent[] = [];
+      let wake: (() => void) | undefined;
+      let done = false;
+      let resolve: (result: AgentResult) => void = () => undefined;
+      const result = new Promise<AgentResult>((res) => (resolve = res));
+      runs.push({
+        options,
+        emit(event) {
+          queue.push(event);
+          wake?.();
+        },
+        finish(structured) {
+          resolve({ sessionId: "driven", text: "", structured, usage: emptyUsage() });
+          done = true;
+          wake?.();
+        },
+      });
+      return {
+        result,
+        async *[Symbol.asyncIterator]() {
+          for (;;) {
+            const event = queue.shift();
+            if (event) {
+              yield event;
+              continue;
+            }
+            if (done) return;
+            await new Promise<void>((res) => (wake = res));
+            wake = undefined;
+          }
+        },
+      };
+    },
+  };
+  return { adapter, runs };
+}
+
+/** The drafts published so far, in order. */
+const drafts = () =>
+  events.flatMap((e) => (e.type === "chat.upserted" ? [e.payload.chat.draft] : []));
+
+describe("chat service drafts", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const partial = (json: string): AgentEvent => ({ type: "partial", text: json, json: true });
+
+  it("publishes the streamed reply as a throttled draft, then the final reply", async () => {
+    const { adapter: driven, runs } = drivenAdapter();
+    chat = createService({ cli: driven });
+    chat.send(repoId, "Hi");
+    const run = runs[0]!;
+    expect(run.options.streamPartial).toBe(true);
+
+    run.emit(partial('{"reply":"Hel'));
+    await tick();
+    expect(chat.get(repoId).draft).toBe("Hel");
+    run.emit(partial('{"reply":"Hello'));
+    run.emit(partial('{"reply":"Hello wor'));
+    await tick();
+    // Throttled: the newer drafts wait for the next slot.
+    expect(chat.get(repoId).draft).toBe("Hel");
+    vi.advanceTimersByTime(CHAT_DRAFT_THROTTLE_MS);
+    expect(chat.get(repoId).draft).toBe("Hello wor");
+    expect(drafts().filter((d) => d !== null)).toEqual(["Hel", "Hello wor"]);
+
+    run.emit(partial('{"reply":"Hello world"'));
+    await tick();
+    run.finish({ reply: "Hello world", actions: [] });
+    const state = await idle();
+    expect(state.draft).toBeNull();
+    expect(state.messages.at(-1)).toMatchObject({ role: "assistant", text: "Hello world" });
+    // The pending draft never goes out after the final reply.
+    vi.advanceTimersByTime(CHAT_DRAFT_THROTTLE_MS);
+    expect(drafts().at(-1)).toBeNull();
+    expect(chat.get(repoId).draft).toBeNull();
+  });
+
+  it("drops the draft when a top-level tool call starts, but not a sub-agent's", async () => {
+    const { adapter: driven, runs } = drivenAdapter();
+    chat = createService({ cli: driven });
+    chat.send(repoId, "Hi");
+    const run = runs[0]!;
+    run.emit({ type: "partial", text: "Let me look.", json: false });
+    await tick();
+    expect(chat.get(repoId).draft).toBe("Let me look.");
+    run.emit({ type: "tool-call-start", id: "t1", name: "Read", input: {}, parentId: "a1" });
+    await tick();
+    expect(chat.get(repoId).draft).toBe("Let me look.");
+    run.emit({ type: "tool-call-start", id: "t2", name: "Grep", input: { pattern: "x" } });
+    await tick();
+    expect(chat.get(repoId)).toMatchObject({ draft: null, activity: "Grep · x" });
+    run.finish({ reply: "Found it", actions: [] });
+    await idle();
+  });
+
+  it("clears the draft on /clear and drops the old turn's late partials", async () => {
+    const { adapter: driven, runs } = drivenAdapter();
+    chat = createService({ cli: driven });
+    chat.send(repoId, "Hi");
+    const run = runs[0]!;
+    run.emit(partial('{"reply":"Hel'));
+    await tick();
+    run.emit(partial('{"reply":"Hello'));
+    await tick();
+
+    expect(chat.send(repoId, "/clear")).toMatchObject({ draft: null, messages: [] });
+    run.emit(partial('{"reply":"Hello there'));
+    await tick();
+    vi.advanceTimersByTime(CHAT_DRAFT_THROTTLE_MS * 2);
+    run.finish({ reply: "Hello there", actions: [] });
+    await tick();
+    expect(chat.get(repoId)).toMatchObject({ draft: null, messages: [] });
+    expect(drafts().at(-1)).toBeNull();
+  });
+});
+
 describe("chat service", () => {
   it("starts a read-only session in the checkout, then resumes it", async () => {
     chat.send(repoId, "What does this repo do?");
     const first = await idle();
+    expect(first.draft).toBeNull();
     expect(first.messages.map((m) => [m.role, m.text])).toEqual([
       ["user", "What does this repo do?"],
       ["assistant", "Hello"],
@@ -446,7 +588,7 @@ describe("chat service", () => {
     expect(() => chat.send(repoId, "Another")).toThrow(ChatBusyError);
 
     const cleared = chat.send(repoId, " /clear ");
-    expect(cleared).toMatchObject({ busy: false, activity: null, messages: [] });
+    expect(cleared).toMatchObject({ busy: false, activity: null, draft: null, messages: [] });
     await new Promise((resolve) => setImmediate(resolve));
     expect(chat.get(repoId).messages).toEqual([]);
     expect(adapter.calls[0]!.options.signal?.aborted).toBe(true);

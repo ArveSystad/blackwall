@@ -71,6 +71,7 @@ beforeEach(() => {
     taskId: taskId ?? null,
     busy: true,
     activity: null,
+    draft: null,
     messages: [],
   }));
   voice = createVoiceCommandService({

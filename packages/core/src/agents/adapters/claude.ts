@@ -102,8 +102,17 @@ function skillNames(raw: unknown): string[] {
  * when its message started (output tokens barely counted), and a sub-agent's
  * last model call is never streamed. The result's `modelUsage` is the whole
  * session's, sub-agents included, so the result's usage comes from it.
+ *
+ * With `partial` (the run passed `--include-partial-messages`), the main
+ * thread's `stream_event` lines for the `StructuredOutput` tool's input yield
+ * cumulative `partial` events holding its incomplete JSON; every other
+ * `stream_event`, sub-agents' included, is dropped. Text deltas are not used:
+ * prose before the tool call is not the answer.
  */
-export function createClaudeParser(now: () => Date = () => new Date()): LineParser {
+export function createClaudeParser(
+  now: () => Date = () => new Date(),
+  { partial = false }: { partial?: boolean } = {},
+): LineParser {
   /**
    * Assistant messages arrive one content block per line, each repeating the
    * message-start usage; it is counted once per message.
@@ -113,6 +122,9 @@ export function createClaudeParser(now: () => Date = () => new Date()): LinePars
   const subagents = new Set<string>();
   let sessionId: string | undefined;
   let limited = false;
+  /** The `StructuredOutput` block being streamed, and its input so far. */
+  let structuredIndex: number | undefined;
+  let structuredJson = "";
 
   return {
     push(line) {
@@ -128,6 +140,30 @@ export function createClaudeParser(now: () => Date = () => new Date()): LinePars
       const nested = parentId ? { parentId } : {};
 
       switch (parsed.type) {
+        case "stream_event": {
+          const event = parsed.event;
+          if (!partial || parentId || !isObject(event)) break;
+          if (event.type === "content_block_start") {
+            const block = event.content_block;
+            if (
+              isObject(block) &&
+              block.type === "tool_use" &&
+              block.name === STRUCTURED_OUTPUT_TOOL &&
+              typeof event.index === "number"
+            ) {
+              structuredIndex = event.index;
+              structuredJson = "";
+            }
+          } else if (event.type === "content_block_delta" && event.index === structuredIndex) {
+            const delta = event.delta;
+            if (!isObject(delta) || delta.type !== "input_json_delta") break;
+            const chunk = str(delta.partial_json);
+            if (!chunk) break;
+            structuredJson += chunk;
+            events.push({ type: "partial", text: structuredJson, json: true });
+          }
+          break;
+        }
         case "rate_limit_event": {
           const hit = claudeRateLimitFromEvent(parsed);
           if (hit && !limited) {
@@ -260,7 +296,8 @@ export function claudeArgs(
   options: Omit<AgentRunOptions, "cwd" | "prompt" | "signal">,
   project: ClaudeProject = {},
 ): string[] {
-  const { model, effort, resumeSessionId, permissions, jsonSchema, maxTurns } = options;
+  const { model, effort, resumeSessionId, permissions, jsonSchema, maxTurns, streamPartial } =
+    options;
   if (permissions.cli !== "claude") {
     throw new Error(`Permissions for ${permissions.cli} cannot run on Claude Code`);
   }
@@ -270,6 +307,7 @@ export function claudeArgs(
     "--output-format",
     "stream-json",
     "--verbose",
+    ...(streamPartial ? ["--include-partial-messages"] : []),
     ...(model ? ["--model", model] : []),
     ...(effort && effortFlagApplies("claude", model) ? ["--effort", effort] : []),
     ...(resumeSessionId ? ["--resume", resumeSessionId] : []),
@@ -357,7 +395,7 @@ export function createClaudeAdapter({
           cwd,
           input: prompt,
           signal,
-          parser: createClaudeParser(),
+          parser: createClaudeParser(undefined, { partial: rest.streamPartial === true }),
           detectRateLimit: (text) => claudeRateLimitFromText(text),
           // Only a resumed run can lose its session; gating avoids false positives.
           ...(rest.resumeSessionId ? { detectMissingSession: claudeSessionMissing } : {}),

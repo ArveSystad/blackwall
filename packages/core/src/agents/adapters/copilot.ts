@@ -27,6 +27,11 @@ export interface CopilotParserOptions {
    * the `skill` tool (Trusted), since Copilot lists the skills either way.
    */
   reportSkills?: boolean;
+  /**
+   * Report the top-level message being written as cumulative `partial`
+   * events, from its `assistant.message_delta` lines (`streamPartial`).
+   */
+  partial?: boolean;
 }
 
 /**
@@ -43,12 +48,15 @@ export interface CopilotParserOptions {
  * text. Copilot's `subagent.*` lifecycle events repeat the tool call's and are
  * dropped. The top-level `parentId` of every event only chains events.
  * `session.skills_loaded`, also ephemeral, yields `skills-loaded` when
- * `reportSkills` is set.
+ * `reportSkills` is set. With `partial`, a top-level message's
+ * `assistant.message_delta` lines, also ephemeral, yield its text so far as
+ * `partial` events; sub-agents' deltas and reasoning deltas stay dropped.
  */
 export function createCopilotParser({
   sessionId,
   now = () => new Date(),
   reportSkills = false,
+  partial = false,
 }: CopilotParserOptions = {}): LineParser {
   let announced = false;
   let reportedModel: string | undefined;
@@ -56,6 +64,9 @@ export function createCopilotParser({
   let sessionError: string | undefined;
   let limited = false;
   const subagents = new Set<string>();
+  /** The top-level message being streamed, and its text so far. */
+  let draftId: string | undefined;
+  let draft = "";
 
   return {
     push(line) {
@@ -92,6 +103,18 @@ export function createCopilotParser({
             .map((skill) => str(skill.name))
             .filter((name): name is string => !!name),
         });
+      }
+      if (parsed.type === "assistant.message_delta" && partial && !parentId) {
+        const messageId = str(data.messageId);
+        const chunk = str(data.deltaContent);
+        if (messageId && chunk) {
+          if (messageId !== draftId) {
+            draftId = messageId;
+            draft = "";
+          }
+          draft += chunk;
+          events.push({ type: "partial", text: draft, json: false });
+        }
       }
       if (parsed.ephemeral === true) return events;
 
@@ -325,6 +348,7 @@ export function createCopilotAdapter({
       model,
       effort,
       permissions,
+      streamPartial,
       signal,
     }) {
       const sessionId = resumeSessionId ?? randomUUID();
@@ -351,6 +375,7 @@ export function createCopilotAdapter({
             parser: createCopilotParser({
               sessionId,
               reportSkills: permissions.trust.level !== "locked",
+              partial: streamPartial === true,
             }),
             detectRateLimit: (text) => copilotRateLimitFromText(text),
             // Only a resumed run can lose its session; gating avoids false positives.

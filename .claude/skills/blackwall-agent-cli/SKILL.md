@@ -142,6 +142,21 @@ Follow the `caveman` skill for narration and status updates. Code, prompts and c
   exactly one repair turn on the same session, using `structuredOutputRepairPrompt`. A second invalid
   answer fails with `invalid-output`. Fixtures: `copilot/json-block.jsonl`, `copilot/json-repair.jsonl`.
 
+## Streaming the answer (`partial`)
+
+`AgentRunOptions.streamPartial` makes the parsers emit `partial` events: the final answer written so
+far, cumulative (not a delta). It is opt-in because the pipeline engine stores every event as a
+`step.event` row; only the chat sets it.
+
+- **Claude:** `--include-partial-messages`; the main thread's `stream_event` lines carrying the
+  `StructuredOutput` tool's `input_json_delta` give `{ json: true }` (raw, incomplete JSON). Text
+  deltas and sub-agents' streams are dropped. Fixture: `claude/chat-partial.jsonl`.
+- **Copilot:** top-level `assistant.message_delta` lines (ephemeral), buffered per `messageId`, give
+  `{ json: false }` (the message's prose, which may end in the fenced block). Sub-agent and
+  reasoning deltas are dropped. Fixture: `copilot/chat-partial.jsonl`.
+- **OpenCode:** none; it prints text parts only once complete.
+- `withStructuredOutput` drops the repair turn's `partial` events: its text is no answer draft.
+
 ## Permissions
 
 - Profiles (`read-only`, `implement`) become CLI flags in `permissions.ts`: `permissionsFor` builds

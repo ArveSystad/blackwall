@@ -9,6 +9,7 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -57,6 +58,7 @@ import {
   type ChatPresence,
   type ComposerRoute,
 } from "../chat";
+import { commonPrefixLength } from "../chat-stream";
 import { isPlainKey, modKeyLabel } from "../keyboard";
 import { cn } from "../lib/utils";
 import { chatQuery, queryKeys, reposQuery, taskGrillQuery, taskQuery, tasksQuery } from "../query";
@@ -72,6 +74,7 @@ import { answerGate, messageRoute, resume, stop } from "./task/actions";
 import { useTaskAction } from "./task/use-task-action";
 import { Button } from "./ui/button";
 import { useChatFlavour } from "./use-chat-flavour";
+import { useChatStream } from "./use-chat-stream";
 import { ErrorText } from "./ui/field";
 import { Kbd } from "./ui/kbd";
 
@@ -357,10 +360,18 @@ function ChatHeader({
   );
 }
 
-/** Which messages fade in: those appended after the chat first rendered with data. */
+/**
+ * Which messages fade in: those appended after the chat first rendered with data. Fresh assistant
+ * replies reveal instead, from `streamFrom`: where the draft shown before them stopped.
+ */
 interface FadeState {
   seen: ReadonlySet<string>;
   fading: ReadonlySet<string>;
+  streamFrom: ReadonlyMap<string, number>;
+  /** The streamed draft as last shown, for the reply that replaces it. */
+  lastDraft: string | null;
+  /** How much of a draft shows at once: all of one already streaming when the chat loaded. */
+  draftFrom: number;
 }
 
 function ChatBody({
@@ -396,18 +407,35 @@ function ChatBody({
   const state = chat.data;
   const messages = state?.messages;
   const busy = state?.busy ?? false;
+  const liveDraft = state?.draft ?? null;
 
   // Seed the seen ids on the first render with data, so history shows without fading.
   if (messages) {
     if (fade === null) {
-      setFade({ seen: new Set(messages.map((m) => m.id)), fading: new Set() });
+      setFade({
+        seen: new Set(messages.map((m) => m.id)),
+        fading: new Set(),
+        streamFrom: new Map(),
+        lastDraft: liveDraft,
+        draftFrom: liveDraft?.length ?? 0,
+      });
     } else {
       const fresh = freshIds(messages, fade.seen);
       if (fresh.length > 0) {
+        const streamFrom = new Map(fade.streamFrom);
+        for (const m of messages) {
+          if (m.role !== "assistant" || !fresh.includes(m.id)) continue;
+          streamFrom.set(m.id, fade.lastDraft ? commonPrefixLength(fade.lastDraft, m.text) : 0);
+        }
         setFade({
           seen: new Set([...fade.seen, ...fresh]),
           fading: new Set([...fade.fading, ...fresh]),
+          streamFrom,
+          lastDraft: liveDraft,
+          draftFrom: 0,
         });
+      } else if (liveDraft !== fade.lastDraft) {
+        setFade({ ...fade, lastDraft: liveDraft });
       }
     }
   }
@@ -417,7 +445,12 @@ function ChatBody({
   const flavour = useChatFlavour(busy, activity);
   useEffect(() => {
     if (following.current) end.current?.scrollIntoView({ block: "end" });
-  }, [count, activity, busy]);
+  }, [count, activity, busy, liveDraft]);
+
+  /** Keeps the log at the bottom while a reply reveals, unless the user scrolled up. */
+  const onGrow = useCallback(() => {
+    if (following.current) end.current?.scrollIntoView({ block: "end" });
+  }, []);
 
   function scrollToEnd() {
     following.current = true;
@@ -513,7 +546,7 @@ function ChatBody({
             }
           }}
         >
-          {count === 0 && !busy && (
+          {count === 0 && !busy && liveDraft === null && (
             <p className="m-0 text-meta text-muted-foreground">
               Channel open. Ask about this {taskId ? "task" : "repo"}. Proposed actions wait for you
               to apply them.
@@ -528,8 +561,13 @@ function ChatBody({
               tasks={repoTasks}
               needsId={needsId}
               fadeIn={fade?.fading.has(message.id) ?? false}
+              streamFrom={fade?.streamFrom.get(message.id) ?? null}
+              onGrow={onGrow}
             />
           ))}
+          {liveDraft !== null && (
+            <DraftMessage text={liveDraft} from={fade?.draftFrom ?? 0} onGrow={onGrow} />
+          )}
           <div ref={end} />
         </div>
       )}
@@ -702,6 +740,31 @@ function DirectSend({
   );
 }
 
+/**
+ * The reply as the agent writes it, revealed word by word. Hidden from screen readers: the log
+ * announces the final reply once instead of every chunk.
+ */
+function DraftMessage({
+  text,
+  from,
+  onGrow,
+}: {
+  text: string;
+  /** How much shows at once when the bubble mounts. */
+  from: number;
+  onGrow: () => void;
+}) {
+  const [initial] = useState(from);
+  const frame = useChatStream(text, { from: initial, play: true });
+  const shown = frame ?? text;
+  useEffect(() => onGrow(), [shown, onGrow]);
+  return (
+    <div aria-hidden="true" className="flex min-w-0 flex-col gap-2">
+      <Markdown className="break-words">{shown}</Markdown>
+    </div>
+  );
+}
+
 function MessageItem({
   message,
   repoId,
@@ -709,6 +772,8 @@ function MessageItem({
   tasks,
   needsId,
   fadeIn,
+  streamFrom,
+  onGrow,
 }: {
   message: ChatMessage;
   repoId: string;
@@ -717,6 +782,9 @@ function MessageItem({
   tasks: readonly Task[];
   needsId: string | null;
   fadeIn: boolean;
+  /** For a fresh assistant reply, where its reveal starts; null shows it at once. */
+  streamFrom: number | null;
+  onGrow: () => void;
 }) {
   const fade = fadeIn && "animate-fade-in";
   switch (message.role) {
@@ -741,24 +809,66 @@ function MessageItem({
       );
     case "assistant":
       return (
-        <div className={cn("flex min-w-0 flex-col gap-2", fade)}>
-          <Markdown className="break-words">{message.text}</Markdown>
-          {message.actions.map((action) => (
-            <ActionCard
-              key={action.id}
-              action={action}
-              repoId={repoId}
-              taskId={taskId}
-              tasks={tasks}
-              needs={action.id === needsId}
-            />
-          ))}
-          {canTurnIntoTask(message) && (
-            <TurnIntoTaskButton message={message} repoId={repoId} taskId={taskId} />
-          )}
-        </div>
+        <AssistantMessage
+          message={message}
+          repoId={repoId}
+          taskId={taskId}
+          tasks={tasks}
+          needsId={needsId}
+          streamFrom={streamFrom}
+          onGrow={onGrow}
+        />
       );
   }
+}
+
+/**
+ * An assistant reply and its action cards. A fresh one reveals word by word from `streamFrom`;
+ * meanwhile screen readers get the full reply once, and the cards wait until it is all out.
+ */
+function AssistantMessage({
+  message,
+  repoId,
+  taskId,
+  tasks,
+  needsId,
+  streamFrom,
+  onGrow,
+}: {
+  message: ChatMessage;
+  repoId: string;
+  taskId: string | undefined;
+  tasks: readonly Task[];
+  needsId: string | null;
+  streamFrom: number | null;
+  onGrow: () => void;
+}) {
+  const frame = useChatStream(message.text, { from: streamFrom ?? 0, play: streamFrom !== null });
+  useEffect(() => onGrow(), [frame, onGrow]);
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      {frame !== null && (
+        <div aria-hidden="true">
+          <Markdown className="break-words">{frame}</Markdown>
+        </div>
+      )}
+      <Markdown className={cn("break-words", frame !== null && "sr-only")}>{message.text}</Markdown>
+      {frame === null &&
+        message.actions.map((action) => (
+          <ActionCard
+            key={action.id}
+            action={action}
+            repoId={repoId}
+            taskId={taskId}
+            tasks={tasks}
+            needs={action.id === needsId}
+          />
+        ))}
+      {frame === null && canTurnIntoTask(message) && (
+        <TurnIntoTaskButton message={message} repoId={repoId} taskId={taskId} />
+      )}
+    </div>
+  );
 }
 
 /** Adds a pre-filled `create-task` card to an assistant reply; the card applies like any other. */

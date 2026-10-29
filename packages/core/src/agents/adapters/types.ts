@@ -31,6 +31,14 @@ export type AgentEvent =
    * Copilot and OpenCode all report sub-agents.
    */
   | { type: "message"; text: string; parentId?: string }
+  /**
+   * The final answer as written so far: cumulative, not a delta, so a dropped
+   * event loses nothing. `json`: `text` is the raw, incomplete structured-output
+   * JSON (Claude); otherwise the prose of the current top-level assistant
+   * message (Copilot). Only with `streamPartial`; never from a structured-output
+   * repair turn.
+   */
+  | { type: "partial"; text: string; json: boolean }
   | { type: "tool-call-start"; id: string; name: string; input: unknown; parentId?: string }
   | { type: "tool-call-end"; id: string; output: string; isError: boolean; parentId?: string }
   /** A sub-agent started; `id` is the tool call that runs it. */
@@ -86,6 +94,13 @@ export interface AgentRunOptions {
   jsonSchema?: Record<string, unknown>;
   /** Turn limit. Claude only: Copilot and OpenCode have no such flag. */
   maxTurns?: number;
+  /**
+   * Emit `partial` events while the answer is written. Opt-in: the engine
+   * stores every event, so only the chat sets it. Claude streams its
+   * structured-output JSON (`--include-partial-messages`), Copilot its message
+   * deltas; OpenCode prints text only once complete and never emits `partial`.
+   */
+  streamPartial?: boolean;
   /** Aborting kills the CLI's whole process tree. */
   signal?: AbortSignal;
 }

@@ -2292,7 +2292,10 @@ export const chatMessageSchema = z.object({
 });
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 
-/** A chat conversation, stored per repo or per task; `busy` and `activity` are live only. */
+/**
+ * A chat conversation, stored per repo or per task; `busy`, `activity` and
+ * `draft` are live only.
+ */
 export const chatStateSchema = z.object({
   repoId: id,
   /** null: the repo's chat; set: that task's own conversation. */
@@ -2301,6 +2304,11 @@ export const chatStateSchema = z.object({
   busy: z.boolean(),
   /** What the agent is doing right now (e.g. `Grep · useTheme`); null when idle or unknown. */
   activity: z.string().nullable(),
+  /**
+   * The reply as streamed so far, a preview the validated final reply replaces;
+   * null when nothing streams. Live only, never stored.
+   */
+  draft: z.string().nullable(),
   messages: z.array(chatMessageSchema),
 });
 export type ChatState = z.infer<typeof chatStateSchema>;

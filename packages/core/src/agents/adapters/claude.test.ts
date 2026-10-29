@@ -21,8 +21,8 @@ const fixtures = fileURLToPath(new URL("./fixtures/", import.meta.url));
 const fakeCli = join(fixtures, "fake-cli.js");
 const fixture = (name: string) => join(fixtures, "claude", name);
 
-function parse(name: string): AgentEvent[] {
-  const parser = createClaudeParser();
+function parse(name: string, options: { partial?: boolean } = {}): AgentEvent[] {
+  const parser = createClaudeParser(undefined, options);
   return readFileSync(fixture(name), "utf8")
     .split(/\r?\n/)
     .filter(Boolean)
@@ -101,6 +101,52 @@ describe("createClaudeParser", () => {
       type: "result",
       result: { structured: { sum: 4, color: "blue" }, text: '{"sum":4,"color":"blue"}' },
     });
+  });
+
+  it("streams the StructuredOutput input as cumulative partial JSON when asked", () => {
+    const events = parse("chat-partial.jsonl", { partial: true });
+    const partials = events.filter((e) => e.type === "partial");
+    expect(partials.length).toBeGreaterThan(5);
+    expect(partials.every((e) => e.json)).toBe(true);
+    for (const [i, event] of partials.entries()) {
+      expect(event.text.startsWith(partials[i - 1]?.text ?? "")).toBe(true);
+    }
+    const last = partials.at(-1);
+    const result = events.at(-1);
+    expect(result?.type).toBe("result");
+    expect(JSON.parse(last?.text ?? "")).toEqual(
+      result?.type === "result" ? result.result.structured : undefined,
+    );
+    // Partial messages change nothing else.
+    expect(events.filter((e) => e.type !== "partial")).toEqual(parse("chat-partial.jsonl"));
+  });
+
+  it("emits no partial events unless asked", () => {
+    expect(parse("chat-partial.jsonl").some((e) => e.type === "partial")).toBe(false);
+  });
+
+  it("ignores a sub-agent's stream events", () => {
+    const parser = createClaudeParser(undefined, { partial: true });
+    const line = (event: unknown) =>
+      JSON.stringify({ type: "stream_event", parent_tool_use_id: "toolu_1", event });
+    expect(
+      parser.push(
+        line({
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "tool_use", name: "StructuredOutput", input: {} },
+        }),
+      ),
+    ).toEqual([]);
+    expect(
+      parser.push(
+        line({
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "input_json_delta", partial_json: '{"reply":"x' },
+        }),
+      ),
+    ).toEqual([]);
   });
 
   it("reports a failed resume as an error", () => {
@@ -263,6 +309,13 @@ describe("claudeArgs", () => {
     expect(args[args.indexOf("--json-schema") + 1]).toBe('{"type":"object"}');
   });
 
+  it("asks for partial messages only when streaming", () => {
+    expect(claudeArgs({ permissions: readOnly, streamPartial: true })).toContain(
+      "--include-partial-messages",
+    );
+    expect(claudeArgs({ permissions: readOnly })).not.toContain("--include-partial-messages");
+  });
+
   it("omits optional flags", () => {
     const args = claudeArgs({ permissions: readOnly });
     for (const flag of ["--model", "--resume", "--append-system-prompt", "--json-schema"]) {
@@ -345,6 +398,20 @@ describe("createClaudeAdapter", () => {
       permissions: readOnly,
     });
     await expect(run.result).resolves.toMatchObject({ structured: { sum: 4, color: "blue" } });
+  });
+
+  it("streams partial JSON from a replayed run and keeps its structured result", async () => {
+    const run = fake("replay", fixture("chat-partial.jsonl")).run({
+      cwd,
+      prompt: "x",
+      permissions: readOnly,
+      streamPartial: true,
+    });
+    const events = await collect(run);
+    expect(events.some((e) => e.type === "partial" && e.json)).toBe(true);
+    await expect(run.result).resolves.toMatchObject({
+      structured: { reply: expect.stringMatching(/^A quote is/), actions: [] },
+    });
   });
 
   it("sends the prompt on stdin", async () => {

@@ -362,6 +362,7 @@ describe("applyServerEvent", () => {
       taskId: null,
       busy: true,
       activity: "Grep · useTheme",
+      draft: "Partly",
       messages: [],
     };
     applyServerEvent(client, { type: "chat.upserted", payload: { chat } });
@@ -371,7 +372,14 @@ describe("applyServerEvent", () => {
   });
 
   it("writes a task's chat into its own query, apart from the repo's", () => {
-    const chat = { repoId: "r1", taskId: "t1", busy: false, activity: null, messages: [] };
+    const chat = {
+      repoId: "r1",
+      taskId: "t1",
+      busy: false,
+      activity: null,
+      draft: null,
+      messages: [],
+    };
     applyServerEvent(client, { type: "chat.upserted", payload: { chat } });
     expect(client.getQueryData(["chat", "r1", "t1"])).toEqual(chat);
     expect(client.getQueryData(queryKeys.chat("r1"))).toBeUndefined();

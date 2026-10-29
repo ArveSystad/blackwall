@@ -80,7 +80,9 @@ export function parseStructuredOutput(text: string, schema: JsonSchema): Structu
  * text is parsed against the schema. An invalid answer gets one repair turn
  * (`repair` resumes the session with the given prompt); if that is invalid
  * too, the run fails with `invalid-output`. Events of both runs stream through
- * as one run, with a single `result` carrying `structured`.
+ * as one run, with a single `result` carrying `structured`. The repair run's
+ * `partial` text is not the answer and is not forwarded, so a streamed draft
+ * stays at the first answer's.
  */
 export function withStructuredOutput(
   first: AgentRun,
@@ -95,11 +97,14 @@ export function withStructuredOutput(
     wake?.();
   };
 
-  /** Forwards a run's events except its result, then returns that result. */
-  async function forward(run: AgentRun, skipSession: boolean): Promise<AgentResult> {
+  /**
+   * Forwards a run's events except its result, then returns that result. A
+   * `repair` run's session is already known and its partial text is no answer.
+   */
+  async function forward(run: AgentRun, repair: boolean): Promise<AgentResult> {
     for await (const event of run) {
       if (event.type === "result") continue;
-      if (skipSession && event.type === "session") continue;
+      if (repair && (event.type === "session" || event.type === "partial")) continue;
       emit(event);
     }
     return run.result;

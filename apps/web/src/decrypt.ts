@@ -49,7 +49,7 @@ export interface DecryptClock {
   cancel: (id: number) => void;
 }
 
-const browserClock: DecryptClock = {
+export const browserClock: DecryptClock = {
   now: () => performance.now(),
   request: (callback) => requestAnimationFrame(callback),
   cancel: (id) => cancelAnimationFrame(id),

@@ -24,6 +24,7 @@ import {
 import type { Repositories } from "../db/repositories.js";
 import { TaskNotFoundError, TaskStateError } from "../pipeline/engine.js";
 import { referenceReposFrom, referenceReposOf, RepoNotFoundError } from "../repos/service.js";
+import { draftReply } from "./draft.js";
 
 /** A message sent while the chat still answers the previous one. Maps to 409 like a task state conflict. */
 export class ChatBusyError extends TaskStateError {
@@ -70,6 +71,9 @@ export type ChatService = ReturnType<typeof createChatService>;
 /** Earlier user and assistant messages replayed when the CLI session cannot be resumed. */
 export const CHAT_HISTORY_LIMIT = 20;
 
+/** At most one `chat.upserted` per this many ms while a reply streams in as the draft. */
+export const CHAT_DRAFT_THROTTLE_MS = 100;
+
 /** One conversation (a repo's or a task's): the state clients see, plus the CLI session and the running turn. */
 interface ChatEntry {
   state: ChatState;
@@ -86,6 +90,8 @@ interface ChatEntry {
   controller: AbortController | null;
   /** The running turn; settles once its CLI run has ended. */
   turn: Promise<void> | null;
+  /** The throttled publish of the running turn's latest draft, when one is pending. */
+  draftTimer: ReturnType<typeof setTimeout> | null;
 }
 
 const TARGET_KEYS = ["file_path", "path", "command", "pattern", "url", "query", "description"];
@@ -125,7 +131,10 @@ function message(role: ChatMessage["role"], text: string, actions: ChatAction[] 
  * and proposed actions; the user applies those through the existing endpoints
  * and marks them applied here. The user can also add an action to an
  * assistant message themselves (e.g. turning a reply into a task). Every
- * change is published as `chat.upserted`.
+ * change is published as `chat.upserted`. While the CLI writes its answer
+ * (Claude and Copilot stream it), the reply so far is the live `draft`,
+ * published at most every {@link CHAT_DRAFT_THROTTLE_MS}; the final reply
+ * replaces it.
  */
 export function createChatService({
   adapters,
@@ -167,6 +176,7 @@ export function createChatService({
           taskId,
           busy: false,
           activity: null,
+          draft: null,
           messages: messages.list(repoId, taskId),
         },
         sessionId: session?.sessionId ?? null,
@@ -175,6 +185,7 @@ export function createChatService({
         generation: 0,
         controller: null,
         turn: null,
+        draftTimer: null,
       };
       chats.set(key, entry);
     }
@@ -220,6 +231,12 @@ export function createChatService({
     return update(entry, { ...patch, messages: [...entry.state.messages, msg] });
   }
 
+  /** Cancels a pending draft publish. */
+  function cancelDraft(entry: ChatEntry): void {
+    if (entry.draftTimer) clearTimeout(entry.draftTimer);
+    entry.draftTimer = null;
+  }
+
   /** Open questions waiting on the user, for a task at the `questions` gate. */
   function openQuestions(task: Task): ChatStateQuestion[] {
     if (task.status !== "needs-you" || task.gate !== "questions") return [];
@@ -237,6 +254,29 @@ export function createChatService({
     const cli = repo.defaultCli;
     /** Set when the CLI reported its usage limit; matters only if the run then fails. */
     let rateLimit: { resetsAt?: string } | undefined;
+    /** The reply so far, and when it was last published. */
+    let draft: string | null = null;
+    let draftPublishedAt = 0;
+    const publishDraft = () => {
+      entry.draftTimer = null;
+      if (!current()) return;
+      draftPublishedAt = Date.now();
+      update(entry, { draft });
+    };
+    /** Publishes a changed draft, throttled; the latest value always goes out. */
+    const showDraft = (next: string | null) => {
+      if (next === draft) return;
+      draft = next;
+      if (entry.draftTimer) return;
+      const wait = draftPublishedAt + CHAT_DRAFT_THROTTLE_MS - Date.now();
+      if (wait <= 0) publishDraft();
+      else entry.draftTimer = setTimeout(publishDraft, wait);
+    };
+    /** Forgets the draft; the caller's own update clears the published one. */
+    const dropDraft = () => {
+      cancelDraft(entry);
+      draft = null;
+    };
 
     try {
       const adapter = adapters[cli];
@@ -297,6 +337,7 @@ export function createChatService({
             refs.map((ref) => ref.path),
           ),
           jsonSchema: chatReplyJsonSchema(),
+          streamPartial: true,
           signal: controller.signal,
           ...(model ? { model } : {}),
           ...(resumeSessionId ? { resumeSessionId } : {}),
@@ -312,8 +353,14 @@ export function createChatService({
             const resetsAt = rateLimit?.resetsAt ?? event.resetsAt;
             rateLimit = resetsAt ? { resetsAt } : {};
           }
+          if (event.type === "partial") showDraft(draftReply(event));
           if (event.type === "tool-call-start") {
-            update(entry, { activity: activityFor(event.name, event.input) });
+            // Prose written before a top-level tool call is not the reply.
+            if (event.parentId === undefined) dropDraft();
+            update(entry, {
+              activity: activityFor(event.name, event.input),
+              ...(event.parentId === undefined ? { draft: null } : {}),
+            });
           }
         }
         return run.result;
@@ -338,7 +385,11 @@ export function createChatService({
           error.reason === "session-missing";
         if (!lost) throw error;
         // The CLI no longer has the session: start a new one with the same message.
-        if (current()) entry.sessionId = null;
+        if (current()) {
+          entry.sessionId = null;
+          dropDraft();
+          if (entry.state.draft !== null) update(entry, { draft: null });
+        }
         result = await attempt();
       }
       if (!current()) return;
@@ -353,7 +404,11 @@ export function createChatService({
             parsed.data.actions.map((a) => ({ ...a, id: randomUUID(), appliedAt: null })),
           )
         : message("assistant", result.text);
-      append(entry, reply, { session: { sessionId: result.sessionId, cli } });
+      dropDraft();
+      append(entry, reply, {
+        session: { sessionId: result.sessionId, cli },
+        patch: { draft: null },
+      });
     } catch (error) {
       if (!current()) return;
       const text = rateLimit
@@ -361,11 +416,13 @@ export function createChatService({
         : error instanceof Error
           ? error.message
           : "The chat agent failed";
-      append(entry, message("error", text));
+      dropDraft();
+      append(entry, message("error", text), { patch: { draft: null } });
     } finally {
       if (current()) {
+        dropDraft();
         entry.controller = null;
-        update(entry, { busy: false, activity: null });
+        update(entry, { busy: false, activity: null, draft: null });
       }
     }
   }
@@ -396,15 +453,16 @@ export function createChatService({
         entry.controller?.abort();
         entry.controller = null;
         entry.generation += 1;
+        cancelDraft(entry);
         entry.sessionId = null;
         entry.sessionCli = null;
         entry.sessionCwd = null;
         messages.deleteConversation(repo.id, entry.state.taskId);
-        return update(entry, { busy: false, activity: null, messages: [] });
+        return update(entry, { busy: false, activity: null, draft: null, messages: [] });
       }
       if (entry.state.busy) throw new ChatBusyError();
       const state = append(entry, message("user", trimmed), {
-        patch: { busy: true, activity: null },
+        patch: { busy: true, activity: null, draft: null },
       });
       const turn: Promise<void> = runTurn(entry, repo, trimmed).finally(() => {
         if (entry.turn === turn) entry.turn = null;
@@ -465,6 +523,7 @@ export function createChatService({
     reset(): void {
       for (const entry of chats.values()) {
         entry.generation += 1;
+        cancelDraft(entry);
         entry.controller?.abort();
         entry.controller = null;
       }
@@ -483,6 +542,7 @@ export function createChatService({
       for (const [key, entry] of chats) {
         if (entry.state.taskId !== taskId) continue;
         entry.generation += 1;
+        cancelDraft(entry);
         entry.controller?.abort();
         entry.controller = null;
         await entry.turn?.catch(() => undefined);
@@ -494,6 +554,7 @@ export function createChatService({
     shutdown(): void {
       for (const entry of chats.values()) {
         entry.generation += 1;
+        cancelDraft(entry);
         entry.controller?.abort();
         entry.controller = null;
       }

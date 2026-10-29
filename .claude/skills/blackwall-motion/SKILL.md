@@ -33,7 +33,8 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
    `apps/web/src/components/RunningHeadline.tsx`, `apps/web/src/routes/Stats.tsx`, `apps/web/src/routes/Backlog.tsx`, `apps/web/src/agent-dots.ts`,
    `apps/web/src/components/use-archive-launches.ts`, `apps/web/src/components/use-resume-bursts.ts`,
    `apps/web/src/components/use-supernovas.ts`, `apps/web/src/decrypt.ts`,
-   `apps/web/src/components/use-decrypt.ts`, `apps/web/src/components/Wordmark.tsx`,
+   `apps/web/src/components/use-decrypt.ts`, `apps/web/src/chat-stream.ts`,
+   `apps/web/src/components/use-chat-stream.ts`, `apps/web/src/components/Wordmark.tsx`,
    `apps/web/src/wordmark-flicker.ts`, `apps/web/src/components/use-wordmark-flicker.ts`,
    `apps/web/src/components/use-count-boom.ts` (detects the rise during render and keeps its timer in
    a `[boom]` effect, so StrictMode's effect replay can't strand it).
@@ -100,6 +101,7 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
     `.bw-chat` 180ms ↔ `CHAT_PANEL_MS` (180) in `chat.ts`, with the JS fallback at
     `CHAT_PANEL_FALLBACK_MS` (it settles the presence, since `transitionend` may not come).
   - `DECRYPT_MS` (300) in `decrypt.ts` is JS only (an rAF loop); no CSS mirrors it.
+  - `STREAM_*` in `chat-stream.ts` are JS only (an rAF loop); no CSS mirrors them.
   - `.bw-wordmark-flicker` 700ms ↔ `WORDMARK_FLICKER_MS` (700) in `wordmark-flicker.ts`. No drop
     timeout: replay is a `key` remount, and `steps(1, end) both` ends at opacity 1.
 - Booms: `.bw-boom` modifiers set `--boom-color`, `--boom-size` and `--boom-strength` (bloom
@@ -127,6 +129,17 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
   per app load, one frame split across `black`/`wall`), the RunningHeadline number on count change
   (one frame in both `.bw-running-base` and `.bw-running-hot`) and the TaskHeader title
   (`trigger={task.id}`).
+- Chat stream (`ChatPanel.tsx`, `use-chat-stream.ts`, `chat-stream.ts`): a streamed chat reply
+  reveals word by word, its newest `STREAM_TAIL_CHARS` letters and digits showing glyphs. It is a
+  catch-up reveal: at least `STREAM_CHARS_PER_MS`, fast enough to clear any backlog within
+  `STREAM_CATCHUP_MS`, frames at most every `STREAM_TICK_MS`, and it follows a target that keeps
+  growing. `STREAM_GLYPHS` is markdown-safe (no `\ < > /`), and only `\p{L}\p{N}` swap, so the
+  markdown keeps its shape; the last frame is exactly the text. JS only: no CSS, no glow. The draft
+  bubble is `aria-hidden`; a revealing reply keeps its real `<Markdown>` in place as `sr-only` with
+  an `aria-hidden` glyph copy beside it, so the log announces it once, and its action cards wait
+  until it is all out. The final reply picks up where its draft stopped (`commonPrefixLength`);
+  history and a draft already streaming on load show at once. Reduced motion never scrambles: the
+  text shows as it arrives.
 - Wordmark flicker (`Wordmark.tsx`, `use-wordmark-flicker.ts`, `wordmark-flicker.ts`): a one-shot
   700ms opacity stutter of icon and text, like a failing neon tube. `useWordmarkFlicker` returns a
   counter that a `setTimeout` bumps after a fresh random 30–100s gap (`flickerDelayMs`,

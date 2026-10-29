@@ -224,6 +224,39 @@ describe("createCopilotParser", () => {
     expect(skillsOf(copilot)[0]).toContain("probe");
   });
 
+  it("streams the top-level message as cumulative partial text when asked", () => {
+    const events = parseWith(createCopilotParser({ partial: true }), fixture("chat-partial.jsonl"));
+    const partials = events.filter((e) => e.type === "partial");
+    expect(partials.length).toBeGreaterThan(5);
+    expect(partials.every((e) => !e.json)).toBe(true);
+    for (const [i, event] of partials.entries()) {
+      expect(event.text.startsWith(partials[i - 1]?.text ?? "")).toBe(true);
+    }
+    const message = events.find((e) => e.type === "message");
+    expect(partials.at(-1)?.text).toBe(message?.type === "message" ? message.text : undefined);
+    expect(events.filter((e) => e.type !== "partial")).toEqual(parse("chat-partial.jsonl"));
+  });
+
+  it("emits no partial events unless asked", () => {
+    expect(parse("chat-partial.jsonl").some((e) => e.type === "partial")).toBe(false);
+  });
+
+  it("restarts the partial text per message and ignores sub-agents' deltas", () => {
+    const parser = createCopilotParser({ partial: true });
+    const delta = (messageId: string, deltaContent: string, parentToolCallId?: string) =>
+      parser.push(
+        JSON.stringify({
+          type: "assistant.message_delta",
+          data: { messageId, deltaContent, ...(parentToolCallId ? { parentToolCallId } : {}) },
+          ephemeral: true,
+        }),
+      );
+    expect(delta("m1", "Let me ")).toEqual([{ type: "partial", text: "Let me ", json: false }]);
+    expect(delta("m1", "look.")).toEqual([{ type: "partial", text: "Let me look.", json: false }]);
+    expect(delta("s1", "nested", "call-1")).toEqual([]);
+    expect(delta("m2", "Done")).toEqual([{ type: "partial", text: "Done", json: false }]);
+  });
+
   it("reports a sub-agent and tags its events with the parent call", () => {
     const events = parse("subagent.jsonl", "11111111-2222-4333-8444-555555555559");
     const agentId = "toolu_019WkP85pw4zcjYmigRASgV6";
@@ -639,6 +672,36 @@ describe("createCopilotAdapter", () => {
     // The announcement and the reported model, both from the first run; the repair adds none.
     expect(events.filter((e) => e.type === "session")).toHaveLength(2);
     expect(events.filter((e) => e.type === "result")).toHaveLength(1);
+    await expect(run.result).resolves.toMatchObject({ structured: { sum: 4, color: "blue" } });
+  });
+
+  it("streams the first run's partial text", async () => {
+    const run = fake("replay", fixture("json-block.jsonl")).run({
+      cwd,
+      prompt: "x",
+      permissions: readOnly,
+      jsonSchema: schema,
+      streamPartial: true,
+    });
+    const events = await collect(run);
+    expect(events.some((e) => e.type === "partial")).toBe(true);
+    await expect(run.result).resolves.toMatchObject({ structured: { sum: 4, color: "blue" } });
+  });
+
+  it("streams no partial text from the repair run", async () => {
+    const run = fake("replay-resume", fixture("tool-call.jsonl"), fixture("json-block.jsonl")).run({
+      cwd,
+      prompt: "x",
+      permissions: readOnly,
+      jsonSchema: schema,
+      streamPartial: true,
+    });
+    const events = await collect(run);
+    const first = parseWith(createCopilotParser({ partial: true }), fixture("tool-call.jsonl"));
+    expect(events.filter((e) => e.type === "partial")).toEqual(
+      first.filter((e) => e.type === "partial"),
+    );
+    expect(JSON.stringify(events)).not.toContain('"text":"2+2 ="');
     await expect(run.result).resolves.toMatchObject({ structured: { sum: 4, color: "blue" } });
   });
 

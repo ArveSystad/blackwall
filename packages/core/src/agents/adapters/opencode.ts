@@ -421,7 +421,8 @@ export interface OpencodeAdapterOptions {
  * injected config with every other config source shut out (see
  * {@link opencodeEnv}). Structured output uses a prompt contract, validated
  * against the schema with one repair turn on the same session. `maxTurns` is
- * not supported and ignored.
+ * not supported and ignored. `streamPartial` is ignored too: OpenCode prints
+ * text parts only once they are complete.
  */
 export function createOpencodeAdapter({
   command = "opencode",
