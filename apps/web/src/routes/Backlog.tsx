@@ -70,7 +70,6 @@ import { Input } from "../components/ui/input";
 import { Kbd } from "../components/ui/kbd";
 import { useWithCredential } from "../credentials";
 import { useNow } from "../hooks";
-import { useEscapeTo } from "../keyboard";
 import { matchesFilter, originKey, stackLabel, statusLabel } from "../inbox";
 import { cn } from "../lib/utils";
 import {
@@ -156,7 +155,7 @@ function RunnerBar({
   const tone = status ? RUNNER_TONES[status.tone] : RUNNER_TONES.idle;
   return (
     <div
-      className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-sidebar px-5 py-2 text-body"
+      className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-sidebar/40 px-5 py-2 text-body"
       aria-label="Backlog runner"
       role="region"
     >
@@ -328,7 +327,7 @@ function ArchiveBar({
 
   return (
     <div
-      className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border bg-sidebar px-5 py-2 text-body"
+      className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border bg-sidebar/40 px-5 py-2 text-body"
       aria-label="Archive"
       role="region"
     >
@@ -813,8 +812,6 @@ export function Backlog({
   const [dragging, setDragging] = useState<BacklogItemView | null>(null);
   // Items being started, so a second click does not hit "already promoted".
   const [running, setRunning] = useState<ReadonlySet<string>>(new Set());
-
-  useEscapeTo(() => void navigate({ to: "/" }));
   const [showArchive, setShowArchive] = useState(false);
   const [archiveFilter, setArchiveFilter] = useState("");
   const focusAfter = useRef<string | null>(null);
@@ -987,7 +984,8 @@ export function Backlog({
 
   return (
     <div className="flex h-full min-w-0 flex-col">
-      <div className={cn(paneHeader, "flex-wrap gap-y-1.5")}>
+      {/* `pr-14` keeps the last control clear of the window's close button. */}
+      <div className={cn(paneHeader, "flex-wrap gap-y-1.5 pr-14")}>
         <BacklogIcon className="text-muted-foreground" />
         <h1 className={paneTitle}>Backlog</h1>
         <span className="mono min-w-0 truncate text-meta text-muted-foreground" title={repo?.name}>

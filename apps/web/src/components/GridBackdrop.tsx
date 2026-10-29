@@ -22,7 +22,8 @@ import { cn } from "../lib/utils";
  * The parent must be `relative` and `isolate` (so the overlay stays within the
  * pane and below portalled dialogs), and must not scroll: put scrolling content
  * in a sibling, so the backdrop stays fixed. Pane content must stay below `z-30`,
- * except the task and Backlog window (`z-40`), which sits above the film.
+ * except the task and Backlog window (`z-40`), which sits above the film but is
+ * slightly translucent, so the scan line and flicker show faintly through it.
  */
 export function GridBackdrop({ fade = true }: { fade?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);

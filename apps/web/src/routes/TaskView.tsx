@@ -25,10 +25,9 @@ import { useTaskData, type TaskData } from "../components/task/use-task-data";
 import { focusTaskChat } from "../chat";
 import { draftStamp, useDraft, type DraftCodec } from "../drafts";
 import { uiStageIndex } from "../inbox";
-import { isPlainKey, isTypingTarget, useEscapeTo, useWindowKeydown } from "../keyboard";
+import { isPlainKey, isTypingTarget, useWindowKeydown } from "../keyboard";
 import { cn } from "../lib/utils";
-import { queryKeys, reposQuery, taskQuery, taskWorktreeQuery } from "../query";
-import { resolveSelectedRepo, useSelectedRepoId } from "../selected-repo";
+import { queryKeys, taskQuery, taskWorktreeQuery } from "../query";
 import {
   TAB_LABELS,
   TASK_TABS,
@@ -411,23 +410,13 @@ function useLeaveWhenDeleted(taskId: string) {
   }, [queryClient, navigate, taskId]);
 }
 
-/** Escape leaves the task for the selected repo's backlog, or home when none is selected. */
-function useEscapeToBacklog() {
-  const navigate = useNavigate();
-  const repos = useQuery(reposQuery);
-  const repoId = resolveSelectedRepo(useSelectedRepoId(), repos.data)?.id;
-  useEscapeTo(() => {
-    void (repoId
-      ? navigate({ to: "/repos/$repoId/backlog", params: { repoId } })
-      : navigate({ to: "/" }));
-  });
-}
-
-/** Main pane for one task: header, needs-you banner, task channel and the section tabs. */
+/**
+ * Main pane for one task: header, needs-you banner, task channel and the section tabs. Escape and
+ * the close button belong to the window around it (`GridWindow`).
+ */
 export function TaskView({ taskId }: { taskId: string }) {
   const task = useQuery(taskQuery(taskId));
   useLeaveWhenDeleted(taskId);
-  useEscapeToBacklog();
 
   if (task.isPending) {
     return <EmptyState key="loading" role="status" className="h-full" title="Pulling the task…" />;

@@ -168,7 +168,7 @@ export function TaskHeader({
   }
 
   return (
-    <header className="bw-brackets relative flex flex-col gap-2 border-b border-border bg-sidebar px-5 pt-3.5 pb-3">
+    <header className="bw-brackets relative flex flex-col gap-2 border-b border-border bg-sidebar/40 pt-3.5 pr-14 pl-5 pb-3">
       <div className="flex items-center gap-2 text-meta">
         <OriginIcon size="sm" className="text-muted-foreground" />
         {url ? (

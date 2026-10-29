@@ -26,6 +26,7 @@ import { isSettingsPath } from "./settings-shutter";
 import { useChatHotkey } from "./chat";
 import { useSearchHotkey } from "./search-palette";
 import { useThemeHotkey } from "./theme";
+import { recordWindowOrigin } from "./window-origin";
 
 // Heavier routes load as their own chunks. The wrapped ones get a `loader` that preloads the
 // chunk, since the router only preloads a route's own `component` on hover.
@@ -202,6 +203,11 @@ export const router = createRouter({
               ),
       }
     : false,
+});
+
+// Remember where each task entry was opened from, so leaving the window lands there.
+router.subscribe("onResolved", ({ fromLocation, toLocation }) => {
+  recordWindowOrigin(fromLocation?.pathname, toLocation);
 });
 
 declare module "@tanstack/react-router" {

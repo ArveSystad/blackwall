@@ -279,7 +279,7 @@ export function GrillPanel({
       </section>
       <aside
         aria-label="Plan"
-        className="flex h-full max-w-[480px] min-w-0 flex-[1_1_420px] flex-col border-l border-border bg-sidebar"
+        className="flex h-full max-w-[480px] min-w-0 flex-[1_1_420px] flex-col border-l border-border bg-sidebar/40"
       >
         <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
           <span className="font-semibold text-foreground-strong">Plan</span>

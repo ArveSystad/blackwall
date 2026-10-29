@@ -710,7 +710,7 @@ export function FinishPanel({
       {(atGate || delivered || reviewed || task.ci) && (
         <aside
           aria-label="Outbound actions"
-          className="flex h-full max-w-[500px] min-w-0 flex-[1_1_440px] flex-col border-l border-border bg-sidebar"
+          className="flex h-full max-w-[500px] min-w-0 flex-[1_1_440px] flex-col border-l border-border bg-sidebar/40"
         >
           <div className="flex flex-col gap-1 border-b border-border px-[18px] pt-3.5 pb-3">
             <span className="flex items-center gap-2">
