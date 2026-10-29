@@ -1371,6 +1371,29 @@ html:active-view-transition-type(bw-route) {
     box-shadow: none;
   }
 
+  /* ---------- Agent output tab flash (TaskView.tsx) ----------
+   * One cyan wash and underline on the Agent output tab when the last grill answer sends the
+   * task back to work: the machine is working here. Remounted by key, it fades once and rests
+   * at opacity 0; the glow token is none in light. Reduced motion hides it. */
+  .bw-tab-flash {
+    position: absolute;
+    inset: 0;
+    background: color-mix(in oklab, var(--cyan) 16%, transparent);
+    pointer-events: none;
+    animation: bw-assigned-flash 1.2s ease-out both;
+  }
+
+  .bw-tab-flash::after {
+    content: "";
+    position: absolute;
+    right: 0.5rem;
+    bottom: -1px;
+    left: 0.5rem;
+    height: 2px;
+    background: var(--cyan);
+    box-shadow: var(--glow-text-cyan);
+  }
+
   /* ---------- done launch (GridAgents.tsx) ----------
    * An archived done dot flies to the horizon's centre (--dx/--dy, set inline)
    * and shrinks, speeding up into the distance. It ends transparent, and
@@ -2010,6 +2033,7 @@ html:active-view-transition-type(bw-route) {
     .bw-laser,
     .bw-boom,
     .bw-assigned-flash,
+    .bw-tab-flash,
     .bw-launch,
     .bw-crumble,
     .bw-crumble-failed,

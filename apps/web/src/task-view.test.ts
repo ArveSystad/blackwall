@@ -67,12 +67,14 @@ import {
   splitHunks,
   stepModel,
   subagentStatus,
+  tabOnSignal,
   TASK_TABS,
   toggleTick,
   toolTarget,
   unplacedThreads,
   visibleFindings,
   type DiffLine,
+  type TabSignalState,
 } from "./task-view";
 import { makeTask } from "./test-fixtures";
 
@@ -1080,6 +1082,88 @@ describe("tabs and banner", () => {
     expect(defaultTab(makeTask({ status: "needs-you", gate: "triage" }))).toBe("findings");
     expect(defaultTab(makeTask({ status: "running", stage: "implement" }))).toBe("output");
     expect(defaultTab(makeTask({ status: "failed" }))).toBe("context");
+  });
+
+  describe("tabOnSignal", () => {
+    const at = (patch: Parameters<typeof makeTask>[0]) =>
+      makeTask({ stage: "implement", ...patch });
+
+    it("holds Grill through queued and running after the last answer, flashing once", () => {
+      const sequence = [
+        at({ status: "queued", gate: null }),
+        at({ status: "running", gate: null }),
+        at({ status: "needs-you", gate: "plan-approval" }),
+      ];
+      let state: TabSignalState = { previousGate: "questions", holdingGrill: false, tab: "grill" };
+      const results = sequence.map((task) => {
+        const next = tabOnSignal(task, state);
+        state = { previousGate: task.gate, holdingGrill: next.holdingGrill, tab: next.tab };
+        return next;
+      });
+      expect(results.map((r) => r.tab)).toEqual(["grill", "grill", "plan"]);
+      expect(results.map((r) => r.flash)).toEqual([true, false, false]);
+      expect(results.map((r) => r.holdingGrill)).toEqual([true, true, false]);
+    });
+
+    it("holds Grill when questions jump straight to running", () => {
+      expect(
+        tabOnSignal(at({ status: "running", gate: null }), {
+          previousGate: "questions",
+          holdingGrill: false,
+          tab: "grill",
+        }),
+      ).toEqual({ tab: "grill", holdingGrill: true, flash: true });
+    });
+
+    it("drops the hold once the user picks another tab", () => {
+      expect(
+        tabOnSignal(at({ status: "running", gate: null }), {
+          previousGate: null,
+          holdingGrill: true,
+          tab: "context",
+        }),
+      ).toEqual({ tab: "output", holdingGrill: false, flash: false });
+    });
+
+    it("ends the hold when the task fails", () => {
+      const task = at({ status: "failed", gate: null });
+      expect(tabOnSignal(task, { previousGate: null, holdingGrill: true, tab: "grill" })).toEqual({
+        tab: defaultTab(task),
+        holdingGrill: false,
+        flash: false,
+      });
+    });
+
+    it("opens Agent output after other gates as before", () => {
+      expect(
+        tabOnSignal(at({ status: "queued", gate: null }), {
+          previousGate: "plan-approval",
+          holdingGrill: false,
+          tab: "plan",
+        }),
+      ).toEqual({ tab: "output", holdingGrill: false, flash: false });
+    });
+
+    it("keeps a review task on its diff", () => {
+      const origin = {
+        kind: "github-pr" as const,
+        url: "https://github.com/acme/web/pull/1",
+        owner: "acme",
+        repo: "web",
+        number: 1,
+        connectionId: null,
+      };
+      const review = (patch: Parameters<typeof makeTask>[0]) =>
+        at({ mode: "review", origin, ...patch });
+      for (const task of [
+        review({ status: "running", gate: null }),
+        review({ status: "needs-you", gate: "triage" }),
+      ]) {
+        expect(
+          tabOnSignal(task, { previousGate: "triage", holdingGrill: false, tab: "diff" }).tab,
+        ).toBe("diff");
+      }
+    });
   });
 
   it("opens Finish for a Review PR task at triage", () => {

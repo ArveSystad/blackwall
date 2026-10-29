@@ -113,6 +113,42 @@ export function defaultTab(task: Task): TaskTab {
   return "context";
 }
 
+export interface TabSignalState {
+  /** The gate before this signal change. */
+  previousGate: Gate | null;
+  /** Whether the user is being held on Grill after answering the last question. */
+  holdingGrill: boolean;
+  /** The tab the user is on. */
+  tab: TaskTab;
+}
+
+/**
+ * The tab to show when the task's `status:gate` signal changes.
+ *
+ * The final grill answer sends the task to `queued` (gate cleared) and the runner
+ * then moves it to `running`, so the client sees `needs-you:questions` →
+ * `queued:null` → `running:null`, or a single coalesced step. Only the first step
+ * comes from the questions gate, so the hold is a sticky flag: it starts there,
+ * survives every gate-less queued/running signal, and ends at the next needs-you
+ * gate, a terminal status, or the user's own tab choice. `flash` is true only on
+ * the step that starts the hold, so the Agent output tab flashes once per round.
+ */
+export function tabOnSignal(
+  task: Task,
+  { previousGate, holdingGrill, tab }: TabSignalState,
+): { tab: TaskTab; holdingGrill: boolean; flash: boolean } {
+  if (task.mode === "review" && tab === "diff") return { tab, holdingGrill: false, flash: false };
+  if (
+    tab === "grill" &&
+    task.gate === null &&
+    (task.status === "queued" || task.status === "running") &&
+    (previousGate === "questions" || holdingGrill)
+  ) {
+    return { tab: "grill", holdingGrill: true, flash: !holdingGrill };
+  }
+  return { tab: defaultTab(task), holdingGrill: false, flash: false };
+}
+
 export interface BannerCopy {
   title: string;
   detail: string;

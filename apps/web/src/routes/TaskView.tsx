@@ -39,6 +39,7 @@ import {
   openQuestionCount,
   parseDiff,
   planApprovalComment,
+  tabOnSignal,
   type TaskTab,
 } from "../task-view";
 
@@ -154,14 +155,27 @@ function TaskScreen({ task }: { task: Task }) {
   const [planComment, setPlanComment] = useState<PlanComment>(freshPlanComment);
 
   // A new gate or status opens the tab where the user is needed (or the work is),
-  // except that a review task stepping through its diff stays there.
+  // except that a review task stepping through its diff stays there, and a user on
+  // Grill whose answers send the task back to work stays there (Agent output flashes).
+  // Plain values, not updaters, keep these render-time updates idempotent.
   const signal = `${task.status}:${task.gate}`;
   const [seenSignal, setSeenSignal] = useState(signal);
+  const [seenGate, setSeenGate] = useState(task.gate);
+  const [holdingGrill, setHoldingGrill] = useState(false);
+  const [outputFlash, setOutputFlash] = useState(0);
   if (seenSignal !== signal) {
     setSeenSignal(signal);
-    if (!(task.mode === "review" && tab === "diff")) setTab(defaultTab(task));
+    const next = tabOnSignal(task, { previousGate: seenGate, holdingGrill, tab });
+    setTab(next.tab);
+    setHoldingGrill(next.holdingGrill);
+    if (next.flash) setOutputFlash(outputFlash + 1);
+    setSeenGate(task.gate);
     setPlanComment(freshPlanComment());
   }
+  const chooseTab = (next: TaskTab) => {
+    setTab(next);
+    setHoldingGrill(false);
+  };
   const current = isTabEnabled(task, tab) ? tab : defaultTab(task);
 
   // Unsent hunk comments survive tab switches, but not new commits on the branch.
@@ -196,7 +210,7 @@ function TaskScreen({ task }: { task: Task }) {
     if (key === "a" && atApproval) {
       void approvePlan(action, task, planComment);
     } else if (key === "r" && atApproval) {
-      setTab("plan");
+      chooseTab("plan");
       focusChat();
     } else if (key === "r" && (task.status === "interrupted" || task.status === "failed")) {
       void resume(action, task);
@@ -293,12 +307,12 @@ function TaskScreen({ task }: { task: Task }) {
         counts={counts}
         planComment={planComment}
         tab={current}
-        onTab={setTab}
+        onTab={chooseTab}
         onDelete={() => setDeleting(true)}
       />
       <Tabs.Root
         value={current}
-        onValueChange={(value) => setTab(value as TaskTab)}
+        onValueChange={(value) => chooseTab(value as TaskTab)}
         className="mt-2 flex min-h-0 flex-1 flex-col"
       >
         <Tabs.List
@@ -317,6 +331,9 @@ function TaskScreen({ task }: { task: Task }) {
             >
               {TAB_LABELS[name]}
               <TabDecoration tab={name} task={task} data={data} />
+              {name === "output" && outputFlash > 0 && (
+                <span key={`flash:${outputFlash}`} aria-hidden="true" className="bw-tab-flash" />
+              )}
             </Tabs.Trigger>
           ))}
         </Tabs.List>

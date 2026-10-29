@@ -57,6 +57,10 @@ function AnswerForm({ task, question }: { task: Task; question: GrillQuestion })
     setError(null);
     try {
       const result = await answerQuestion(task.id, question.id, answer.trim());
+      // The answer lands in the same render that drops the form, before the refetch.
+      queryClient.setQueryData<GrillQuestion[]>(queryKeys.taskGrill(task.id), (questions) =>
+        questions?.map((q) => (q.id === result.question.id ? result.question : q)),
+      );
       queryClient.setQueryData(queryKeys.task(task.id), result.task);
       await queryClient.invalidateQueries({ queryKey: queryKeys.taskGrill(task.id) });
     } catch (cause) {
@@ -124,6 +128,13 @@ function QuestionCard({
 }) {
   const needsAnswer = question.needsHuman && question.answer === null;
   const canAnswer = needsAnswer && task.status === "needs-you" && task.gate === "questions";
+  // Only an answer that arrives while the card is open slides in; loaded answers don't.
+  const [seenAnswer, setSeenAnswer] = useState(question.answer);
+  const [arrived, setArrived] = useState(false);
+  if (seenAnswer !== question.answer) {
+    setSeenAnswer(question.answer);
+    setArrived(seenAnswer === null && question.answer !== null);
+  }
   const events = useQuery({
     ...stepEventsQuery(task.id, question.stepId ?? ""),
     enabled: question.stepId !== null,
@@ -176,7 +187,7 @@ function QuestionCard({
           {question.question}
         </p>
         {question.answer !== null && (
-          <div className="flex gap-2.5 pl-0.5">
+          <div className={cn("flex gap-2.5 pl-0.5", arrived && "animate-arrive")}>
             <span className="label mt-0.5 w-12 flex-none text-muted-foreground">
               {question.answeredBy === "user" ? "You" : "Planner"}
             </span>

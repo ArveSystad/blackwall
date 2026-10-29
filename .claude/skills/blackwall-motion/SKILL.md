@@ -26,10 +26,11 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
    `.bw-revive`/`.bw-revive-failed`, `.bw-supernova` and `.bw-launch` for GridAgents.tsx, `.bw-assigned`/
    `.bw-assigned-flash` for CountPill.tsx, `.bw-running*` for RunningHeadline.tsx, `.bw-chat`/
    `.bw-chat-content` for ChatPanel.tsx, `.bw-shutter` for SettingsShutter.tsx, `.bw-decrypt*` for DecryptText.tsx,
-   `.bw-status-sweep` for TaskCard.tsx,
+   `.bw-status-sweep` for TaskCard.tsx, `.bw-tab-flash` for TaskView.tsx (the Agent output tab),
    `.bw-wordmark-flicker` for Wordmark.tsx, `bw-scan-wipe`/`--animate-scan-wipe` for ui/dialog.tsx), and `bw-route-wipe` with the
    `::view-transition-*(bw-route|bw-inbox|root)` rules for the route wipe (router.tsx, Inbox.tsx,
-   route-transition.ts).
+   route-transition.ts). `animate-arrive` also slides in GrillPanel.tsx answer rows that arrive
+   while their card is open (tracked during render; loaded answers never animate).
 2. `.claude/skills/blackwall-design/SKILL.md` § Color semantics / Rules: the state-only rule and its
    five decorative exceptions (GridBackdrop, Stats, the wordmark flicker, the route wipe, the
    Settings shutter scanline).
@@ -65,7 +66,7 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
 6. Handle reduced motion. Loops are stopped by the base rule (`animation: none !important;
    transition: none !important`). An effect whose resting state is transparent, or that would freeze
    mid-flight, goes into the components-layer `@media (prefers-reduced-motion: reduce)`
-   `display: none` list next to `.bw-laser`, `.bw-boom`, `.bw-assigned-flash`, `.bw-launch` and
+   `display: none` list next to `.bw-laser`, `.bw-boom`, `.bw-assigned-flash`, `.bw-tab-flash`, `.bw-launch` and
    `.bw-status-sweep`
    (modifiers of `.bw-boom`, e.g. `.bw-revive` and `.bw-assigned`, inherit it and need no entry).
    `.bw-supernova` is the exception: it keeps a static core (`::before` at `opacity: 1`) and hides
@@ -123,6 +124,8 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
     `SHUTTER_FALLBACK_MS` (it settles the presence and releases a held open).
   - `.bw-status-sweep` 700ms has no JS mirror: the inbox drops it on `animationend`, and under
     reduced motion it is `display: none`, so it never shows.
+  - `.bw-tab-flash` 1.2s has no JS mirror: replay is a `key` remount and it rests at opacity 0
+    (`bw-assigned-flash` keyframe, fill `both`); under reduced motion it is `display: none`.
   - `DECRYPT_MS` (300) in `decrypt.ts` is JS only (an rAF loop); no CSS mirrors it.
   - `STREAM_*` in `chat-stream.ts` are JS only (an rAF loop); no CSS mirrors them.
   - `.bw-wordmark-flicker` 700ms ↔ `WORDMARK_FLICKER_MS` (700) in `wordmark-flicker.ts`. No drop
@@ -137,7 +140,9 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
   (``key={`revive:${taskId}:${count}`}``, `use-resume-bursts.ts`) and supernovas
   (``key={`supernova:${taskId}:${batch}`}``, `use-supernovas.ts`), and the inbox status sweep
   (``key={`sweep:${sweep}`}``, `use-status-sweeps.ts`), which is dropped on `animationend` or when
-  its card is hidden, not on a timer. Never toggle classes with timers.
+  its card is hidden, not on a timer, and the Agent output tab flash
+  (``key={`flash:${outputFlash}`}``, `TaskView.tsx`), bumped during render when `tabOnSignal`
+  returns `flash`. Never toggle classes with timers.
   A resume booms cyan; if the request fails, `bump` raises `count` and sets tone `failed`, so the new
   key remounts the boom red (`.bw-revive-failed`, `--st-failed`) instead of recolouring one still
   playing. Prefix one-shot keys (`revive:`) when they share a container with keyed looping elements
