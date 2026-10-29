@@ -35,6 +35,9 @@ const GENERAL_KEYS = [
 /** Settings key of a repo's backlog runner state. */
 export const repoBacklogRunnerKey = (repoId: string) => `backlogRunner:${repoId}`;
 
+/** Settings key of the tasks a repo's memory backfill has handled: `{ taskIds: string[] }`. */
+export const memoryBackfillKey = (repoId: string) => `memoryBackfill:${repoId}`;
+
 export interface SettingsServiceOptions {
   settings: Repositories["settings"];
   tags: Repositories["tags"];

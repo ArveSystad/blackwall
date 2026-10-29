@@ -71,7 +71,7 @@ export async function runPanel(
   return settled.map((s) => (s as PromiseFulfilledResult<AgentResult>).value);
 }
 
-function section(title: string, body: string | null | undefined): string {
+export function section(title: string, body: string | null | undefined): string {
   const text = body?.trim();
   return text ? `## ${title}\n\n${text}` : "";
 }
@@ -195,7 +195,7 @@ export function ciFailureFinding(
   };
 }
 
-function describeQuestion(q: GrillQuestion): string {
+export function describeQuestion(q: GrillQuestion): string {
   const answer = q.answer
     ? `\n  Answer (${q.answeredBy === "user" ? "user" : "planner"}): ${q.answer}`
     : "";
@@ -1200,6 +1200,31 @@ export function withoutLeftovers(summary: string): string {
 }
 
 /**
+ * The summarizer's instructions for proposing memories about the repo, shared
+ * by Summarize and the memory backfill. `fromPr` notes are kept only once the
+ * pull request merges into `defaultBranch`.
+ */
+export function memoryInstructions({
+  fromPr,
+  defaultBranch,
+}: {
+  fromPr: boolean;
+  defaultBranch: string;
+}): string[] {
+  return [
+    `Also propose up to ${MAX_MEMORIES_PER_TASK} \`memories\`: lasting facts about this repo that a future task in it would want to know, each \`{ "kind", "text", "files" }\` with \`text\` at most ${MAX_MEMORY_CHARS} characters and \`files\` the repo-relative paths it is about, if any. Save only what stays true about the repo, not what this task changed.`,
+    "Kinds: `convention` (a rule the code follows), `pitfall` (a trap that cost time), `decision` (a lasting choice and why), `command` (how to build, test or run something), `context` (background the code does not explain).",
+    "An answer the user gave becomes a `decision` memory only when it sets a lasting rule for the repo, not just for this task.",
+    "Propose nothing the memories listed above already cover, even in other words; leave `memories` empty when there is nothing new worth keeping.",
+    ...(fromPr
+      ? [
+          `These notes are kept only if this pull request is merged into \`${defaultBranch}\`; describe the repo as it will be once it is merged, and nothing that depends on review feedback being acted on.`,
+        ]
+      : []),
+  ];
+}
+
+/**
  * Summarize: the summarizer writes the final summary (changes, decisions,
  * ignored findings), a short outward summary for PR bodies and comments, a
  * commit message for the optional squash at finish and any follow-up tasks,
@@ -1246,13 +1271,7 @@ async function summarize(ctx: StageContext): Promise<void> {
           ? `Do not mention ${key} in the commit message; the harness adds it after the type prefix.`
           : "",
         "Also write `shortSummary`: a brief description for the pull request and the issue comments, in 1–3 sentences or a few bullets, of the behavioural or visual change as users or reviewers see it. Leave out implementation details (files, functions, findings, design decisions) unless the task asks for them. No headings.",
-        `Also propose up to ${MAX_MEMORIES_PER_TASK} \`memories\`: lasting facts about this repo that a future task in it would want to know, each \`{ "kind", "text", "files" }\` with \`text\` at most ${MAX_MEMORY_CHARS} characters and \`files\` the repo-relative paths it is about, if any. Save only what stays true about the repo, not what this task changed.`,
-        "Kinds: `convention` (a rule the code follows), `pitfall` (a trap that cost time), `decision` (a lasting choice and why), `command` (how to build, test or run something), `context` (background the code does not explain).",
-        "An answer the user gave becomes a `decision` memory only when it sets a lasting rule for the repo, not just for this task.",
-        "Propose nothing the memories listed above already cover, even in other words; leave `memories` empty when there is nothing new worth keeping.",
-        fromPr
-          ? `These notes are kept only if this pull request is merged into \`${defaultBranch}\`; describe the repo as it will be once it is merged, and nothing that depends on review feedback being acted on.`
-          : "",
+        ...memoryInstructions({ fromPr, defaultBranch }),
         'Reply with a JSON object `{ "summary": "<markdown>", "commitMessage": "<message>", "shortSummary": "<markdown>", "followUps": [{ "title": "<short title>", "description": "<what to do and why>", "repoId": null }], "memories": [{ "kind": "convention", "text": "<one lasting fact>", "files": ["<path>"] }] }`.',
       ]
         .filter(Boolean)

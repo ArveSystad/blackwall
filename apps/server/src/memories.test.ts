@@ -1,10 +1,17 @@
 import {
   createRepositories,
+  MemoryBackfillBusyError,
   openDatabase,
   type OpenedDatabase,
   type Repositories,
 } from "@blackwall/core";
-import { MAX_MEMORY_CHARS, memorySchema, repoMemoriesSchema } from "@blackwall/shared";
+import {
+  MAX_MEMORY_CHARS,
+  memoryBackfillStatusSchema,
+  memorySchema,
+  repoMemoriesSchema,
+  type MemoryBackfillStatus,
+} from "@blackwall/shared";
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { errorResponse } from "./errors.js";
@@ -152,5 +159,69 @@ describe("memory routes", () => {
       "Saved by Summarize",
       "A newer summary",
     ]);
+  });
+});
+
+describe("memory backfill routes", () => {
+  const idle: MemoryBackfillStatus = {
+    running: false,
+    pending: 2,
+    done: 0,
+    saved: 0,
+    skipped: 0,
+    failed: 0,
+  };
+
+  function withBackfill(start: (repoId: string) => MemoryBackfillStatus) {
+    const started: string[] = [];
+    app = new Hono().onError(errorResponse).route(
+      "/api/repos/:repoId/memories",
+      memoryRoutes({
+        memories: repositories.memories,
+        repos: repositories.repos,
+        backfill: {
+          status: () => idle,
+          start: (id) => {
+            started.push(id);
+            return start(id);
+          },
+        },
+      }),
+    );
+    return started;
+  }
+
+  it("reports the status and starts a pass", async () => {
+    const started = withBackfill(() => ({ ...idle, running: true }));
+    const status = await request("/backfill");
+    expect(status.status).toBe(200);
+    expect(memoryBackfillStatusSchema.parse(await status.json())).toEqual(idle);
+    const res = await request("/backfill", { method: "POST" });
+    expect(res.status).toBe(202);
+    expect(await res.json()).toMatchObject({ running: true, pending: 2 });
+    expect(started).toEqual([repoId]);
+  });
+
+  it("refuses a second pass with 409", async () => {
+    withBackfill(() => {
+      throw new MemoryBackfillBusyError();
+    });
+    expect((await request("/backfill", { method: "POST" })).status).toBe(409);
+  });
+
+  it("answers 404 for an unknown repo, and without a backfill", async () => {
+    const started = withBackfill(() => idle);
+    expect((await request("/backfill", { repo: "nope" })).status).toBe(404);
+    expect((await request("/backfill", { method: "POST", repo: "nope" })).status).toBe(404);
+    expect(started).toEqual([]);
+
+    app = new Hono()
+      .onError(errorResponse)
+      .route(
+        "/api/repos/:repoId/memories",
+        memoryRoutes({ memories: repositories.memories, repos: repositories.repos }),
+      );
+    expect((await request("/backfill")).status).toBe(404);
+    expect((await request("/backfill", { method: "POST" })).status).toBe(404);
   });
 });

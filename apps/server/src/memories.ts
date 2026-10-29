@@ -1,8 +1,9 @@
-import type { Repositories } from "@blackwall/core";
+import type { MemoryBackfill, Repositories } from "@blackwall/core";
 import {
   memoryInputSchema,
   memoryUpdateSchema,
   type Memory,
+  type MemoryBackfillStatus,
   type RepoMemories,
 } from "@blackwall/shared";
 import { Hono, type Context } from "hono";
@@ -14,6 +15,8 @@ export interface MemoryRouteStores {
     "get" | "create" | "update" | "delete" | "listByRepo" | "listAwaitingByRepo"
   >;
   repos: Pick<Repositories["repos"], "get">;
+  /** Learns notes from the repo's past tasks; omit to leave the backfill routes out. */
+  backfill?: Pick<MemoryBackfill, "start" | "status">;
 }
 
 /** Empty `files` become null, as in `parseMemories`. */
@@ -28,8 +31,10 @@ function filesOrNull(files: string[] | null | undefined): string[] | null {
  * (`editedAt`), so a later summary never replaces it either. Held notes
  * (`awaitingMerge`) are listed apart and can be edited or deleted before they
  * are released. Clients refetch after their own changes; nothing is broadcast.
+ * `/backfill` reports and starts learning notes from the repo's past tasks
+ * (202 on start, 409 while a pass runs); clients poll it while one runs.
  */
-export function memoryRoutes({ memories, repos }: MemoryRouteStores): Hono {
+export function memoryRoutes({ memories, repos, backfill }: MemoryRouteStores): Hono {
   const routes = new Hono();
 
   routes.use("*", async (c, next) => {
@@ -59,6 +64,18 @@ export function memoryRoutes({ memories, repos }: MemoryRouteStores): Hono {
       files: filesOrNull(files),
     });
     return c.json<Memory>(memory, 201);
+  });
+
+  const noBackfill = (c: Context) => c.json({ error: "Memory backfill is not available" }, 404);
+
+  routes.get("/backfill", (c) => {
+    if (!backfill) return noBackfill(c);
+    return c.json<MemoryBackfillStatus>(backfill.status(c.req.param("repoId") ?? ""));
+  });
+
+  routes.post("/backfill", (c) => {
+    if (!backfill) return noBackfill(c);
+    return c.json<MemoryBackfillStatus>(backfill.start(c.req.param("repoId") ?? ""), 202);
   });
 
   /** The repo's memory, or undefined (another repo's memory counts as missing). */

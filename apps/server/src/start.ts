@@ -17,6 +17,7 @@ import {
   createDeliverer,
   createGitService,
   createKeyringSecretStore,
+  createMemoryBackfill,
   createMemoryReleaser,
   createPipelineEngine,
   createQuotaTracker,
@@ -204,6 +205,23 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       copilot: createCopilotAdapter(),
       opencode: createOpencodeAdapter(),
     };
+    // Learns notes from a repo's past tasks, on the user's request.
+    const memoryBackfill = createMemoryBackfill({
+      repositories,
+      adapters,
+      agents,
+      prMergeState: github.pullRequestMergeState,
+      onHeld: () => {
+        memoryReleaser
+          .check()
+          .catch((error: unknown) =>
+            console.error(
+              `Memory release failed: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+          );
+      },
+    });
+    shutdown.onShutdown(() => memoryBackfill.stop());
     const pipeline = createPipelineEngine({
       repositories,
       invocation: agents.invocation,
@@ -391,7 +409,11 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
         artifacts: createTaskArtifacts(),
       },
       backlog,
-      memories: { memories: repositories.memories, repos: repositories.repos },
+      memories: {
+        memories: repositories.memories,
+        repos: repositories.repos,
+        backfill: memoryBackfill,
+      },
       chat,
       quota,
       clis: () => clis,

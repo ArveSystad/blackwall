@@ -26,6 +26,7 @@ import {
   healthResponseSchema,
   missingCredentialSchema,
   issueLookupSchema,
+  memoryBackfillStatusSchema,
   memorySchema,
   pullRequestCommentsSchema,
   pullRequestRefreshSchema,
@@ -90,6 +91,7 @@ import {
   type HealthResponse,
   type SystemInfo,
   type Memory,
+  type MemoryBackfillStatus,
   type MemoryInput,
   type MemoryUpdate,
   type MissingCredential,
@@ -603,6 +605,18 @@ export function updateMemory(repoId: string, id: string, patch: MemoryUpdate): P
 
 export function deleteMemory(repoId: string, id: string): Promise<void> {
   return requestEmpty(at(memoriesPath(repoId), id), { method: "DELETE" });
+}
+
+/** Whether the repo's memory backfill runs, its counts and the past tasks it has left. */
+export function memoryBackfillStatus(repoId: string): Promise<MemoryBackfillStatus> {
+  return request(`${memoriesPath(repoId)}/backfill`, memoryBackfillStatusSchema);
+}
+
+/** Starts learning notes from the repo's past tasks; 409 while a pass runs. */
+export function startMemoryBackfill(repoId: string): Promise<MemoryBackfillStatus> {
+  return request(`${memoriesPath(repoId)}/backfill`, memoryBackfillStatusSchema, {
+    method: "POST",
+  });
 }
 
 /** Whether the server can transcribe speech with the chosen model, and why not. */

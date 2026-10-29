@@ -873,6 +873,17 @@ export function createMemoriesRepository(db: Db) {
         .all()
         .flatMap((m) => (m.taskId === null ? [] : [m.taskId]));
     },
+    /** The repo's tasks with at least one note, held or active. */
+    taskIdsWithNotes(repoId: string): Set<string> {
+      return new Set(
+        db
+          .selectDistinct({ taskId: memories.sourceTaskId })
+          .from(memories)
+          .where(and(eq(memories.repoId, repoId), isNotNull(memories.sourceTaskId)))
+          .all()
+          .flatMap((m) => (m.taskId === null ? [] : [m.taskId])),
+      );
+    },
     /**
      * Makes the task's held notes active, dropping any whose text an active
      * note in the repo now has. Returns the released notes.

@@ -1075,6 +1075,26 @@ describe("memories", () => {
     expect(all).toEqual([{ text: "Active" }, { text: "B" }]);
   });
 
+  it("finds the repo's tasks with any note, held or active", () => {
+    const task = seedTask();
+    const held = r.tasks.create({ title: "h", origin: { kind: "free-text" }, repoId: task.repoId });
+    const bare = r.tasks.create({ title: "b", origin: { kind: "free-text" }, repoId: task.repoId });
+    const repo = r.repos.create({ path: "/code/other", name: "other" });
+    const elsewhere = r.tasks.create({
+      title: "e",
+      origin: { kind: "free-text" },
+      repoId: repo.id,
+    });
+    note(task.repoId, "Active", { sourceTaskId: task.id });
+    note(task.repoId, "Held", { sourceTaskId: held.id, awaitingMerge: true });
+    note(task.repoId, "Orphan");
+    note(repo.id, "Other repo", { sourceTaskId: elsewhere.id });
+    const ids = r.memories.taskIdsWithNotes(task.repoId);
+    expect([...ids].sort()).toEqual([task.id, held.id].sort());
+    expect(ids.has(bare.id)).toBe(false);
+    expect(r.memories.taskIdsWithNotes(repo.id)).toEqual(new Set([elsewhere.id]));
+  });
+
   it("cascades with the repo and nulls the source when its task is deleted", () => {
     const task = seedTask();
     const m = note(task.repoId, "From the task", { sourceTaskId: task.id });

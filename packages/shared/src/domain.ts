@@ -2303,6 +2303,36 @@ export function summaryOutputJsonSchema(): Record<string, unknown> {
   return z.toJSONSchema(summaryOutputSchema);
 }
 
+/**
+ * The summarizer's answer when it reads a finished task again to backfill the
+ * repo's memories: only the notes, checked for shape; {@link parseMemories}
+ * drops the invalid ones.
+ */
+export const memoryBackfillOutputSchema = z
+  .object({ memories: z.array(memoryWireSchema) })
+  .strict();
+export type MemoryBackfillOutput = z.infer<typeof memoryBackfillOutputSchema>;
+
+/** JSON Schema of the memory backfill's answer. */
+export function memoryBackfillOutputJsonSchema(): Record<string, unknown> {
+  return z.toJSONSchema(memoryBackfillOutputSchema);
+}
+
+/**
+ * A repo's memory backfill: whether a pass is running, how many finished tasks
+ * are still to read (an upper bound, since closed pull requests are skipped
+ * without a run), and the counts of the current or last pass.
+ */
+export const memoryBackfillStatusSchema = z.object({
+  running: z.boolean(),
+  pending: z.number().int().nonnegative(),
+  done: z.number().int().nonnegative(),
+  saved: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+});
+export type MemoryBackfillStatus = z.infer<typeof memoryBackfillStatusSchema>;
+
 // ---------------------------------------------------------------------------
 // Chat
 // ---------------------------------------------------------------------------

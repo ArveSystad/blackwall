@@ -45,6 +45,9 @@ import {
   parseMemories,
   MAX_MEMORIES_PER_TASK,
   MAX_MEMORY_CHARS,
+  memoryBackfillOutputJsonSchema,
+  memoryBackfillOutputSchema,
+  memoryBackfillStatusSchema,
   memoryUpdateSchema,
   planAnswersOutputJsonSchema,
   planAnswersOutputSchema,
@@ -1336,6 +1339,34 @@ describe("parseMemories", () => {
     expect(parseMemories([valid(1)])).toEqual([
       { kind: "convention", text: "Note 1", files: null },
     ]);
+  });
+});
+
+describe("memory backfill schemas", () => {
+  it("takes only a memories array and leaves entry checks to parseMemories", () => {
+    const reply = memoryBackfillOutputSchema.parse({
+      memories: [
+        { kind: "convention", text: "Use pnpm" },
+        { kind: "rumour", text: "Unknown kind" },
+      ],
+    });
+    expect(parseMemories(reply.memories)).toEqual([
+      { kind: "convention", text: "Use pnpm", files: null },
+    ]);
+    expect(memoryBackfillOutputSchema.safeParse({ memories: [] }).success).toBe(true);
+    expect(memoryBackfillOutputSchema.safeParse({ memories: [], summary: "x" }).success).toBe(
+      false,
+    );
+    expect(memoryBackfillOutputSchema.safeParse({}).success).toBe(false);
+    expect(memoryBackfillOutputJsonSchema().required).toEqual(["memories"]);
+    expect(memoryBackfillOutputJsonSchema().additionalProperties).toBe(false);
+  });
+
+  it("checks the status counts", () => {
+    const status = { running: true, pending: 3, done: 1, saved: 2, skipped: 0, failed: 0 };
+    expect(memoryBackfillStatusSchema.parse(status)).toEqual(status);
+    expect(memoryBackfillStatusSchema.safeParse({ ...status, failed: -1 }).success).toBe(false);
+    expect(memoryBackfillStatusSchema.safeParse({ ...status, done: 1.5 }).success).toBe(false);
   });
 });
 

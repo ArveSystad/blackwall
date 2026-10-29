@@ -9,8 +9,10 @@ import {
   getArtifactText,
   listConnections,
   listMemories,
+  memoryBackfillStatus,
   sendVoiceCommand,
   socketUrl,
+  startMemoryBackfill,
   transcribeVoice,
   updateMemory,
 } from "./api";
@@ -216,5 +218,22 @@ describe("request bodies", () => {
     await deleteMemory("r1", "m1");
     expect(fetch.mock.calls[1]![0]).toBe("/api/repos/r1/memories/m1");
     expect(fetch.mock.calls[1]![1]?.method).toBe("DELETE");
+  });
+
+  it("reads and starts the memory backfill", async () => {
+    const status = { running: false, pending: 3, done: 0, saved: 0, skipped: 0, failed: 0 };
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify(status)))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...status, running: true }), { status: 202 }),
+      );
+    vi.stubGlobal("fetch", fetch);
+    expect(await memoryBackfillStatus("r1")).toEqual(status);
+    expect(fetch.mock.calls[0]![0]).toBe("/api/repos/r1/memories/backfill");
+    expect((await startMemoryBackfill("r1")).running).toBe(true);
+    const [path, init] = fetch.mock.calls[1]!;
+    expect(path).toBe("/api/repos/r1/memories/backfill");
+    expect(init?.method).toBe("POST");
   });
 });

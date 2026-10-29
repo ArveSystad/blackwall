@@ -22,6 +22,7 @@ import {
   refreshRepo,
   reorderRepos,
   scanRepos,
+  startMemoryBackfill,
   suggestedChecks,
   suggestedSetup,
   updateMemory,
@@ -38,6 +39,7 @@ import {
 import {
   connectionsQuery,
   memoriesQuery,
+  memoryBackfillQuery,
   queryKeys,
   reposQuery,
   settingsQuery,
@@ -388,9 +390,24 @@ function MemoryVault({ repo }: { repo: RepoView }) {
   const queryClient = useQueryClient();
   const memories = useQuery(memoriesQuery(repo.id));
   const tasks = useQuery(tasksQuery);
+  const backfill = useQuery({
+    ...memoryBackfillQuery(repo.id),
+    refetchInterval: (query) => (query.state.data?.running ? 2_000 : false),
+  });
   const [adding, setAdding] = useState(false);
+  const [confirmBackfill, setConfirmBackfill] = useState(false);
 
   const changed = () => queryClient.invalidateQueries({ queryKey: queryKeys.memories(repo.id) });
+  const learning = backfill.data?.running ?? false;
+  const pending = backfill.data?.pending ?? 0;
+  // A pass that just ended saved notes: show them.
+  const wasLearning = useRef(learning);
+  useEffect(() => {
+    if (wasLearning.current && !learning) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.memories(repo.id) });
+    }
+    wasLearning.current = learning;
+  }, [learning, queryClient, repo.id]);
   const taskTitle = (id: string | null) =>
     id === null ? undefined : tasks.data?.find((t) => t.id === id)?.title;
   const rows = (list: Memory[]) => (
@@ -421,11 +438,38 @@ function MemoryVault({ repo }: { repo: RepoView }) {
           included.
         </span>
         <span className="flex-1" />
+        {learning ? (
+          <span className="text-meta text-faint tabular-nums" role="status">
+            Learning from past tasks… {backfill.data?.done ?? 0}/
+            {(backfill.data?.done ?? 0) + pending}
+          </span>
+        ) : (
+          pending > 0 && (
+            <Button size="sm" variant="ghost" onClick={() => setConfirmBackfill(true)}>
+              Learn from {pending} past {pending === 1 ? "task" : "tasks"}
+            </Button>
+          )
+        )}
         <Button size="sm" variant="ghost" disabled={adding} onClick={() => setAdding(true)}>
           <PlusIcon />
           Add
         </Button>
       </span>
+      {confirmBackfill && (
+        <ConfirmDialog
+          title={`Learn from ${pending} past ${pending === 1 ? "task" : "tasks"}?`}
+          confirmLabel="Learn from past tasks"
+          confirmVariant="default"
+          onConfirm={async () => {
+            const status = await startMemoryBackfill(repo.id);
+            queryClient.setQueryData(queryKeys.memoryBackfill(repo.id), status);
+          }}
+          onClose={() => setConfirmBackfill(false)}
+        >
+          Runs the summarizer once per task (up to {pending} {pending === 1 ? "run" : "runs"}) to
+          save notes from finished work.
+        </ConfirmDialog>
+      )}
       {adding && (
         <MemoryForm
           initial={memoryDraft()}
@@ -446,7 +490,8 @@ function MemoryVault({ repo }: { repo: RepoView }) {
         <>
           {memories.data.memories.length === 0 ? (
             <span className="text-meta text-faint">
-              No memories yet. Summarize saves them as tasks finish, or add one.
+              No memories yet. Summarize saves them as tasks finish; learn from past tasks or add
+              one.
             </span>
           ) : (
             rows(memories.data.memories)
