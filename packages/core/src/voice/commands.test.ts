@@ -74,7 +74,13 @@ beforeEach(() => {
     draft: null,
     messages: [],
   }));
-  voice = createVoiceCommandService({
+  voice = makeVoice();
+});
+
+function makeVoice(
+  overrides: Partial<Parameters<typeof createVoiceCommandService>[0]> = {},
+): VoiceCommandService {
+  return createVoiceCommandService({
     adapters: { claude: adapter },
     repos: r.repos,
     tasks: r.tasks,
@@ -83,14 +89,16 @@ beforeEach(() => {
     approvePlan,
     sendChat,
     backlogItems: r.backlogItems,
+    memories: r.memories,
     runner: settings,
     runBacklogItem,
     submitTask,
     modelFor: () => "voice-model",
     mcpUrl: () => "http://127.0.0.1:4711/mcp",
     publish: (event) => events.push(event),
+    ...overrides,
   });
-});
+}
 
 afterEach(() => {
   voice.shutdown();
@@ -174,6 +182,7 @@ describe("voice turns", () => {
     expect(prompt).toContain("Backlog runner: on\n");
     expect(prompt).toContain("### Task draft\n\n(none)");
     expect(prompt.endsWith("start the dark mode task")).toBe(true);
+    expect(prompt).not.toContain("What blackwall remembers");
 
     settings.setRepoBacklogRunnerEnabled(repoId, false);
     settings.updateGeneral({ backlogRunner: false });
@@ -185,6 +194,22 @@ describe("voice turns", () => {
     const next = adapter.calls.at(-1)!.options.prompt;
     expect(next).toContain("Backlog runner: off (off for every repo in Settings)");
     expect(next).toContain("- title: Docs\n- description: Write them");
+  });
+
+  it("gives the memories relevant to the transcript and the focused task", async () => {
+    const task = seedTask();
+    const note = r.memories.create({ repoId, kind: "pitfall", text: "Sessions expire in tests" });
+    const relevant = vi.fn(() => [note]);
+    voice.shutdown();
+    voice = makeVoice({ memories: { relevant } });
+
+    voice.command(repoId, "why do sessions break", { taskId: task.id });
+    await idle();
+    const prompt = adapter.calls[0]!.options.prompt;
+    expect(prompt).toContain("## What blackwall remembers about this repo");
+    expect(prompt).toContain("- [pitfall] Sessions expire in tests");
+    expect(relevant).toHaveBeenCalledWith(repoId, expect.stringContaining("why do sessions break"));
+    expect(relevant).toHaveBeenCalledWith(repoId, expect.stringContaining("Fix login"));
   });
 
   it("refuses a command while busy, and an unknown repo", async () => {

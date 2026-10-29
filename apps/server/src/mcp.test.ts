@@ -53,6 +53,7 @@ beforeEach(() => {
     approvePlan: vi.fn(),
     sendChat: vi.fn(),
     backlogItems: r.backlogItems,
+    memories: r.memories,
     runner: createSettingsService({ settings: r.settings, tags: r.tags }),
     runBacklogItem: vi.fn(),
     submitTask,

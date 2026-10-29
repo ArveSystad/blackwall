@@ -55,6 +55,8 @@ export interface VoiceCommandServiceOptions {
   /** Sends a chat message to a repo's chat, or a task's conversation. */
   sendChat: VoiceToolContext["sendChat"];
   backlogItems: Pick<Repositories["backlogItems"], "list">;
+  /** The repo's memories; those relevant to the transcript (and the focused task) reach the prompt. */
+  memories: Pick<Repositories["memories"], "relevant">;
   /** The global and per-repo backlog runner switches. */
   runner: VoiceToolContext["runner"];
   /** Promotes a waiting backlog item of the repo to a task now. */
@@ -116,6 +118,7 @@ export function createVoiceCommandService({
   approvePlan,
   sendChat,
   backlogItems,
+  memories,
   runner,
   runBacklogItem,
   submitTask,
@@ -251,6 +254,7 @@ export function createVoiceCommandService({
           repoName: repos.get(t.repoId)?.name ?? t.repoId,
           gate: t.gate,
         })),
+        memories: memories.relevant(repo.id, [text, focus?.title].filter(Boolean).join(" ")),
       });
       const model = modelFor(cli);
       const run = adapter.run({

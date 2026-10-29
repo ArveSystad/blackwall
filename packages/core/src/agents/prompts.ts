@@ -503,7 +503,8 @@ export interface VoiceStateWaitingTask {
  * One voice command's prompt: a `Voice state` block with the repo's waiting
  * backlog items, its backlog runner switch (and whether Settings turned the
  * runner off for every repo), the open draft, the repositories, the focused
- * task and the tasks waiting on the user, then the transcript.
+ * task and the tasks waiting on the user, the selected repo's memories
+ * relevant to the transcript, then the transcript.
  */
 export function voiceCommandPrompt({
   text,
@@ -514,6 +515,7 @@ export function voiceCommandPrompt({
   selectedRepoId,
   focus,
   waiting,
+  memories = [],
 }: {
   text: string;
   backlog: readonly VoiceStateBacklogItem[];
@@ -524,7 +526,10 @@ export function voiceCommandPrompt({
   selectedRepoId: string;
   focus: VoiceStateFocus | null;
   waiting: readonly VoiceStateWaitingTask[];
+  /** What blackwall remembers about the selected repo that bears on the transcript. */
+  memories?: readonly PromptMemory[];
 }): string {
+  const remembered = memoriesPromptSection(memories);
   const backlogLines = backlog.map((i) => `- \`${i.id}\` ${i.title}`);
   const repoLines = repos.map(
     (r) => `- \`${r.id}\` ${r.name}${r.id === selectedRepoId ? " (selected)" : ""}`,
@@ -577,6 +582,7 @@ export function voiceCommandPrompt({
     "",
     ...(waitingLines.length > 0 ? waitingLines : ["(none)"]),
     "",
+    ...(remembered ? [remembered, ""] : []),
     "## Transcript",
     "",
     text,

@@ -420,6 +420,23 @@ describe("voice prompts", () => {
     expect(prompt.endsWith("## Transcript\n\nstart the dark mode task")).toBe(true);
   });
 
+  it("puts the repo's notes before the transcript only when there are some", () => {
+    const base = {
+      text: "fix the login",
+      backlog: [],
+      runner: { enabled: true, global: true },
+      draft: null,
+      ...noContext,
+    };
+    const note = { kind: "convention" as const, text: "Use pnpm", files: null, pinned: false };
+    const prompt = voiceCommandPrompt({ ...base, memories: [note] });
+    expect(prompt).toContain("## What blackwall remembers about this repo");
+    expect(prompt.indexOf("### Tasks waiting on you")).toBeLessThan(prompt.indexOf("Use pnpm"));
+    expect(prompt.indexOf("Use pnpm")).toBeLessThan(prompt.indexOf("## Transcript"));
+    expect(voiceCommandPrompt({ ...base, memories: [] })).toBe(voiceCommandPrompt(base));
+    expect(voiceCommandPrompt(base)).not.toContain("What blackwall remembers");
+  });
+
   it("says when Settings turned the runner off for every repo, and shows the draft", () => {
     const prompt = voiceCommandPrompt({
       text: "confirm",

@@ -328,6 +328,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
         pipeline.respond(taskId, { gate: "plan-approval", decision: "approve" }),
       sendChat: chat.send,
       backlogItems: repositories.backlogItems,
+      memories: repositories.memories,
       runner: settings,
       runBacklogItem: (repoId, itemId) => {
         const item = repositories.backlogItems.get(itemId);
