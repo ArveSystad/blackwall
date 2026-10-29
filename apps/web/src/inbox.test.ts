@@ -7,6 +7,8 @@ import {
   groupTasks,
   matchesFilter,
   needsYouCount,
+  newTaskIds,
+  nextArrivals,
   nextSweeps,
   originKey,
   relativeTime,
@@ -272,5 +274,37 @@ describe("nextSweeps", () => {
       ["b", 1],
     ]);
     expect(nextSweeps(sweeps, [], new Set(["a"]))).toEqual(new Map([["a", 3]]));
+  });
+});
+
+describe("newTaskIds", () => {
+  it("returns unseen ids in tasks order", () => {
+    const b = makeTask({ id: "b" });
+    const a = makeTask({ id: "a" });
+    expect(newTaskIds(new Set(), [b, a])).toEqual(["b", "a"]);
+  });
+
+  it("skips seen ids", () => {
+    const tasks = [makeTask({ id: "a" }), makeTask({ id: "b" })];
+    expect(newTaskIds(new Set(["a"]), tasks)).toEqual(["b"]);
+  });
+
+  it("skips archived new tasks", () => {
+    const archived = makeTask({ id: "a", archivedAt: new Date("2026-10-08T12:00:00Z") });
+    expect(newTaskIds(new Set(), [archived])).toEqual([]);
+  });
+});
+
+describe("nextArrivals", () => {
+  it("adds a new shown id", () => {
+    expect(nextArrivals(new Set(), ["a"], new Set(["a"]))).toEqual(new Set(["a"]));
+  });
+
+  it("does not add a new id that is not shown", () => {
+    expect(nextArrivals(new Set(), ["a"], new Set(["b"]))).toEqual(new Set());
+  });
+
+  it("drops arrivals no longer shown and keeps shown ones", () => {
+    expect(nextArrivals(new Set(["a", "b"]), [], new Set(["a"]))).toEqual(new Set(["a"]));
   });
 });

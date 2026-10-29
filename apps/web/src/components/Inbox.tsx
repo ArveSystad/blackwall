@@ -15,6 +15,7 @@ import { PlusIcon, SearchIcon } from "./icons";
 import { NewTaskModal } from "./NewTaskModal";
 import { TaskCard } from "./TaskCard";
 import { useArchive } from "./use-archive-launches";
+import { useArrivals } from "./use-arrivals";
 import { useStatusSweeps } from "./use-status-sweeps";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -45,6 +46,7 @@ function TaskList({ tasks, filter }: { tasks: Task[]; filter: string }) {
     })
     .map((task) => task.id);
   const sweeps = useStatusSweeps(tasks, shownIds);
+  const arrivals = useArrivals(tasks, shownIds);
 
   if (rows.every((task) => task.archivedAt !== null)) {
     return (
@@ -84,6 +86,8 @@ function TaskList({ tasks, filter }: { tasks: Task[]; filter: string }) {
                   crumble={launch.crumbles.get(task.id)}
                   sweep={sweeps.sweeps.get(task.id)}
                   onSweepEnd={sweeps.end}
+                  arriving={arrivals.arrivals.has(task.id)}
+                  onArriveEnd={arrivals.end}
                   onArchive={() => {
                     launch.clearError();
                     launch.archiveAll([task]);

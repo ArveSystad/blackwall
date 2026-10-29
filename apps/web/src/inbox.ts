@@ -145,6 +145,31 @@ export function nextSweeps(
   return next;
 }
 
+/**
+ * Ids of the tasks, in `tasks` order, never seen before: the cards that may
+ * arrive. Archived tasks do not count.
+ */
+export function newTaskIds(seen: ReadonlySet<string>, tasks: readonly Task[]): string[] {
+  return tasks.filter((t) => t.archivedAt === null && !seen.has(t.id)).map((t) => t.id);
+}
+
+/**
+ * The arrivals after one update: each added id that is shown arrives, and
+ * every id that is not shown is dropped, so a card shown again later does not
+ * replay a stale arrival.
+ */
+export function nextArrivals(
+  arrivals: ReadonlySet<string>,
+  added: readonly string[],
+  shown: ReadonlySet<string>,
+): Set<string> {
+  const next = new Set([...arrivals].filter((id) => shown.has(id)));
+  for (const id of added) {
+    if (shown.has(id)) next.add(id);
+  }
+  return next;
+}
+
 /** "1 active agent", "3 active agents"; null when none run. */
 export function activeAgentsLabel(count: number): string | null {
   if (count <= 0) return null;

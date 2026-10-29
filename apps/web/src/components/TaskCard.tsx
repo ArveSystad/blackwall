@@ -15,7 +15,7 @@ import { StatusBadge } from "./StatusBadge";
 import { TrustBadge } from "./TrustBadge";
 import { DeleteTaskDialog } from "./task/DeleteTaskDialog";
 import { Button } from "./ui/button";
-import { useEncrypt } from "./use-decrypt";
+import { useDecrypt, useEncrypt } from "./use-decrypt";
 
 /**
  * Inbox card linking to the task. Needs-you tasks, and done tasks whose CI
@@ -27,6 +27,8 @@ import { useEncrypt } from "./use-decrypt";
  * to it. An archived row crumbles out (`.bw-crumble`): its title scrambles
  * into glyphs, then the row flickers and falls; a failed archive flashes it red.
  * A card whose task just changed status sweeps the new status colour once (`.bw-status-sweep`).
+ * A card whose task just appeared slides in from the left (`animate-arrive`)
+ * while its title decrypts.
  */
 export function TaskCard({
   task,
@@ -37,6 +39,8 @@ export function TaskCard({
   crumble,
   sweep,
   onSweepEnd,
+  arriving = false,
+  onArriveEnd,
   onArchive,
 }: {
   task: Task;
@@ -52,6 +56,10 @@ export function TaskCard({
   sweep?: number | undefined;
   /** Called when the sweep has played, to drop it. */
   onSweepEnd?: (taskId: string, sweep: number) => void;
+  /** Whether the task just appeared, so the row slides in and its title decrypts. */
+  arriving?: boolean;
+  /** Called when the arrival slide has played, to drop it. */
+  onArriveEnd?: (taskId: string) => void;
   /** Archives the task; the archive button shows only with it. */
   onArchive?: () => void;
 }) {
@@ -61,13 +69,26 @@ export function TaskCard({
   const [deleting, setDeleting] = useState(false);
   const crumbling = crumble?.phase === "crumbling";
   const crumbleFrame = useEncrypt(task.title, crumbling, crumble?.delayMs ?? 0);
+  // Gated on the frame, not on `arriving`, so the decrypt outlasts the slide.
+  const arriveFrame = useDecrypt(task.title, arriving ? task.id : null);
   return (
     <div
-      className={cn("group relative isolate", crumbling && "bw-crumble")}
+      className={cn(
+        "group relative isolate",
+        crumbling && "bw-crumble",
+        // The utility would override .bw-crumble's animation.
+        arriving && !crumbling && "animate-arrive",
+      )}
       style={
         crumbling ? ({ "--crumble-delay": `${crumble.delayMs}ms` } as CSSProperties) : undefined
       }
       inert={crumbling}
+      onAnimationEnd={(event) => {
+        // The sweep's animationend bubbles up here too.
+        if (event.target === event.currentTarget && event.animationName === "bw-arrive") {
+          onArriveEnd?.(task.id);
+        }
+      }}
     >
       {/* The wash is translucent, so the open needs-you card glows from a halo sibling. */}
       {needsYou && (
@@ -102,12 +123,22 @@ export function TaskCard({
         <span
           className={cn(
             "text-body leading-[18px] font-medium text-foreground-strong",
-            !crumbling && "line-clamp-2",
+            !crumbling && !arriveFrame && "line-clamp-2",
             task.status === "done" && "font-normal text-foreground",
           )}
         >
           {crumbling ? (
-            <DecryptGlyphs text={task.title} frame={crumbleFrame} className="bw-decrypt-clip" />
+            <DecryptGlyphs
+              text={task.title}
+              frame={crumbleFrame}
+              className="bw-decrypt-clip bw-decrypt-clamp"
+            />
+          ) : arriveFrame ? (
+            <DecryptGlyphs
+              text={task.title}
+              frame={arriveFrame}
+              className="bw-decrypt-clip bw-decrypt-clamp"
+            />
           ) : (
             task.title
           )}

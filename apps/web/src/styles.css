@@ -296,6 +296,8 @@
   --animate-fade-in: bw-fade-in 150ms ease-out both;
   /* Dialogs scan open once, left to right, keeping the chamfer; closing is instant. */
   --animate-scan-wipe: bw-scan-wipe 150ms ease-out;
+  /* Inbox rows slide in once when their task first appears; dropped on animationend, no JS mirror. */
+  --animate-arrive: bw-arrive 180ms ease-out both;
 }
 
 @keyframes bw-fade-in {
@@ -311,6 +313,13 @@
   from {
     opacity: 0;
     transform: translateX(12px);
+  }
+}
+
+@keyframes bw-arrive {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
   }
 }
 
@@ -1359,9 +1368,8 @@ html:active-view-transition-type(bw-route) {
    * away over 360ms. Rows archived together step down by --crumble-delay (set
    * inline, CRUMBLE_STAGGER_MS = 70ms apart). It ends transparent, and the
    * inbox drops the row after CRUMBLE_MS (220 + 360 = 580ms) past its delay.
-   * While crumbling, the title's two-line clamp moves inside the decrypt text,
-   * since .bw-decrypt would escape an outer line-clamp, and the glyphs wrap
-   * with it. A failed archive brings the row back and flashes it red over
+   * While crumbling, the title's two-line clamp moves inside the decrypt text
+   * (.bw-decrypt-clamp). A failed archive brings the row back and flashes it red over
    * 1.2s (CRUMBLE_FAILED_MS). Change them together. Reduced motion drops the
    * row at once in JS; the reduced-motion block below is a fallback.
    */
@@ -1369,19 +1377,7 @@ html:active-view-transition-type(bw-route) {
     animation: bw-crumble 360ms ease-in calc(var(--crumble-delay, 0ms) + 220ms) both;
   }
 
-  .bw-crumble .bw-decrypt {
-    display: block;
-  }
-
-  .bw-crumble .bw-decrypt-text {
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    overflow: hidden;
-  }
-
   .bw-crumble .bw-decrypt-glyphs {
-    white-space: normal;
     text-shadow: 0 0 6px color-mix(in oklab, var(--st-done) 60%, transparent);
   }
 
@@ -1520,9 +1516,12 @@ html:active-view-transition-type(bw-route) {
    * glyphs look like the text they resolve into. The overlay never wraps, so
    * it stays one line even though the glyphs are wider than the text;
    * `.bw-decrypt-clip` clips it to the text's box, for text with no glow to
-   * lose (the task title). It ends by dropping the overlay; the duration is
-   * JS only (`DECRYPT_MS` in decrypt.ts). Reduced motion never plays it in
-   * JS; the reduced-motion block below is a fallback.
+   * lose (the task title). `.bw-decrypt-clamp` makes it a block whose text
+   * clamps to two lines and whose glyphs wrap with it, for a title whose outer
+   * line-clamp it would escape (the inbox card title, as it arrives or
+   * crumbles). It ends by dropping the overlay; the duration is JS only
+   * (`DECRYPT_MS` in decrypt.ts). Reduced motion never plays it in JS; the
+   * reduced-motion block below is a fallback.
    */
   .bw-decrypt {
     position: relative;
@@ -1542,6 +1541,21 @@ html:active-view-transition-type(bw-route) {
 
   .bw-decrypt-clip > .bw-decrypt-glyphs {
     overflow: hidden;
+  }
+
+  .bw-decrypt.bw-decrypt-clamp {
+    display: block;
+  }
+
+  .bw-decrypt-clamp > .bw-decrypt-text {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+
+  .bw-decrypt-clamp > .bw-decrypt-glyphs {
+    white-space: normal;
   }
 
   /* ---------- chat panel open/close (ChatPanel.tsx) ----------
