@@ -16,8 +16,6 @@ export default defineConfig({
     conditions: ["source"],
     alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
   },
-  // Served from localhost, so one bundle is fine.
-  build: { chunkSizeWarningLimit: 1000 },
   server: {
     host: "127.0.0.1",
     port: webPort,

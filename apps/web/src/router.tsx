@@ -3,6 +3,7 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   notFound,
   redirect,
 } from "@tanstack/react-router";
@@ -14,18 +15,17 @@ import { SearchPalette } from "./components/SearchPalette";
 import { TopBar } from "./components/TopBar";
 import { useVoiceActions } from "./components/use-voice-actions";
 import { VoiceTaskModal } from "./components/VoiceTaskModal";
-import { ActiveAgents } from "./routes/ActiveAgents";
-import { AssignedIssues } from "./routes/AssignedIssues";
-import { Backlog } from "./routes/Backlog";
 import { Home } from "./routes/Home";
-import { ReviewRequests } from "./routes/ReviewRequests";
-import { Settings } from "./routes/Settings";
-import { Stats } from "./routes/Stats";
-import { TaskView } from "./routes/TaskView";
 import { isSettingsSection } from "./settings-sections";
 import { useChatHotkey } from "./chat";
 import { useSearchHotkey } from "./search-palette";
 import { useThemeHotkey } from "./theme";
+
+// Heavier routes load as their own chunks. The wrapped ones get a `loader` that preloads the
+// chunk, since the router only preloads a route's own `component` on hover.
+const TaskView = lazyRouteComponent(() => import("./routes/TaskView"), "TaskView");
+const Backlog = lazyRouteComponent(() => import("./routes/Backlog"), "Backlog");
+const Settings = lazyRouteComponent(() => import("./routes/Settings"), "Settings");
 
 const rootRoute = createRootRoute({
   component: function Root() {
@@ -80,6 +80,7 @@ const homeRoute = createRoute({
 const taskRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/tasks/$taskId",
+  loader: () => TaskView.preload?.(),
   component: function TaskRoute() {
     const { taskId } = taskRoute.useParams();
     // Keyed so switching tasks starts from a fresh view.
@@ -93,6 +94,7 @@ const backlogRoute = createRoute({
   /** `item`: a backlog item to open in the editor, from the search palette; cleared once read. */
   validateSearch: (search: Record<string, unknown>): { item?: string } =>
     typeof search.item === "string" ? { item: search.item } : {},
+  loader: () => Backlog.preload?.(),
   component: function BacklogRoute() {
     const { repoId } = backlogRoute.useParams();
     const { item } = backlogRoute.useSearch();
@@ -103,19 +105,19 @@ const backlogRoute = createRoute({
 const activeRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/active",
-  component: ActiveAgents,
+  component: lazyRouteComponent(() => import("./routes/ActiveAgents"), "ActiveAgents"),
 });
 
 const reviewsRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/reviews",
-  component: ReviewRequests,
+  component: lazyRouteComponent(() => import("./routes/ReviewRequests"), "ReviewRequests"),
 });
 
 const issuesRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/issues",
-  component: AssignedIssues,
+  component: lazyRouteComponent(() => import("./routes/AssignedIssues"), "AssignedIssues"),
 });
 
 const settingsIndexRoute = createRoute({
@@ -132,6 +134,7 @@ const settingsRoute = createRoute({
   beforeLoad: ({ params }) => {
     if (!isSettingsSection(params.section)) throw notFound();
   },
+  loader: () => Settings.preload?.(),
   component: function SettingsRoute() {
     const { section } = settingsRoute.useParams();
     return isSettingsSection(section) ? <Settings section={section} /> : <NotFound />;
@@ -142,7 +145,7 @@ const settingsRoute = createRoute({
 const statsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/stats",
-  component: Stats,
+  component: lazyRouteComponent(() => import("./routes/Stats"), "Stats"),
 });
 
 const routeTree = rootRoute.addChildren([
