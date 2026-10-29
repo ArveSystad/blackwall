@@ -19,6 +19,7 @@ import { generateToken } from "./auth.js";
 import type { BacklogRouteOptions } from "./backlog.js";
 import type { ConnectionRoutesOptions } from "./connections.js";
 import type { McpCommandService } from "./mcp.js";
+import type { MemoryRouteStores } from "./memories.js";
 import type { TaskPipeline, TaskRouteServices, TaskRouteStores } from "./tasks.js";
 import type { Shutdown } from "./shutdown.js";
 import type { VoiceCommandRouteService } from "./voice.js";
@@ -42,6 +43,7 @@ export interface StartOptions {
   pipeline?: TaskPipeline;
   taskServices?: TaskRouteServices;
   backlog?: BacklogRouteOptions;
+  memories?: MemoryRouteStores;
   chat?: Pick<ChatService, "get" | "send" | "markApplied" | "addAction">;
   quota?: Pick<QuotaTracker, "state">;
   clis?: () => Promise<CliStatus[]>;
@@ -77,6 +79,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     ...(options.pipeline ? { pipeline: options.pipeline } : {}),
     ...(options.taskServices ? { taskServices: options.taskServices } : {}),
     ...(options.backlog ? { backlog: options.backlog } : {}),
+    ...(options.memories ? { memories: options.memories } : {}),
     ...(options.chat ? { chat: options.chat } : {}),
     ...(options.quota ? { quota: options.quota } : {}),
     ...(options.clis ? { clis: options.clis } : {}),

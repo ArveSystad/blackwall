@@ -3,24 +3,46 @@ import {
   AGENT_TRUST_LEVELS,
   DEFAULT_REPO_SCAN_DEPTH,
   JIRA_PROJECT_PATTERN,
+  MAX_MEMORY_CHARS,
+  MEMORY_KINDS,
   effectiveTrust,
+  type Memory,
+  type MemoryInput,
   type RepoView,
 } from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   StaleRepoError,
   addRepo,
+  createMemory,
+  deleteMemory,
   deleteRepo,
   refreshRepo,
   reorderRepos,
   scanRepos,
   suggestedChecks,
   suggestedSetup,
+  updateMemory,
   updateRepo,
 } from "../../api";
 import { cn } from "../../lib/utils";
-import { connectionsQuery, queryKeys, reposQuery, settingsQuery } from "../../query";
+import {
+  MEMORY_KIND_LABELS,
+  draftToMemoryInput,
+  memoryDraft,
+  memoryDraftError,
+  type MemoryDraft,
+} from "../../memories";
+import {
+  connectionsQuery,
+  memoriesQuery,
+  queryKeys,
+  reposQuery,
+  settingsQuery,
+  tasksQuery,
+} from "../../query";
 import { moveRepo, reorderRepoIds } from "../../repo-order";
 import { CLI_NAMES, errorMessage, parseCap, parseLines, sameList } from "../../settings-forms";
 import { TRUST_NAMES, trustRisk } from "../../trust";
@@ -152,6 +174,302 @@ function AddRepoDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Adds or edits a memory; saving closes it through the caller. */
+function MemoryForm({
+  initial,
+  saveLabel,
+  onSave,
+  onCancel,
+}: {
+  initial: MemoryDraft;
+  saveLabel: string;
+  onSave: (input: MemoryInput) => Promise<unknown>;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState(initial);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const length = draft.text.trim().length;
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (pending) return;
+    const invalid = memoryDraftError(draft);
+    if (invalid) {
+      setError(invalid);
+      return;
+    }
+    setPending(true);
+    setError(null);
+    try {
+      await onSave(draftToMemoryInput(draft));
+    } catch (cause) {
+      setError(errorMessage(cause));
+      setPending(false);
+    }
+  }
+
+  return (
+    <form
+      className="flex flex-col gap-2 border border-border bg-background/40 p-2.5"
+      onSubmit={(event) => void submit(event)}
+    >
+      <Segmented
+        label="Memory kind"
+        value={draft.kind}
+        onChange={(kind) => setDraft({ ...draft, kind })}
+        options={MEMORY_KINDS.map((kind) => ({ value: kind, label: MEMORY_KIND_LABELS[kind] }))}
+      />
+      <label className="flex flex-col gap-1">
+        <span className="flex items-center gap-2">
+          <span className={fieldLabel}>Note</span>
+          <span className="flex-1" />
+          <span
+            className={cn(
+              "mono text-label",
+              length > MAX_MEMORY_CHARS ? "text-failed" : "text-faint",
+            )}
+          >
+            {length}/{MAX_MEMORY_CHARS}
+          </span>
+        </span>
+        <Textarea
+          autoFocus
+          className="min-h-16"
+          value={draft.text}
+          aria-invalid={length > MAX_MEMORY_CHARS}
+          placeholder="Run pnpm db:generate after changing the schema."
+          onChange={(event) => setDraft({ ...draft, text: event.target.value })}
+        />
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className="flex items-center gap-2">
+          <span className={fieldLabel}>Files</span>
+          <span className="text-meta text-faint">Optional. One repo-relative path per line.</span>
+        </span>
+        <Textarea
+          className="mono min-h-12 bg-code text-code"
+          spellCheck={false}
+          value={draft.files}
+          placeholder="packages/core/src/db/schema.ts"
+          onChange={(event) => setDraft({ ...draft, files: event.target.value })}
+        />
+      </label>
+      {error && <ErrorText>{error}</ErrorText>}
+      <span className="flex justify-end gap-2">
+        <Button size="sm" variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button size="sm" variant="primary" type="submit" disabled={pending}>
+          {pending ? "Saving…" : saveLabel}
+        </Button>
+      </span>
+    </form>
+  );
+}
+
+/** One memory: its kind, text, files and source task, with pin, edit and delete. */
+function MemoryRow({
+  repo,
+  memory,
+  taskTitle,
+  onChanged,
+}: {
+  repo: RepoView;
+  memory: Memory;
+  /** The source task's title, when the task list has it. */
+  taskTitle: string | undefined;
+  onChanged: () => Promise<unknown>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [pinning, setPinning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function togglePin() {
+    setPinning(true);
+    setError(null);
+    try {
+      await updateMemory(repo.id, memory.id, { pinned: !memory.pinned });
+      await onChanged();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setPinning(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <li>
+        <MemoryForm
+          initial={memoryDraft(memory)}
+          saveLabel="Save note"
+          onSave={async (input) => {
+            await updateMemory(repo.id, memory.id, input);
+            await onChanged();
+            setEditing(false);
+          }}
+          onCancel={() => setEditing(false)}
+        />
+      </li>
+    );
+  }
+
+  return (
+    <li className="flex items-start gap-1.5 border-b border-border py-1.5 last:border-b-0">
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        aria-pressed={memory.pinned}
+        aria-label="Pin"
+        title={memory.pinned ? "Unpin" : "Pin: always give it to agents"}
+        disabled={pinning}
+        onClick={() => void togglePin()}
+        className={cn(memory.pinned && "text-foreground-strong")}
+      >
+        <StarIcon className={cn(memory.pinned && "fill-current")} />
+      </Button>
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5 pt-1">
+        <span className="flex items-center gap-2 text-label">
+          <span className="text-muted-foreground">{MEMORY_KIND_LABELS[memory.kind]}</span>
+          {memory.editedAt && <span className="text-faint">edited</span>}
+          {memory.sourceTaskId && (
+            <Link
+              to="/tasks/$taskId"
+              params={{ taskId: memory.sourceTaskId }}
+              className="min-w-0 truncate text-muted-foreground"
+              title={taskTitle}
+            >
+              {taskTitle ?? "Source task"}
+            </Link>
+          )}
+        </span>
+        <span className="text-pretty whitespace-pre-wrap text-foreground">{memory.text}</span>
+        {memory.files && (
+          <span className="mono truncate text-label text-muted-foreground">
+            {memory.files.join(", ")}
+          </span>
+        )}
+        {error && <ErrorText>{error}</ErrorText>}
+      </span>
+      <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
+        Edit
+      </Button>
+      <Button size="sm" variant="destructive-ghost" onClick={() => setConfirmDelete(true)}>
+        Delete
+      </Button>
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Delete this memory?"
+          confirmLabel="Delete memory"
+          onConfirm={async () => {
+            await deleteMemory(repo.id, memory.id);
+            await onChanged();
+          }}
+          onClose={() => setConfirmDelete(false)}
+        >
+          Agents in {repo.name} no longer get it.
+        </ConfirmDialog>
+      )}
+    </li>
+  );
+}
+
+/**
+ * The repo's memories, saved at once per note (not through the repo's Save
+ * bar). Only the user's own changes refresh it; notes Summarize saves show up
+ * once the query goes stale.
+ */
+function MemoryVault({ repo }: { repo: RepoView }) {
+  const queryClient = useQueryClient();
+  const memories = useQuery(memoriesQuery(repo.id));
+  const tasks = useQuery(tasksQuery);
+  const [adding, setAdding] = useState(false);
+
+  const changed = () => queryClient.invalidateQueries({ queryKey: queryKeys.memories(repo.id) });
+  const taskTitle = (id: string | null) =>
+    id === null ? undefined : tasks.data?.find((t) => t.id === id)?.title;
+  const rows = (list: Memory[]) => (
+    <ul className="m-0 flex list-none flex-col p-0">
+      {list.map((memory) => (
+        <MemoryRow
+          key={memory.id}
+          repo={repo}
+          memory={memory}
+          taskTitle={taskTitle(memory.sourceTaskId)}
+          onChanged={changed}
+        />
+      ))}
+    </ul>
+  );
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="flex items-center gap-2">
+        <span className={fieldLabel}>
+          Memory{" "}
+          {memories.data && (
+            <span className="font-normal text-faint">{memories.data.memories.length}</span>
+          )}
+        </span>
+        <span className="text-meta text-faint">
+          Notes blackwall remembers about this repo and gives to agents. Pinned notes are always
+          included.
+        </span>
+        <span className="flex-1" />
+        <Button size="sm" variant="ghost" disabled={adding} onClick={() => setAdding(true)}>
+          <PlusIcon />
+          Add
+        </Button>
+      </span>
+      {adding && (
+        <MemoryForm
+          initial={memoryDraft()}
+          saveLabel="Add note"
+          onSave={async (input) => {
+            await createMemory(repo.id, input);
+            await changed();
+            setAdding(false);
+          }}
+          onCancel={() => setAdding(false)}
+        />
+      )}
+      {memories.isPending ? (
+        <span className="text-meta text-faint">Reading memories…</span>
+      ) : memories.isError ? (
+        <ErrorText>{errorMessage(memories.error)}</ErrorText>
+      ) : (
+        <>
+          {memories.data.memories.length === 0 ? (
+            <span className="text-meta text-faint">
+              No memories yet. Summarize saves them as tasks finish, or add one.
+            </span>
+          ) : (
+            rows(memories.data.memories)
+          )}
+          {memories.data.awaitingMerge.length > 0 && (
+            <div className="flex flex-col gap-1 pt-1">
+              <span className="flex items-center gap-2">
+                <span className={fieldLabel}>
+                  Waiting for merge{" "}
+                  <span className="font-normal text-faint">
+                    {memories.data.awaitingMerge.length}
+                  </span>
+                </span>
+                <span className="text-meta text-faint">
+                  Held until the reviewed pull request merges into the default branch.
+                </span>
+              </span>
+              {rows(memories.data.awaitingMerge)}
+            </div>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 
@@ -644,6 +962,7 @@ function RepoEditor({
             onChange={(event) => setChecks(event.target.value)}
           />
         </label>
+        <MemoryVault repo={repo} />
         {notice && <p className="m-0 text-meta text-muted-foreground">{notice}</p>}
       </div>
 

@@ -26,6 +26,7 @@ import {
   healthResponseSchema,
   missingCredentialSchema,
   issueLookupSchema,
+  memorySchema,
   pullRequestCommentsSchema,
   pullRequestRefreshSchema,
   pullRequestLookupSchema,
@@ -33,6 +34,7 @@ import {
   repoBacklogRunnerSchema,
   repoIssuesSchema,
   repoJiraIssuesSchema,
+  repoMemoriesSchema,
   reviewRequestsSchema,
   repoScanResultSchema,
   repoSchema,
@@ -87,6 +89,9 @@ import {
   type GrillQuestion,
   type HealthResponse,
   type SystemInfo,
+  type Memory,
+  type MemoryInput,
+  type MemoryUpdate,
   type MissingCredential,
   type NewBacklogItemInput,
   type NewTaskInput,
@@ -97,6 +102,7 @@ import {
   type RepoBacklogRunnerUpdate,
   type RepoIssues,
   type RepoJiraIssues,
+  type RepoMemories,
   type ResolveConnectionInput,
   type Repo,
   type RepoInput,
@@ -577,6 +583,26 @@ export function deleteBacklogItem(repoId: string, id: string): Promise<void> {
 /** Promotes the item now: the server creates a normal queued task from it. */
 export function runBacklogItem(repoId: string, id: string): Promise<Task> {
   return request(`${at(backlogPath(repoId), id)}/run`, taskSchema, { method: "POST" });
+}
+
+const memoriesPath = (repoId: string) => `${at("/api/repos", repoId)}/memories`;
+
+/** The repo's active notes (pinned first, then newest) and its held ones. */
+export function listMemories(repoId: string): Promise<RepoMemories> {
+  return request(memoriesPath(repoId), repoMemoriesSchema);
+}
+
+export function createMemory(repoId: string, input: MemoryInput): Promise<Memory> {
+  return request(memoriesPath(repoId), memorySchema, { method: "POST", body: input });
+}
+
+/** Edits or pins a note; the server marks it edited, so Summarize never replaces it. */
+export function updateMemory(repoId: string, id: string, patch: MemoryUpdate): Promise<Memory> {
+  return request(at(memoriesPath(repoId), id), memorySchema, { method: "PATCH", body: patch });
+}
+
+export function deleteMemory(repoId: string, id: string): Promise<void> {
+  return requestEmpty(at(memoriesPath(repoId), id), { method: "DELETE" });
 }
 
 /** Whether the server can transcribe speech with the chosen model, and why not. */

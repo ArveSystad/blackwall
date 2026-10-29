@@ -44,6 +44,8 @@ import {
   parseFollowUps,
   parseMemories,
   MAX_MEMORIES_PER_TASK,
+  MAX_MEMORY_CHARS,
+  memoryUpdateSchema,
   planAnswersOutputJsonSchema,
   planAnswersOutputSchema,
   planReviewOutputJsonSchema,
@@ -1334,6 +1336,24 @@ describe("parseMemories", () => {
     expect(parseMemories([valid(1)])).toEqual([
       { kind: "convention", text: "Note 1", files: null },
     ]);
+  });
+});
+
+describe("memoryUpdateSchema", () => {
+  it("accepts a partial patch and null files", () => {
+    expect(memoryUpdateSchema.parse({ pinned: true })).toEqual({ pinned: true });
+    expect(memoryUpdateSchema.parse({ text: "  Use pnpm ", files: null })).toEqual({
+      text: "Use pnpm",
+      files: null,
+    });
+  });
+
+  it("rejects empty or over-long text and an unknown kind", () => {
+    expect(memoryUpdateSchema.safeParse({ text: "   " }).success).toBe(false);
+    expect(memoryUpdateSchema.safeParse({ text: "x".repeat(MAX_MEMORY_CHARS + 1) }).success).toBe(
+      false,
+    );
+    expect(memoryUpdateSchema.safeParse({ kind: "rumour" }).success).toBe(false);
   });
 });
 

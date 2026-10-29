@@ -37,6 +37,7 @@ import {
   listBacklog,
   listAssignedIssues,
   listConnections,
+  listMemories,
   listRepoIssues,
   listRepoJiraIssues,
   listRepos,
@@ -93,6 +94,8 @@ export const queryKeys = {
    * the default branch) refresh it.
    */
   repoSync: (repoId: string) => ["backlog", repoId, "sync"] as const,
+  /** A repo's memories; only the user's own changes in Settings invalidate it. */
+  memories: (repoId: string) => ["memories", repoId] as const,
   quota: ["quota"] as const,
   /** A repo's chat (`taskId` null) or a task's own; written in place by `chat.upserted`. */
   chat: (repoId: string, taskId?: string | null) => ["chat", repoId, taskId ?? null] as const,
@@ -238,6 +241,9 @@ export const settingsQuery = queryOptions({ queryKey: queryKeys.settings, queryF
 
 export const backlogQuery = (repoId: string) =>
   queryOptions({ queryKey: queryKeys.backlog(repoId), queryFn: () => listBacklog(repoId) });
+
+export const memoriesQuery = (repoId: string) =>
+  queryOptions({ queryKey: queryKeys.memories(repoId), queryFn: () => listMemories(repoId) });
 
 export const backlogRunnerQuery = (repoId: string) =>
   queryOptions({

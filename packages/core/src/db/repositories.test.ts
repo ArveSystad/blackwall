@@ -1042,6 +1042,17 @@ describe("memories", () => {
     expect(r.memories.tasksAwaitingMerge()).toEqual([]);
   });
 
+  it("lists a repo's held notes apart, newest first", () => {
+    const task = seedTask();
+    const other = r.repos.create({ path: "/code/other", name: "other" });
+    note(task.repoId, "Active note");
+    note(task.repoId, "Older held", { awaitingMerge: true, pinned: true });
+    note(task.repoId, "Newer held", { awaitingMerge: true });
+    note(other.id, "Other repo held", { awaitingMerge: true });
+    expect(texts(r.memories.listAwaitingByRepo(task.repoId))).toEqual(["Newer held", "Older held"]);
+    expect(texts(r.memories.listByRepo(task.repoId))).toEqual(["Active note"]);
+  });
+
   it("discards one task's held notes, or those whose task was deleted", () => {
     const task = seedTask();
     const other = r.tasks.create({

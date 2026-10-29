@@ -391,6 +391,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
         artifacts: createTaskArtifacts(),
       },
       backlog,
+      memories: { memories: repositories.memories, repos: repositories.repos },
       chat,
       quota,
       clis: () => clis,

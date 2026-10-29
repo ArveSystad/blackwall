@@ -816,6 +816,15 @@ export function createMemoriesRepository(db: Db) {
         .orderBy(desc(memories.pinned), desc(memories.createdAt), desc(rowid))
         .all();
     },
+    /** The repo's held notes, waiting for their pull request to merge: newest first. */
+    listAwaitingByRepo(repoId: string): Memory[] {
+      return db
+        .select()
+        .from(memories)
+        .where(and(eq(memories.repoId, repoId), eq(memories.awaitingMerge, true)))
+        .orderBy(desc(memories.createdAt), desc(rowid))
+        .all();
+    },
     /**
      * Replaces the task's notes the user never edited (held or not) with
      * `items`, skipping any whose text an active note in the repo or an

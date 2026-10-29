@@ -4,12 +4,15 @@ import {
   ApiError,
   StaleRepoError,
   artifactUrl,
+  deleteMemory,
   downloadVoiceModel,
   getArtifactText,
   listConnections,
+  listMemories,
   sendVoiceCommand,
   socketUrl,
   transcribeVoice,
+  updateMemory,
 } from "./api";
 import { VOICE_CLIENT_ID } from "./voice";
 
@@ -166,5 +169,52 @@ describe("request bodies", () => {
         taskId: "t1",
       }),
     );
+  });
+
+  const memory = {
+    id: "m1",
+    repoId: "r1",
+    sourceTaskId: null,
+    kind: "pitfall",
+    text: "Run codegen first",
+    files: null,
+    pinned: false,
+    awaitingMerge: false,
+    editedAt: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+
+  it("lists a repo's memories and held notes", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          memories: [memory],
+          awaitingMerge: [{ ...memory, id: "m2", awaitingMerge: true }],
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const { memories, awaitingMerge } = await listMemories("r1");
+    expect(fetch.mock.calls[0]![0]).toBe("/api/repos/r1/memories");
+    expect(memories[0]).toMatchObject({ id: "m1", createdAt: new Date(memory.createdAt) });
+    expect(awaitingMerge.map((m) => m.id)).toEqual(["m2"]);
+  });
+
+  it("patches and deletes a memory", async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ...memory, pinned: true })))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetch);
+    expect((await updateMemory("r1", "m1", { pinned: true })).pinned).toBe(true);
+    const [path, init] = fetch.mock.calls[0]!;
+    expect(path).toBe("/api/repos/r1/memories/m1");
+    expect(init?.method).toBe("PATCH");
+    expect(init?.headers).toEqual({ "content-type": "application/json" });
+    expect(init?.body).toBe(JSON.stringify({ pinned: true }));
+    await deleteMemory("r1", "m1");
+    expect(fetch.mock.calls[1]![0]).toBe("/api/repos/r1/memories/m1");
+    expect(fetch.mock.calls[1]![1]?.method).toBe("DELETE");
   });
 });

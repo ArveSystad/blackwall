@@ -376,6 +376,22 @@ export const memoryInputSchema = z.object({
 });
 export type MemoryInput = z.infer<typeof memoryInputSchema>;
 
+/** A `PATCH /api/repos/:repoId/memories/:id` body; any change marks the note edited. */
+export const memoryUpdateSchema = z.object({
+  kind: memoryKindSchema.optional(),
+  text: memorySchema.shape.text.optional(),
+  files: z.array(z.string().trim().min(1)).nullable().optional(),
+  pinned: z.boolean().optional(),
+});
+export type MemoryUpdate = z.infer<typeof memoryUpdateSchema>;
+
+/** A repo's notes: the active ones (pinned first, then newest) and the held ones (newest first). */
+export const repoMemoriesSchema = z.object({
+  memories: memorySchema.array(),
+  awaitingMerge: memorySchema.array(),
+});
+export type RepoMemories = z.infer<typeof repoMemoriesSchema>;
+
 /** A memory as the summarizer sends it; no caps, so the CLI never rejects the reply for one. */
 export const memoryWireSchema = z.object({
   kind: z.string(),

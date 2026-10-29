@@ -34,6 +34,7 @@ import { errorResponse } from "./errors.js";
 import { issueRoutes, pullRequestRoutes } from "./github.js";
 import { jiraIssueRoutes } from "./jira.js";
 import { mcpRoutes, type McpCommandService } from "./mcp.js";
+import { memoryRoutes, type MemoryRouteStores } from "./memories.js";
 import { quotaRoutes } from "./quota.js";
 import { repoRoutes } from "./repos.js";
 import { searchRoutes } from "./search.js";
@@ -69,6 +70,8 @@ export interface AppOptions {
   taskServices?: TaskRouteServices;
   /** Backlog stores and runner hooks; omit to leave the backlog routes out (e.g. in tests). */
   backlog?: BacklogRouteOptions;
+  /** Memory and repo stores; omit to leave the memory routes out (e.g. in tests). */
+  memories?: MemoryRouteStores;
   /** The repo and task chats; omit to leave the chat routes out (e.g. in tests). */
   chat?: Pick<ChatService, "get" | "send" | "markApplied" | "addAction">;
   /** Agent CLI usage limits; omit to leave the quota route out (e.g. in tests). */
@@ -113,6 +116,7 @@ export function createApp({
   pipeline,
   taskServices,
   backlog,
+  memories,
   chat,
   quota,
   clis,
@@ -154,6 +158,7 @@ export function createApp({
       }),
     );
   }
+  if (memories) app.route("/api/repos/:repoId/memories", memoryRoutes(memories));
   if (chat) {
     app.route("/api/repos/:repoId/chat", chatRoutes(chat));
     app.route("/api/repos/:repoId/tasks/:taskId/chat", chatRoutes(chat));
