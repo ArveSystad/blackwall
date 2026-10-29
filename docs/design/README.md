@@ -41,7 +41,7 @@ The app (`apps/web/src`) wins wherever these differ. As of `295dafe`:
 
 - **Corners:** the mockups use rounded radii; the app is radius 0 everywhere, with chamfered corners (`.bw-chamfer*` in `styles.css`).
 - **Top bar:** Stats, Settings, the theme toggle, chat and search have moved into a global 44px top bar with the wordmark and repo picker; the mockups put them in pane headers.
-- **Task view:** there is no input bar. Steering moved to the chat composer's direct send (⌘⇧↵).
+- **Task view:** there is no input bar. Steering moved to the direct send (⌘⇧↵) in the task view's task channel.
 - **Tabs:** the app has nine (Context, Plan, Grill, Agent output, Findings, Diff, Artifacts, Checks, Finish); the mockups lack Artifacts and Finish as tabs.
 - **Grill:** the app has no 1/2/3 quick answers and no "approve anyway" link; each question takes a typed answer, and Approve plan stays locked until the open questions are answered.
 - **Inbox footer:** the button reads "Archive N done" (title "Archive all done tasks").

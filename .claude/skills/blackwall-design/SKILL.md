@@ -176,9 +176,10 @@ Rules:
   time, 2-line title, needs-you reason (magenta), repo (mono), 6-pip stage indicator, agent tiles and
   a status badge.
 - **Task view:** header (origin link, mode chip, title, repo, branch, agents, stage stepper with
-  review round), then the needs-you banner if any, then tabs (Context, Plan, Grill, Agent output,
-  Findings, Diff, Artifacts, Checks, Finish; `TAB_LABELS` in `task-view.ts`) with counts in mono, then
-  content. There is no input bar: steer agents from the chat composer's direct send (`⌘⇧↵`).
+  review round), then the needs-you banner if any, then the task channel, then tabs (Context, Plan,
+  Grill, Agent output, Findings, Diff, Artifacts, Checks, Finish; `TAB_LABELS` in `task-view.ts`)
+  with counts in mono, then content. There is no input bar: steer agents from the task channel's
+  direct send (`⌘⇧↵`).
 - **Stages, always in this order:** Inform → Plan review → Implement → Checks → Code review → Finish.
 - **Grill:** a structured interview, not chat. Each question card shows the Q-number, a status chip,
   the asking reviewer (agent tile, name, model) and the answer, labelled You or Planner. A question
@@ -190,8 +191,8 @@ Rules:
   actions start unticked. One confirm button states the count, e.g. "Confirm and send 3 actions".
   Nothing outward happens anywhere else in the UI.
 - **Chat:** a right-hand panel beside every page (shell, Settings, Stats), toggled by the top bar's
-  chat button or `C`. It follows the repo picked in the top bar ("No channel. Pick a repo to chat about it."
-  otherwise). Its preferred width is 250–900px (default 380px), remembered per browser with the open
+  chat button or `C`. It is always the repo chat of the repo picked in the top bar, task pages
+  included, never task-scoped ("No channel. Pick a repo to chat about it." otherwise). Its preferred width is 250–900px (default 380px), remembered per browser with the open
   state; the rendered width re-clamps live so the main area keeps at least 360px beside the 352px
   sidebar. It never overlays the page and never closes itself; below ~960px it stays at 250px and
   the main area shrinks. The left edge is a separator: an 8px hit area over a 1px `border` line that
@@ -203,6 +204,12 @@ Rules:
   error with Retry, empty, busy (a cyan activity line with the running pulse; Send is disabled
   except for `/clear`), send error inline. Clear (and a typed `/clear`) clears at once when idle,
   and asks first ("Stop and clear the chat?") only while an answer is running.
+- **Task channel:** each task page's own chat, a `bw-chamfer` block on `bg-sidebar` between the
+  banner and the tabs (`TaskChatPane.tsx`). Its chamfer line takes the task's status colour at 40%
+  (`border-strong` when queued), with no glow; the header repeats the status as a `StatusBadge`.
+  The composer (two rows, with the direct send) always shows; only the history folds, capped at
+  `min(40vh, 360px)` when open. Folded, it shows the newest reply as one truncated line. Whether the
+  history is open is remembered per browser, not per task; it starts folded.
 - **Search palette:** `⌘K` / `Ctrl K` or the top bar's search button opens a dialog anchored near
   the top (640px). The input keeps focus (combobox) over a listbox grouped Tasks → Backlog → Repos,
   each with a `label` heading; the active row is `bg-muted` with a cyan border. An "All repos" /
@@ -231,7 +238,7 @@ only `primary` button.
 ## Keyboard
 
 J/K move · Enter open · G N next needs-you · N new task · / filter inbox · ⌘K / Ctrl K search palette · ⌘↵ confirm/send · F force fix ·
-I force ignore · O open in editor · A approve plan · R request changes (Grill) / resume (interrupted) ·
+I force ignore · O open in editor · A approve plan · R request changes (focuses the task channel) / resume (interrupted) · M message task (task view) ·
 P pause · T toggle theme · C toggle chat · Esc close · ? shortcut sheet. Show `Kbd` hints next to the actions they trigger. Never
 bind a plain-key global shortcut while focus is in a text field; ⌘/Ctrl shortcuts (⌘S, ⌘K) may fire there.
 

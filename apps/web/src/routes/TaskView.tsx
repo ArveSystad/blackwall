@@ -18,10 +18,11 @@ import { approvePlan, resume, stop, type PlanComment } from "../components/task/
 import { DeleteTaskDialog } from "../components/task/DeleteTaskDialog";
 import { PlanPanel } from "../components/task/PlanPanel";
 import { TaskBanner } from "../components/task/TaskBanner";
+import { TaskChatPane } from "../components/task/TaskChatPane";
 import { TaskHeader } from "../components/task/TaskHeader";
 import { useTaskAction } from "../components/task/use-task-action";
 import { useTaskData, type TaskData } from "../components/task/use-task-data";
-import { focusChat } from "../chat";
+import { focusTaskChat } from "../chat";
 import { draftStamp, useDraft, type DraftCodec } from "../drafts";
 import { uiStageIndex } from "../inbox";
 import { isPlainKey, isTypingTarget, useEscapeTo, useWindowKeydown } from "../keyboard";
@@ -108,15 +109,15 @@ function TabDecoration({ tab, task, data }: { tab: TaskTab; task: Task; data: Ta
 }
 
 /**
- * Task keys: A approves the plan, R requests changes (at plan approval) or
- * resumes an interrupted or failed task, S stops a queued, running or waiting one.
- * Never while typing.
+ * Task keys: A approves the plan, M messages the task in its task channel, R requests
+ * changes (at plan approval) or resumes an interrupted or failed task, S stops a queued,
+ * running or waiting one. Never while typing.
  */
-function useTaskKeys(onKey: (key: "a" | "r" | "s") => void) {
+function useTaskKeys(onKey: (key: "a" | "m" | "r" | "s") => void) {
   useWindowKeydown((event) => {
     if (!isPlainKey(event) || isTypingTarget(event.target)) return;
     const key = event.key.toLowerCase();
-    if (key === "a" || key === "r" || key === "s") {
+    if (key === "a" || key === "m" || key === "r" || key === "s") {
       event.preventDefault();
       onKey(key);
     }
@@ -250,13 +251,17 @@ function TaskScreen({ task }: { task: Task }) {
   };
 
   useTaskKeys((key) => {
+    if (key === "m") {
+      focusTaskChat();
+      return;
+    }
     if (action.pending) return;
     const atApproval = task.status === "needs-you" && task.gate === "plan-approval";
     if (key === "a" && atApproval) {
       void approvePlan(action, task, planComment);
     } else if (key === "r" && atApproval) {
       chooseTab("plan");
-      focusChat();
+      focusTaskChat();
     } else if (key === "r" && (task.status === "interrupted" || task.status === "failed")) {
       void resume(action, task);
     } else if (key === "s" && canStop(task)) {
@@ -355,10 +360,11 @@ function TaskScreen({ task }: { task: Task }) {
         onTab={chooseTab}
         onDelete={() => setDeleting(true)}
       />
+      <TaskChatPane task={task} />
       <Tabs.Root
         value={current}
         onValueChange={(value) => chooseTab(value as TaskTab)}
-        className="mt-2 flex min-h-0 flex-1 flex-col"
+        className="mt-3 flex min-h-0 flex-1 flex-col"
       >
         <Tabs.List
           aria-label="Task sections"
@@ -417,7 +423,7 @@ function useEscapeToBacklog() {
   });
 }
 
-/** Main pane for one task: header, needs-you banner and the section tabs. */
+/** Main pane for one task: header, needs-you banner, task channel and the section tabs. */
 export function TaskView({ taskId }: { taskId: string }) {
   const task = useQuery(taskQuery(taskId));
   useLeaveWhenDeleted(taskId);

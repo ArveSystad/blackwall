@@ -414,8 +414,8 @@ repos" / "This repo", and results grouped Tasks, Backlog, Repos. Its states are 
 - **Scope**:
   - The header reads "Chat · <repo>". With no repo selected the panel is empty: "No channel. Pick a
     repo to chat about it."
-  - On a task page it switches to that task's own conversation, "Chat · About <task title>", with
-    the task's status pill. When the worktree exists, the chat reads it.
+  - It stays "Chat · <repo>" on every page, task pages included: the side panel is always the repo
+    chat. A task's own conversation is its task channel, below.
 - **What it does**: answers about the code, tasks and backlog. Empty state: "Channel open. Ask
   about this repo. Proposed actions wait for you to apply them." While busy, a cyan line reads
   "Thinking…" (or the current activity).
@@ -427,12 +427,24 @@ repos" / "This repo", and results grouped Tasks, Backlog, Repos. Its states are 
   - "Resume task" / "Resume with guidance"
 - **Turn into task**: any assistant reply can become a backlog item card ("Turn into task" →
   "Adding…").
-- **Direct send** (task pages): `⌘⇧↵` sends the draft straight to the task's gate (e.g. "Request
-  changes · planner") or as "Resume with this", without asking the chat agent.
 - **/clear**: starts over. While an answer is running it asks first: "Stop and clear the chat?",
   "The answer in progress is stopped and the conversation is dropped.", "Stop and clear".
 - **Motion**: the panel's width slides over 180ms (ease-out to open, ease-in to close), and its
   content fades and shifts 12px. New messages fade in over 150ms; history never does.
+
+### Task channel
+
+- Each task page has its own chat, "Task channel" (`M`), between the banner and the tabs. The agent
+  knows the task in full, and when the worktree exists it reads it. Its messages never show in the
+  side panel, and the side panel's never show here.
+- The frame's chamfer line takes the task's status colour, with the status pill in the header so
+  the state is not shown by colour alone. No glow.
+- The composer always shows. Only the history folds ("Show history" / "Hide history"), and whether
+  it is open is remembered per browser. Folded, the newest reply shows as one truncated line.
+- **Direct send**: `⌘⇧↵` sends the draft straight to the task's gate (e.g. "Request changes ·
+  planner") or as "Resume with this" / "Retry with this", without asking the chat agent.
+- "Request changes" (`R`, the banner button and the Plan tab button) opens the Plan tab and puts
+  the cursor in the task channel.
 
 ## 5. The grid backdrop screen
 
@@ -588,7 +600,7 @@ A suggested 60–90 second explainer, in nine scenes. Every line of copy is real
    - Motion: minimal. Text and diffs never glow.
 7. **Talk to the wall.**
    - Shot: press `C`; the chat slides in from the right.
-   - On screen: "Chat · About <task>". The reply proposes a card, "New backlog task", and the user
+   - On screen: "Chat · <repo>". The reply proposes a card, "New backlog task", and the user
      clicks "Apply" → "Done". Then "Turn into task" on another reply.
    - Motion: the 180ms width slide, and messages fading in over 150ms.
 8. **Nothing crosses without you.**

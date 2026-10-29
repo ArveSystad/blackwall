@@ -12,8 +12,9 @@ import { isModKey, isPlainKey, isTypingTarget, useWindowKeydown } from "./keyboa
 import { canStop } from "./task-view";
 
 /**
- * The repo chat panel on the right. Whether it is open and its preferred width are remembered per
- * browser, like the theme; the conversation itself lives on the server.
+ * The repo chat panel on the right, the selected repo's chat on every page, and the task channel
+ * on each task page. Whether each is open, and the panel's preferred width, are remembered per
+ * browser, like the theme; the conversations themselves live on the server.
  */
 export const CHAT_STORAGE_KEY = "blackwall.chat";
 
@@ -26,8 +27,10 @@ export const CHAT_SIDEBAR_WIDTH = 352;
 export const CHAT_MAIN_MIN_WIDTH = 360;
 /** One arrow key press on the resize handle. */
 export const CHAT_WIDTH_STEP = 16;
-/** The composer's textarea. */
+/** The side panel's repo chat composer textarea. */
 export const CHAT_INPUT_ID = "chat-input";
+/** The task channel's composer textarea, on a task page. */
+export const TASK_CHAT_INPUT_ID = "task-chat-input";
 
 export interface ChatLayout {
   open: boolean;
@@ -101,7 +104,7 @@ export function toggleChat(): boolean {
   return open;
 }
 
-/** Puts the cursor in the chat's composer, opening the panel first when it is closed. */
+/** Puts the cursor in the side panel's repo chat composer, opening the panel first when it is closed. */
 export function focusChat(): void {
   if (!chatLayout().open) {
     setChatOpen(true);
@@ -130,6 +133,79 @@ function subscribe(listener: () => void): () => void {
 /** The chat layout, re-rendering when it changes. */
 export function useChatLayout(): ChatLayout {
   return useSyncExternalStore(subscribe, chatLayout, () => DEFAULT_LAYOUT);
+}
+
+/** The task channel on a task page: whether its history is open. Global per browser, not per task. */
+export const TASK_CHAT_STORAGE_KEY = "blackwall.task-chat";
+
+export interface TaskChatLayout {
+  open: boolean;
+}
+
+const DEFAULT_TASK_CHAT_LAYOUT: TaskChatLayout = { open: false };
+
+const taskChatListeners = new Set<() => void>();
+let taskChatCurrent: TaskChatLayout | undefined;
+
+/** The stored task channel layout: collapsed unless storage holds a valid one. */
+export function readTaskChatLayout(): TaskChatLayout {
+  try {
+    const raw = globalThis.localStorage?.getItem(TASK_CHAT_STORAGE_KEY);
+    if (!raw) return DEFAULT_TASK_CHAT_LAYOUT;
+    const value: unknown = JSON.parse(raw);
+    if (typeof value !== "object" || value === null) return DEFAULT_TASK_CHAT_LAYOUT;
+    return { open: (value as Record<string, unknown>).open === true };
+  } catch {
+    return DEFAULT_TASK_CHAT_LAYOUT;
+  }
+}
+
+/** The task channel layout in effect for this page. */
+export function taskChatLayout(): TaskChatLayout {
+  taskChatCurrent ??= readTaskChatLayout();
+  return taskChatCurrent;
+}
+
+function writeTaskChatLayout(layout: TaskChatLayout): void {
+  taskChatCurrent = layout;
+  try {
+    globalThis.localStorage?.setItem(TASK_CHAT_STORAGE_KEY, JSON.stringify(layout));
+  } catch {
+    // Storage is a convenience; the layout still applies for this page.
+  }
+  for (const listener of taskChatListeners) listener();
+}
+
+/** Opens or folds the task channel's history. */
+export function setTaskChatOpen(open: boolean): void {
+  if (taskChatLayout().open === open) return;
+  writeTaskChatLayout({ open });
+}
+
+/** Opens folded history and folds open history; returns whether it is now open. */
+export function toggleTaskChat(): boolean {
+  const open = !taskChatLayout().open;
+  setTaskChatOpen(open);
+  return open;
+}
+
+/**
+ * Puts the cursor in the task channel's composer, opening its history. The composer is always
+ * mounted on a task page, so it can focus at once.
+ */
+export function focusTaskChat(): void {
+  setTaskChatOpen(true);
+  document.getElementById(TASK_CHAT_INPUT_ID)?.focus();
+}
+
+function subscribeTaskChat(listener: () => void): () => void {
+  taskChatListeners.add(listener);
+  return () => taskChatListeners.delete(listener);
+}
+
+/** The task channel layout, re-rendering when it changes. */
+export function useTaskChatLayout(): TaskChatLayout {
+  return useSyncExternalStore(subscribeTaskChat, taskChatLayout, () => DEFAULT_TASK_CHAT_LAYOUT);
 }
 
 /** The panel's width range in a window `viewport` px wide; `max` never drops below `min`. */

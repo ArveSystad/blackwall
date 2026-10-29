@@ -170,6 +170,62 @@ describe("chat layout", () => {
   });
 });
 
+describe("task chat layout", () => {
+  beforeEach(() => {
+    vi.stubGlobal("localStorage", memoryStorage());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("starts collapsed", async () => {
+    const { readTaskChatLayout } = await loadChat();
+    expect(readTaskChatLayout()).toEqual({ open: false });
+  });
+
+  it("remembers whether the history is open", async () => {
+    const { toggleTaskChat, readTaskChatLayout, TASK_CHAT_STORAGE_KEY } = await loadChat();
+    expect(toggleTaskChat()).toBe(true);
+    expect(JSON.parse(localStorage.getItem(TASK_CHAT_STORAGE_KEY)!)).toEqual({ open: true });
+    expect(readTaskChatLayout()).toEqual({ open: true });
+    expect(toggleTaskChat()).toBe(false);
+    expect(readTaskChatLayout()).toEqual({ open: false });
+  });
+
+  it("falls back to collapsed for invalid JSON and non-objects", async () => {
+    vi.stubGlobal("localStorage", memoryStorage({ "blackwall.task-chat": "not json" }));
+    let chat = await loadChat();
+    expect(chat.readTaskChatLayout()).toEqual({ open: false });
+
+    vi.stubGlobal("localStorage", memoryStorage({ "blackwall.task-chat": "true" }));
+    chat = await loadChat();
+    expect(chat.readTaskChatLayout()).toEqual({ open: false });
+  });
+
+  it("still toggles for the page when storage throws", async () => {
+    vi.stubGlobal("localStorage", throwingStorage);
+    const { readTaskChatLayout, toggleTaskChat, taskChatLayout } = await loadChat();
+    expect(readTaskChatLayout()).toEqual({ open: false });
+    expect(toggleTaskChat()).toBe(true);
+    expect(taskChatLayout().open).toBe(true);
+  });
+
+  it("is independent of the side panel", async () => {
+    const { toggleTaskChat, toggleChat, readChatLayout, readTaskChatLayout } = await loadChat();
+    toggleTaskChat();
+    expect(readChatLayout().open).toBe(false);
+    toggleChat();
+    expect(readTaskChatLayout().open).toBe(true);
+    expect(readChatLayout().open).toBe(true);
+  });
+
+  it("has its own composer id", async () => {
+    const { TASK_CHAT_INPUT_ID, CHAT_INPUT_ID } = await loadChat();
+    expect(TASK_CHAT_INPUT_ID).not.toBe(CHAT_INPUT_ID);
+  });
+});
+
 describe("actionAvailability", () => {
   const running = makeTask({ repoId: "r1", status: "running", stage: "implement" });
   const atPlan = makeTask({ repoId: "r1", status: "needs-you", gate: "plan-approval" });

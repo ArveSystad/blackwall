@@ -1,5 +1,6 @@
 import { ciNeedsYou, IMPORT_INTERRUPTED_ERROR, type Task } from "@blackwall/shared";
 import { useQueryClient } from "@tanstack/react-query";
+import { focusTaskChat } from "../../chat";
 import { cn } from "../../lib/utils";
 import { queryKeys } from "../../query";
 import { canArchive, ciBanner, gateBanner, isStoppedByUser, type TaskTab } from "../../task-view";
@@ -43,7 +44,14 @@ function NeedsActions({
     case "plan-approval":
       return (
         <>
-          <Button variant="ghost" disabled={action.pending} onClick={() => onTab("plan")}>
+          <Button
+            variant="ghost"
+            disabled={action.pending}
+            onClick={() => {
+              onTab("plan");
+              focusTaskChat();
+            }}
+          >
             Request changes
             <Kbd>R</Kbd>
           </Button>
