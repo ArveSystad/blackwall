@@ -1,15 +1,23 @@
-import type { ConnectionView, DataImportResult, MissingCredential } from "@blackwall/shared";
+import type {
+  ConnectionView,
+  DataImportPreview,
+  DataImportResult,
+  MissingCredential,
+} from "@blackwall/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import { exportDataUrl, importData } from "../../api";
+import { exportDataUrl, importData, previewImport } from "../../api";
+import { importSummary } from "../../data-import";
 import { cn } from "../../lib/utils";
 import { queryKeys } from "../../query";
+import { errorMessage } from "../../settings-forms";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { editorBody, sectionLegend } from "../classes";
 import { MissingTokenModal } from "../MissingTokenModal";
 import { StatusBadge } from "../StatusBadge";
 import { Button } from "../ui/button";
-import { fieldLabel } from "../ui/field";
+import { ErrorText, fieldLabel } from "../ui/field";
+import { ImportReposDialog } from "./ImportReposDialog";
 import { Empty, SectionHeader } from "./parts";
 
 /** The connection's host, as the missing-token modal names it. */
@@ -63,7 +71,31 @@ function MissingTokenRow({
   );
 }
 
-/** What the import replaced and what still needs the user. */
+/** A list of repos under a label: the local name and folder, with a note per repo. */
+function RepoList({
+  label,
+  items,
+}: {
+  label: string;
+  items: { key: string; name: string; path: string; note: string }[];
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className={fieldLabel}>{label}</span>
+      <ul className="m-0 list-none p-0">
+        {items.map((item) => (
+          <li key={item.key} className="flex min-h-10 items-center gap-3 border-b border-border">
+            <span className="font-medium text-foreground-strong">{item.name}</span>
+            <span className="mono min-w-0 flex-1 truncate text-muted-foreground">{item.path}</span>
+            <span className="text-meta text-muted-foreground">{item.note}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** What the import added and skipped, and what still needs the user. */
 function ImportReport({
   result,
   onTokenSaved,
@@ -71,7 +103,7 @@ function ImportReport({
   result: DataImportResult;
   onTokenSaved: (connectionId: string) => void;
 }) {
-  const { connectionsMissingToken, missingRepos, tasksMissingWorktree } = result;
+  const { connectionsMissingToken, missingRepos, tasksMissingWorktree, matchedRepos } = result;
   const clean =
     connectionsMissingToken.length === 0 &&
     missingRepos.length === 0 &&
@@ -79,10 +111,33 @@ function ImportReport({
   return (
     <section aria-label="Import result" className="flex max-w-[720px] flex-col gap-4">
       <p className="m-0 text-meta text-muted-foreground">
-        Restore complete. Imported the export from {result.manifest.exportedAt.slice(0, 10)}. The
+        Import complete. Merged the export from {result.manifest.exportedAt.slice(0, 10)}. The
         previous data was backed up to{" "}
         <span className="mono break-all text-foreground">{result.backupPath}</span>.
       </p>
+      <p className="m-0 text-foreground-strong">{importSummary(result.counts)}</p>
+      {matchedRepos.length > 0 && (
+        <RepoList
+          label="Repositories matched by remote"
+          items={matchedRepos.map((m) => ({
+            key: m.importedId,
+            name: m.name,
+            path: m.path,
+            note: m.importedName === m.name ? "merged" : `merged ${m.importedName}`,
+          }))}
+        />
+      )}
+      {result.repoDecisions.length > 0 && (
+        <RepoList
+          label="Your choices"
+          items={result.repoDecisions.map((d) => ({
+            key: d.importedId,
+            name: d.importedName,
+            path: d.importedPath,
+            note: d.decision === "merge" ? `merged into ${d.name}` : "not imported",
+          }))}
+        />
+      )}
       {clean && <Empty>All systems nominal. Nothing needs attention.</Empty>}
       {connectionsMissingToken.length > 0 && (
         <div className="flex flex-col gap-1">
@@ -125,12 +180,27 @@ function ImportReport({
   );
 }
 
-/** Settings → Data: export everything but secrets to a zip, or replace all data with one. */
+/** Settings → Data: export everything but secrets to a zip, or merge one into the data. */
 export function DataSection() {
   const [transcripts, setTranscripts] = useState(true);
-  const [file, setFile] = useState<File | null>(null);
+  const [pending, setPending] = useState<{ file: File; preview: DataImportPreview } | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [result, setResult] = useState<DataImportResult | null>(null);
   const input = useRef<HTMLInputElement>(null);
+
+  /** Checks the picked file for repo conflicts before asking. */
+  async function pick(file: File) {
+    setChecking(true);
+    setPreviewError(null);
+    try {
+      setPending({ file, preview: await previewImport(file) });
+    } catch (cause) {
+      setPreviewError(errorMessage(cause));
+    } finally {
+      setChecking(false);
+    }
+  }
 
   return (
     <div className="flex min-w-0 flex-1 flex-col">
@@ -139,8 +209,9 @@ export function DataSection() {
         <fieldset className="m-0 flex max-w-[720px] flex-col gap-4 border-none p-0">
           <legend className={sectionLegend}>Export</legend>
           <p className="m-0 text-meta text-muted-foreground">
-            Downloads one zip with your settings, connections, repositories, agents, tags, backlog
-            and tasks. Tokens are never exported, and repo checkouts and worktrees are not included.
+            Downloads one zip with your settings, connections, repositories, agents, tags, backlog,
+            tasks and memories. Tokens are never exported, and repo checkouts and worktrees are not
+            included.
           </p>
           <label className="flex cursor-pointer items-start gap-2.5">
             <input
@@ -168,8 +239,8 @@ export function DataSection() {
         <fieldset className="m-0 flex max-w-[720px] flex-col gap-4 border-none p-0">
           <legend className={sectionLegend}>Import</legend>
           <p className="m-0 text-meta text-muted-foreground">
-            Replaces all data with an export, from this machine or another. Refused while tasks run,
-            are queued or are finishing.
+            Adds what an export has that this machine doesn&apos;t. Rows already here are kept, and
+            settings are unchanged. Refused while tasks run, are queued or are finishing.
           </p>
           <input
             ref={input}
@@ -178,15 +249,17 @@ export function DataSection() {
             className="hidden"
             aria-label="Export archive"
             onChange={(event) => {
-              setFile(event.target.files?.[0] ?? null);
+              const file = event.target.files?.[0];
               event.target.value = "";
+              if (file) void pick(file);
             }}
           />
           <div>
-            <Button variant="destructive" onClick={() => input.current?.click()}>
-              Import data…
+            <Button disabled={checking} onClick={() => input.current?.click()}>
+              {checking ? "Checking…" : "Import data…"}
             </Button>
           </div>
+          {previewError && <ErrorText>{previewError}</ErrorText>}
           {result && (
             <ImportReport
               result={result}
@@ -203,18 +276,28 @@ export function DataSection() {
         </fieldset>
       </div>
 
-      {file && (
+      {pending && pending.preview.repoConflicts.length === 0 && (
         <ConfirmDialog
-          title="Replace all blackwall data?"
-          confirmLabel="Replace data"
-          onConfirm={async () => setResult(await importData(file))}
-          onClose={() => setFile(null)}
+          title="Merge an export into blackwall?"
+          confirmLabel="Import data"
+          confirmVariant="default"
+          onConfirm={async () => setResult(await importData(pending.file))}
+          onClose={() => setPending(null)}
         >
-          Every task, repository, connection, agent, tag and setting is replaced with the contents
-          of <span className="mono break-all text-foreground">{file.name}</span>. The current data
+          Tasks, repositories, memories and everything else in{" "}
+          <span className="mono break-all text-foreground">{pending.file.name}</span> that this
+          machine doesn&apos;t have are added. Existing rows and settings are kept. The current data
           is backed up first. Tokens are not in the export: connections need theirs entered again
           unless this machine&apos;s keychain already has them.
         </ConfirmDialog>
+      )}
+      {pending && pending.preview.repoConflicts.length > 0 && (
+        <ImportReposDialog
+          conflicts={pending.preview.repoConflicts}
+          fileName={pending.file.name}
+          onImport={async (decisions) => setResult(await importData(pending.file, decisions))}
+          onClose={() => setPending(null)}
+        />
       )}
     </div>
   );

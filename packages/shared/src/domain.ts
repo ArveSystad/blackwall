@@ -532,6 +532,8 @@ export const repoSchema = z.object({
   path: z.string().min(1),
   name,
   remoteUrl: z.string().nullable(),
+  /** The remote as `host/path` (see `remoteKey`); matches the repo across machines on import. */
+  remoteKey: z.string().nullable(),
   connectionId: id.nullable(),
   /** Build/test commands run in the Checks stage; empty = skip. */
   checkCommands: z.array(z.string().trim().min(1)),
@@ -2486,11 +2488,84 @@ export const dataManifestSchema = z.object({
 });
 export type DataManifest = z.infer<typeof dataManifestSchema>;
 
-/** `POST /api/data/import`: what was replaced and what still needs the user. */
+/** Tables an import merges, in the order the result counts them. */
+export const DATA_IMPORT_TABLES = [
+  "connections",
+  "agents",
+  "tags",
+  "repos",
+  "tasks",
+  "backlogItems",
+  "chatMessages",
+  "runs",
+  "steps",
+  "stepEvents",
+  "findings",
+  "grillQuestions",
+  "memories",
+] as const;
+export type DataImportTable = (typeof DATA_IMPORT_TABLES)[number];
+
+/** Rows of one table an import added, and rows it left out (already here or under a skipped parent). */
+export const dataImportCountSchema = z.object({
+  imported: z.int().nonnegative(),
+  skipped: z.int().nonnegative(),
+});
+export type DataImportCount = z.infer<typeof dataImportCountSchema>;
+
+/** An imported repo and the local repo it maps to; `id`…`remoteUrl` are the local repo's. */
+export const importedRepoMatchSchema = z.object({
+  id,
+  name: z.string(),
+  path: z.string(),
+  remoteUrl: z.string().nullable(),
+  importedId: id,
+  importedName: z.string(),
+  importedPath: z.string(),
+  importedRemoteUrl: z.string().nullable(),
+});
+export type ImportedRepoMatch = z.infer<typeof importedRepoMatchSchema>;
+
+/**
+ * An imported repo the user must decide on: same remote as a local repo but
+ * another folder, or the same folder but another remote.
+ */
+export const repoConflictSchema = importedRepoMatchSchema.extend({
+  kind: z.enum(["different-path", "different-remote"]),
+});
+export type RepoConflict = z.infer<typeof repoConflictSchema>;
+
+/** Merge a conflicting repo into the local one, or leave it and everything under it out. */
+export const repoDecisionSchema = z.enum(["merge", "skip"]);
+export type RepoDecision = z.infer<typeof repoDecisionSchema>;
+
+/** `POST /api/data/import?repos=…`: the decision per imported repo id. */
+export const dataImportDecisionsSchema = z.record(id, repoDecisionSchema);
+export type DataImportDecisions = z.infer<typeof dataImportDecisionsSchema>;
+
+/** `POST /api/data/import/preview`: the archive's manifest and the repos that need a decision. */
+export const dataImportPreviewSchema = z.object({
+  manifest: dataManifestSchema,
+  repoConflicts: z.array(repoConflictSchema),
+});
+export type DataImportPreview = z.infer<typeof dataImportPreviewSchema>;
+
+/** `POST /api/data/import`: what was merged and what still needs the user. */
 export const dataImportResultSchema = z.object({
   /** The database as it was before the import. */
   backupPath: z.string(),
   manifest: dataManifestSchema,
+  /** Per table: rows added and rows skipped. */
+  counts: z.object(
+    Object.fromEntries(DATA_IMPORT_TABLES.map((t) => [t, dataImportCountSchema])) as Record<
+      DataImportTable,
+      typeof dataImportCountSchema
+    >,
+  ),
+  /** Imported repos merged into a local repo with the same remote and folder but another id. */
+  matchedRepos: z.array(importedRepoMatchSchema),
+  /** Each conflicting repo with the user's decision. */
+  repoDecisions: z.array(repoConflictSchema.extend({ decision: repoDecisionSchema })),
   connectionsMissingToken: z.array(connectionViewSchema),
   missingRepos: z.array(z.object({ id, name: z.string(), path: z.string() })),
   tasksMissingWorktree: z.array(z.object({ id, title: z.string(), path: z.string() })),

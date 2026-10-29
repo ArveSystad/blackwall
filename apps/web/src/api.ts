@@ -15,6 +15,7 @@ import {
   compactResultSchema,
   connectionTestResultSchema,
   connectionViewSchema,
+  dataImportPreviewSchema,
   dataImportResultSchema,
   deliveryPlanSchema,
   diffCommentsResultSchema,
@@ -76,6 +77,8 @@ import {
   type ConnectionTestResult,
   type RepoSync,
   type ConnectionView,
+  type DataImportDecisions,
+  type DataImportPreview,
   type DataImportResult,
   type DeliveryPlan,
   type DiffCommentInput,
@@ -490,9 +493,30 @@ export function exportDataUrl(includeTranscripts: boolean): string {
   return `/api/data/export?transcripts=${includeTranscripts ? 1 : 0}`;
 }
 
-/** Replaces all data with an export archive; the server backs up the current database first. */
-export async function importData(file: Blob): Promise<DataImportResult> {
-  const res = await fetch("/api/data/import", {
+/** Checks an export archive and lists the repos that need a merge-or-skip decision before import. */
+export async function previewImport(file: Blob): Promise<DataImportPreview> {
+  const res = await fetch("/api/data/import/preview", {
+    method: "POST",
+    headers: { "content-type": "application/zip" },
+    body: file,
+  });
+  if (!res.ok) throw await errorFrom(res);
+  return dataImportPreviewSchema.parse(await res.json());
+}
+
+/**
+ * Merges an export archive into the data, with a decision for each repo the
+ * preview reported; the server backs up the current database first.
+ */
+export async function importData(
+  file: Blob,
+  decisions: DataImportDecisions = {},
+): Promise<DataImportResult> {
+  const query =
+    Object.keys(decisions).length > 0
+      ? `?repos=${encodeURIComponent(JSON.stringify(decisions))}`
+      : "";
+  const res = await fetch(`/api/data/import${query}`, {
     method: "POST",
     headers: { "content-type": "application/zip" },
     body: file,

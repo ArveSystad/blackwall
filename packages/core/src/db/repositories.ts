@@ -25,6 +25,7 @@ import type {
   Task,
   TaskDoneTime,
 } from "@blackwall/shared";
+import { remoteKey } from "@blackwall/shared";
 import type { Db } from "./database.js";
 import {
   agents,
@@ -142,14 +143,17 @@ export function createReposRepository(db: Db) {
         }
         return tx
           .insert(repos)
-          .values({ ...values, position })
+          .values({ ...values, position, remoteKey: remoteKey(values.remoteUrl ?? null) })
           .returning()
           .get();
       });
     },
+    /** A patch with `remoteUrl` also sets `remoteKey`. */
     update(id: string, patch: Patch<NewRepo>): Repo {
+      const values =
+        patch.remoteUrl === undefined ? patch : { ...patch, remoteKey: remoteKey(patch.remoteUrl) };
       return required(
-        db.update(repos).set(patch).where(eq(repos.id, id)).returning().get(),
+        db.update(repos).set(values).where(eq(repos.id, id)).returning().get(),
         `Repo ${id}`,
       );
     },

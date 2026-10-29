@@ -7,7 +7,7 @@ import { openDatabase, type OpenedDatabase } from "../db/database.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
 import { createMemorySecretStore, type SecretStore } from "../secrets/secret-store.js";
 import { createConnectionTokens } from "../secrets/tokens.js";
-import { sqliteOf } from "./archive.js";
+import { DataImportDecisionsError, sqliteOf } from "./archive.js";
 import { DataImportBusyError, createDataService } from "./service.js";
 
 let root: string;
@@ -21,6 +21,7 @@ let events: ServerEvent[];
 let calls: string[];
 let engineIds: { active: string[]; queued: string[] };
 let afterPause: () => void;
+let appId: string;
 
 function open(name: string) {
   const dir = join(root, name);
@@ -75,7 +76,12 @@ beforeEach(() => {
     baseUrl: "https://acme.atlassian.net",
     tokenSet: true,
   });
-  const present = source.repos.create({ path: "/exists/app", name: "app" });
+  const present = source.repos.create({
+    path: "/exists/app",
+    name: "app",
+    remoteUrl: "https://github.com/acme/app",
+  });
+  appId = present.id;
   source.repos.create({ path: "/gone/lib", name: "lib" });
   source.tasks.create({
     title: "Has worktree",
@@ -111,7 +117,7 @@ function liveService() {
 }
 
 describe("data service", () => {
-  it("imports in place, backs up first and reports what needs attention", async () => {
+  it("merges in place, backs up first and reports what needs attention", async () => {
     const result = await liveService().import(archive);
 
     expect(calls).toEqual(["pause", "resume"]);
@@ -119,7 +125,9 @@ describe("data service", () => {
     expect(existsSync(result.backupPath)).toBe(true);
     expect(result.backupPath.startsWith(join(liveDir, "backups"))).toBe(true);
     expect(result.manifest.blackwallVersion).toBe("1.0.0");
-    expect(live.repos.list().map((r) => r.name)).toEqual(["app", "lib"]);
+    expect(live.repos.list().map((r) => r.name)).toEqual(["before", "app", "lib"]);
+    expect(result.counts.tasks).toEqual({ imported: 2, skipped: 0 });
+    expect(result.repoDecisions).toEqual([]);
 
     // The keychain had the GitHub token, not the Jira one.
     expect(result.connectionsMissingToken.map((c) => c.name)).toEqual(["jira"]);
@@ -145,6 +153,41 @@ describe("data service", () => {
     expect(calls).toEqual([]);
     expect(events).toEqual([]);
     expect(live.repos.list().map((r) => r.name)).toEqual(["before"]);
+  });
+
+  it("previews the repo conflicts without touching the database", () => {
+    live.repos.create({
+      path: "/exists/clone",
+      name: "clone",
+      remoteUrl: "git@github.com:acme/app",
+    });
+    const before = live.repos.list();
+    const preview = liveService().preview(archive);
+    expect(preview.manifest.blackwallVersion).toBe("1.0.0");
+    expect(preview.repoConflicts).toEqual([
+      expect.objectContaining({ kind: "different-path", importedId: appId, name: "clone" }),
+    ]);
+    expect(live.repos.list()).toEqual(before);
+    expect(calls).toEqual([]);
+  });
+
+  it("refuses undecided repo conflicts before backing up, and resumes", async () => {
+    live.repos.create({
+      path: "/exists/clone",
+      name: "clone",
+      remoteUrl: "git@github.com:acme/app",
+    });
+    await expect(liveService().import(archive)).rejects.toThrow(DataImportDecisionsError);
+    expect(calls).toEqual(["pause", "resume"]);
+    expect(events).toEqual([]);
+    expect(existsSync(join(liveDir, "backups"))).toBe(false);
+    expect(live.tasks.list()).toEqual([]);
+
+    const result = await liveService().import(archive, { [appId]: "skip" });
+    expect(result.repoDecisions).toEqual([
+      expect.objectContaining({ importedId: appId, decision: "skip" }),
+    ]);
+    expect(result.counts.tasks).toEqual({ imported: 0, skipped: 2 });
   });
 
   it("refuses while the engine holds a task", async () => {

@@ -123,6 +123,14 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
     });
     // First start: the built-in agents, their role defaults and the finding tags.
     agents.seed();
+    // Repos imported or registered without a remote get one (and a remote key) once it is set.
+    repos
+      .fillMissingRemotes()
+      .catch((error: unknown) =>
+        console.error(
+          `Filling missing repo remotes failed: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
     const settings = createSettingsService({
       settings: repositories.settings,
       tags: repositories.tags,

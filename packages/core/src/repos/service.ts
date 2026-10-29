@@ -339,6 +339,16 @@ export function createRepoService({ repos, connections }: RepoServiceOptions) {
       return repos.update(id, { remoteUrl, connectionId: connectionIdFor(remoteUrl) });
     },
 
+    /** Reads `origin` for repos without a remote whose folder exists, e.g. after an import. */
+    async fillMissingRemotes(): Promise<void> {
+      for (const repo of repos.list()) {
+        if (repo.remoteUrl !== null || !existsSync(repo.path)) continue;
+        const remoteUrl = await readOriginRemote(repo.path);
+        if (remoteUrl)
+          repos.update(repo.id, { remoteUrl, connectionId: connectionIdFor(remoteUrl) });
+      }
+    },
+
     /** The local default branch vs `origin/<branch>` as of the last fetch; `null` without both refs. */
     async sync(id: string): Promise<RepoSync | null> {
       const repo = use(id);

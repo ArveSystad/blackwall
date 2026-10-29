@@ -99,7 +99,7 @@ export const serverEventSchema = z.discriminatedUnion("type", [
   envelope("voice.upserted", z.object({ voice: voiceStateSchema })),
   /** The speech model download moved on: its phase, or (throttled) the bytes received. */
   envelope("voice.download", z.object({ download: voiceDownloadSchema })),
-  /** A data import replaced every row; clients refetch everything. */
+  /** A data import merged an export; clients refetch everything. */
   envelope("data.imported", z.object({})),
 ]);
 export type ServerEvent = z.infer<typeof serverEventSchema>;

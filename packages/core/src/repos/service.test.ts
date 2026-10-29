@@ -261,6 +261,25 @@ describe("repo service", () => {
     expect(service.list()).toEqual([]);
     expect(() => service.delete(repo.id)).toThrow(RepoNotFoundError);
   });
+
+  it("fills missing remotes from existing folders and skips missing ones", async () => {
+    const connection = r.connections.create({
+      name: "github.com",
+      kind: "github",
+      baseUrl: "https://github.com",
+    });
+    const path = gitRepo(["app"], "git@github.com:acme/app.git");
+    const imported = r.repos.create({ path, name: "app" });
+    const gone = r.repos.create({ path: join(root, "gone"), name: "gone" });
+
+    await service.fillMissingRemotes();
+    expect(r.repos.get(imported.id)).toMatchObject({
+      remoteUrl: "git@github.com:acme/app.git",
+      remoteKey: "github.com/acme/app",
+      connectionId: connection.id,
+    });
+    expect(r.repos.get(gone.id)?.remoteUrl).toBeNull();
+  });
 });
 
 describe("agent trust", () => {

@@ -80,48 +80,54 @@ export const connections = sqliteTable("connections", {
   updatedAt: updatedAt(),
 });
 
-export const repos = sqliteTable("repos", {
-  id: id(),
-  path: text("path").notNull().unique(),
-  name: text("name").notNull(),
-  remoteUrl: text("remote_url"),
-  connectionId: text("connection_id").references(() => connections.id, { onDelete: "set null" }),
-  checkCommands: text("check_commands", { mode: "json" })
-    .$type<string[]>()
-    .notNull()
-    .default(sql`'[]'`),
-  /** Dependency install commands run in each task worktree; empty = no setup. */
-  setupCommands: text("setup_commands", { mode: "json" })
-    .$type<string[]>()
-    .notNull()
-    .default(sql`'[]'`),
-  defaultCli: text("default_cli", { enum: AGENT_CLIS }).notNull().default("claude"),
-  defaultOrigin: text("default_origin", { enum: ORIGIN_KINDS }).notNull().default("jira-issue"),
-  maxBacklogTasks: integer("max_backlog_tasks"),
-  /** Branch new tasks fork from, free-text tasks merge into and PRs target. */
-  defaultBranch: text("default_branch").notNull().default("main"),
-  /** Listed first, with a star. */
-  favorite: integer("favorite", { mode: "boolean" }).notNull().default(false),
-  /** Manual order among repos in the same favourite group. */
-  position: integer("position").notNull().default(0),
-  /** Watch CI on GitHub/GHE remotes after a task pushes its branch. */
-  watchCi: integer("watch_ci", { mode: "boolean" }).notNull().default(true),
-  /** Jira project key whose open issues the Backlog lists; null = none. */
-  jiraProject: text("jira_project"),
-  /** Other registered repos whose files read-only agents and the chat may read. */
-  referenceRepoIds: text("reference_repo_ids", { mode: "json" })
-    .$type<string[]>()
-    .notNull()
-    .default(sql`'[]'`),
-  /** What the repo's agents may load and do; see AGENT_TRUST_LEVELS. */
-  agentTrust: text("agent_trust", { enum: AGENT_TRUST_LEVELS }).notNull().default("locked"),
-  /** Trusted repos only: load the repo's project MCP server config. */
-  trustProjectMcp: integer("trust_project_mcp", { mode: "boolean" }).notNull().default(false),
-  /** Trusted repos only: run the repo's project hooks. */
-  trustProjectHooks: integer("trust_project_hooks", { mode: "boolean" }).notNull().default(false),
-  createdAt: createdAt(),
-  updatedAt: updatedAt(),
-});
+export const repos = sqliteTable(
+  "repos",
+  {
+    id: id(),
+    path: text("path").notNull().unique(),
+    name: text("name").notNull(),
+    remoteUrl: text("remote_url"),
+    /** `remoteKey(remoteUrl)`: the remote as `host/path`, matching repos across machines. */
+    remoteKey: text("remote_key"),
+    connectionId: text("connection_id").references(() => connections.id, { onDelete: "set null" }),
+    checkCommands: text("check_commands", { mode: "json" })
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'`),
+    /** Dependency install commands run in each task worktree; empty = no setup. */
+    setupCommands: text("setup_commands", { mode: "json" })
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'`),
+    defaultCli: text("default_cli", { enum: AGENT_CLIS }).notNull().default("claude"),
+    defaultOrigin: text("default_origin", { enum: ORIGIN_KINDS }).notNull().default("jira-issue"),
+    maxBacklogTasks: integer("max_backlog_tasks"),
+    /** Branch new tasks fork from, free-text tasks merge into and PRs target. */
+    defaultBranch: text("default_branch").notNull().default("main"),
+    /** Listed first, with a star. */
+    favorite: integer("favorite", { mode: "boolean" }).notNull().default(false),
+    /** Manual order among repos in the same favourite group. */
+    position: integer("position").notNull().default(0),
+    /** Watch CI on GitHub/GHE remotes after a task pushes its branch. */
+    watchCi: integer("watch_ci", { mode: "boolean" }).notNull().default(true),
+    /** Jira project key whose open issues the Backlog lists; null = none. */
+    jiraProject: text("jira_project"),
+    /** Other registered repos whose files read-only agents and the chat may read. */
+    referenceRepoIds: text("reference_repo_ids", { mode: "json" })
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'`),
+    /** What the repo's agents may load and do; see AGENT_TRUST_LEVELS. */
+    agentTrust: text("agent_trust", { enum: AGENT_TRUST_LEVELS }).notNull().default("locked"),
+    /** Trusted repos only: load the repo's project MCP server config. */
+    trustProjectMcp: integer("trust_project_mcp", { mode: "boolean" }).notNull().default(false),
+    /** Trusted repos only: run the repo's project hooks. */
+    trustProjectHooks: integer("trust_project_hooks", { mode: "boolean" }).notNull().default(false),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("repos_remote_key_idx").on(t.remoteKey)],
+);
 
 /** Agent library entries. */
 export const agents = sqliteTable("agents", {

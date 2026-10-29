@@ -1,13 +1,21 @@
-import type { DataImportResult, ServerEvent } from "@blackwall/shared";
+import type {
+  DataImportDecisions,
+  DataImportPreview,
+  DataImportResult,
+  ServerEvent,
+} from "@blackwall/shared";
 import type { Repositories } from "../db/repositories.js";
 import type { PipelineEngine } from "../pipeline/engine.js";
 import type { ConnectionTokens } from "../secrets/tokens.js";
 import {
+  assertDecided,
   backupDatabase,
   blackwallVersion,
   createExportArchive,
+  mergeDatabase,
+  previewRepoConflicts,
   readImportArchive,
-  restoreDatabase,
+  type MergeResult,
   type Sqlite,
 } from "./archive.js";
 
@@ -22,7 +30,7 @@ export class DataImportBusyError extends Error {
 }
 
 export interface DataServiceOptions {
-  /** The live database handle; an import replaces its rows in place. */
+  /** The live database handle; an import merges rows into it in place. */
   sqlite: Sqlite;
   /** Where `backups/` goes. */
   dataDir: string;
@@ -32,7 +40,7 @@ export interface DataServiceOptions {
   };
   pipeline: Pick<PipelineEngine, "activeTaskIds" | "queuedTaskIds">;
   tokens: Pick<ConnectionTokens, "refresh" | "list">;
-  /** Stops work that would write while the rows are replaced (backlog runner, chat). */
+  /** Stops work that would write while the rows are merged (backlog runner, chat). */
   pause: () => Promise<void>;
   resume: () => void;
   publish: (event: ServerEvent) => void;
@@ -44,7 +52,7 @@ export interface DataServiceOptions {
 export type DataService = ReturnType<typeof createDataService>;
 
 /**
- * Exports the database (without secrets) and imports an export in place,
+ * Exports the database (without secrets) and merges an export in place,
  * refusing while any task runs, is queued or is delivering.
  */
 export function createDataService({
@@ -78,24 +86,45 @@ export function createDataService({
       return createExportArchive(sqlite, { includeTranscripts, version, now: clock() });
     },
 
+    /** Validates the archive and lists the repos that need a merge-or-skip decision. Reads only. */
+    preview(bytes: Uint8Array): DataImportPreview {
+      const archive = readImportArchive(bytes);
+      try {
+        return {
+          manifest: archive.manifest,
+          repoConflicts: previewRepoConflicts(sqlite, archive.dbPath),
+        };
+      } finally {
+        archive.cleanup();
+      }
+    },
+
     /**
-     * Validates the archive, backs up the current database, replaces every row
-     * and reports what still needs the user: tokens, repo folders, worktrees.
+     * Validates the archive, checks every repo conflict has a decision, backs
+     * up the current database, adds the rows it does not have yet and reports
+     * what was imported and what still needs the user: tokens, repo folders,
+     * worktrees.
      */
-    async import(bytes: Uint8Array): Promise<DataImportResult> {
+    async import(
+      bytes: Uint8Array,
+      decisions: DataImportDecisions = {},
+    ): Promise<DataImportResult> {
       const archive = readImportArchive(bytes);
       try {
         assertIdle();
         await pause();
         let backupPath: string;
+        let merged: MergeResult;
         let restored = false;
         try {
           // Something may have started while pausing.
           assertIdle();
+          // Before the backup, so a refused import leaves no backup file behind.
+          assertDecided(sqlite, archive.dbPath, decisions);
           backupPath = backupDatabase(sqlite, dataDir, clock());
-          restoreDatabase(sqlite, archive.dbPath);
+          merged = mergeDatabase(sqlite, archive.dbPath, decisions);
           restored = true;
-          // Same ids as the export, so this machine's keychain may already hold the tokens.
+          // Imported connections keep their ids, so this machine's keychain may already hold the tokens.
           for (const connection of tokens.list()) await tokens.refresh(connection.id);
         } finally {
           resume();
@@ -104,6 +133,7 @@ export function createDataService({
         return {
           backupPath,
           manifest: archive.manifest,
+          ...merged,
           connectionsMissingToken: tokens.list().filter((c) => !c.hasToken),
           missingRepos: r.repos
             .list()

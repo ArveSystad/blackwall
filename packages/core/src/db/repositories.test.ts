@@ -86,6 +86,21 @@ describe("connections and repos", () => {
     expect(r.repos.get(repo.id)?.connectionId).toBeNull();
   });
 
+  it("derives the remote key from the remote URL", () => {
+    const repo = r.repos.create({
+      path: "/code/app",
+      name: "app",
+      remoteUrl: "https://github.com/Acme/App.git",
+    });
+    expect(repo.remoteKey).toBe("github.com/acme/app");
+    expect(r.repos.update(repo.id, { name: "App" }).remoteKey).toBe("github.com/acme/app");
+    expect(r.repos.update(repo.id, { remoteUrl: "git@github.com:acme/other" }).remoteKey).toBe(
+      "github.com/acme/other",
+    );
+    expect(r.repos.update(repo.id, { remoteUrl: null }).remoteKey).toBeNull();
+    expect(r.repos.create({ path: "/code/lib", name: "lib" }).remoteKey).toBeNull();
+  });
+
   it("watches CI on new repos by default and persists turning it off", () => {
     const repo = r.repos.create({ path: "/code/app", name: "app" });
     expect(repo.watchCi).toBe(true);

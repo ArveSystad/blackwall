@@ -47,7 +47,7 @@ export interface StartOptions {
   chat?: Pick<ChatService, "get" | "send" | "markApplied" | "addAction">;
   quota?: Pick<QuotaTracker, "state">;
   clis?: () => Promise<CliStatus[]>;
-  data?: Pick<DataService, "export" | "import">;
+  data?: Pick<DataService, "export" | "import" | "preview">;
   system?: Pick<SystemService, "snapshot" | "compact">;
   search?: Pick<Search, "search">;
   voice?: Pick<VoiceService, "status" | "transcribe">;

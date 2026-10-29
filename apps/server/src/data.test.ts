@@ -1,9 +1,17 @@
 import {
   DataArchiveTooNewError,
   DataImportBusyError,
+  DataImportDecisionsError,
   InvalidDataArchiveError,
 } from "@blackwall/core";
-import { dataImportResultSchema, type DataImportResult } from "@blackwall/shared";
+import {
+  DATA_IMPORT_TABLES,
+  dataImportPreviewSchema,
+  dataImportResultSchema,
+  type DataImportPreview,
+  type DataImportResult,
+  type RepoConflict,
+} from "@blackwall/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.js";
 import { tokenCookieName } from "./auth.js";
@@ -13,16 +21,37 @@ const port = 4711;
 const host = `127.0.0.1:${port}`;
 const ZIP = new Uint8Array([0x50, 0x4b, 5, 6]);
 
+const manifest: DataImportResult["manifest"] = {
+  format: 1,
+  app: "blackwall",
+  blackwallVersion: "0.0.0",
+  exportedAt: "2026-10-14T12:00:00.000Z",
+  migration: { count: 17, tag: "0016_repo_default_branch", when: 1 },
+  includesTranscripts: true,
+};
+
+const conflict: RepoConflict = {
+  id: "r1",
+  name: "app",
+  path: "/work/app",
+  remoteUrl: "git@github.com:acme/app.git",
+  importedId: "r9",
+  importedName: "app",
+  importedPath: "/code/app",
+  importedRemoteUrl: "https://github.com/acme/app",
+  kind: "different-path",
+};
+
+const preview: DataImportPreview = { manifest, repoConflicts: [conflict] };
+
 const result: DataImportResult = {
   backupPath: "/home/me/.blackwall/backups/blackwall-20261014-120000.db",
-  manifest: {
-    format: 1,
-    app: "blackwall",
-    blackwallVersion: "0.0.0",
-    exportedAt: "2026-10-14T12:00:00.000Z",
-    migration: { count: 17, tag: "0016_repo_default_branch", when: 1 },
-    includesTranscripts: true,
-  },
+  manifest,
+  counts: Object.fromEntries(
+    DATA_IMPORT_TABLES.map((t) => [t, { imported: 1, skipped: 2 }]),
+  ) as DataImportResult["counts"],
+  matchedRepos: [],
+  repoDecisions: [{ ...conflict, decision: "merge" }],
   connectionsMissingToken: [],
   missingRepos: [{ id: "r1", name: "app", path: "/code/app" }],
   tasksMissingWorktree: [],
@@ -34,6 +63,7 @@ beforeEach(() => {
   data = {
     export: vi.fn(() => ZIP),
     import: vi.fn(async () => result),
+    preview: vi.fn(() => preview),
   };
 });
 
@@ -74,7 +104,40 @@ describe("data routes", () => {
     const res = await request("import", { method: "POST", body: ZIP });
     expect(res.status).toBe(200);
     expect(dataImportResultSchema.parse(await res.json())).toEqual(result);
-    expect(data.import).toHaveBeenCalledWith(ZIP);
+    expect(data.import).toHaveBeenCalledWith(ZIP, {});
+  });
+
+  it("previews the repo conflicts of the raw body", async () => {
+    const res = await request("import/preview", { method: "POST", body: ZIP });
+    expect(res.status).toBe(200);
+    expect(dataImportPreviewSchema.parse(await res.json())).toEqual(preview);
+    expect(data.preview).toHaveBeenCalledWith(ZIP);
+    expect((await request("import/preview", { method: "POST" })).status).toBe(400);
+  });
+
+  it("passes the repo decisions from the query", async () => {
+    const repos = encodeURIComponent(JSON.stringify({ r9: "merge", r8: "skip" }));
+    const res = await request(`import?repos=${repos}`, { method: "POST", body: ZIP });
+    expect(res.status).toBe(200);
+    expect(data.import).toHaveBeenCalledWith(ZIP, { r9: "merge", r8: "skip" });
+  });
+
+  it("rejects malformed repo decisions", async () => {
+    for (const repos of ["{nope", JSON.stringify({ r9: "keep" }), JSON.stringify(["r9"])]) {
+      const res = await request(`import?repos=${encodeURIComponent(repos)}`, {
+        method: "POST",
+        body: ZIP,
+      });
+      expect(res.status, repos).toBe(400);
+    }
+    expect(data.import).not.toHaveBeenCalled();
+  });
+
+  it("maps undecided repo conflicts to 409", async () => {
+    data.import.mockRejectedValueOnce(new DataImportDecisionsError([conflict]));
+    const res = await request("import", { method: "POST", body: ZIP });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toContain("pick the file again");
   });
 
   it("maps a busy import to 409 and bad archives to 400", async () => {

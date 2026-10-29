@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { remoteKey } from "@blackwall/shared";
 import * as schema from "./schema.js";
 
 export const DB_FILENAME = "blackwall.db";
@@ -50,6 +51,7 @@ export function openDatabase(dataDir: string): OpenedDatabase {
     // migration transaction, and table rebuilds would otherwise cascade-delete children.
     sqlite.pragma("foreign_keys = OFF");
     migrate(db, { migrationsFolder: MIGRATIONS_DIR });
+    backfillRemoteKeys(sqlite);
     const violations = sqlite.pragma("foreign_key_check") as unknown[];
     if (violations.length > 0) {
       throw new Error(`Migration left ${violations.length} foreign key violation(s)`);
@@ -60,4 +62,19 @@ export function openDatabase(dataDir: string): OpenedDatabase {
     sqlite.close();
     throw error;
   }
+}
+
+/**
+ * Sets `repos.remote_key` where a remote is known but the key is not: repos
+ * from before `0029_repo_remote_key` and older export archives. Idempotent.
+ */
+export function backfillRemoteKeys(sqlite: Database.Database): void {
+  const rows = sqlite
+    .prepare("SELECT id, remote_url FROM repos WHERE remote_url IS NOT NULL AND remote_key IS NULL")
+    .all() as { id: string; remote_url: string }[];
+  if (rows.length === 0) return;
+  const update = sqlite.prepare("UPDATE repos SET remote_key = ? WHERE id = ?");
+  sqlite.transaction(() => {
+    for (const row of rows) update.run(remoteKey(row.remote_url), row.id);
+  })();
 }

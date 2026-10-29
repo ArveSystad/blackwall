@@ -4,3 +4,4 @@ export * from "./domain.js";
 export * from "./protocol.js";
 export * from "./desktop.js";
 export * from "./title.js";
+export * from "./remote.js";

@@ -79,7 +79,7 @@ export interface AppOptions {
   /** Agent CLI detection, started at launch; omit to leave the CLI route out (e.g. in tests). */
   clis?: () => Promise<CliStatus[]>;
   /** Data export and import; omit to leave the data routes out (e.g. in tests). */
-  data?: Pick<DataService, "export" | "import">;
+  data?: Pick<DataService, "export" | "import" | "preview">;
   /** Database and disk stats and compacting; omit to leave the system routes out (e.g. in tests). */
   system?: Pick<SystemService, "snapshot" | "compact">;
   /** Global search over tasks, backlog items and repos; omit to leave the search route out (e.g. in tests). */

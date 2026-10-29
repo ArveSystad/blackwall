@@ -120,6 +120,37 @@ describe("openDatabase", () => {
     expect(r.runs.listByTask("t1")).toHaveLength(1);
   });
 
+  it("backfills the remote key of repos from before 0029_repo_remote_key", () => {
+    const oldMigrations = join(dir, "..", "migrations-0028");
+    cpSync(MIGRATIONS_DIR, oldMigrations, { recursive: true });
+    const journalPath = join(oldMigrations, "meta", "_journal.json");
+    const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
+      entries: { tag: string }[];
+    };
+    journal.entries = journal.entries.slice(
+      0,
+      journal.entries.findIndex((e) => e.tag === "0028_memory_vault") + 1,
+    );
+    writeFileSync(journalPath, JSON.stringify(journal));
+
+    mkdirSync(dir, { recursive: true });
+    const sqlite = new Database(join(dir, DB_FILENAME));
+    migrate(drizzle(sqlite), { migrationsFolder: oldMigrations });
+    sqlite.exec(`
+      insert into repos (id, path, name, remote_url, created_at, updated_at) values
+        ('r1', '/code/app', 'app', 'https://github.com/Acme/App.git', 0, 0),
+        ('r2', '/code/lib', 'lib', 'git@github.com:acme/lib.git', 0, 0),
+        ('r3', '/code/local', 'local', null, 0, 0);
+    `);
+    sqlite.close();
+
+    opened = openDatabase(dir);
+    const r = createRepositories(opened.db);
+    expect(r.repos.get("r1")?.remoteKey).toBe("github.com/acme/app");
+    expect(r.repos.get("r2")?.remoteKey).toBe("github.com/acme/lib");
+    expect(r.repos.get("r3")?.remoteKey).toBeNull();
+  });
+
   it("switches repos with a GHE (*.ghe.com) origin to Copilot when adding the default CLI", () => {
     // Build a database at the migration before the repo default CLI.
     const oldMigrations = join(dir, "..", "migrations-0005");
