@@ -17,7 +17,7 @@ let busy: boolean;
 let chat: { [K in keyof ChatRouteService]: ReturnType<typeof vi.fn<ChatRouteService[K]>> };
 
 function state(repoId: string, taskId?: string): ChatState {
-  return { repoId, taskId: taskId ?? null, busy, activity: null, messages: [] };
+  return { repoId, taskId: taskId ?? null, busy, activity: null, draft: null, messages: [] };
 }
 
 function known(repoId: string, taskId?: string) {
