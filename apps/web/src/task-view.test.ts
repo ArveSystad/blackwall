@@ -49,6 +49,7 @@ import {
   hunkThreads,
   inlineFindings,
   isBlocking,
+  isNewTaskDraftEmpty,
   isOutbound,
   isTabEnabled,
   jiraConnectionId,
@@ -61,8 +62,10 @@ import {
   parseDiff,
   originUrl,
   parseJiraInput,
+  parseNewTaskDraft,
   planApprovalComment,
   pullRequestUrl,
+  roleOverrides,
   sortFindings,
   splitHunks,
   stepModel,
@@ -74,6 +77,7 @@ import {
   unplacedThreads,
   visibleFindings,
   type DiffLine,
+  type NewTaskDraft,
   type TabSignalState,
 } from "./task-view";
 import { makeTask } from "./test-fixtures";
@@ -1571,6 +1575,92 @@ describe("new task form", () => {
     // Switching back to the first repo brings a's stored choice back.
     expect(activeOverrides(stored, "claude", ["a", "b"])).toEqual({ a: "copilot" });
     expect(activeOverrides(stored, "claude", ["b"])).toEqual({});
+  });
+});
+
+describe("new task draft", () => {
+  const defaults = {
+    planner: "p",
+    planReviewers: ["r1", "r2"],
+    implementer: "i",
+    codeReviewers: ["c1"],
+    summarizer: "s",
+  };
+  const fresh: NewTaskDraft = {
+    kindChoice: null,
+    jiraText: "",
+    prUrl: "",
+    issueUrl: "",
+    startCommentOn: false,
+    startComment: "Work on this issue has started in blackwall.",
+    mode: "review",
+    chosenRepo: null,
+    freeText: "",
+    title: "",
+    dependsOn: [],
+    referencePick: null,
+    roles: {},
+    agentClis: {},
+    triageMode: "intervene",
+  };
+  const full: NewTaskDraft = {
+    ...fresh,
+    kindChoice: "free-text",
+    title: "Fix login",
+    freeText: "It breaks",
+    chosenRepo: "repo1",
+    dependsOn: ["item1"],
+    referencePick: { repoId: "repo1", ids: ["repo2"] },
+    roles: { planner: "p2" },
+    agentClis: { p2: "copilot" },
+    triageMode: "pause",
+    mode: "work",
+  };
+
+  it("keeps only the roles that differ from the defaults", () => {
+    expect(roleOverrides({ ...defaults }, defaults)).toEqual({});
+    expect(roleOverrides({ ...defaults, implementer: "i2" }, defaults)).toEqual({
+      implementer: "i2",
+    });
+    expect(roleOverrides({ ...defaults, planReviewers: ["r2", "r1"] }, defaults)).toEqual({
+      planReviewers: ["r2", "r1"],
+    });
+    expect(roleOverrides({ ...defaults, codeReviewers: [] }, defaults)).toEqual({
+      codeReviewers: [],
+    });
+    expect(roleOverrides({ planner: "p" }, {})).toEqual({ planner: "p" });
+  });
+
+  it("gives the roles back over the defaults", () => {
+    const roles = { ...defaults, planner: "x", codeReviewers: ["c2", "c3"] };
+    expect({ ...defaults, ...roleOverrides(roles, defaults) }).toEqual(roles);
+  });
+
+  it("reads a kept draft", () => {
+    expect(parseNewTaskDraft(full)).toEqual(full);
+    expect(parseNewTaskDraft(fresh)).toEqual(fresh);
+  });
+
+  it("drops a malformed draft", () => {
+    expect(parseNewTaskDraft("text")).toBeUndefined();
+    expect(parseNewTaskDraft(null)).toBeUndefined();
+    expect(parseNewTaskDraft({ ...full, title: 3 })).toBeUndefined();
+    expect(parseNewTaskDraft({ ...full, kindChoice: "email" })).toBeUndefined();
+    expect(parseNewTaskDraft({ ...full, mode: "fix" })).toBeUndefined();
+    expect(parseNewTaskDraft({ ...full, triageMode: "never" })).toBeUndefined();
+    expect(parseNewTaskDraft({ ...full, dependsOn: ["a", 1] })).toBeUndefined();
+    expect(parseNewTaskDraft({ ...full, roles: { planner: 1 } })).toBeUndefined();
+    expect(parseNewTaskDraft({ ...full, referencePick: { repoId: "r" } })).toBeUndefined();
+  });
+
+  it("tells an empty draft from one with input", () => {
+    expect(isNewTaskDraftEmpty(fresh)).toBe(true);
+    expect(isNewTaskDraftEmpty({ ...fresh, title: "  ", freeText: "\n" })).toBe(true);
+    expect(isNewTaskDraftEmpty({ ...fresh, title: "Fix" })).toBe(false);
+    expect(isNewTaskDraftEmpty({ ...fresh, freeText: "Fix it" })).toBe(false);
+    expect(isNewTaskDraftEmpty({ ...fresh, chosenRepo: "repo1" })).toBe(false);
+    expect(isNewTaskDraftEmpty({ ...fresh, roles: { planner: "p2" } })).toBe(false);
+    expect(isNewTaskDraftEmpty({ ...fresh, startCommentOn: true })).toBe(false);
   });
 });
 

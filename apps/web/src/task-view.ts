@@ -1,7 +1,13 @@
 import {
+  AGENT_ROLES,
   agentCliFor,
+  agentClisSchema,
   isGatingSeverity,
   JIRA_KEY_PATTERN,
+  ORIGIN_KINDS,
+  PR_MODES,
+  roleAgentsSchema,
+  TRIAGE_MODES,
   TASK_STOPPED_ERROR,
   type ConnectionView,
   type Agent,
@@ -13,6 +19,8 @@ import {
   type Finding,
   type Gate,
   type GrillQuestion,
+  type OriginKind,
+  type PrMode,
   type PullRequestThread,
   type RoleAgents,
   type Severity,
@@ -21,6 +29,7 @@ import {
   type StepEvent,
   type Task,
   type TaskCi,
+  type TriageMode,
 } from "@blackwall/shared";
 import { uiStageIndex } from "./inbox";
 
@@ -1293,6 +1302,108 @@ export function jiraConnectionId(
     return jira.find((c) => new URL(c.baseUrl).host === host)?.id ?? null;
   }
   return jira.length === 1 ? jira[0]!.id : null;
+}
+
+/** The draft key the hand-opened New task form keeps its input under. */
+export const NEW_TASK_DRAFT_KEY = "new-task";
+
+/**
+ * The New task form's input, kept as a draft until the task is created.
+ * `roles` holds only the roles changed on the form, so the rest follow the
+ * role defaults as they are when the form opens again.
+ */
+export interface NewTaskDraft {
+  kindChoice: OriginKind | null;
+  jiraText: string;
+  prUrl: string;
+  issueUrl: string;
+  startCommentOn: boolean;
+  startComment: string;
+  mode: PrMode;
+  chosenRepo: string | null;
+  freeText: string;
+  title: string;
+  dependsOn: string[];
+  referencePick: { repoId: string; ids: string[] } | null;
+  roles: RoleAgents;
+  agentClis: AgentClis;
+  triageMode: TriageMode;
+}
+
+/** The roles in `roles` that differ from `defaults`; `{ ...defaults, ...overrides }` gives `roles` back. */
+export function roleOverrides(roles: RoleAgents, defaults: RoleAgents): RoleAgents {
+  const overrides: Record<string, unknown> = {};
+  for (const role of AGENT_ROLES) {
+    if (roles[role] === undefined) continue;
+    if (JSON.stringify(roles[role]) !== JSON.stringify(defaults[role])) {
+      overrides[role] = roles[role];
+    }
+  }
+  return overrides as RoleAgents;
+}
+
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((v) => typeof v === "string");
+
+/** A kept New task draft, or undefined when anything in it is malformed. */
+export function parseNewTaskDraft(raw: unknown): NewTaskDraft | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const d = raw as Record<string, unknown>;
+  const text = ["jiraText", "prUrl", "issueUrl", "startComment", "freeText", "title"] as const;
+  if (!text.every((field) => typeof d[field] === "string")) return undefined;
+  if (d.kindChoice !== null && !ORIGIN_KINDS.includes(d.kindChoice as OriginKind)) {
+    return undefined;
+  }
+  if (typeof d.startCommentOn !== "boolean") return undefined;
+  if (!PR_MODES.includes(d.mode as PrMode)) return undefined;
+  if (!TRIAGE_MODES.includes(d.triageMode as TriageMode)) return undefined;
+  if (d.chosenRepo !== null && typeof d.chosenRepo !== "string") return undefined;
+  if (!isStringArray(d.dependsOn)) return undefined;
+  const pick = d.referencePick as Record<string, unknown> | null;
+  if (
+    pick !== null &&
+    (typeof pick !== "object" || typeof pick.repoId !== "string" || !isStringArray(pick.ids))
+  ) {
+    return undefined;
+  }
+  const roles = roleAgentsSchema.safeParse(d.roles);
+  const agentClis = agentClisSchema.safeParse(d.agentClis);
+  if (!roles.success || !agentClis.success) return undefined;
+  return {
+    kindChoice: d.kindChoice as OriginKind | null,
+    jiraText: d.jiraText as string,
+    prUrl: d.prUrl as string,
+    issueUrl: d.issueUrl as string,
+    startCommentOn: d.startCommentOn,
+    startComment: d.startComment as string,
+    mode: d.mode as PrMode,
+    chosenRepo: d.chosenRepo,
+    freeText: d.freeText as string,
+    title: d.title as string,
+    dependsOn: d.dependsOn,
+    referencePick: pick && { repoId: pick.repoId as string, ids: pick.ids as string[] },
+    roles: roles.data,
+    agentClis: agentClis.data,
+    triageMode: d.triageMode as TriageMode,
+  };
+}
+
+/** Whether a New task draft holds nothing beyond the fresh form's defaults. */
+export function isNewTaskDraftEmpty(draft: NewTaskDraft): boolean {
+  return (
+    [draft.jiraText, draft.prUrl, draft.issueUrl, draft.freeText, draft.title].every(
+      (text) => !text.trim(),
+    ) &&
+    draft.kindChoice === null &&
+    draft.chosenRepo === null &&
+    draft.referencePick === null &&
+    draft.dependsOn.length === 0 &&
+    !draft.startCommentOn &&
+    draft.mode === "review" &&
+    draft.triageMode === "intervene" &&
+    Object.keys(draft.agentClis).length === 0 &&
+    Object.keys(draft.roles).length === 0
+  );
 }
 
 // ---------------------------------------------------------------------------

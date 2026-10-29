@@ -32,6 +32,7 @@ import {
 } from "../api";
 import { dependencyChoices, referenceRepoChoice, type ReferenceRepoPick } from "../backlog";
 import { useWithCredential } from "../credentials";
+import { flushDrafts, readDraft, removeDraft, writeDraft } from "../drafts";
 import { originKey, statusLabel } from "../inbox";
 import { isModKey, isPlainKey, isTypingTarget, modKeyLabel, useWindowKeydown } from "../keyboard";
 import { cn } from "../lib/utils";
@@ -63,11 +64,16 @@ import {
   withRole,
 } from "../settings-forms";
 import {
+  NEW_TASK_DRAFT_KEY,
   START_COMMENT_DRAFT,
   activeOverrides,
+  isNewTaskDraftEmpty,
   jiraConnectionId,
   parseJiraInput,
+  parseNewTaskDraft,
+  roleOverrides,
   taskAgentIds,
+  type NewTaskDraft,
 } from "../task-view";
 import { AgentTile } from "./AgentTile";
 import { CheckIcon, CloseIcon, SpinnerIcon, StarIcon, WarnIcon } from "./icons";
@@ -406,6 +412,7 @@ function NewTaskForm({
   defaults,
   item,
   voiceDraft,
+  persistDraft,
   onClose,
 }: {
   defaults: RoleAgents;
@@ -418,6 +425,12 @@ function NewTaskForm({
    * after the form opened, when a hand-opened form takes over the draft.
    */
   voiceDraft?: VoiceDraft | undefined;
+  /**
+   * Keeps the input as a local draft, restored when the form opens again,
+   * until the task is created or the user clears it. Only for a form opened
+   * by hand to create a task.
+   */
+  persistDraft: boolean;
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -431,27 +444,47 @@ function NewTaskForm({
     ? new Map(clis.data.map((status) => [status.cli, status.installed]))
     : undefined;
 
+  // What the user typed last time, read once; voice wins for what it fills.
+  const [restored] = useState<NewTaskDraft | undefined>(() => {
+    if (!persistDraft) return undefined;
+    const draft = readDraft(NEW_TASK_DRAFT_KEY, parseNewTaskDraft);
+    if (!draft) return undefined;
+    const known = new Set((repos.data ?? []).map((r) => r.id));
+    const usable = (repos.data ?? []).some((r) => r.exists && r.id === draft.chosenRepo);
+    return {
+      ...draft,
+      chosenRepo: usable ? draft.chosenRepo : null,
+      referencePick: draft.referencePick && {
+        ...draft.referencePick,
+        ids: draft.referencePick.ids.filter((id) => known.has(id)),
+      },
+    };
+  });
   // Until the user picks an origin or types into the form, it follows the repo's default.
-  const [kindChoice, setKindChoice] = useState<OriginKind | null>(voiceDraft ? "free-text" : null);
-  const [jiraText, setJiraText] = useState("");
-  const [prUrl, setPrUrl] = useState("");
-  const [issueUrl, setIssueUrl] = useState("");
+  const [kindChoice, setKindChoice] = useState<OriginKind | null>(
+    voiceDraft ? "free-text" : (restored?.kindChoice ?? null),
+  );
+  const [jiraText, setJiraText] = useState(restored?.jiraText ?? "");
+  const [prUrl, setPrUrl] = useState(restored?.prUrl ?? "");
+  const [issueUrl, setIssueUrl] = useState(restored?.issueUrl ?? "");
   // The "work started" comment is opt-in: unticked until the user ticks it.
-  const [startCommentOn, setStartCommentOn] = useState(false);
-  const [startComment, setStartComment] = useState(START_COMMENT_DRAFT);
+  const [startCommentOn, setStartCommentOn] = useState(restored?.startCommentOn ?? false);
+  const [startComment, setStartComment] = useState(restored?.startComment ?? START_COMMENT_DRAFT);
   // New PR tasks default to Review PR.
-  const [mode, setMode] = useState<PrMode>(item?.mode ?? "review");
+  const [mode, setMode] = useState<PrMode>(item?.mode ?? restored?.mode ?? "review");
   const [chosenRepo, setChosenRepo] = useState<string | null>(
-    item?.repoId ?? voiceDraft?.repoId ?? null,
+    item?.repoId ?? (voiceDraft ? voiceDraft.repoId : (restored?.chosenRepo ?? null)),
   );
   const [freeText, setFreeText] = useState(
-    item?.freeText ?? (voiceDraft ? draftFields(voiceDraft).freeText : ""),
+    item?.freeText ?? (voiceDraft ? draftFields(voiceDraft).freeText : (restored?.freeText ?? "")),
   );
-  // The role defaults, under the edited backlog item's agents.
+  // The role defaults, under the edited backlog item's agents or the draft's changed roles.
   const [roles, setRoles] = useState<RoleAgents>(() =>
-    item ? { ...defaults, ...item.agents } : defaults,
+    item ? { ...defaults, ...item.agents } : { ...defaults, ...restored?.roles },
   );
-  const [agentClis, setAgentClis] = useState<AgentClis>(item?.agentClis ?? {});
+  const [agentClis, setAgentClis] = useState<AgentClis>(
+    item?.agentClis ?? restored?.agentClis ?? {},
+  );
   // Opens by itself when the edited item already runs an agent on another CLI.
   const [advanced, setAdvanced] = useState(() => {
     if (!item) return false;
@@ -461,14 +494,20 @@ function NewTaskForm({
     return Object.keys(activeOverrides(item.agentClis, itemRepoCli, itemChosenIds)).length > 0;
   });
   // Backlog items run unattended, so they default to "Run and let me intervene" too.
-  const [triageMode, setTriageMode] = useState<TriageMode>(item?.triageMode ?? "intervene");
-  const [title, setTitle] = useState(
-    item?.title ?? (voiceDraft ? draftFields(voiceDraft).title : ""),
+  const [triageMode, setTriageMode] = useState<TriageMode>(
+    item?.triageMode ?? restored?.triageMode ?? "intervene",
   );
-  const [dependsOn, setDependsOn] = useState<string[]>(item?.dependsOn ?? []);
+  const [title, setTitle] = useState(
+    item?.title ?? (voiceDraft ? draftFields(voiceDraft).title : (restored?.title ?? "")),
+  );
+  const [dependsOn, setDependsOn] = useState<string[]>(
+    item?.dependsOn ?? restored?.dependsOn ?? [],
+  );
   // The reference repos the user picked, for the repo they were picked in; null follows the repo's.
   const [referencePick, setReferencePick] = useState<ReferenceRepoPick | null>(() =>
-    item?.referenceRepoIds ? { repoId: item.repoId, ids: item.referenceRepoIds } : null,
+    item?.referenceRepoIds
+      ? { repoId: item.repoId, ids: item.referenceRepoIds }
+      : (restored?.referencePick ?? null),
   );
   const [localSubmitting, setSubmitting] = useState(false);
   // A voice "confirm" may be creating the draft's task from the server.
@@ -489,6 +528,54 @@ function NewTaskForm({
     const fields = draftFields(voiceDraft);
     setTitle(fields.title);
     setFreeText(fields.freeText);
+  }
+
+  // The input as kept between openings; voice revisions are kept too.
+  const snapshot: NewTaskDraft = {
+    kindChoice,
+    jiraText,
+    prUrl,
+    issueUrl,
+    startCommentOn,
+    startComment,
+    mode,
+    chosenRepo,
+    freeText,
+    title,
+    dependsOn,
+    referencePick,
+    roles: roleOverrides(roles, defaults),
+    agentClis,
+    triageMode,
+  };
+  const draftEmpty = isNewTaskDraftEmpty(snapshot);
+  const snapshotJson = JSON.stringify(snapshot);
+  useEffect(() => {
+    if (!persistDraft) return;
+    if (draftEmpty) removeDraft(NEW_TASK_DRAFT_KEY);
+    else writeDraft(NEW_TASK_DRAFT_KEY, JSON.parse(snapshotJson) as NewTaskDraft);
+  }, [persistDraft, draftEmpty, snapshotJson]);
+  useEffect(() => () => flushDrafts(), []);
+
+  /** Empties the form and drops its kept draft. */
+  function clearForm() {
+    setKindChoice(null);
+    setJiraText("");
+    setPrUrl("");
+    setIssueUrl("");
+    setStartCommentOn(false);
+    setStartComment(START_COMMENT_DRAFT);
+    setMode("review");
+    setChosenRepo(null);
+    setFreeText("");
+    setTitle("");
+    setRoles(defaults);
+    setAgentClis({});
+    setTriageMode("intervene");
+    setDependsOn([]);
+    setReferencePick(null);
+    setError(null);
+    removeDraft(NEW_TASK_DRAFT_KEY);
   }
 
   const usableRepos = (repos.data ?? []).filter((r) => r.exists);
@@ -628,6 +715,7 @@ function NewTaskForm({
         () =>
           voiceDraft ? submitVoiceDraft(voiceDraft.id, input) : createBacklogItem(repoId, input),
       );
+      if (persistDraft) removeDraft(NEW_TASK_DRAFT_KEY);
       void queryClient.invalidateQueries({ queryKey: queryKeys.backlog(repoId) });
       const { taskId } = created;
       if (taskId) {
@@ -1092,6 +1180,11 @@ function NewTaskForm({
           <span className="text-[11.5px] text-faint">{footerHint}</span>
         )}
         <span className="flex-1" />
+        {persistDraft && !draftEmpty && (
+          <Button variant="ghost" onClick={clearForm}>
+            Clear
+          </Button>
+        )}
         <Button variant="ghost" onClick={onClose}>
           Cancel
         </Button>
@@ -1120,7 +1213,9 @@ function NewTaskForm({
  * repo's backlog runs. With `item` it edits that backlog item instead; with
  * `voiceDraft` it mirrors that voice draft (see `VoiceTaskModal`). Opened by
  * hand to create a task, it takes over the open voice draft, so voice fills
- * this form rather than opening another.
+ * this form rather than opening another. Opened by hand to create a task, it
+ * also keeps its input as a local draft until the task is created, by the form
+ * or by voice; a voice takeover replaces the kept title and description.
  */
 export function NewTaskModal({
   open,
@@ -1147,9 +1242,20 @@ export function NewTaskModal({
   if (hostedDraft && hostedDraft.id !== adoptedId) setAdoptedId(hostedDraft.id);
   if (!hosting && adoptedId !== null) setAdoptedId(null);
   const draftGone = hosting && adoptedId !== null && !hostedDraft;
+  // What voice last created while the hosted draft was open: a new one when it goes means voice
+  // created the task, so the kept draft goes with it; a discarded voice draft leaves it.
+  const created = voice.data?.created ?? null;
+  const [seenCreatedId, setSeenCreatedId] = useState<string | null>(null);
+  if (hostedDraft && (created?.itemId ?? null) !== seenCreatedId) {
+    setSeenCreatedId(created?.itemId ?? null);
+  }
+  if (!hosting && seenCreatedId !== null) setSeenCreatedId(null);
+  const createdByVoice = draftGone && !!created && created.itemId !== seenCreatedId;
   useEffect(() => {
-    if (draftGone) onClose();
-  }, [draftGone, onClose]);
+    if (!draftGone) return;
+    if (createdByVoice) removeDraft(NEW_TASK_DRAFT_KEY);
+    onClose();
+  }, [draftGone, createdByVoice, onClose]);
   const close = () => {
     if (hostedDraft) void clearVoiceDraft(hostedDraft.id).catch(() => undefined);
     onClose();
@@ -1159,7 +1265,13 @@ export function NewTaskModal({
     <Dialog open={open} onOpenChange={(next) => !next && close()}>
       <DialogContent className="max-w-[680px]">
         {defaults.data && repos.data ? (
-          <NewTaskForm defaults={defaults.data} item={item} voiceDraft={draft} onClose={close} />
+          <NewTaskForm
+            defaults={defaults.data}
+            item={item}
+            voiceDraft={draft}
+            persistDraft={!item && !voiceDraft}
+            onClose={close}
+          />
         ) : (
           <div className="flex flex-col gap-2 px-5 py-6">
             <DialogTitle>{item ? "Edit backlog item" : "New task"}</DialogTitle>
