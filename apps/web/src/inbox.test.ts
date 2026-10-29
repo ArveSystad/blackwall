@@ -7,9 +7,11 @@ import {
   groupTasks,
   matchesFilter,
   needsYouCount,
+  nextSweeps,
   originKey,
   relativeTime,
   stackLabel,
+  statusChanges,
   statusLabel,
   uiStageIndex,
 } from "./inbox";
@@ -219,5 +221,56 @@ describe("stackLabel", () => {
   it("is undefined for unstacked PRs and other origins", () => {
     expect(stackLabel(pr)).toBeUndefined();
     expect(stackLabel({ kind: "free-text" })).toBeUndefined();
+  });
+});
+
+describe("statusChanges", () => {
+  it("gives the tasks whose status changed, in tasks order", () => {
+    const a = makeTask({ status: "needs-you" });
+    const b = makeTask({ status: "done" });
+    const c = makeTask({ status: "failed" });
+    const prev = new Map([
+      [a.id, "running"],
+      [b.id, "running"],
+      [c.id, "needs-you"],
+    ] as const);
+    expect(statusChanges(prev, [c, a, b])).toEqual([c.id, a.id, b.id]);
+  });
+
+  it("skips first sightings and unchanged statuses", () => {
+    const seen = makeTask({ status: "running" });
+    const fresh = makeTask({ status: "done" });
+    expect(statusChanges(new Map([[seen.id, "running"]]), [seen, fresh])).toEqual([]);
+  });
+
+  it("skips turns to queued and archived tasks", () => {
+    const queued = makeTask({ status: "queued" });
+    const archived = makeTask({ status: "done", archivedAt: new Date("2026-10-08T12:00:00Z") });
+    const prev = new Map([
+      [queued.id, "running"],
+      [archived.id, "running"],
+    ] as const);
+    expect(statusChanges(prev, [queued, archived])).toEqual([]);
+  });
+});
+
+describe("nextSweeps", () => {
+  it("bumps a changed shown id from absent to 1, then to 2", () => {
+    const shown = new Set(["a"]);
+    const once = nextSweeps(new Map(), ["a"], shown);
+    expect(once).toEqual(new Map([["a", 1]]));
+    expect(nextSweeps(once, ["a"], shown)).toEqual(new Map([["a", 2]]));
+  });
+
+  it("does not add a changed id that is not shown", () => {
+    expect(nextSweeps(new Map(), ["a"], new Set(["b"]))).toEqual(new Map());
+  });
+
+  it("drops entries no longer shown and keeps unchanged shown counters", () => {
+    const sweeps = new Map([
+      ["a", 3],
+      ["b", 1],
+    ]);
+    expect(nextSweeps(sweeps, [], new Set(["a"]))).toEqual(new Map([["a", 3]]));
   });
 });

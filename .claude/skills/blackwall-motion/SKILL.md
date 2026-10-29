@@ -26,6 +26,7 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
    `.bw-revive`/`.bw-revive-failed`, `.bw-supernova` and `.bw-launch` for GridAgents.tsx, `.bw-assigned`/
    `.bw-assigned-flash` for CountPill.tsx, `.bw-running*` for RunningHeadline.tsx, `.bw-chat`/
    `.bw-chat-content` for ChatPanel.tsx, `.bw-shutter` for SettingsShutter.tsx, `.bw-decrypt*` for DecryptText.tsx,
+   `.bw-status-sweep` for TaskCard.tsx,
    `.bw-wordmark-flicker` for Wordmark.tsx, `bw-scan-wipe`/`--animate-scan-wipe` for ui/dialog.tsx), and `bw-route-wipe` with the
    `::view-transition-*(bw-route|bw-inbox|root)` rules for the route wipe (router.tsx, Inbox.tsx,
    route-transition.ts).
@@ -35,7 +36,8 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
 3. Reference code: `apps/web/src/components/GridBackdrop.tsx`, `apps/web/src/components/GridAgents.tsx`,
    `apps/web/src/components/RunningHeadline.tsx`, `apps/web/src/routes/Stats.tsx`, `apps/web/src/routes/Backlog.tsx`, `apps/web/src/agent-dots.ts`,
    `apps/web/src/components/use-archive-launches.ts`, `apps/web/src/components/use-resume-bursts.ts`,
-   `apps/web/src/components/use-supernovas.ts`, `apps/web/src/decrypt.ts`,
+   `apps/web/src/components/use-supernovas.ts`, `apps/web/src/components/use-status-sweeps.ts`,
+   `apps/web/src/decrypt.ts`,
    `apps/web/src/components/use-decrypt.ts`, `apps/web/src/chat-stream.ts`,
    `apps/web/src/components/use-chat-stream.ts`, `apps/web/src/settings-shutter.ts`,
    `apps/web/src/components/SettingsShutter.tsx`, `apps/web/src/components/Wordmark.tsx`,
@@ -63,7 +65,8 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
 6. Handle reduced motion. Loops are stopped by the base rule (`animation: none !important;
    transition: none !important`). An effect whose resting state is transparent, or that would freeze
    mid-flight, goes into the components-layer `@media (prefers-reduced-motion: reduce)`
-   `display: none` list next to `.bw-laser`, `.bw-boom`, `.bw-assigned-flash` and `.bw-launch`
+   `display: none` list next to `.bw-laser`, `.bw-boom`, `.bw-assigned-flash`, `.bw-launch` and
+   `.bw-status-sweep`
    (modifiers of `.bw-boom`, e.g. `.bw-revive` and `.bw-assigned`, inherit it and need no entry).
    `.bw-supernova` is the exception: it keeps a static core (`::before` at `opacity: 1`) and hides
    only its ring and sparks, and JS shortens its lifetime to a brief flash. ChatPanel needs no entry:
@@ -118,6 +121,8 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
     `CHAT_PANEL_FALLBACK_MS` (it settles the presence, since `transitionend` may not come);
     `.bw-shutter` 200ms ↔ `SHUTTER_MS` (200) in `settings-shutter.ts`, with the JS fallback at
     `SHUTTER_FALLBACK_MS` (it settles the presence and releases a held open).
+  - `.bw-status-sweep` 700ms has no JS mirror: the inbox drops it on `animationend`, and under
+    reduced motion it is `display: none`, so it never shows.
   - `DECRYPT_MS` (300) in `decrypt.ts` is JS only (an rAF loop); no CSS mirrors it.
   - `STREAM_*` in `chat-stream.ts` are JS only (an rAF loop); no CSS mirrors them.
   - `.bw-wordmark-flicker` 700ms ↔ `WORDMARK_FLICKER_MS` (700) in `wordmark-flicker.ts`. No drop
@@ -130,12 +135,14 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
   `GridAgents.tsx` (`<span key={lasers} className="bw-laser" />`), `Backlog.tsx`
   (`<span key={note.at} className="animate-pushed-glow">`) and the `GridAgents.tsx` revive booms
   (``key={`revive:${taskId}:${count}`}``, `use-resume-bursts.ts`) and supernovas
-  (``key={`supernova:${taskId}:${batch}`}``, `use-supernovas.ts`). Never toggle classes with timers.
+  (``key={`supernova:${taskId}:${batch}`}``, `use-supernovas.ts`), and the inbox status sweep
+  (``key={`sweep:${sweep}`}``, `use-status-sweeps.ts`), which is dropped on `animationend` or when
+  its card is hidden, not on a timer. Never toggle classes with timers.
   A resume booms cyan; if the request fails, `bump` raises `count` and sets tone `failed`, so the new
   key remounts the boom red (`.bw-revive-failed`, `--st-failed`) instead of recolouring one still
   playing. Prefix one-shot keys (`revive:`) when they share a container with keyed looping elements
   (`.bw-boom`, keyed by `dot.key`), so the keys never collide. Effects fired by a tasks change (lasers,
-  supernovas) treat the first tasks snapshot as a seed only, so a reload never fires them.
+  supernovas, status sweeps) treat the first tasks snapshot as a seed only, so a reload never fires them.
 - Decrypt text (`DecryptText.tsx`, `use-decrypt.ts`, `decrypt.ts`): a one-shot glyph scramble that
   settles left to right in `DECRYPT_MS`. `useDecrypt(text, trigger)` plays on mount when the trigger
   is non-null and again on each change to a non-null value. Pass a stable trigger (an id, or a

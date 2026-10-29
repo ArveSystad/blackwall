@@ -26,6 +26,7 @@ import { useEncrypt } from "./use-decrypt";
  * in place of the time, and done or archivable tasks an archive button next
  * to it. An archived row crumbles out (`.bw-crumble`): its title scrambles
  * into glyphs, then the row flickers and falls; a failed archive flashes it red.
+ * A card whose task just changed status sweeps the new status colour once (`.bw-status-sweep`).
  */
 export function TaskCard({
   task,
@@ -34,6 +35,8 @@ export function TaskCard({
   trust,
   now,
   crumble,
+  sweep,
+  onSweepEnd,
   onArchive,
 }: {
   task: Task;
@@ -45,6 +48,10 @@ export function TaskCard({
   now: Date;
   /** The row's archive crumble, while it plays or its failure flashes. */
   crumble?: Crumble | undefined;
+  /** The status sweep's counter while it plays; a new one replays the sweep. */
+  sweep?: number | undefined;
+  /** Called when the sweep has played, to drop it. */
+  onSweepEnd?: (taskId: string, sweep: number) => void;
   /** Archives the task; the archive button shows only with it. */
   onArchive?: () => void;
 }) {
@@ -135,6 +142,15 @@ export function TaskCard({
           <StatusBadge status={task.status} label={statusLabel(task)} />
         </span>
       </Link>
+      {sweep !== undefined && (
+        <span
+          key={`sweep:${sweep}`}
+          aria-hidden="true"
+          data-status={task.status}
+          className="bw-status-sweep pointer-events-none absolute inset-0"
+          onAnimationEnd={() => onSweepEnd?.(task.id, sweep)}
+        />
+      )}
       <span className="invisible absolute top-1 right-1.5 flex gap-0.5 group-focus-within:visible group-hover:visible">
         {onArchive && canArchive(task) && (
           <Button

@@ -107,6 +107,44 @@ export function needsYouCount(
   return tasks.filter(isNeedsYou).length;
 }
 
+/**
+ * Ids of the tasks, in `tasks` order, whose status differs from the one seen
+ * before: the cards that sweep their new status colour. Archived tasks, first
+ * sightings, unchanged statuses and turns to queued (no status colour) do not
+ * count.
+ */
+export function statusChanges(
+  prev: ReadonlyMap<string, TaskStatus>,
+  tasks: readonly Task[],
+): string[] {
+  return tasks
+    .filter(
+      (t) =>
+        t.archivedAt === null &&
+        t.status !== "queued" &&
+        prev.has(t.id) &&
+        prev.get(t.id) !== t.status,
+    )
+    .map((t) => t.id);
+}
+
+/**
+ * The status sweeps after one update, by task id: each changed id that is
+ * shown has its counter bumped, and every id that is not shown is dropped, so
+ * a card shown again later does not replay a stale sweep.
+ */
+export function nextSweeps(
+  sweeps: ReadonlyMap<string, number>,
+  changed: readonly string[],
+  shown: ReadonlySet<string>,
+): Map<string, number> {
+  const next = new Map([...sweeps].filter(([id]) => shown.has(id)));
+  for (const id of changed) {
+    if (shown.has(id)) next.set(id, (next.get(id) ?? 0) + 1);
+  }
+  return next;
+}
+
 /** "1 active agent", "3 active agents"; null when none run. */
 export function activeAgentsLabel(count: number): string | null {
   if (count <= 0) return null;

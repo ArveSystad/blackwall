@@ -467,6 +467,20 @@ html:active-view-transition-type(bw-route) {
   }
 }
 
+@keyframes bw-status-sweep {
+  0% {
+    background-position: 100% 0;
+    opacity: 1;
+  }
+  60% {
+    opacity: 1;
+  }
+  100% {
+    background-position: 0% 0;
+    opacity: 0;
+  }
+}
+
 @keyframes bw-laser {
   0% {
     transform: translateY(0);
@@ -1386,6 +1400,64 @@ html:active-view-transition-type(bw-route) {
     box-shadow: none;
   }
 
+  /* ---------- status sweep (TaskCard.tsx) ----------
+   * An inbox card whose task just changed status sweeps a diagonal band of its
+   * new status colour across it once, left to right over 700ms, fading out
+   * from 60%. It ends transparent (forwards). The inbox keys it on a counter
+   * (useStatusSweeps), so a new change replays it by remount, and drops it on
+   * animationend or when the card is hidden; no timer mirrors it. It is cut to
+   * the card's chamfer. Reduced motion hides it.
+   */
+  .bw-status-sweep {
+    --sweep-tl: var(--bw-cut-tl, 8px);
+    --sweep-br: var(--bw-cut-br, 8px);
+    --sweep-band: color-mix(in oklab, var(--sweep-color) 30%, transparent);
+    background-image: linear-gradient(
+      105deg,
+      transparent 30%,
+      var(--sweep-band) 45%,
+      var(--sweep-band) 55%,
+      transparent 70%
+    );
+    background-size: 250% 100%;
+    background-repeat: no-repeat;
+    box-shadow: inset 0 0 12px color-mix(in oklab, var(--sweep-color) 35%, transparent);
+    clip-path: polygon(
+      var(--sweep-tl) 0,
+      100% 0,
+      100% calc(100% - var(--sweep-br)),
+      calc(100% - var(--sweep-br)) 100%,
+      0 100%,
+      0 var(--sweep-tl)
+    );
+    animation: bw-status-sweep 700ms ease-out forwards;
+  }
+
+  .bw-status-sweep[data-status="running"] {
+    --sweep-color: var(--st-running);
+  }
+
+  .bw-status-sweep[data-status="needs-you"] {
+    --sweep-color: var(--st-needs);
+  }
+
+  .bw-status-sweep[data-status="interrupted"] {
+    --sweep-color: var(--st-interrupted);
+  }
+
+  .bw-status-sweep[data-status="failed"] {
+    --sweep-color: var(--st-failed);
+  }
+
+  .bw-status-sweep[data-status="done"] {
+    --sweep-color: var(--st-done);
+  }
+
+  /* Glow is dark only. */
+  :root[data-theme="light"] .bw-status-sweep {
+    box-shadow: none;
+  }
+
   /* ---------- running headline (RunningHeadline.tsx) ----------
    * The agents view's centred "N tasks running". Its glow marks the running
    * state. A brighter, wider-glowing copy stacked on top shows only in a circle
@@ -1896,6 +1968,7 @@ html:active-view-transition-type(bw-route) {
     .bw-launch,
     .bw-crumble,
     .bw-crumble-failed,
+    .bw-status-sweep,
     .bw-stage-fill,
     .bw-lock-on {
       display: none;
