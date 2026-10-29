@@ -37,8 +37,12 @@ function TaskList({ tasks, filter }: { tasks: Task[]; filter: string }) {
   const rows = inboxRows(tasks, launch.crumbles);
   const groups = groupTasks(rows.filter((task) => matchesFilter(task, filter)));
   // A crumbling card shows its snapshot status, not the live one, so it does not sweep.
+  // Cards with no crumble, or whose crumble failed, show their live status and may sweep.
   const shownIds = [...groups.needsYou, ...groups.running, ...groups.recent]
-    .filter((task) => (launch.crumbles.get(task.id)?.phase ?? "failed") === "failed")
+    .filter((task) => {
+      const crumble = launch.crumbles.get(task.id);
+      return !crumble || crumble.phase === "failed";
+    })
     .map((task) => task.id);
   const sweeps = useStatusSweeps(tasks, shownIds);
 
