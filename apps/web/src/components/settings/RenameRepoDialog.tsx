@@ -136,7 +136,8 @@ export function RenamePlan({
 /**
  * Renames a GitHub repo everywhere in one go: on GitHub, in `origin`, the
  * folder on disk (with its task worktrees) and blackwall's records. A failed
- * step keeps the dialog open with the name locked; Retry resumes it.
+ * step keeps the dialog open with the name locked; Retry resumes it. Reopened
+ * after such a stop, it offers to finish the rename under the same name.
  */
 export function RenameRepoDialog({
   repo,
@@ -151,7 +152,8 @@ export function RenameRepoDialog({
 }) {
   const queryClient = useQueryClient();
   const withCredential = useWithCredential();
-  const [name, setName] = useState(() => folderName(repo.path));
+  // A rename that stopped partway can only be finished under the name it started with.
+  const [name, setName] = useState(() => repo.renamePending ?? folderName(repo.path));
   const [result, setResult] = useState<RepoRenameResult | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -162,7 +164,8 @@ export function RenameRepoDialog({
   const parsed = repoRenameInputSchema.safeParse({ name });
   const nameError =
     trimmed !== "" && !parsed.success ? (parsed.error.issues[0]?.message ?? null) : null;
-  const retrying = result?.failed != null;
+  const resuming = repo.renamePending !== null;
+  const retrying = resuming || result?.failed != null;
 
   async function submit(event?: FormEvent) {
     event?.preventDefault();
@@ -205,11 +208,21 @@ export function RenameRepoDialog({
           }}
         >
           <div className="flex flex-col gap-3.5 px-5 pt-[18px] pb-[18px]">
-            <DialogTitle>Rename repo</DialogTitle>
+            <DialogTitle>{resuming ? "Finish rename" : "Rename repo"}</DialogTitle>
             <DialogDescription className="m-0 text-pretty">
-              Renames <span className="mono text-foreground-strong">{repo.name}</span> on GitHub, in
-              its origin remote and on disk. No task can start in it until the rename is done. A
-              step that fails stops it; Retry picks up where it stopped.
+              {resuming ? (
+                <>
+                  Renaming <span className="mono text-foreground-strong">{repo.name}</span> to{" "}
+                  <span className="mono text-foreground-strong">{repo.renamePending}</span> stopped
+                  partway. Retry picks up where it stopped and skips the steps already done.
+                </>
+              ) : (
+                <>
+                  Renames <span className="mono text-foreground-strong">{repo.name}</span> on
+                  GitHub, in its origin remote and on disk. No task can start in it until the rename
+                  is done. A step that fails stops it; Retry picks up where it stopped.
+                </>
+              )}
             </DialogDescription>
             <Field label="New name">
               <Input

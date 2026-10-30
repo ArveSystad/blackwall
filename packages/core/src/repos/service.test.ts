@@ -83,7 +83,7 @@ describe("repo service", () => {
       maxBacklogTasks: null,
       defaultBranch: "main",
     });
-    expect(service.list()).toEqual([{ ...repo, exists: true }]);
+    expect(service.list()).toEqual([{ ...repo, exists: true, renamePending: null }]);
   });
 
   it("keeps given check commands, including none", async () => {
@@ -185,7 +185,7 @@ describe("repo service", () => {
     expect(service.use(repo.id)).toEqual(repo);
 
     rmSync(path, { recursive: true, force: true });
-    expect(service.list()).toEqual([{ ...repo, exists: false }]);
+    expect(service.list()).toEqual([{ ...repo, exists: false, renamePending: null }]);
     const error = (() => {
       try {
         service.use(repo.id);
@@ -736,6 +736,10 @@ describe("rename", () => {
     expect(r.tasks.get(task!.id)?.worktreePath).toBe(task!.worktreePath);
     expect(locks.isHeld(repo.id)).toBe(false);
     expect(locks.isRenaming(repo.id)).toBe(true);
+    const listed = renamer()
+      .list()
+      .find((view) => view.id === repo.id);
+    expect(listed).toMatchObject({ exists: false, renamePending: "shop" });
 
     const retry = await renamer().rename(repo.id, "shop");
     expect(retry.result.failed).toBeNull();

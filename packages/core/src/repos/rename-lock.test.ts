@@ -51,11 +51,14 @@ describe("repo rename locks", () => {
     const locks = createRepoRenameLocks();
     const release = locks.hold("a");
     expect(locks.isRenaming("a")).toBe(true);
-    locks.markPartial("a");
+    expect(locks.pendingName("a")).toBeNull();
+    locks.markPartial("a", "shop");
     release();
     expect(locks.isRenaming("a")).toBe(true);
     expect(locks.isHeld("a")).toBe(false);
+    expect(locks.pendingName("a")).toBe("shop");
     locks.clearPartial("a");
     expect(locks.isRenaming("a")).toBe(false);
+    expect(locks.pendingName("a")).toBeNull();
   });
 });

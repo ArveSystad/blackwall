@@ -704,7 +704,7 @@ export function RepoEditor({
           title={renameBlocked ?? "Rename on GitHub, origin and folder"}
           onClick={() => setRenaming(true)}
         >
-          Rename…
+          {repo.renamePending === null ? "Rename…" : "Finish rename…"}
         </Button>
         <Button
           size="sm"
@@ -720,18 +720,32 @@ export function RepoEditor({
       </div>
 
       <div className={editorBody}>
-        {!repo.exists && (
+        {repo.renamePending !== null ? (
           <div
             role="alert"
+            data-testid="repo-rename-pending"
             className="bw-chamfer flex items-start gap-2 bg-sev-medium/8 px-3 py-2.5 text-sev-medium [--bw-chamfer-line:color-mix(in_oklab,var(--sev-medium)_45%,transparent)]"
           >
             <WarnIcon size="lg" className="mt-0.5" />
             <span className="text-foreground">
-              The folder <span className="mono text-foreground-strong">{repo.path}</span> no longer
-              exists. Starting a task here removes the repo from the registry; remove it now or
-              restore the folder.
+              Renaming to <span className="mono text-foreground-strong">{repo.renamePending}</span>{" "}
+              stopped partway. Use Finish rename to pick up where it stopped.
             </span>
           </div>
+        ) : (
+          !repo.exists && (
+            <div
+              role="alert"
+              className="bw-chamfer flex items-start gap-2 bg-sev-medium/8 px-3 py-2.5 text-sev-medium [--bw-chamfer-line:color-mix(in_oklab,var(--sev-medium)_45%,transparent)]"
+            >
+              <WarnIcon size="lg" className="mt-0.5" />
+              <span className="text-foreground">
+                The folder <span className="mono text-foreground-strong">{repo.path}</span> no
+                longer exists. Starting a task here removes the repo from the registry; remove it
+                now or restore the folder.
+              </span>
+            </div>
+          )
         )}
         <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
           <Field label="Name">

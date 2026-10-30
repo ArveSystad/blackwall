@@ -41,6 +41,19 @@ describe("renameDisabledReason", () => {
       "Save or discard your changes first",
     );
   });
+
+  it("lets a rename that stopped partway finish even though the folder moved", () => {
+    const moved = makeRepo({ exists: false, renamePending: "shop" });
+    expect(renameDisabledReason(moved, connection, [], false)).toBeNull();
+    expect(
+      renameDisabledReason(
+        moved,
+        connection,
+        [makeTask({ repoId: "r1", status: "queued" })],
+        false,
+      ),
+    ).toBe("A task in this repo is queued, running or delivering");
+  });
 });
 
 describe("renamePreview", () => {

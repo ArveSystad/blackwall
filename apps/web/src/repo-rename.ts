@@ -15,14 +15,18 @@ import {
 /** What each rename step did: ran, was already done, stopped the rename, or never ran. */
 export type RenameStepState = "done" | "already" | "failed" | "not-run";
 
-/** Why Rename… is disabled for the repo, or `null` when it can run. */
+/**
+ * Why Rename… is disabled for the repo, or `null` when it can run. A rename
+ * that stopped partway may already have moved the folder, so a missing folder
+ * doesn't block finishing it.
+ */
 export function renameDisabledReason(
   repo: RepoView,
   connection: ConnectionView | undefined,
   tasks: readonly Task[],
   dirty: boolean,
 ): string | null {
-  if (!repo.exists) return "Folder is missing";
+  if (!repo.exists && repo.renamePending === null) return "Folder is missing";
   const busy = tasks.some(
     (task) =>
       task.repoId === repo.id &&

@@ -124,7 +124,7 @@ export interface RepoRenameOptions {
   backfillRunning: (repoId: string) => boolean;
   locks: Pick<
     RepoRenameLocks,
-    "hold" | "assertFree" | "isRenaming" | "markPartial" | "clearPartial"
+    "hold" | "assertFree" | "isRenaming" | "markPartial" | "clearPartial" | "pendingName"
   >;
   github: RepoRenameGitHub;
   /** Moves a folder; defaults to `fs.promises.rename`. */
@@ -425,7 +425,11 @@ export function createRepoService({ repos, connections, rename }: RepoServiceOpt
   }
 
   function list(): RepoView[] {
-    return repos.list().map((repo) => ({ ...repo, exists: existsSync(repo.path) }));
+    return repos.list().map((repo) => ({
+      ...repo,
+      exists: existsSync(repo.path),
+      renamePending: rename?.locks.pendingName(repo.id) ?? null,
+    }));
   }
 
   return {
@@ -613,7 +617,7 @@ export function createRepoService({ repos, connections, rename }: RepoServiceOpt
         const { completed, skipped, failed } = outcome.result;
         if (!failed) rename.locks.clearPartial(id);
         else if (completed.includes("github") || skipped.includes("github")) {
-          rename.locks.markPartial(id);
+          rename.locks.markPartial(id, parsed.data.name);
         }
         return outcome;
       } finally {

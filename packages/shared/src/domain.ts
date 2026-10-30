@@ -574,8 +574,14 @@ export const repoSchema = z.object({
 });
 export type Repo = z.infer<typeof repoSchema>;
 
-/** A registry repo as the API returns it, with whether its folder still exists. */
-export const repoViewSchema = repoSchema.extend({ exists: z.boolean() });
+/**
+ * A registry repo as the API returns it, with whether its folder still exists
+ * and, after a rename stopped partway, the name a retry should finish it with.
+ */
+export const repoViewSchema = repoSchema.extend({
+  exists: z.boolean(),
+  renamePending: z.string().nullable().default(null),
+});
 export type RepoView = z.infer<typeof repoViewSchema>;
 
 /** The repo's local default branch vs `origin/<branch>`, as of the last fetch. */

@@ -75,4 +75,25 @@ describe("RepoEditor", () => {
     expect(divider).toBeLessThan(cli);
     expect(html).toContain("Rename…");
   });
+
+  it("offers to finish a rename that stopped partway after its folder moved", () => {
+    const repo = makeRepo({ exists: false, renamePending: "shop" });
+    const client = new QueryClient();
+    client.setQueryData(queryKeys.repos, [repo]);
+    client.setQueryData(queryKeys.tasks, []);
+    client.setQueryData(queryKeys.connections, [
+      { id: repo.connectionId, kind: "github", name: "github.com", hasToken: true },
+    ]);
+    const html = renderToStaticMarkup(
+      createElement(
+        QueryClientProvider,
+        { client },
+        createElement(RepoEditor, { repo, onRemoved: () => {}, onStale: () => {} }),
+      ),
+    );
+    expect(html).toContain("repo-rename-pending");
+    expect(html).toContain("Finish rename…");
+    expect(html).not.toContain("no longer exists");
+    expect(html).not.toMatch(/<button[^>]*disabled=""[^>]*>Finish rename…/);
+  });
 });

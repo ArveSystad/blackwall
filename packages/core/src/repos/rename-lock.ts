@@ -20,7 +20,7 @@ export type RepoRenameLocks = ReturnType<typeof createRepoRenameLocks>;
  */
 export function createRepoRenameLocks() {
   const held = new Set<string>();
-  const partial = new Set<string>();
+  const partial = new Map<string, string>();
   const listeners = new Set<() => void>();
 
   function isHeld(repoId: string): boolean {
@@ -58,13 +58,18 @@ export function createRepoRenameLocks() {
       return () => listeners.delete(listener);
     },
 
-    /** Marks a rename that stopped after GitHub was renamed and awaits a retry. */
-    markPartial(repoId: string): void {
-      partial.add(repoId);
+    /** Marks a rename to `name` that stopped after GitHub was renamed and awaits a retry. */
+    markPartial(repoId: string, name: string): void {
+      partial.set(repoId, name);
     },
 
     clearPartial(repoId: string): void {
       partial.delete(repoId);
+    },
+
+    /** The name a rename that stopped partway was heading for, or `null`. */
+    pendingName(repoId: string): string | null {
+      return partial.get(repoId) ?? null;
     },
 
     /** Whether a rename is running or stopped partway and awaits a retry. */
