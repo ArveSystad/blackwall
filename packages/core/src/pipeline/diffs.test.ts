@@ -1,13 +1,15 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDatabase, type OpenedDatabase } from "../db/database.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
+import { worktreePathFor } from "../git/branches.js";
 import { createGitService } from "../git/service.js";
 import { createBranchDiff, createTaskDiffs } from "./diffs.js";
 import { REVIEW_DIFF_EVENT, type ReviewGit } from "./stages.js";
+import { createInRepoClaims, createWorkspaceArchiver } from "./workspace.js";
 
 let opened: OpenedDatabase;
 let r: Repositories;
@@ -294,5 +296,87 @@ describe("in-repo task diffs", () => {
     expect(
       (await createBranchDiff({ git: service, repositories: r })(worktreeTask))?.diff,
     ).toContain("other.txt");
+  });
+});
+
+describe("archived task diffs", () => {
+  let root: string;
+  let repoPath: string;
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync("git", args, {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  const commit = (cwd: string, file: string, content: string) => {
+    writeFileSync(join(cwd, file), content);
+    git(cwd, "add", "-A");
+    git(cwd, "commit", "--quiet", "-m", `edit ${file}`);
+    return git(cwd, "rev-parse", "HEAD");
+  };
+  const service = createGitService();
+
+  beforeEach(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), "blackwall-diffs-")));
+    repoPath = join(root, "app");
+    mkdirSync(repoPath);
+    git(repoPath, "init", "--quiet", "-b", "main");
+    git(repoPath, "config", "user.name", "Test");
+    git(repoPath, "config", "user.email", "test@example.com");
+    git(repoPath, "config", "commit.gpgsign", "false");
+    git(repoPath, "config", "core.autocrlf", "false");
+    commit(repoPath, "README.md", "hello\n");
+  });
+
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  async function archivedTask() {
+    const repo = r.repos.create({ path: repoPath, name: "app" });
+    const task = r.tasks.create({
+      title: "Fix login",
+      origin: { kind: "free-text" },
+      repoId: repo.id,
+    });
+    const worktreePath = worktreePathFor(repoPath, task.id);
+    await service.createWorktree({
+      repoPath,
+      worktreePath,
+      branch: `agent/${task.id}`,
+      checkout: { kind: "new", base: "main" },
+    });
+    const fork = git(worktreePath, "rev-parse", "HEAD");
+    const c1 = commit(worktreePath, "a.txt", "a\n");
+    commit(worktreePath, "b.txt", "b\n");
+    const run = r.runs.create(task.id);
+    reviewStep(run.id, 0, fork, c1);
+    return r.tasks.update(task.id, { branch: `agent/${task.id}`, worktreePath });
+  }
+
+  const archiver = () =>
+    createWorkspaceArchiver({ git: service, repos: r.repos, claims: createInRepoClaims() });
+
+  it("reads the same diffs through the hidden ref after archiving", async () => {
+    const task = await archivedTask();
+    const taskDiffs = createTaskDiffs({ repositories: r, git: service });
+    const branchDiff = createBranchDiff({ git: service, repositories: r });
+    const before = { rounds: await taskDiffs(task), branch: await branchDiff(task) };
+    expect(before.rounds).toHaveLength(2);
+
+    await archiver().archive(task);
+    const removed = r.tasks.update(task.id, { worktreePath: null, worktreeRemovedAt: new Date() });
+    expect(await taskDiffs(removed)).toEqual(before.rounds);
+    expect(await branchDiff(removed)).toEqual(before.branch);
+
+    // A leftover path is never read once the removal is recorded.
+    const leftover = { ...removed, worktreePath: join(root, "leftover") };
+    expect(await taskDiffs(leftover)).toEqual(before.rounds);
+    expect(await branchDiff(leftover)).toEqual(before.branch);
+  });
+
+  it("is empty when the hidden ref is missing", async () => {
+    const task = await archivedTask();
+    const removed = { ...task, worktreePath: null, worktreeRemovedAt: new Date() };
+    expect(await createTaskDiffs({ repositories: r, git: service })(removed)).toEqual([]);
+    expect(await createBranchDiff({ git: service, repositories: r })(removed)).toBeNull();
   });
 });

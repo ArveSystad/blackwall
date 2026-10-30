@@ -123,6 +123,7 @@ const GIT_STATE_FIELDS = [
   "status",
   "gate",
   "worktreePath",
+  "worktreeRemovedAt",
   "branch",
   "delivering",
 ] as const satisfies readonly (keyof Task)[];

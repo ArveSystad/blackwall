@@ -494,6 +494,10 @@ describe("tasks, runs and steps", () => {
     expect(task.baseBranch).toBeNull();
     expect(r.tasks.update(task.id, { baseBranch: "feature/a" }).baseBranch).toBe("feature/a");
     expect(r.tasks.get(task.id)?.baseBranch).toBe("feature/a");
+    expect(task.worktreeRemovedAt).toBeNull();
+    const removedAt = new Date(1_700_000_000_000);
+    r.tasks.update(task.id, { worktreeRemovedAt: removedAt });
+    expect(r.tasks.get(task.id)?.worktreeRemovedAt).toEqual(removedAt);
 
     const run1 = r.runs.create(task.id);
     const run2 = r.runs.create(task.id);

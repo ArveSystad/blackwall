@@ -58,7 +58,9 @@ export function ContextPanel({ task }: { task: Task }) {
           </Field>
           <Field label="Worktree">
             <span className="mono break-all">
-              {task.worktreePath ?? "created when the task starts"}
+              {task.worktreeRemovedAt !== null
+                ? "removed when the task was archived"
+                : (task.worktreePath ?? "created when the task starts")}
             </span>
           </Field>
           {task.mode !== "review" && (

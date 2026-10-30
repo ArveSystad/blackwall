@@ -66,7 +66,12 @@ import {
 import type { CheckOutcome, CheckRunner } from "./checks.js";
 import { SETUP_SKIPPED_EVENT, SETUP_STARTED_EVENT, type WorktreeSetup } from "./setup.js";
 import type { PullRequestFeedback, PullRequestFeedbackThread } from "./pr-feedback.js";
-import type { PrHeadSync, WorkspaceSync } from "./workspace.js";
+import {
+  WorkspaceArchiveError,
+  type PrHeadSync,
+  type WorkspaceArchiver,
+  type WorkspaceSync,
+} from "./workspace.js";
 import { InvalidGateResponseError } from "./transitions.js";
 import {
   CHECKS_SKIPPED_EVENT,
@@ -191,6 +196,7 @@ function harness(
     deliver = async () => undefined,
     quota,
     removeWorkspace,
+    archiveWorkspace,
     beforeDelete,
     commentOnIssue = async () => ({ url: ISSUE_COMMENT_URL }),
     pathExists,
@@ -212,6 +218,7 @@ function harness(
     deliver?: (ctx: DeliveryContext) => Promise<void>;
     quota?: Pick<QuotaTracker, "report" | "succeeded">;
     removeWorkspace?: (task: Task) => Promise<void>;
+    archiveWorkspace?: WorkspaceArchiver;
     beforeDelete?: (taskId: string) => Promise<void>;
     commentOnIssue?: (task: Task, body: string) => Promise<{ url: string }>;
     pathExists?: (path: string) => boolean;
@@ -270,6 +277,7 @@ function harness(
     maxTasksPerRepo: () => maxPerRepo,
     ...(quota ? { quota } : {}),
     ...(removeWorkspace ? { removeWorkspace } : {}),
+    ...(archiveWorkspace ? { archiveWorkspace } : {}),
     ...(beforeDelete ? { beforeDelete } : {}),
     ...(pathExists ? { pathExists } : {}),
     ...(ci ? { ci } : {}),
@@ -1822,6 +1830,195 @@ describe("archive", () => {
   });
 });
 
+/** An archiver port that touches no git, recording what it was asked to do in `order`. */
+function fakeArchiver(order: string[] = []) {
+  return {
+    order,
+    archive: vi.fn<WorkspaceArchiver["archive"]>(async (t) => {
+      order.push(`archive ${t.id}`);
+      return { sha: "head" };
+    }),
+    restore: vi.fn<WorkspaceArchiver["restore"]>(async (t) => {
+      order.push(`restore ${t.id}`);
+      return { worktreePath: dir, branch: t.branch ?? `agent/${t.id}` };
+    }),
+    forget: vi.fn<WorkspaceArchiver["forget"]>(async () => undefined),
+  };
+}
+
+describe("worktree removal on archive", () => {
+  /** A promise resolved from outside. */
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((res, rej) => ((resolve = res), (reject = rej)));
+    return { promise, resolve, reject };
+  }
+
+  const delivered = (patch: Partial<Parameters<Repositories["tasks"]["create"]>[0]> = {}) =>
+    seedTask({
+      status: "done",
+      branch: "agent/x",
+      worktreePath: dir,
+      deliveryTargets: ["push-branch"],
+      ...patch,
+    });
+
+  it("removes the worktree in the background and records it", async () => {
+    const port = fakeArchiver();
+    const pending = deferred<{ sha: string } | null>();
+    port.archive.mockReturnValueOnce(pending.promise);
+    const h = harness(() => ({}), { archiveWorkspace: port });
+    const done = delivered();
+
+    const archived = h.engine.archive(done.id);
+    expect(archived).toMatchObject({ worktreePath: dir, worktreeRemovedAt: null });
+    expect(port.archive).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: done.id }));
+    pending.resolve({ sha: "head" });
+    await settle(h.engine);
+    expect(task(done.id)).toMatchObject({
+      worktreePath: null,
+      worktreeRemovedAt: expect.any(Date),
+      archivedAt: expect.any(Date),
+    });
+    expect(h.events.at(-1)).toEqual({
+      type: "task.upserted",
+      payload: { task: task(done.id) },
+    });
+  });
+
+  it("removes every worktree when many tasks of one repo are archived at once", async () => {
+    const port = fakeArchiver();
+    const h = harness(() => ({}), { archiveWorkspace: port });
+    const tasks = [delivered(), delivered(), delivered()];
+    for (const t of tasks) h.engine.archive(t.id);
+    await settle(h.engine);
+    expect(port.archive).toHaveBeenCalledTimes(3);
+    for (const t of tasks) {
+      expect(task(t.id)).toMatchObject({ worktreePath: null, worktreeRemovedAt: expect.any(Date) });
+    }
+  });
+
+  it("restores the worktree when the task is resumed while its removal still runs", async () => {
+    const port = fakeArchiver();
+    const pending = deferred<{ sha: string } | null>();
+    port.archive.mockReturnValueOnce(pending.promise);
+    const h = harness(
+      (stage) => {
+        port.order.push(stage);
+        return {};
+      },
+      { archiveWorkspace: port },
+    );
+    const failed = delivered({ status: "failed" });
+
+    h.engine.archive(failed.id);
+    h.engine.resume(failed.id);
+    pending.resolve({ sha: "head" });
+    await settle(h.engine);
+
+    expect(port.restore).toHaveBeenCalledOnce();
+    // Rebuilt before any agent step ran.
+    expect(port.order[0]).toBe(`restore ${failed.id}`);
+    expect(port.order.length).toBeGreaterThan(1);
+    expect(task(failed.id)).toMatchObject({ worktreePath: dir, worktreeRemovedAt: null });
+  });
+
+  it("starts one removal when unarchived and archived again while it runs", async () => {
+    const port = fakeArchiver();
+    const pending = deferred<{ sha: string } | null>();
+    port.archive.mockReturnValueOnce(pending.promise);
+    const h = harness(() => ({}), { archiveWorkspace: port });
+    const done = delivered();
+    h.engine.archive(done.id);
+    h.engine.unarchive(done.id);
+    h.engine.archive(done.id);
+    pending.resolve({ sha: "head" });
+    await settle(h.engine);
+    expect(port.archive).toHaveBeenCalledOnce();
+    expect(task(done.id)).toMatchObject({
+      worktreeRemovedAt: expect.any(Date),
+      archivedAt: expect.any(Date),
+    });
+  });
+
+  it("logs a failed removal and keeps the worktree", async () => {
+    const port = fakeArchiver();
+    port.archive.mockRejectedValueOnce(new WorkspaceArchiveError("file is locked", false));
+    const log = vi.fn();
+    const h = harness(() => ({}), { archiveWorkspace: port, log });
+    const done = delivered();
+    expect(h.engine.archive(done.id).archivedAt).toEqual(expect.any(Date));
+    await settle(h.engine);
+    expect(log).toHaveBeenCalledWith(
+      `Task ${done.id}: could not remove its worktree after archiving: file is locked`,
+    );
+    expect(task(done.id)).toMatchObject({ worktreePath: dir, worktreeRemovedAt: null });
+  });
+
+  it("records a partial removal with its leftover path, and rebuilds it on resume", async () => {
+    const port = fakeArchiver();
+    port.archive.mockRejectedValueOnce(new WorkspaceArchiveError("file is locked", true));
+    const h = harness(() => ({}), { archiveWorkspace: port });
+    const failed = delivered({ status: "failed" });
+    h.engine.archive(failed.id);
+    await settle(h.engine);
+    expect(task(failed.id)).toMatchObject({
+      worktreePath: dir,
+      worktreeRemovedAt: expect.any(Date),
+    });
+
+    h.engine.resume(failed.id);
+    await settle(h.engine);
+    expect(port.restore).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ id: failed.id, worktreePath: dir }),
+    );
+    expect(task(failed.id).worktreeRemovedAt).toBeNull();
+  });
+
+  it("fails the resumed task without running anything when the rebuild fails", async () => {
+    const port = fakeArchiver();
+    port.restore.mockRejectedValueOnce(new Error("The task's archived commit was not found"));
+    const h = harness(() => ({}), { archiveWorkspace: port });
+    const failed = delivered({ status: "failed" });
+    h.engine.archive(failed.id);
+    await settle(h.engine);
+    h.engine.resume(failed.id);
+    await settle(h.engine);
+    expect(h.calls).toEqual([]);
+    expect(task(failed.id)).toMatchObject({
+      status: "failed",
+      error: expect.stringContaining("archived commit was not found"),
+    });
+  });
+
+  it("passes in-repo tasks to the port, which leaves them alone", async () => {
+    const port = fakeArchiver();
+    port.archive.mockResolvedValueOnce(null);
+    const h = harness(() => ({}), { archiveWorkspace: port });
+    const inRepo = delivered({ inRepo: true, worktreePath: "/code/app" });
+    h.engine.archive(inRepo.id);
+    await settle(h.engine);
+    expect(port.archive).toHaveBeenCalledOnce();
+    expect(task(inRepo.id)).toMatchObject({ worktreePath: "/code/app", worktreeRemovedAt: null });
+  });
+
+  it("cleans up through the port when a removed, delivered task is deleted", async () => {
+    const port = fakeArchiver();
+    const removeWorkspace = vi.fn(async () => undefined);
+    const h = harness(() => ({}), { archiveWorkspace: port, removeWorkspace });
+    const done = delivered();
+    h.engine.archive(done.id);
+    await h.engine.delete(done.id);
+    expect(port.forget).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ id: done.id, worktreeRemovedAt: expect.any(Date) }),
+      { keepBranch: true },
+    );
+    expect(removeWorkspace).not.toHaveBeenCalled();
+    expect(r.tasks.get(done.id)).toBeUndefined();
+  });
+});
+
 describe("implement and checks", () => {
   const failing = (output: string): CheckOutcome => ({ exitCode: 1, output, timedOut: false });
   const passing: CheckOutcome = { exitCode: 0, output: "ok", timedOut: false };
@@ -3051,10 +3248,12 @@ describe("re-review a posted review", () => {
     ancestor = true,
     moves = true,
     findings = (reviews: number) => (reviews === 1 ? [highFinding] : []),
+    archiveWorkspace,
   }: {
     ancestor?: boolean;
     moves?: boolean;
     findings?: (reviews: number) => ReviewFinding[];
+    archiveWorkspace?: WorkspaceArchiver;
   } = {}) {
     let head = "h0";
     const remote = { sha: "h0" };
@@ -3078,7 +3277,11 @@ describe("re-review a posted review", () => {
         reviews++;
         return { structured: { findings: findings(reviews) } };
       },
-      { stages: createDefaultStages({ reviewGit }), prHead },
+      {
+        stages: createDefaultStages({ reviewGit }),
+        prHead,
+        ...(archiveWorkspace ? { archiveWorkspace } : {}),
+      },
     );
     const seeded = seedTask({ mode: "review", origin: prOrigin(), branch: "feature/pr" });
     h.engine.enqueue(seeded.id);
@@ -3129,6 +3332,28 @@ describe("re-review a posted review", () => {
     await expect(noPort.engine.refreshPullRequest(seeded.id)).rejects.toThrow(
       "Refreshing the pull request is not available",
     );
+  });
+
+  it("rebuilds a worktree archiving removed before moving it to the new head", async () => {
+    const port = fakeArchiver();
+    const { h, seeded, remote, prHead } = await posted({ archiveWorkspace: port });
+    prHead.moveTo.mockImplementation(async () => {
+      port.order.push("moveTo");
+      return true;
+    });
+    h.engine.archive(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({
+      worktreePath: null,
+      worktreeRemovedAt: expect.any(Date),
+    });
+    remote.sha = "h1";
+
+    await expect(h.engine.refreshPullRequest(seeded.id)).resolves.toMatchObject({ changed: true });
+    await h.engine.reReviewPullRequest(seeded.id);
+    expect(port.order).toEqual([`archive ${seeded.id}`, `restore ${seeded.id}`, "moveTo"]);
+    expect(task(seeded.id)).toMatchObject({ worktreePath: dir, worktreeRemovedAt: null });
+    await settle(h.engine);
   });
 
   it("reviews only the commits pushed since and stops at triage", async () => {
@@ -4436,6 +4661,27 @@ describe("CI", () => {
     expect(ci.watch).toHaveBeenCalledTimes(1);
   });
 
+  it("rebuilds a worktree archiving removed before creating the CI findings", async () => {
+    const ci = fakeCi();
+    const port = fakeArchiver();
+    const h = harness(() => ({}), { deliver: recording, ci, archiveWorkspace: port });
+    const seeded = await failedAfterPush(h, ["push-branch"]);
+    h.engine.archive(seeded.id);
+    await settle(h.engine);
+    const findingsBefore = r.findings.listByTask(seeded.id).length;
+
+    port.restore.mockRejectedValueOnce(new Error("The task's archived commit was not found"));
+    await expect(h.engine.fixCi(seeded.id)).rejects.toThrow("archived commit was not found");
+    expect(r.findings.listByTask(seeded.id)).toHaveLength(findingsBefore);
+    expect(task(seeded.id)).toMatchObject({ status: "done", worktreeRemovedAt: expect.any(Date) });
+
+    const queued = await h.engine.fixCi(seeded.id);
+    expect(queued).toMatchObject({ status: "queued", worktreePath: dir, worktreeRemovedAt: null });
+    expect(port.restore).toHaveBeenCalledTimes(2);
+    expect(r.findings.listByTask(seeded.id).length).toBeGreaterThan(findingsBefore);
+    await settle(h.engine);
+  });
+
   it("fixes failed CI in a full review loop that stops at finish, and merges the targets", async () => {
     const ci = fakeCi();
     const h = harness(() => ({}), { deliver: recording, ci });
@@ -4579,6 +4825,34 @@ describe("CI", () => {
       });
       expect(task(taskId).status).toBe("done");
     }
+
+    it("rebuilds a worktree archiving removed before creating the comment findings", async () => {
+      const port = fakeArchiver();
+      const prFeedback = vi.fn(async () => ({ threads: [thread()], conversation: [] }));
+      const h = harness(() => ({}), {
+        deliver: prRecording,
+        ci: fakeCi(),
+        prFeedback,
+        archiveWorkspace: port,
+      });
+      const seeded = await deliveredWith(h);
+      h.engine.archive(seeded.id);
+      await settle(h.engine);
+      const findingsBefore = r.findings.listByTask(seeded.id).length;
+
+      port.restore.mockRejectedValueOnce(new Error("could not clear"));
+      await expect(h.engine.fixPrComments(seeded.id)).rejects.toThrow("could not clear");
+      expect(r.findings.listByTask(seeded.id)).toHaveLength(findingsBefore);
+
+      const queued = await h.engine.fixPrComments(seeded.id);
+      expect(queued).toMatchObject({
+        status: "queued",
+        worktreePath: dir,
+        worktreeRemovedAt: null,
+      });
+      expect(r.findings.listByTask(seeded.id)).toHaveLength(findingsBefore + 1);
+      await settle(h.engine);
+    });
 
     it("turns new PR comments into force-fixed findings and runs a fix round to finish", async () => {
       const ci = fakeCi();

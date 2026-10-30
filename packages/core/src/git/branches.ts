@@ -83,6 +83,15 @@ export function prBranchName({
   return `${bug ? "fix" : "feat"}/${slug}`;
 }
 
+/**
+ * The hidden ref that keeps an archived task's head once archiving removed its
+ * worktree and branch: diffs read through it and a reopened task's worktree is
+ * rebuilt from it.
+ */
+export function archivedRefFor(taskId: string): string {
+  return `refs/blackwall/archived/${taskId}`;
+}
+
 /** Where a task's worktree lives: `../<repo>.worktrees/<task>` next to the repo. */
 export function worktreePathFor(repoPath: string, taskId: string): string {
   return join(dirname(repoPath), `${basename(repoPath)}.worktrees`, taskId);

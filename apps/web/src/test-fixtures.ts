@@ -22,6 +22,7 @@ export function makeTask(overrides: Partial<Task> = {}): Task {
     branch: null,
     baseBranch: null,
     worktreePath: null,
+    worktreeRemovedAt: null,
     inRepo: false,
     status: "queued",
     stage: null,

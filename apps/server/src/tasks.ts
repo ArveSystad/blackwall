@@ -118,9 +118,12 @@ export interface TaskRouteServices {
   artifacts?: TaskArtifacts;
 }
 
-/** The task had a worktree that is gone, e.g. after an import on another machine. */
+/**
+ * The task had a worktree that is gone, e.g. after an import on another
+ * machine. Not when archiving removed it: its diffs read through a hidden ref.
+ */
 const worktreeMissing = (task: Task) =>
-  task.worktreePath !== null && !existsSync(task.worktreePath);
+  task.worktreeRemovedAt === null && task.worktreePath !== null && !existsSync(task.worktreePath);
 
 /**
  * Title for a task the form gave none and the origin could not name: a free
@@ -468,7 +471,10 @@ export function taskRoutes(
       return c.json<Task>(pipeline.resume(c.req.param("id"), input.data.message));
     });
 
-    /** Archives a done task (409 otherwise): it leaves the Inbox and the backlog lists. */
+    /**
+     * Archives a done task (409 otherwise): it leaves the Inbox and the backlog
+     * lists, and its worktree is removed in the background (see the engine).
+     */
     routes.post("/:id/archive", (c) => c.json<Task>(pipeline.archive(c.req.param("id"))));
 
     /** Lists an archived task again. */

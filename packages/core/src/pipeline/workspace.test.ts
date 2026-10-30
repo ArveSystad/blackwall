@@ -1,18 +1,26 @@
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Repo, Task } from "@blackwall/shared";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   GitError,
+  createGitService,
   type CreateWorktreeInput,
   type GitService,
   type RemoveWorktreeInput,
 } from "../git/service.js";
-import { worktreePathFor } from "../git/branches.js";
+import { archivedRefFor, worktreePathFor } from "../git/branches.js";
 import {
+  WorkspaceArchiveError,
   createInRepoClaims,
   createPrHeadSync,
+  createWorkspaceArchiver,
   createWorkspacePreparer,
   createWorkspaceRemover,
   createWorkspaceSyncer,
+  type WorkspaceArchiverOptions,
 } from "./workspace.js";
 
 const repo = { id: "r1", path: "/code/app", name: "app", defaultBranch: "main" } as Repo;
@@ -43,6 +51,7 @@ const task = (patch: Partial<Task>) =>
     branch: null,
     baseBranch: null,
     worktreePath: null,
+    worktreeRemovedAt: null,
     ...patch,
   }) as Task;
 
@@ -255,6 +264,15 @@ describe("createPrHeadSync", () => {
       "sha-local",
       "develop",
     );
+  });
+
+  it("fetches in the repo once archiving removed the worktree, even with a leftover", async () => {
+    const { sync, fetchBranch } = prHead();
+    const removed = { worktreeRemovedAt: new Date() };
+    await sync.fetch({ ...pr, ...removed, worktreePath: null });
+    expect(fetchBranch).toHaveBeenLastCalledWith("/code/app", "feature/pr");
+    await sync.fetch({ ...pr, ...removed });
+    expect(fetchBranch).toHaveBeenLastCalledWith("/code/app", "feature/pr");
   });
 });
 
@@ -555,5 +573,300 @@ describe("createWorkspaceSyncer", () => {
     await expect(sync(task({ origin: { kind: "free-text" } }))).resolves.toBeNull();
     expect(remoteUrl).not.toHaveBeenCalled();
     expect(fastForwardTo).not.toHaveBeenCalled();
+  });
+});
+
+describe("createWorkspaceArchiver", () => {
+  let root: string;
+  let repoPath: string;
+  let gitRepo: Repo;
+  const service = createGitService();
+
+  function sh(cwd: string, ...args: string[]): string {
+    return execFileSync("git", args, {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  }
+
+  function refOf(ref: string): string | null {
+    try {
+      return sh(repoPath, "rev-parse", "--verify", "--quiet", ref);
+    } catch {
+      return null;
+    }
+  }
+
+  beforeEach(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), "blackwall-archive-")));
+    repoPath = join(root, "app");
+    mkdirSync(repoPath);
+    sh(repoPath, "init", "--quiet", "-b", "main");
+    sh(repoPath, "config", "user.name", "Test");
+    sh(repoPath, "config", "user.email", "test@example.com");
+    sh(repoPath, "config", "commit.gpgsign", "false");
+    sh(repoPath, "config", "core.autocrlf", "false");
+    writeFileSync(join(repoPath, "README.md"), "hello\n");
+    sh(repoPath, "add", "-A");
+    sh(repoPath, "commit", "--quiet", "-m", "initial");
+    gitRepo = { ...repo, path: repoPath };
+  });
+
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  function archiver(git: WorkspaceArchiverOptions["git"] = service) {
+    return createWorkspaceArchiver({
+      git,
+      repos: { get: (id) => (id === gitRepo.id ? gitRepo : undefined) },
+      claims: createInRepoClaims(),
+    });
+  }
+
+  /** A free-text task with a worktree on `agent/<id>` holding one commit of its own. */
+  async function started(id: string, patch: Partial<Task> = {}): Promise<Task> {
+    const worktreePath = worktreePathFor(repoPath, id);
+    const branch = patch.branch ?? `agent/${id}`;
+    await service.createWorktree({
+      repoPath,
+      worktreePath,
+      branch,
+      checkout: { kind: "new", base: "main" },
+    });
+    writeFileSync(join(worktreePath, `${id}.txt`), `${id}\n`);
+    sh(worktreePath, "add", "-A");
+    sh(worktreePath, "commit", "--quiet", "-m", `work ${id}`);
+    return task({
+      id,
+      origin: { kind: "free-text" },
+      inRepo: false,
+      branch,
+      worktreePath,
+      ...patch,
+    });
+  }
+
+  const headOf = (t: Task) => sh(t.worktreePath!, "rev-parse", "HEAD");
+
+  it("keeps the head at the hidden ref, then removes the worktree and its branch", async () => {
+    const t = await started("t1");
+    const head = headOf(t);
+    await expect(archiver().archive(t)).resolves.toEqual({ sha: head });
+    expect(existsSync(t.worktreePath!)).toBe(false);
+    expect(refOf("refs/heads/agent/t1")).toBeNull();
+    expect(refOf(archivedRefFor("t1"))).toBe(head);
+  });
+
+  it("archives several tasks of one repo at once", async () => {
+    const tasks = [await started("a"), await started("b"), await started("c")];
+    const heads = tasks.map(headOf);
+    const archive = archiver();
+    await Promise.all(tasks.map((t) => archive.archive(t)));
+    tasks.forEach((t, i) => {
+      expect(existsSync(t.worktreePath!)).toBe(false);
+      expect(refOf(`refs/heads/agent/${t.id}`)).toBeNull();
+      expect(refOf(archivedRefFor(t.id))).toBe(heads[i]);
+    });
+  });
+
+  it("removes a worktree with uncommitted changes", async () => {
+    const t = await started("t1");
+    writeFileSync(join(t.worktreePath!, "dirty.txt"), "unsaved\n");
+    await archiver().archive(t);
+    expect(existsSync(t.worktreePath!)).toBe(false);
+  });
+
+  it("keeps a PR task's branch", async () => {
+    const t = await started("t1", {
+      branch: "fix-login",
+      origin: {
+        kind: "github-pr",
+        url: "https://github.com/acme/app/pull/7",
+        owner: "acme",
+        repo: "app",
+        number: 7,
+        connectionId: null,
+      },
+    });
+    await archiver().archive(t);
+    expect(existsSync(t.worktreePath!)).toBe(false);
+    expect(refOf("refs/heads/fix-login")).not.toBeNull();
+  });
+
+  it("skips in-repo tasks and tasks without a worktree", async () => {
+    const archive = archiver();
+    await expect(
+      archive.archive(task({ inRepo: true, branch: "agent/t1", worktreePath: repoPath })),
+    ).resolves.toBeNull();
+    await expect(archive.archive(task({ branch: "agent/t1" }))).resolves.toBeNull();
+    expect(existsSync(repoPath)).toBe(true);
+  });
+
+  it("restores the worktree at the archived commit and deletes the ref", async () => {
+    const t = await started("t1");
+    const head = headOf(t);
+    const archive = archiver();
+    await archive.archive(t);
+    const restored = await archive.restore({
+      ...t,
+      worktreePath: null,
+      worktreeRemovedAt: new Date(),
+    });
+    expect(restored).toEqual({ worktreePath: worktreePathFor(repoPath, "t1"), branch: "agent/t1" });
+    expect(sh(restored.worktreePath, "rev-parse", "HEAD")).toBe(head);
+    expect(sh(restored.worktreePath, "symbolic-ref", "--short", "HEAD")).toBe("agent/t1");
+    expect(refOf(archivedRefFor("t1"))).toBeNull();
+  });
+
+  it("clears a leftover of a partial removal and checks out the surviving branch", async () => {
+    const t = await started("t1");
+    const head = headOf(t);
+    sh(repoPath, "update-ref", archivedRefFor("t1"), head);
+    rmSync(join(t.worktreePath!, "README.md"));
+    const restored = await archiver().restore({ ...t, worktreeRemovedAt: new Date() });
+    expect(existsSync(join(restored.worktreePath, "README.md"))).toBe(true);
+    expect(sh(restored.worktreePath, "rev-parse", "HEAD")).toBe(head);
+    expect(sh(restored.worktreePath, "symbolic-ref", "--short", "HEAD")).toBe("agent/t1");
+  });
+
+  it("refuses to restore without the archived commit", async () => {
+    await expect(
+      archiver().restore(task({ branch: "agent/t1", worktreeRemovedAt: new Date() })),
+    ).rejects.toThrow("archived commit was not found");
+  });
+
+  it("recreates a delivered task's branch on forget and deletes the ref", async () => {
+    const t = await started("t1");
+    const head = headOf(t);
+    const archive = archiver();
+    await archive.archive(t);
+    await archive.forget(
+      { ...t, worktreePath: null, worktreeRemovedAt: new Date() },
+      { keepBranch: true },
+    );
+    expect(refOf("refs/heads/agent/t1")).toBe(head);
+    expect(refOf(archivedRefFor("t1"))).toBeNull();
+  });
+
+  it("clears a leftover and deletes a surviving branch on forget without keepBranch", async () => {
+    const t = await started("t1");
+    sh(repoPath, "update-ref", archivedRefFor("t1"), headOf(t));
+    await archiver().forget({ ...t, worktreeRemovedAt: new Date() });
+    expect(existsSync(t.worktreePath!)).toBe(false);
+    expect(refOf("refs/heads/agent/t1")).toBeNull();
+    expect(refOf(archivedRefFor("t1"))).toBeNull();
+  });
+
+  it("keeps the ref and reports a partial removal when files are already gone", async () => {
+    const t = await started("t1");
+    const failing = {
+      ...service,
+      removeWorktree: async () => {
+        rmSync(join(t.worktreePath!, "README.md"));
+        throw new Error("Permission denied");
+      },
+    };
+    const error = await archiver(failing)
+      .archive(t)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(WorkspaceArchiveError);
+    expect((error as WorkspaceArchiveError).partial).toBe(true);
+    expect(refOf(archivedRefFor("t1"))).not.toBeNull();
+  });
+
+  it("drops the ref and reports a clean failure when nothing was touched", async () => {
+    const t = await started("t1");
+    const failing = {
+      ...service,
+      removeWorktree: async () => {
+        throw new Error("locked");
+      },
+    };
+    const error = await archiver(failing)
+      .archive(t)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(WorkspaceArchiveError);
+    expect((error as WorkspaceArchiveError).partial).toBe(false);
+    expect(refOf(archivedRefFor("t1"))).toBeNull();
+    expect(existsSync(t.worktreePath!)).toBe(true);
+  });
+});
+
+describe("createWorkspaceArchiver ordering", () => {
+  const other = { ...repo, id: "r2", path: "/code/other" } as Repo;
+
+  function setup() {
+    const releases: (() => void)[] = [];
+    const failures: boolean[] = [];
+    const setRef = vi.fn<GitService["setRef"]>(async () => undefined);
+    const removeWorktree = vi.fn<GitService["removeWorktree"]>(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          const fail = failures.shift() ?? false;
+          releases.push(() => (fail ? reject(new Error("locked")) : resolve()));
+        }),
+    );
+    const archive = createWorkspaceArchiver({
+      git: {
+        headSha: vi.fn(async () => "sha"),
+        setRef,
+        deleteRef: vi.fn(async () => undefined),
+        refExists: vi.fn(async () => true),
+        createBranchAt: vi.fn(async () => undefined),
+        createWorktree: vi.fn<GitService["createWorktree"]>(),
+        removeWorktree,
+        worktreeIntact: vi.fn(async () => true),
+      },
+      repos: { get: (id) => [repo, other].find((r) => r.id === id) },
+      claims: createInRepoClaims(),
+    });
+    return { archive, setRef, removeWorktree, releases, failures };
+  }
+
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const started = (id: string, repoId = "r1") =>
+    task({
+      id,
+      repoId,
+      origin: { kind: "free-text" },
+      inRepo: false,
+      branch: `agent/${id}`,
+      worktreePath: join(tmpdir(), "blackwall-missing", id),
+    });
+
+  it("runs one repo's removals one at a time and other repos at once", async () => {
+    const { archive, setRef, removeWorktree, releases } = setup();
+    const first = archive.archive(started("a"));
+    const second = archive.archive(started("b"));
+    const elsewhere = archive.archive(started("c", "r2"));
+    await flush();
+    expect(setRef).toHaveBeenCalledTimes(2);
+    expect(removeWorktree.mock.calls.map(([input]) => input.repoPath)).toEqual([
+      "/code/app",
+      "/code/other",
+    ]);
+    releases.shift()!();
+    releases.shift()!();
+    await Promise.all([first, elsewhere]);
+    await flush();
+    expect(setRef).toHaveBeenCalledTimes(3);
+    expect(removeWorktree).toHaveBeenCalledTimes(3);
+    releases.shift()!();
+    await expect(second).resolves.toEqual({ sha: "sha" });
+  });
+
+  it("goes on after a failed removal", async () => {
+    const { archive, removeWorktree, releases, failures } = setup();
+    failures.push(true);
+    const first = archive.archive(started("a"));
+    const second = archive.archive(started("b"));
+    await flush();
+    expect(removeWorktree).toHaveBeenCalledOnce();
+    releases.shift()!();
+    await expect(first).rejects.toBeInstanceOf(WorkspaceArchiveError);
+    await flush();
+    expect(removeWorktree).toHaveBeenCalledTimes(2);
+    releases.shift()!();
+    await expect(second).resolves.toEqual({ sha: "sha" });
   });
 });

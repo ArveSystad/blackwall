@@ -186,6 +186,8 @@ export const tasks = sqliteTable(
     /** PR tasks: the pull request's base branch when the worktree was created; the fork point for its diffs. */
     baseBranch: text("base_branch"),
     worktreePath: text("worktree_path"),
+    /** Set when archiving removed (or partly removed) the worktree; its head is kept at refs/blackwall/archived/<id>. */
+    worktreeRemovedAt: timestamp("worktree_removed_at"),
     /** Works in the repo's own folder on its branch instead of a separate worktree. */
     inRepo: integer("in_repo", { mode: "boolean" }).notNull().default(false),
     status: text("status", { enum: TASK_STATUSES }).notNull().default("queued"),

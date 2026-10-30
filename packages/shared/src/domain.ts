@@ -1393,6 +1393,13 @@ export const taskSchema = z
      * repo's path) instead of a separate worktree. Never set for PR tasks.
      */
     inRepo: z.boolean(),
+    /**
+     * Set when archiving removed (or partly removed) the task's worktree. Its
+     * head is kept at `refs/blackwall/archived/<id>`, diffs read through that
+     * ref, and reopening the task rebuilds the worktree from it. A leftover
+     * `worktreePath` is never used as a live workspace while this is set.
+     */
+    worktreeRemovedAt: timestamp.nullable(),
     status: taskStatusSchema,
     /** Current pipeline stage; null before the first step starts. */
     stage: stageSchema.nullable(),

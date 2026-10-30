@@ -31,6 +31,7 @@ const jiraTask = (connectionId: string | null) =>
     origin: { kind: "jira-issue", key: "ABC-123", connectionId },
     baseBranch: null,
     worktreePath: null,
+    worktreeRemovedAt: null,
   }) as Task;
 
 function fakeJira() {

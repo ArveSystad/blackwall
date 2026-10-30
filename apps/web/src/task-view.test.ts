@@ -76,6 +76,7 @@ import {
   toolTarget,
   unplacedThreads,
   visibleFindings,
+  worktreeRemoved,
   type DiffLine,
   type NewTaskDraft,
   type TabSignalState,
@@ -1194,6 +1195,16 @@ describe("tabs and banner", () => {
     expect(isTabEnabled(task, "findings")).toBe(false);
     expect(isTabEnabled(task, "diff")).toBe(false);
     expect(isTabEnabled(makeTask({ stage: "code-review" }), "findings")).toBe(true);
+  });
+
+  it("keeps Diff and Artifacts enabled once archiving removed the worktree", () => {
+    const removed = makeTask({ worktreePath: null, worktreeRemovedAt: new Date() });
+    expect(worktreeRemoved(removed)).toBe(true);
+    expect(isTabEnabled(removed, "diff")).toBe(true);
+    expect(isTabEnabled(removed, "artifacts")).toBe(true);
+    const never = makeTask({ worktreePath: null });
+    expect(worktreeRemoved(never)).toBe(false);
+    expect(isTabEnabled(never, "diff")).toBe(false);
   });
 
   it("enables Artifacts with a worktree, except on Review PR tasks", () => {

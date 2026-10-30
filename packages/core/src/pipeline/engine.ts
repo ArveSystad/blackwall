@@ -55,7 +55,12 @@ import {
   type MergeConflict,
 } from "./delivery.js";
 import { blockingFindings } from "./findings.js";
-import type { PrHeadSync, WorkspaceSync } from "./workspace.js";
+import {
+  WorkspaceArchiveError,
+  type PrHeadSync,
+  type WorkspaceArchiver,
+  type WorkspaceSync,
+} from "./workspace.js";
 import {
   MAX_PR_COMMENT_FINDINGS,
   prConversationFinding,
@@ -272,6 +277,12 @@ export interface PipelineEngineOptions {
    * delivered task's). Called only for tasks that have a worktree.
    */
   removeWorkspace?: (task: Task, options?: { keepBranch?: boolean }) => Promise<void>;
+  /**
+   * Removes an archived task's worktree in the background, keeping its head
+   * at a hidden ref, and rebuilds it when the task is reopened. Without the
+   * port archived tasks keep their worktrees.
+   */
+  archiveWorkspace?: WorkspaceArchiver;
   /** Ends anything else working in the task's worktree (its chat) before the worktree is removed. */
   beforeDelete?: (taskId: string) => Promise<void>;
   /** Plans and performs the delivery actions the user confirms at finish (or posts the review). */
@@ -329,6 +340,15 @@ export interface PipelineEngineOptions {
 
 /** The only delivery actions autonomous mode takes: nothing leaves the machine. */
 export const LOCAL_DELIVERY: readonly DeliveryTarget[] = ["merge-main", "create-tasks"];
+
+/** Archived tasks keep their worktrees. */
+const NO_ARCHIVER: WorkspaceArchiver = {
+  archive: async () => null,
+  restore: async () => {
+    throw new Error("Restoring a removed worktree is not available");
+  },
+  forget: async () => undefined,
+};
 
 /**
  * The finish confirmation autonomous mode gives a delivery plan: the local
@@ -400,6 +420,7 @@ export function createPipelineEngine({
   prepareWorkspace,
   syncWorkspace,
   removeWorkspace = async () => undefined,
+  archiveWorkspace = NO_ARCHIVER,
   beforeDelete,
   delivery,
   maxTasksPerRepo,
@@ -422,6 +443,8 @@ export function createPipelineEngine({
   });
   renaming?.onRelease(() => pump());
   const drives = new Map<string, Promise<void>>();
+  /** Worktree removals after archiving, by task; an entry goes when it settles. */
+  const cleanups = new Map<string, Promise<void>>();
   /** Autonomous gate answers in flight after a drive (see {@link autopilot}). */
   const autopilots = new Set<Promise<void>>();
   const controllers = new Map<string, AbortController>();
@@ -1052,7 +1075,9 @@ export function createPipelineEngine({
       let task = getTask(taskId);
       run = currentRun(taskId);
       if (run.status !== "running") run = saveRun(run.id, "running");
-      task = saveTask(taskId, { status: "running", gate: null, error: null });
+      saveTask(taskId, { status: "running", gate: null, error: null });
+      // Archiving may have removed the worktree; bring it back first.
+      task = await ensureWorkspace(taskId);
 
       // An in-repo task prepares on every drive, so a resumed one gets its
       // branch checked out in the repo's folder again.
@@ -1298,7 +1323,7 @@ export function createPipelineEngine({
       delivering.add(taskId);
       saveTask(taskId, { delivering: true });
       try {
-        await runDelivery(task, run, confirmation);
+        await runDelivery(await ensureWorkspace(taskId), run, confirmation);
       } finally {
         delivering.delete(taskId);
         saveTask(taskId, { delivering: false });
@@ -1320,6 +1345,40 @@ export function createPipelineEngine({
   }
 
   /**
+   * Removes an archived task's worktree. A removal is recorded whatever
+   * `archivedAt` is by then, so a task reopened meanwhile has its worktree
+   * rebuilt by {@link ensureWorkspace}. Failures are logged, never thrown; a
+   * partial removal is recorded too, keeping the leftover path.
+   */
+  async function cleanupArchived(taskId: string): Promise<void> {
+    try {
+      const task = getTask(taskId);
+      const repo = r.repos.get(task.repoId);
+      if (!repo || !pathExists(repo.path)) return;
+      const removed = await archiveWorkspace.archive(task);
+      if (removed) saveTask(taskId, { worktreePath: null, worktreeRemovedAt: new Date() });
+    } catch (error) {
+      log(`Task ${taskId}: could not remove its worktree after archiving: ${errorMessage(error)}`);
+      if (error instanceof WorkspaceArchiveError && error.partial && r.tasks.get(taskId)) {
+        saveTask(taskId, { worktreeRemovedAt: new Date() });
+      }
+    }
+  }
+
+  /**
+   * Rebuilds a task's worktree that archiving removed, after waiting for a
+   * removal still in flight. Returns the fresh task; a failed rebuild throws,
+   * so nothing runs without its worktree.
+   */
+  async function ensureWorkspace(taskId: string): Promise<Task> {
+    await cleanups.get(taskId);
+    const task = getTask(taskId);
+    if (!task.worktreeRemovedAt) return task;
+    const { worktreePath, branch } = await archiveWorkspace.restore(task);
+    return saveTask(taskId, { worktreePath, branch, worktreeRemovedAt: null });
+  }
+
+  /**
    * Checks that a task is a done Review PR task that posted its review and
    * returns the PR head port, for Refresh and Re-review.
    */
@@ -1331,7 +1390,7 @@ export function createPipelineEngine({
     if (!task.deliveryTargets.includes("pr-review")) {
       throw new TaskStateError(`Task ${task.id} has not posted its review`);
     }
-    if (!task.worktreePath || !task.branch) {
+    if (!(task.worktreePath || task.worktreeRemovedAt) || !task.branch) {
       throw new TaskStateError(`Task ${task.id} has no worktree`);
     }
     if (!prHead) throw new TaskStateError("Refreshing the pull request is not available");
@@ -1633,10 +1692,10 @@ export function createPipelineEngine({
               .filter((c) => c.state === "failed")
               .slice(0, MAX_CI_FAILURES)
               .map((check) => ({ check, log: undefined }));
-        const fresh = getTask(taskId);
-        if (fresh.status !== "done") {
+        if (getTask(taskId).status !== "done") {
           throw new TaskStateError(`Task ${taskId} changed while gathering its CI logs`);
         }
+        const fresh = await ensureWorkspace(taskId);
         const run = currentRun(taskId);
         const round = currentRound(run);
         const findings = r.findings.createMany(
@@ -1681,7 +1740,7 @@ export function createPipelineEngine({
       fixingPrComments.add(taskId);
       try {
         const feedback = await prFeedback(url);
-        const fresh = getTask(taskId);
+        let fresh = getTask(taskId);
         if (fresh.status !== "done") {
           throw new TaskStateError(`Task ${taskId} changed while fetching its PR comments`);
         }
@@ -1696,6 +1755,7 @@ export function createPipelineEngine({
         if (candidates.length === 0) {
           throw new TaskStateError("No new comments on the pull request to fix");
         }
+        fresh = await ensureWorkspace(taskId);
         ci?.cancel(taskId);
         const findings = r.findings.createMany(candidates.slice(0, MAX_PR_COMMENT_FINDINGS));
         for (const finding of findings) publish({ type: "finding.upserted", payload: { finding } });
@@ -1738,10 +1798,10 @@ export function createPipelineEngine({
         if (!changed) {
           throw new TaskStateError("No new changes on the pull request since the review");
         }
-        const fresh = getTask(taskId);
-        if (fresh.status !== "done") {
+        if (getTask(taskId).status !== "done") {
           throw new TaskStateError(`Task ${taskId} changed while fetching its pull request`);
         }
+        const fresh = await ensureWorkspace(taskId);
         if (!(await port.moveTo(fresh, headSha, reviewedSha))) {
           throw new TaskStateError(
             "The worktree of this review has local changes; clean it, then re-review",
@@ -1851,7 +1911,10 @@ export function createPipelineEngine({
      * Archives a done task, or a delivered one that failed or was interrupted
      * (say, a stopped Fix CI round): it leaves the Inbox and the backlog lists
      * but keeps its status, so backlog dependencies on a done task stay met.
-     * Archiving an archived task keeps its original `archivedAt`.
+     * Archiving an archived task keeps its original `archivedAt`. The task's
+     * worktree is removed in the background to save disk (see
+     * {@link cleanupArchived}); archiving never waits for it or fails on it,
+     * and reopening the task rebuilds it.
      */
     archive(taskId: string): Task {
       const task = getTask(taskId);
@@ -1862,7 +1925,13 @@ export function createPipelineEngine({
         );
       }
       if (task.archivedAt) return task;
-      return saveTask(taskId, { archivedAt: new Date() });
+      const archived = saveTask(taskId, { archivedAt: new Date() });
+      // Unarchived and archived again while the first removal still runs.
+      if (!cleanups.has(taskId)) {
+        const cleanup = cleanupArchived(taskId).finally(() => cleanups.delete(taskId));
+        cleanups.set(taskId, cleanup);
+      }
+      return archived;
     },
 
     /** Lists an archived task again. */
@@ -1880,7 +1949,9 @@ export function createPipelineEngine({
      * request, comments) stays. A queued or running task is stopped first.
      * Refused while delivery runs or while a plan-approval issue comment posts.
      * Backlog items that promoted it keep `taskId: null`. `beforeDelete` runs
-     * once the task has stopped, before the worktree goes.
+     * once the task has stopped, before the worktree goes. For a task whose
+     * worktree archiving removed, the hidden ref (and any leftover folder)
+     * goes, and a delivered task's branch is recreated from the ref.
      */
     async delete(taskId: string): Promise<void> {
       const task = getTask(taskId);
@@ -1900,11 +1971,22 @@ export function createPipelineEngine({
       scheduler.dequeue(taskId);
       pending.delete(taskId);
       await drives.get(taskId);
+      await cleanups.get(taskId);
       await beforeDelete?.(taskId);
       const settled = getTask(taskId);
       // A repo folder that is gone (say, after an import on another machine) has nothing to remove.
       const repo = r.repos.get(settled.repoId);
-      if (settled.worktreePath && repo && pathExists(repo.path)) {
+      if (settled.worktreeRemovedAt) {
+        if (repo && pathExists(repo.path)) {
+          await archiveWorkspace
+            .forget(settled, delivered ? { keepBranch: true } : undefined)
+            .catch((error: unknown) =>
+              log(
+                `Task ${taskId}: could not clean up its archived worktree: ${errorMessage(error)}`,
+              ),
+            );
+        }
+      } else if (settled.worktreePath && repo && pathExists(repo.path)) {
         await removeWorkspace(settled, delivered ? { keepBranch: true } : undefined);
       }
       r.tasks.delete(taskId);
@@ -1945,10 +2027,13 @@ export function createPipelineEngine({
       await Promise.all(drives.values());
     },
 
-    /** Resolves when no task is running and no autonomous answer is pending (tests). */
+    /**
+     * Resolves when no task is running and no autonomous answer or worktree
+     * removal after archiving is pending (tests).
+     */
     async idle(): Promise<void> {
-      while (drives.size > 0 || autopilots.size > 0) {
-        await Promise.all([...drives.values(), ...autopilots]);
+      while (drives.size > 0 || autopilots.size > 0 || cleanups.size > 0) {
+        await Promise.all([...drives.values(), ...autopilots, ...cleanups.values()]);
       }
     },
 

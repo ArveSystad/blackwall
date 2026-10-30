@@ -61,6 +61,7 @@ const prTask = (connectionId: string | null) =>
     },
     baseBranch: null,
     worktreePath: null,
+    worktreeRemovedAt: null,
   }) as Task;
 
 function fakeGitHub(headRepo = "acme/shop") {
@@ -735,6 +736,7 @@ const issueTask = () =>
     origin: issueOrigin,
     baseBranch: null,
     worktreePath: null,
+    worktreeRemovedAt: null,
   }) as Task;
 
 /** Answers for issue 7 (labelled `labels`), its comments, and issue 42, which is a PR. */

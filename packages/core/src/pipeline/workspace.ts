@@ -1,6 +1,8 @@
+import { existsSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import type { Task } from "@blackwall/shared";
 import type { Repositories } from "../db/repositories.js";
-import { branchForTask, worktreePathFor } from "../git/branches.js";
+import { archivedRefFor, branchForTask, worktreePathFor } from "../git/branches.js";
 import { errorMessage } from "../git/errors.js";
 import type { GitService } from "../git/service.js";
 import type { PreparedWorkspace } from "./engine.js";
@@ -221,8 +223,13 @@ export function createPrHeadSync({ git, repos }: PrHeadSyncOptions): PrHeadSync 
   };
   return {
     async fetch(task) {
-      const { worktreePath, branch } = workspace(task);
-      return git.fetchBranch(worktreePath, branch);
+      if (!task.branch) throw new Error("The task has no branch");
+      // A removed worktree (or a leftover of one) is no place to run git in.
+      const cwd = task.worktreeRemovedAt
+        ? repos.get(task.repoId)?.path
+        : (task.worktreePath ?? repos.get(task.repoId)?.path);
+      if (!cwd) throw new Error("The task has no worktree");
+      return git.fetchBranch(cwd, task.branch);
     },
     async moveTo(task, sha, expectedHead) {
       const { worktreePath, branch } = workspace(task);
@@ -284,5 +291,192 @@ export function createWorkspaceRemover({ git, repos, claims }: WorkspaceRemoverO
       ...(deleteBranch ? { deleteBranch } : {}),
       mainBranch: repo.defaultBranch,
     });
+  };
+}
+
+/**
+ * Why archiving could not remove a task's worktree. `partial` means some of
+ * it is gone (or the folder is, but its branch is not): the head is kept at
+ * the hidden ref and the leftover must never be used as a live workspace.
+ */
+export class WorkspaceArchiveError extends Error {
+  constructor(
+    message: string,
+    readonly partial: boolean,
+  ) {
+    super(message);
+    this.name = "WorkspaceArchiveError";
+  }
+}
+
+export interface WorkspaceArchiverOptions {
+  git: Pick<
+    GitService,
+    | "headSha"
+    | "setRef"
+    | "deleteRef"
+    | "refExists"
+    | "createBranchAt"
+    | "createWorktree"
+    | "removeWorktree"
+    | "worktreeIntact"
+  >;
+  repos: Pick<Repositories["repos"], "get">;
+  claims: InRepoClaims;
+}
+
+/** Removes an archived task's worktree and brings it back when the task is reopened. */
+export interface WorkspaceArchiver {
+  /**
+   * Keeps the worktree's head at {@link archivedRefFor}, then removes the
+   * worktree (discarding uncommitted changes) and its local branch; PR tasks
+   * keep theirs. `null` when there was nothing to remove (in-repo tasks, no
+   * worktree or repo). Throws {@link WorkspaceArchiveError} on failure.
+   */
+  archive(task: Task): Promise<{ sha: string } | null>;
+  /**
+   * Rebuilds a removed worktree from the hidden ref (PR tasks: from their
+   * branch), clearing a leftover of a partial removal first, then deletes
+   * the ref.
+   */
+  restore(task: Task): Promise<{ worktreePath: string; branch: string | null }>;
+  /**
+   * Cleans up after a removed task is deleted: a leftover folder, its branch
+   * (unless `keepBranch` or a PR task) and the hidden ref. With `keepBranch`,
+   * a branch archiving deleted is recreated from the ref.
+   */
+  forget(task: Task, options?: { keepBranch?: boolean }): Promise<void>;
+}
+
+/**
+ * Removes archived tasks' worktrees to save disk, keeping each head at a
+ * hidden ref. The git work runs one operation at a time per repo, since
+ * worktree commands are not retried on a lock and "Archive all" archives many
+ * tasks of one repo at once; different repos run in parallel.
+ */
+export function createWorkspaceArchiver({
+  git,
+  repos,
+  claims,
+}: WorkspaceArchiverOptions): WorkspaceArchiver {
+  const tails = new Map<string, Promise<unknown>>();
+
+  /** Runs `fn` after every earlier call for the same repo has settled, whatever its outcome. */
+  function serial<T>(repoId: string, fn: () => Promise<T>): Promise<T> {
+    const previous = tails.get(repoId) ?? Promise.resolve();
+    const run = previous.then(fn, fn);
+    const tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    tails.set(repoId, tail);
+    void tail.then(() => {
+      if (tails.get(repoId) === tail) tails.delete(repoId);
+    });
+    return run;
+  }
+
+  /** Removes a leftover folder of a partial removal and prunes its registration. */
+  async function clearLeftover(repoPath: string, worktreePath: string): Promise<void> {
+    await git.removeWorktree({ repoPath, worktreePath });
+    await rm(worktreePath, { recursive: true, force: true });
+  }
+
+  function branchToDelete(task: Task): string | undefined {
+    return task.origin.kind === "github-pr" || !task.branch ? undefined : task.branch;
+  }
+
+  return {
+    async archive(task) {
+      if (task.inRepo) {
+        claims.release(task.repoId, task.id);
+        return null;
+      }
+      const repo = repos.get(task.repoId);
+      const worktreePath = task.worktreePath;
+      if (!repo || !worktreePath) return null;
+      return serial(repo.id, async () => {
+        const ref = archivedRefFor(task.id);
+        const sha = await git.headSha(worktreePath);
+        await git.setRef(repo.path, ref, sha);
+        const deleteBranch = branchToDelete(task);
+        try {
+          await git.removeWorktree({
+            repoPath: repo.path,
+            worktreePath,
+            ...(deleteBranch ? { deleteBranch } : {}),
+            mainBranch: repo.defaultBranch,
+          });
+        } catch (error) {
+          const partial =
+            !existsSync(worktreePath) ||
+            !(await git.worktreeIntact(repo.path, worktreePath).catch(() => false));
+          if (!partial) await git.deleteRef(repo.path, ref).catch(() => undefined);
+          throw new WorkspaceArchiveError(errorMessage(error), partial);
+        }
+        return { sha };
+      });
+    },
+
+    async restore(task) {
+      const repo = repos.get(task.repoId);
+      if (!repo) throw new Error(`Repo ${task.repoId} not found`);
+      return serial(repo.id, async () => {
+        if (task.worktreePath) {
+          try {
+            await clearLeftover(repo.path, task.worktreePath);
+          } catch (error) {
+            throw new Error(
+              `Could not clear the task's leftover worktree: ${errorMessage(error)}`,
+              { cause: error },
+            );
+          }
+        }
+        const ref = archivedRefFor(task.id);
+        if (!(await git.refExists(repo.path, ref))) {
+          throw new Error("The task's archived commit was not found");
+        }
+        const branch = task.branch ?? branchForTask({ kind: "free-text", taskId: task.id });
+        const worktreePath = worktreePathFor(repo.path, task.id);
+        await git.createWorktree({
+          repoPath: repo.path,
+          worktreePath,
+          branch,
+          checkout:
+            task.origin.kind === "github-pr" ? { kind: "existing" } : { kind: "new", base: ref },
+        });
+        await git.deleteRef(repo.path, ref);
+        return { worktreePath, branch };
+      });
+    },
+
+    async forget(task, options) {
+      const repo = repos.get(task.repoId);
+      if (!repo) return;
+      await serial(repo.id, async () => {
+        const ref = archivedRefFor(task.id);
+        const deleteBranch = options?.keepBranch ? undefined : branchToDelete(task);
+        if (task.worktreePath) {
+          await clearLeftover(repo.path, task.worktreePath).catch(() => undefined);
+        }
+        if (deleteBranch) {
+          // No worktree path: only the branch (if any survived) goes.
+          await git.removeWorktree({
+            repoPath: repo.path,
+            worktreePath: worktreePathFor(repo.path, task.id),
+            deleteBranch,
+            mainBranch: repo.defaultBranch,
+          });
+        } else if (
+          options?.keepBranch &&
+          task.origin.kind !== "github-pr" &&
+          task.branch &&
+          (await git.refExists(repo.path, ref))
+        ) {
+          await git.createBranchAt(repo.path, task.branch, ref, repo.defaultBranch);
+        }
+        await git.deleteRef(repo.path, ref);
+      });
+    },
   };
 }

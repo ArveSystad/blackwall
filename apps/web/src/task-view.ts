@@ -77,6 +77,16 @@ export function hasFinish(task: Pick<Task, "mode" | "gate" | "status" | "summary
   );
 }
 
+/** Whether archiving removed the task's worktree; its diffs are still served. */
+export function worktreeRemoved(task: Pick<Task, "worktreeRemovedAt">): boolean {
+  return task.worktreeRemovedAt !== null;
+}
+
+/** Whether the task has (or had, until archiving removed it) a worktree. */
+export function hasWorktree(task: Pick<Task, "worktreePath" | "worktreeRemovedAt">): boolean {
+  return task.worktreePath !== null || worktreeRemoved(task);
+}
+
 /** Tabs that have nothing to show before the task reaches their stage. */
 export function isTabEnabled(task: Task, tab: TaskTab): boolean {
   const stage = uiStageIndex(task);
@@ -89,9 +99,9 @@ export function isTabEnabled(task: Task, tab: TaskTab): boolean {
     case "checks":
       return task.mode !== "review" && stage >= 3;
     case "diff":
-      return task.worktreePath !== null;
+      return hasWorktree(task);
     case "artifacts":
-      return task.mode !== "review" && task.worktreePath !== null;
+      return task.mode !== "review" && hasWorktree(task);
     case "finish":
       return hasFinish(task);
     default:

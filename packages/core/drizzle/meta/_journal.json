@@ -225,6 +225,13 @@
       "when": 1793352389235,
       "tag": "0031_task_in_repo",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1793367199963,
+      "tag": "0032_task_worktree_removed",
+      "breakpoints": true
     }
   ]
 }

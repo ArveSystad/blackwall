@@ -1448,6 +1448,63 @@ describe("removeWorktree", () => {
   });
 });
 
+describe("hidden refs and createBranchAt", () => {
+  const ref = "refs/blackwall/archived/t1";
+
+  it("sets, reads and deletes a ref, and tolerates deleting a missing one", async () => {
+    const head = git(repo, "rev-parse", "HEAD");
+    expect(await service.refExists(repo, ref)).toBe(false);
+    await service.setRef(repo, ref, head);
+    expect(git(repo, "rev-parse", ref)).toBe(head);
+    expect(await service.refExists(repo, ref)).toBe(true);
+    await service.deleteRef(repo, ref);
+    expect(await service.refExists(repo, ref)).toBe(false);
+    await expect(service.deleteRef(repo, ref)).resolves.toBeUndefined();
+  });
+
+  it("creates a missing branch at the ref and leaves an existing one alone", async () => {
+    const first = git(repo, "rev-parse", "HEAD");
+    const second = commit(repo, "b.txt", "b\n");
+    await service.setRef(repo, ref, second);
+    await service.createBranchAt(repo, "agent/t1", ref);
+    expect(git(repo, "rev-parse", "agent/t1")).toBe(second);
+
+    git(repo, "branch", "agent/t2", first);
+    await service.createBranchAt(repo, "agent/t2", ref);
+    expect(git(repo, "rev-parse", "agent/t2")).toBe(first);
+  });
+
+  it("refuses to create a protected branch", async () => {
+    await service.setRef(repo, ref, git(repo, "rev-parse", "HEAD"));
+    await expect(service.createBranchAt(repo, "develop", ref, "develop")).rejects.toBeInstanceOf(
+      ProtectedBranchError,
+    );
+  });
+});
+
+describe("worktreeIntact", () => {
+  it("is true only for a listed worktree with no tracked files missing", async () => {
+    const path = worktreePathFor(repo, "t1");
+    await service.createWorktree({
+      repoPath: repo,
+      worktreePath: path,
+      branch: "agent/t1",
+      checkout: { kind: "new" },
+    });
+    write(path, "new.txt", "untracked\n");
+    write(path, "README.md", "changed\n");
+    expect(await service.worktreeIntact(repo, path)).toBe(true);
+
+    rmSync(join(path, "README.md"));
+    expect(await service.worktreeIntact(repo, path)).toBe(false);
+
+    expect(await service.worktreeIntact(repo, worktreePathFor(repo, "gone"))).toBe(false);
+    const unlisted = join(root, "unlisted");
+    mkdirSync(unlisted);
+    expect(await service.worktreeIntact(repo, unlisted)).toBe(false);
+  });
+});
+
 describe("switchBranch", () => {
   const input = () => ({ repoPath: repo, branch: "agent/t1", base: "main" });
 

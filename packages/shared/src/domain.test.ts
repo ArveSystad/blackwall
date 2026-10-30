@@ -94,6 +94,7 @@ const task = {
   branch: "feature/abc-123-fix-login",
   baseBranch: null,
   worktreePath: null,
+  worktreeRemovedAt: null,
   inRepo: false,
   status: "needs-you",
   stage: "plan-review",

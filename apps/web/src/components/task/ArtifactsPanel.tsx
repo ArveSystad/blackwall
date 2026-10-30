@@ -6,6 +6,7 @@ import { useNow } from "../../hooks";
 import { relativeTime } from "../../inbox";
 import { taskArtifactTextQuery, taskArtifactsQuery } from "../../query";
 import { formatBytes } from "../../system-info";
+import { worktreeRemoved } from "../../task-view";
 import { panelNote } from "../classes";
 import { Markdown } from "../Markdown";
 
@@ -129,12 +130,21 @@ function ArtifactCard({
  * since files land mid-step.
  */
 export function ArtifactsPanel({ task }: { task: Task }) {
+  const removed = worktreeRemoved(task);
   const artifacts = useQuery({
     ...taskArtifactsQuery(task.id),
+    enabled: !removed,
     refetchOnMount: "always",
     refetchInterval: task.status === "running" ? 5_000 : false,
   });
   const now = useNow();
+  if (removed) {
+    return (
+      <p className={panelNote}>
+        The artifacts were deleted to save disk space when this task was archived.
+      </p>
+    );
+  }
   if (artifacts.isPending) return <p className={panelNote}>Collecting artifacts…</p>;
   const list = artifacts.data ?? [];
   if (list.length === 0) {

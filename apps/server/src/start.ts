@@ -36,6 +36,7 @@ import {
   createPrHeadSync,
   createInRepoClaims,
   createWorkspacePreparer,
+  createWorkspaceArchiver,
   createWorkspaceRemover,
   createWorkspaceSyncer,
   createWorktreeSetup,
@@ -271,6 +272,11 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       }),
       syncWorkspace: createWorkspaceSyncer({ git, repos: repositories.repos }),
       removeWorkspace: createWorkspaceRemover({
+        git,
+        repos: repositories.repos,
+        claims: inRepoClaims,
+      }),
+      archiveWorkspace: createWorkspaceArchiver({
         git,
         repos: repositories.repos,
         claims: inRepoClaims,

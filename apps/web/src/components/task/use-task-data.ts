@@ -16,9 +16,11 @@ import {
   currentFindings,
   currentRound,
   deliveryConflicts,
+  hasWorktree,
   latestHarnessStep,
   latestStep,
   pullRequestUrl,
+  worktreeRemoved,
 } from "../../task-view";
 
 /**
@@ -40,14 +42,14 @@ export function useTaskData(task: Task) {
   });
   const questions = useQuery({ ...taskGrillQuery(task.id), enabled: !isReview });
   const findings = useQuery(taskFindingsQuery(task.id));
-  const diffs = useQuery({ ...taskDiffsQuery(task.id), enabled: task.worktreePath !== null });
+  const diffs = useQuery({ ...taskDiffsQuery(task.id), enabled: hasWorktree(task) });
   const branchDiff = useQuery({
     ...taskBranchDiffQuery(task.id),
-    enabled: task.worktreePath !== null,
+    enabled: hasWorktree(task),
   });
   const artifacts = useQuery({
     ...taskArtifactsQuery(task.id),
-    enabled: !isReview && task.worktreePath !== null,
+    enabled: !isReview && task.worktreePath !== null && !worktreeRemoved(task),
   });
 
   const stepList = latestRun ? (steps.data ?? []) : [];

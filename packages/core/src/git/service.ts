@@ -1190,5 +1190,54 @@ export function createGitService({
         await runGit(repoPath, ["branch", "-D", deleteBranch]);
       }
     },
+
+    /** Points `ref` (a full ref name, e.g. `refs/blackwall/…`) at `sha`, creating it if needed. */
+    async setRef(repoPath: string, ref: string, sha: string): Promise<void> {
+      await runGit(repoPath, ["update-ref", ref, sha]);
+    },
+
+    /** Deletes `ref`; a no-op when it does not exist. */
+    async deleteRef(repoPath: string, ref: string): Promise<void> {
+      if (!(await succeeds(repoPath, ["show-ref", "--verify", "--quiet", ref]))) return;
+      await runGit(repoPath, ["update-ref", "-d", ref]);
+    },
+
+    /** Whether `ref` (a full ref name) exists. */
+    async refExists(repoPath: string, ref: string): Promise<boolean> {
+      return succeeds(repoPath, ["show-ref", "--verify", "--quiet", ref]);
+    },
+
+    /**
+     * Creates the local `branch` at `ref` when no such branch exists; an
+     * existing branch is left where it is. Protected branches are refused.
+     */
+    async createBranchAt(
+      repoPath: string,
+      branch: string,
+      ref: string,
+      defaultBranch?: string,
+    ): Promise<void> {
+      assertUnprotected(branch, defaultBranch);
+      if (await succeeds(repoPath, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`])) {
+        return;
+      }
+      await runGit(repoPath, ["branch", shortBranch(branch), ref]);
+    },
+
+    /**
+     * Whether the worktree at `worktreePath` is whole: git lists it, its folder
+     * exists and no tracked file is missing from it. A failed removal can leave
+     * a folder that is none of these.
+     */
+    async worktreeIntact(repoPath: string, worktreePath: string): Promise<boolean> {
+      if (!existsSync(worktreePath)) return false;
+      if ((await worktreeAt(repoPath, worktreePath)) === undefined) return false;
+      try {
+        const status = await runGit(worktreePath, ["status", "--porcelain"]);
+        return !status.split("\n").some((line) => /^(.D|D.) /.test(line));
+      } catch {
+        return false;
+      }
+    },
   };
 }
