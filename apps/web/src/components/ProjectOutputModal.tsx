@@ -1,6 +1,7 @@
 import type { ProjectRunStatus, RepoView } from "@blackwall/shared";
 import { useQuery } from "@tanstack/react-query";
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
+import { outputLinks } from "../project-run";
 import { projectRunOutputQuery } from "../query";
 import { errorMessage } from "../settings-forms";
 import { ProjectRunAction } from "./ProjectRunAction";
@@ -28,7 +29,9 @@ const STATUS_CHIPS: Record<
 /**
  * The live terminal output of the repo's latest Run project run, with the same
  * start/stop action as the top bar. It follows new output while scrolled to the
- * bottom and stays put while the user reads further up.
+ * bottom and stays put while the user reads further up. URLs in the output are
+ * clickable; opening it focuses Close rather than the first link, so the jump
+ * to that link doesn't scroll up and stop the following.
  */
 export function ProjectOutputModal({
   repo,
@@ -42,6 +45,7 @@ export function ProjectOutputModal({
   const output = useQuery(projectRunOutputQuery(repo.id));
   const pre = useRef<HTMLPreElement>(null);
   const follow = useRef(true);
+  const closeRef = useRef<HTMLButtonElement>(null);
   const text = output.data?.text ?? "";
   const { run, error } = project;
   const chip = run ? STATUS_CHIPS[run.status] : null;
@@ -53,7 +57,13 @@ export function ProjectOutputModal({
 
   return (
     <Dialog open onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="max-w-[900px]">
+      <DialogContent
+        className="max-w-[900px]"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          closeRef.current?.focus();
+        }}
+      >
         <div className="flex flex-col gap-3 px-5 pt-[18px] pb-4">
           <div className="flex flex-col gap-2">
             <DialogTitle>{repo.name} output</DialogTitle>
@@ -76,19 +86,43 @@ export function ProjectOutputModal({
               follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_SLACK_PX;
             }}
           >
-            {output.isPending ? "Loading…" : text || "(no output)"}
+            {output.isPending ? "Loading…" : text ? <OutputText text={text} /> : "(no output)"}
           </pre>
           {run?.status === "failed" && run.error && <ErrorText>{run.error}</ErrorText>}
           {output.error && <ErrorText>{errorMessage(output.error)}</ErrorText>}
           {error && <ErrorText>{error}</ErrorText>}
         </div>
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>
+          <Button ref={closeRef} variant="ghost" onClick={onClose}>
             Close
           </Button>
           <ProjectRunAction project={project} />
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Project output with its http(s) URLs as links that open in a new tab. */
+export function OutputText({ text }: { text: string }) {
+  const segments = useMemo(() => outputLinks(text), [text]);
+  return (
+    <>
+      {segments.map((segment, index) =>
+        segment.href ? (
+          <a
+            key={index}
+            href={segment.href}
+            target="_blank"
+            rel="noreferrer"
+            className="text-primary underline"
+          >
+            {segment.text}
+          </a>
+        ) : (
+          segment.text
+        ),
+      )}
+    </>
   );
 }

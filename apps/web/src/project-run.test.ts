@@ -1,6 +1,6 @@
 import { MAX_PROJECT_OUTPUT_CHARS, type ProjectRun } from "@blackwall/shared";
 import { describe, expect, it } from "vitest";
-import { appendProjectOutput, isRunActive, runButtonState } from "./project-run";
+import { appendProjectOutput, isRunActive, outputLinks, runButtonState } from "./project-run";
 import { makeRepo } from "./test-fixtures";
 
 const run = (overrides: Partial<ProjectRun> = {}): ProjectRun => ({
@@ -105,5 +105,63 @@ describe("appendProjectOutput", () => {
     const next = appendProjectOutput(cached, { runId: "run1", end: 3 + text.length, text });
     expect(next?.text).toHaveLength(MAX_PROJECT_OUTPUT_CHARS);
     expect(next?.end).toBe(3 + MAX_PROJECT_OUTPUT_CHARS);
+  });
+});
+
+describe("outputLinks", () => {
+  const split = (text: string) => {
+    const segments = outputLinks(text);
+    expect(segments.map((segment) => segment.text).join("")).toBe(text);
+    return segments;
+  };
+  const hrefs = (text: string) => split(text).flatMap((segment) => segment.href ?? []);
+
+  it("keeps plain text as one segment", () => {
+    expect(split("no links here\n")).toEqual([{ text: "no links here\n" }]);
+    expect(split("")).toEqual([]);
+  });
+
+  it("links a dev server URL", () => {
+    expect(split("  ➜  Local:   http://localhost:5173/\n")).toEqual([
+      { text: "  ➜  Local:   " },
+      { text: "http://localhost:5173/", href: "http://localhost:5173/" },
+      { text: "\n" },
+    ]);
+  });
+
+  it("links every URL across lines", () => {
+    expect(hrefs("Local: http://localhost:3000\nNetwork: https://192.168.1.2:3000/app\n")).toEqual([
+      "http://localhost:3000",
+      "https://192.168.1.2:3000/app",
+    ]);
+  });
+
+  it("leaves trailing punctuation out of the link", () => {
+    expect(hrefs("See http://x.test/a. Or https://y.test/b, then stop")).toEqual([
+      "http://x.test/a",
+      "https://y.test/b",
+    ]);
+  });
+
+  it("leaves out closing brackets the URL didn't open", () => {
+    expect(hrefs("(see https://x.test/a)")).toEqual(["https://x.test/a"]);
+    expect(hrefs("https://en.wikipedia.org/wiki/A_(b)")).toEqual([
+      "https://en.wikipedia.org/wiki/A_(b)",
+    ]);
+  });
+
+  it("links only http(s) URLs", () => {
+    expect(hrefs("ftp://x and http:// and localhost:3000")).toEqual([]);
+  });
+
+  it("stops at OSC 8 hyperlink debris", () => {
+    const st = "\x1b]8;;http://localhost:5173/\x1b\\http://localhost:5173/\x1b]8;;\x1b\\";
+    const links = split(st).filter((segment) => segment.href);
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) {
+      expect(link.text).toBe("http://localhost:5173/");
+      expect(link.href).not.toContain("\x1b");
+    }
+    expect(hrefs("\x1b]8;;https://x.test/\x07label\x1b]8;;\x07")).toEqual(["https://x.test/"]);
   });
 });
