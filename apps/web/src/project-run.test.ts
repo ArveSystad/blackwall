@@ -58,6 +58,21 @@ describe("runButtonState", () => {
     expect(runButtonState(repo, run({ status: "stopping" }))).toMatchObject({
       disabled: true,
       mainLabel: "Stopping…",
+      showOutputButton: false,
+    });
+  });
+
+  it("hides the output button once the user stops the project", () => {
+    expect(runButtonState(repo, run({ status: "stopped" }))).toMatchObject({
+      mainAction: "start",
+      showOutputButton: false,
+    });
+  });
+
+  it("keeps the output button after the project exits by itself", () => {
+    expect(runButtonState(repo, run({ status: "exited" }))).toMatchObject({
+      mainAction: "start",
+      showOutputButton: true,
     });
   });
 

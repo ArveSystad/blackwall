@@ -14,7 +14,7 @@ export interface RunButtonState {
   mainAction: "start" | "stop";
   /** The project is up: the main half glows green. */
   glowing: boolean;
-  /** A run exists, so its output can be read. */
+  /** A run exists that the user hasn't stopped, so its output can be read. */
   showOutputButton: boolean;
 }
 
@@ -24,7 +24,8 @@ export function isRunActive(run: ProjectRun | undefined): boolean {
 }
 
 export function runButtonState(repo: RepoView, run: ProjectRun | undefined): RunButtonState {
-  const showOutputButton = run !== undefined;
+  const showOutputButton =
+    run !== undefined && run.status !== "stopping" && run.status !== "stopped";
   const start = { mainLabel: "Run project", mainAction: "start" as const, glowing: false };
   if (run?.status === "starting" || run?.status === "running") {
     return {
