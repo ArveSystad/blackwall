@@ -24,6 +24,7 @@ import {
   scanRepos,
   startMemoryBackfill,
   suggestedChecks,
+  suggestedRun,
   suggestedSetup,
   updateMemory,
   updateRepo,
@@ -126,8 +127,8 @@ function AddRepoDialog({
           <div className="flex flex-col gap-3.5 px-5 pt-[18px] pb-[18px]">
             <DialogTitle>Add repositories</DialogTitle>
             <DialogDescription className="m-0 text-pretty">
-              Register one git repo, or scan a folder and register every repo inside it. Check
-              commands are suggested from each repo&apos;s build files.
+              Register one git repo, or scan a folder and register every repo inside it. Check,
+              setup and run commands are suggested from each repo&apos;s build files.
             </DialogDescription>
             <Segmented
               label="Add mode"
@@ -559,7 +560,9 @@ export function RepoEditor({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"suggest" | "suggest-setup" | "refresh" | null>(null);
+  const [busy, setBusy] = useState<"suggest" | "suggest-setup" | "suggest-run" | "refresh" | null>(
+    null,
+  );
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [renaming, setRenaming] = useState(false);
 
@@ -681,6 +684,24 @@ export function RepoEditor({
         suggested.length > 0
           ? "Suggested commands loaded. Save to keep them."
           : "No lockfiles found to suggest commands from.",
+      );
+    } catch (cause) {
+      await failed(cause);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function suggestRun() {
+    setBusy("suggest-run");
+    setError(null);
+    try {
+      const suggested = await suggestedRun(repo.id);
+      setRun(suggested.join("\n"));
+      setNotice(
+        suggested.length > 0
+          ? "Suggested commands loaded. Save to keep them."
+          : "No dev or start script or single .NET project found to suggest commands from.",
       );
     } catch (cause) {
       await failed(cause);
@@ -1060,6 +1081,16 @@ export function RepoEditor({
               One per line, run side by side in the repo folder by Run project. Chain steps with
               &amp;&amp;. Empty disables it.
             </span>
+            <span className="flex-1" />
+            <Button
+              size="sm"
+              variant="ghost"
+              type="button"
+              disabled={busy !== null || !repo.exists}
+              onClick={() => void suggestRun()}
+            >
+              {busy === "suggest-run" ? "Reading…" : "Reset to suggested"}
+            </Button>
           </span>
           <Textarea
             className="mono min-h-20 bg-code text-code"

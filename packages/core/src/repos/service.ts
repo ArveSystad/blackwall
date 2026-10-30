@@ -24,7 +24,7 @@ import {
 } from "@blackwall/shared";
 import { MissingCredentialError, type ConnectionService } from "../connections/service.js";
 import type { Repositories } from "../db/repositories.js";
-import { suggestCheckCommands, suggestSetupCommands } from "./checks.js";
+import { suggestCheckCommands, suggestRunCommands, suggestSetupCommands } from "./checks.js";
 import { describeGitError } from "../git/errors.js";
 import { GitError } from "../git/service.js";
 import {
@@ -259,6 +259,7 @@ export function createRepoService({ repos, connections, rename }: RepoServiceOpt
       connectionId: connectionIdFor(remoteUrl),
       checkCommands: fields.checkCommands ?? (await suggestCheckCommands(path)),
       setupCommands: fields.setupCommands ?? (await suggestSetupCommands(path)),
+      runCommands: await suggestRunCommands(path),
     });
   }
 
@@ -547,6 +548,11 @@ export function createRepoService({ repos, connections, rename }: RepoServiceOpt
     /** Setup commands suggested from the repo's current lockfiles. */
     async suggestSetup(id: string): Promise<string[]> {
       return suggestSetupCommands(use(id).path);
+    },
+
+    /** Run commands suggested from the repo's current build files. */
+    async suggestRun(id: string): Promise<string[]> {
+      return suggestRunCommands(use(id).path);
     },
 
     /** Re-reads the `origin` remote and re-resolves its connection (e.g. after adding one). */

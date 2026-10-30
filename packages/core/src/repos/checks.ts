@@ -4,6 +4,9 @@ import { join } from "node:path";
 /** `package.json` scripts suggested as checks, in the order they run. */
 const NODE_CHECK_SCRIPTS = ["build", "typecheck", "lint", "test"] as const;
 
+/** `package.json` scripts suggested as the run command, the first one present winning. */
+const NODE_RUN_SCRIPTS = ["dev", "start"] as const;
+
 const PACKAGE_MANAGERS = ["pnpm", "yarn", "bun", "npm"] as const;
 type PackageManager = (typeof PACKAGE_MANAGERS)[number];
 
@@ -29,31 +32,58 @@ function packageManager(pkg: PackageJson, files: ReadonlySet<string>): PackageMa
   return LOCKFILES.find(([file]) => files.has(file))?.[1] ?? "npm";
 }
 
-async function nodeChecks(path: string, files: ReadonlySet<string>): Promise<string[]> {
-  if (!files.has("package.json")) return [];
-  let pkg: PackageJson;
+/** The repo's top-level `package.json`; undefined when missing or unreadable. */
+async function readPackageJson(
+  path: string,
+  files: ReadonlySet<string>,
+): Promise<PackageJson | undefined> {
+  if (!files.has("package.json")) return undefined;
   try {
-    pkg = JSON.parse(await readFile(join(path, "package.json"), "utf8")) as PackageJson;
+    return JSON.parse(await readFile(join(path, "package.json"), "utf8")) as PackageJson;
   } catch {
-    return [];
+    return undefined;
   }
+}
+
+/** Whether `pkg` declares `script` as a string. */
+function hasScript(pkg: PackageJson, script: string): boolean {
   const scripts = pkg.scripts && typeof pkg.scripts === "object" ? pkg.scripts : {};
+  return typeof Reflect.get(scripts, script) === "string";
+}
+
+async function nodeChecks(path: string, files: ReadonlySet<string>): Promise<string[]> {
+  const pkg = await readPackageJson(path, files);
+  if (!pkg) return [];
   const pm = packageManager(pkg, files);
-  return NODE_CHECK_SCRIPTS.filter(
-    (script) => typeof Reflect.get(scripts, script) === "string",
-  ).map((script) => `${pm} run ${script}`);
+  return NODE_CHECK_SCRIPTS.filter((script) => hasScript(pkg, script)).map(
+    (script) => `${pm} run ${script}`,
+  );
+}
+
+async function nodeRun(path: string, files: ReadonlySet<string>): Promise<string[]> {
+  const pkg = await readPackageJson(path, files);
+  if (!pkg) return [];
+  const script = NODE_RUN_SCRIPTS.find((name) => hasScript(pkg, name));
+  return script ? [`${packageManager(pkg, files)} run ${script}`] : [];
 }
 
 function quote(arg: string): string {
   return /\s/.test(arg) ? `"${arg}"` : arg;
 }
 
+const PROJECT_FILE = /\.(cs|fs|vb)proj$/i;
+
 /**
  * The solution, else the project, `dotnet` should be given: it needs the file
  * named when a folder holds several solutions or projects.
  */
 function dotnetTarget(names: readonly string[]): string | undefined {
-  return names.find((f) => /\.slnx?$/i.test(f)) ?? names.find((f) => /\.(cs|fs|vb)proj$/i.test(f));
+  return names.find((f) => /\.slnx?$/i.test(f)) ?? names.find((f) => PROJECT_FILE.test(f));
+}
+
+/** `dotnet run` picks up a folder's project on its own only when there is exactly one. */
+function dotnetRun(names: readonly string[]): string[] {
+  return names.filter((f) => PROJECT_FILE.test(f)).length === 1 ? ["dotnet run"] : [];
 }
 
 function dotnetChecks(names: readonly string[]): string[] {
@@ -85,6 +115,16 @@ export async function suggestCheckCommands(path: string): Promise<string[]> {
     ...(files.has("go.mod") ? ["go build ./...", "go test ./..."] : []),
     ...(files.has("pom.xml") ? ["mvn -B verify"] : []),
   ];
+}
+
+/**
+ * Run commands suggested from a repo's top-level build files: the `package.json`
+ * `dev` script (else `start`) with the repo's package manager, and `dotnet run`
+ * for a single .NET project. Empty when nothing is recognised.
+ */
+export async function suggestRunCommands(path: string): Promise<string[]> {
+  const names = await topLevelFiles(path);
+  return [...(await nodeRun(path, new Set(names))), ...dotnetRun(names)];
 }
 
 /**

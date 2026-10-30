@@ -260,6 +260,18 @@ describe("repo routes", () => {
     expect(await listed()).toEqual(["b", "c", "a"]);
   });
 
+  it("registers suggested run commands and serves them for reset", async () => {
+    const path = gitRepo("app");
+    writeFileSync(join(path, "package.json"), JSON.stringify({ scripts: { dev: "vite" } }));
+    const add = await request("/api/repos", { method: "POST", body: { path } });
+    const repo = repoSchema.parse(await add.json());
+    expect(repo.runCommands).toEqual(["npm run dev"]);
+
+    const res = await request(`/api/repos/${repo.id}/suggested-run`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(["npm run dev"]);
+  });
+
   it("rejects bad input", async () => {
     expect((await request("/api/repos", { method: "POST", body: {} })).status).toBe(400);
     const plain = join(root, "plain");

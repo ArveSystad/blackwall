@@ -113,6 +113,17 @@ describe("repo service", () => {
     expect(explicit.setupCommands).toEqual(["make deps"]);
   });
 
+  it("suggests run commands from package.json scripts", async () => {
+    const path = gitRepo(["app"]);
+    writeFileSync(join(path, "package.json"), JSON.stringify({ scripts: { dev: "vite" } }));
+    writeFileSync(join(path, "pnpm-lock.yaml"), "");
+    const repo = await service.add({ path });
+    expect(repo.runCommands).toEqual(["pnpm run dev"]);
+    r.repos.update(repo.id, { runCommands: [] });
+    writeFileSync(join(path, "package.json"), JSON.stringify({ scripts: { start: "node ." } }));
+    expect(await service.suggestRun(repo.id)).toEqual(["pnpm run start"]);
+  });
+
   it("leaves the connection empty for unknown hosts and local remotes", async () => {
     const github = await service.add({ path: gitRepo(["a"], "https://github.com/acme/a.git") });
     const local = await service.add({ path: gitRepo(["b"], root) });

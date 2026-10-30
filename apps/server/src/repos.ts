@@ -83,6 +83,11 @@ export function repoRoutes(
     c.json<string[]>(await repos.suggestSetup(c.req.param("id"))),
   );
 
+  /** Run commands suggested from the repo's build files, for "reset to suggested". */
+  routes.get("/:id/suggested-run", async (c) =>
+    c.json<string[]>(await repos.suggestRun(c.req.param("id"))),
+  );
+
   /** Local main vs origin/main as of the last fetch; `null` without both refs. */
   routes.get("/:id/sync", async (c) =>
     c.json<RepoSync | null>(await repos.sync(c.req.param("id"))),
