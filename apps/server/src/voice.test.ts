@@ -57,6 +57,7 @@ const item: BacklogItem = {
   agentClis: {},
   referenceRepoIds: null,
   triageMode: "intervene",
+  inRepo: false,
   position: 0,
   dependsOn: [],
   status: "promoted",
