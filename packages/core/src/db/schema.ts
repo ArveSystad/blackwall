@@ -115,6 +115,8 @@ export const repos = sqliteTable(
     position: integer("position").notNull().default(0),
     /** Watch CI on GitHub/GHE remotes after a task pushes its branch. */
     watchCi: integer("watch_ci", { mode: "boolean" }).notNull().default(true),
+    /** Whether the New task form starts with "Work in the repo folder" ticked. */
+    defaultInRepo: integer("default_in_repo", { mode: "boolean" }).notNull().default(false),
     /** Jira project key whose open issues the Backlog lists; null = none. */
     jiraProject: text("jira_project"),
     /** Other registered repos whose files read-only agents and the chat may read. */
@@ -184,6 +186,8 @@ export const tasks = sqliteTable(
     /** PR tasks: the pull request's base branch when the worktree was created; the fork point for its diffs. */
     baseBranch: text("base_branch"),
     worktreePath: text("worktree_path"),
+    /** Works in the repo's own folder on its branch instead of a separate worktree. */
+    inRepo: integer("in_repo", { mode: "boolean" }).notNull().default(false),
     status: text("status", { enum: TASK_STATUSES }).notNull().default("queued"),
     /** Current pipeline stage; null before the first step starts. */
     stage: text("stage", { enum: STAGES }),
@@ -264,6 +268,8 @@ export const backlogItems = sqliteTable(
     /** Reference repos once promoted; null follows the repo's until then. */
     referenceRepoIds: text("reference_repo_ids", { mode: "json" }).$type<string[] | null>(),
     triageMode: text("triage_mode", { enum: TRIAGE_MODES }).notNull().default("intervene"),
+    /** The task it becomes works in the repo's own folder; copied at promotion. */
+    inRepo: integer("in_repo", { mode: "boolean" }).notNull().default(false),
     /** Manual order in the repo's backlog. */
     position: integer("position").notNull().default(0),
     /** Backlog item ids that must be done first. */

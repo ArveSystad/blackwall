@@ -284,6 +284,7 @@ export type BacklogItemPatch = {
       | "agentClis"
       | "referenceRepoIds"
       | "triageMode"
+      | "inRepo"
   ]?: BacklogItem[K] | undefined;
 };
 

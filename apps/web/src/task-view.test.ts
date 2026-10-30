@@ -1602,6 +1602,7 @@ describe("new task draft", () => {
     roles: {},
     agentClis: {},
     triageMode: "intervene",
+    inRepoChoice: null,
   };
   const full: NewTaskDraft = {
     ...fresh,
@@ -1615,6 +1616,7 @@ describe("new task draft", () => {
     agentClis: { p2: "copilot" },
     triageMode: "pause",
     mode: "work",
+    inRepoChoice: true,
   };
 
   it("keeps only the roles that differ from the defaults", () => {
@@ -1639,6 +1641,10 @@ describe("new task draft", () => {
   it("reads a kept draft", () => {
     expect(parseNewTaskDraft(full)).toEqual(full);
     expect(parseNewTaskDraft(fresh)).toEqual(fresh);
+    // Drafts kept before the in-repo choice existed follow the repo's default.
+    const older: Partial<NewTaskDraft> = { ...full };
+    delete older.inRepoChoice;
+    expect(parseNewTaskDraft(older)).toEqual({ ...full, inRepoChoice: null });
   });
 
   it("drops a malformed draft", () => {
@@ -1651,6 +1657,7 @@ describe("new task draft", () => {
     expect(parseNewTaskDraft({ ...full, dependsOn: ["a", 1] })).toBeUndefined();
     expect(parseNewTaskDraft({ ...full, roles: { planner: 1 } })).toBeUndefined();
     expect(parseNewTaskDraft({ ...full, referencePick: { repoId: "r" } })).toBeUndefined();
+    expect(parseNewTaskDraft({ ...full, inRepoChoice: "yes" })).toBeUndefined();
   });
 
   it("tells an empty draft from one with input", () => {
@@ -1661,6 +1668,7 @@ describe("new task draft", () => {
     expect(isNewTaskDraftEmpty({ ...fresh, chosenRepo: "repo1" })).toBe(false);
     expect(isNewTaskDraftEmpty({ ...fresh, roles: { planner: "p2" } })).toBe(false);
     expect(isNewTaskDraftEmpty({ ...fresh, startCommentOn: true })).toBe(false);
+    expect(isNewTaskDraftEmpty({ ...fresh, inRepoChoice: false })).toBe(false);
   });
 });
 

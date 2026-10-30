@@ -305,6 +305,18 @@ describe("backlog routes", () => {
     expect(taskSchema.parse(await res.json()).referenceRepoIds).toEqual([lib.id]);
   });
 
+  it("stores whether an item works in the repo folder and promotes it so", async () => {
+    const item = await create({ inRepo: true });
+    expect(item.inRepo).toBe(true);
+    const res = await request(`/${item.id}/run`, { method: "POST" });
+    expect(taskSchema.parse(await res.json()).inRepo).toBe(true);
+
+    const plain = await create({});
+    expect(plain.inRepo).toBe(false);
+    const edited = await request(`/${plain.id}`, { method: "PATCH", body: { inRepo: true } });
+    expect(backlogItemSchema.parse(await edited.json()).inRepo).toBe(true);
+  });
+
   it("stores an item's reference repos and promotes it with them", async () => {
     const lib = repositories.repos.create({ path: "/code/lib", name: "lib" });
     const api = repositories.repos.create({ path: "/code/api", name: "api" });

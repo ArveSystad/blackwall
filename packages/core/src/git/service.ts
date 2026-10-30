@@ -141,6 +141,27 @@ type RebaseResult =
   | { status: "rebased"; resolved: string[] }
   | { status: "conflict"; files: string[]; unresolved?: string };
 
+export interface SwitchBranchInput {
+  /** The repo's own folder. */
+  repoPath: string;
+  branch: string;
+  /** Where a new branch forks from: the repo's default branch. */
+  base: string;
+}
+
+export interface LeaveBranchInput {
+  /** The repo's own folder. */
+  repoPath: string;
+  /** The task's branch. */
+  branch: string;
+  /** Branch the folder goes back to: the repo's default branch. */
+  to: string;
+  /** Also delete this local branch (the task's branch). */
+  deleteBranch?: string;
+  /** The repo's default branch, refused as `deleteBranch`. Default: the service's main branch. */
+  mainBranch?: string;
+}
+
 export interface RemoveWorktreeInput {
   repoPath: string;
   worktreePath: string;
@@ -305,6 +326,11 @@ async function succeeds(
 }
 
 /** Whether a rebase is stopped in the worktree (merge or apply backend). */
+async function mergeInProgress(worktree: string): Promise<boolean> {
+  const path = await runGit(worktree, ["rev-parse", "--git-path", "MERGE_HEAD"]);
+  return existsSync(resolve(worktree, path));
+}
+
 async function rebaseInProgress(worktree: string): Promise<boolean> {
   for (const dir of ["rebase-merge", "rebase-apply"]) {
     const path = await runGit(worktree, ["rev-parse", "--git-path", dir]);
@@ -500,8 +526,9 @@ export function createGitService({
     if (isProtected(branch, defaultBranch)) throw new ProtectedBranchError(shortBranch(branch));
   }
 
-  async function headSha(cwd: string): Promise<string> {
-    return runGit(cwd, ["rev-parse", "HEAD"]);
+  /** The commit `rev` (default HEAD) points at. */
+  async function headSha(cwd: string, rev = "HEAD"): Promise<string> {
+    return runGit(cwd, ["rev-parse", rev]);
   }
 
   async function currentBranch(cwd: string): Promise<string | null> {
@@ -635,6 +662,8 @@ export function createGitService({
     isProtected,
 
     headSha,
+
+    currentBranch,
 
     /**
      * Creates the task's worktree on its branch. Idempotent: an existing
@@ -775,14 +804,14 @@ export function createGitService({
       return headSha(worktreePath);
     },
 
-    /** The commit where HEAD forked from `ref` (`git merge-base HEAD <ref>`). */
-    async mergeBase(worktreePath: string, ref: string): Promise<string> {
-      return runGit(worktreePath, ["merge-base", "HEAD", ref]);
+    /** The commit where `head` (default HEAD) forked from `ref` (`git merge-base <head> <ref>`). */
+    async mergeBase(worktreePath: string, ref: string, head = "HEAD"): Promise<string> {
+      return runGit(worktreePath, ["merge-base", head, ref]);
     },
 
-    /** Commits on HEAD since `base` (`git rev-list --count base..HEAD`). */
-    async commitsSince(worktreePath: string, base: string): Promise<number> {
-      return Number(await runGit(worktreePath, ["rev-list", "--count", `${base}..HEAD`]));
+    /** Commits on `head` (default HEAD) since `base` (`git rev-list --count base..<head>`). */
+    async commitsSince(worktreePath: string, base: string, head = "HEAD"): Promise<number> {
+      return Number(await runGit(worktreePath, ["rev-list", "--count", `${base}..${head}`]));
     },
 
     /** Unified diff from `from` to `to` (default HEAD), e.g. one implement/fix round. */
@@ -1068,6 +1097,69 @@ export function createGitService({
       await runGit(path, ["checkout-index", "-a", "-f"]);
       await runGit(path, ["clean", "-fd"]);
       await runGit(path, ["read-tree", snapshot.index]);
+    },
+
+    /**
+     * Checks an in-repo task's branch out in the repo's own folder, creating
+     * it from `base` when it doesn't exist yet. Idempotent: a folder already on
+     * the branch is left as it is, uncommitted changes included. Otherwise a
+     * folder with uncommitted changes or a rebase or merge in progress is
+     * refused, so nothing is carried over or overwritten. Never forces.
+     */
+    async switchBranch({ repoPath, branch, base }: SwitchBranchInput): Promise<Worktree> {
+      const current = await currentBranch(repoPath);
+      if (current === branch) {
+        return { path: repoPath, branch, baseSha: await headSha(repoPath) };
+      }
+      const dirty =
+        (await runGit(repoPath, ["status", "--porcelain"])) !== "" ||
+        (await rebaseInProgress(repoPath)) ||
+        (await mergeInProgress(repoPath));
+      if (dirty) {
+        throw new GitError(
+          ["switch", branch],
+          `${repoPath} has uncommitted changes on ${current ?? "a detached HEAD"}; commit or stash them first`,
+          null,
+        );
+      }
+      if (await succeeds(repoPath, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`])) {
+        await runGit(repoPath, ["switch", "--quiet", branch]);
+      } else {
+        await runGit(repoPath, ["switch", "--quiet", "-c", branch, base]);
+      }
+      return { path: repoPath, branch, baseSha: await headSha(repoPath) };
+    },
+
+    /**
+     * Ends an in-repo task in the repo's own folder. On the task's branch and
+     * clean: switches to `to`, then deletes `deleteBranch`. On the branch with
+     * uncommitted changes: leaves the folder and the branch alone. On another
+     * branch or detached: leaves the folder alone and deletes `deleteBranch`
+     * when it exists. Never forces.
+     */
+    async leaveBranch({
+      repoPath,
+      branch,
+      to,
+      deleteBranch,
+      mainBranch: defaultBranch,
+    }: LeaveBranchInput): Promise<void> {
+      if (deleteBranch) assertUnprotected(deleteBranch, defaultBranch);
+      if ((await currentBranch(repoPath)) === shortBranch(branch)) {
+        if ((await runGit(repoPath, ["status", "--porcelain"])) !== "") return;
+        await runGit(repoPath, ["switch", "--quiet", to]);
+      }
+      if (
+        deleteBranch &&
+        (await succeeds(repoPath, [
+          "show-ref",
+          "--verify",
+          "--quiet",
+          `refs/heads/${deleteBranch}`,
+        ]))
+      ) {
+        await runGit(repoPath, ["branch", "-D", deleteBranch]);
+      }
     },
 
     /**

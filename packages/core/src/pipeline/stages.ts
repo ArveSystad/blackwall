@@ -838,9 +838,10 @@ async function checksSkipReason(
 ): Promise<ChecksSkipped | undefined> {
   const { task, repositories: r } = ctx;
   try {
-    const from = await forkPoint(task, git, worktree, defaultBranchOf(r.repos, task.repoId));
+    const head = taskHead(task);
+    const from = await forkPoint(task, git, worktree, defaultBranchOf(r.repos, task.repoId), head);
     if (from === undefined) return undefined;
-    const files = await git.changedFiles(worktree, from);
+    const files = await git.changedFiles(worktree, from, head);
     if (files.length === 0) return { reason: "no-changes", files: [] };
     if (files.every(isDocsPath)) return { reason: "docs-only", files };
     return undefined;
@@ -901,7 +902,15 @@ async function reReviewStart(
 }
 
 /**
- * Where the task branch forked from the repo's default branch `mainBranch`:
+ * The ref of the task's head for git reads: its branch for in-repo tasks,
+ * whose folder may have moved to another branch since, else the worktree's HEAD.
+ */
+export function taskHead(task: Pick<Task, "inRepo" | "branch">): string {
+  return task.inRepo && task.branch ? `refs/heads/${task.branch}` : "HEAD";
+}
+
+/**
+ * Where the task branch (`head`, default HEAD) forked from the repo's default branch `mainBranch`:
  * the nearer of the local and remote default branch for branches the harness
  * created (one fast-forwarded to `origin/<mainBranch>` sits ahead of the local
  * one), the remote one first for PR branches. PR branches fork from their PR's
@@ -913,13 +922,14 @@ export async function forkPoint(
   git: Pick<GitService, "mergeBase" | "commitsSince">,
   worktree: string,
   mainBranch: string,
+  head = "HEAD",
 ): Promise<string | undefined> {
   const remote = `origin/${mainBranch}`;
   if (task.origin.kind !== "github-pr") {
     const bases: string[] = [];
     for (const ref of [mainBranch, remote]) {
       try {
-        bases.push(await git.mergeBase(worktree, ref));
+        bases.push(await git.mergeBase(worktree, ref, head));
       } catch {
         // Skip a ref that does not resolve.
       }
@@ -927,15 +937,15 @@ export async function forkPoint(
     const [local, other] = bases;
     if (local === undefined || other === undefined || local === other) return local;
     const [localCount, otherCount] = [
-      await git.commitsSince(worktree, local),
-      await git.commitsSince(worktree, other),
+      await git.commitsSince(worktree, local, head),
+      await git.commitsSince(worktree, other, head),
     ];
     return otherCount < localCount ? other : local;
   }
   const refs = [...(task.baseBranch ? [`origin/${task.baseBranch}`] : []), remote, mainBranch];
   for (const ref of refs) {
     try {
-      return await git.mergeBase(worktree, ref);
+      return await git.mergeBase(worktree, ref, head);
     } catch {
       // Try the next ref.
     }
@@ -965,7 +975,7 @@ async function reviewRange(
   const resumed = current && storedRange(r, current);
   if (resumed) return resumed;
 
-  const head = await git.headSha(worktree);
+  const head = await git.headSha(worktree, taskHead(task));
   const previous =
     ctx.pipeline === "review"
       ? undefined
@@ -977,7 +987,7 @@ async function reviewRange(
   const from =
     previous?.to ??
     (await reReviewStart(ctx, git, worktree, head)) ??
-    (await forkPoint(task, git, worktree, defaultBranchOf(r.repos, task.repoId)));
+    (await forkPoint(task, git, worktree, defaultBranchOf(r.repos, task.repoId), taskHead(task)));
   if (!from) return undefined;
   const range = { from, to: head };
   const step = startHarnessStep(ctx);

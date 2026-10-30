@@ -81,6 +81,8 @@ describe("connections and repos", () => {
     expect(r.repos.update(repo.id, { defaultCli: "copilot" }).defaultCli).toBe("copilot");
     expect(repo.defaultOrigin).toBe("jira-issue");
     expect(r.repos.update(repo.id, { defaultOrigin: "free-text" }).defaultOrigin).toBe("free-text");
+    expect(repo.defaultInRepo).toBe(false);
+    expect(r.repos.update(repo.id, { defaultInRepo: true }).defaultInRepo).toBe(true);
     expect(repo.maxBacklogTasks).toBeNull();
     expect(r.repos.update(repo.id, { maxBacklogTasks: 2 }).maxBacklogTasks).toBe(2);
     expect(repo.defaultBranch).toBe("main");
@@ -221,9 +223,12 @@ describe("backlog items", () => {
     expect(backlogItemSchema.parse(b)).toMatchObject({
       status: "waiting",
       triageMode: "intervene",
+      inRepo: false,
       dependsOn: [a.id],
       taskId: null,
     });
+    expect(r.backlogItems.update(b.id, { inRepo: true }).inRepo).toBe(true);
+    expect(r.backlogItems.get(b.id)?.inRepo).toBe(true);
     expect([a.position, b.position, c.position]).toEqual([0, 1, 0]);
     expect(r.backlogItems.list(repo.id).map((i) => i.id)).toEqual([a.id, b.id]);
     expect(r.backlogItems.list()).toHaveLength(3);
@@ -479,7 +484,11 @@ describe("tasks, runs and steps", () => {
       triageMode: "intervene",
       agents: {},
       followUps: [],
+      inRepo: false,
     });
+    expect(r.tasks.update(task.id, { inRepo: true }).inRepo).toBe(true);
+    expect(r.tasks.get(task.id)?.inRepo).toBe(true);
+    r.tasks.update(task.id, { inRepo: false });
     const followUps = [{ title: "Add tests", description: "Cover login", repoId: null }];
     expect(r.tasks.update(task.id, { followUps }).followUps).toEqual(followUps);
     expect(task.baseBranch).toBeNull();

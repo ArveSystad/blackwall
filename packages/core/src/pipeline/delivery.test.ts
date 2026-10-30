@@ -180,6 +180,53 @@ describe("delivery event types", () => {
   });
 });
 
+describe("in-repo tasks", () => {
+  /** A free-text task working on agent/t1 in the repo's own folder, with two commits. */
+  async function seedInRepo(): Promise<{ task: Task; run: Run }> {
+    const repo = r.repos.create({ path: repoPath, name: "app", remoteUrl: originPath });
+    await git.switchBranch({ repoPath, branch: "agent/t1", base: "main" });
+    commit(repoPath, "f0.txt", "0\n");
+    commit(repoPath, "f1.txt", "1\n");
+    const task = r.tasks.create({
+      title: "Fix login",
+      origin: { kind: "free-text" },
+      repoId: repo.id,
+      squashMessage: "Fix login",
+      branch: "agent/t1",
+      worktreePath: repoPath,
+      inRepo: true,
+    });
+    return { task, run: r.runs.create(task.id) };
+  }
+
+  it("squashes and moves main while the folder stays on the task's branch", async () => {
+    const { task, run: runRow } = await seedInRepo();
+    const { deliverer: d } = deliverer();
+
+    const outcomes = await deliver(d, task, runRow, { actions: ["merge-main"], squash: true });
+
+    expect(outcomes.map((o) => o.action)).toEqual(["squash", "merge-main"]);
+    expect(subjects(repoPath, "main")).toEqual(["chore: Fix login", "initial"]);
+    expect(run(repoPath, "branch", "--show-current")).toBe("agent/t1");
+  });
+
+  it("refuses when the folder is on another branch, changing nothing", async () => {
+    const { task, run: runRow } = await seedInRepo();
+    run(repoPath, "switch", "--quiet", "main");
+    const tip = run(repoPath, "rev-parse", "agent/t1");
+    const { deliverer: d } = deliverer();
+
+    const delivered = deliver(d, task, runRow, { actions: ["merge-main"], squash: true });
+
+    await expect(delivered).rejects.toThrow(DeliveryError);
+    await expect(delivered).rejects.toThrow(
+      "The repo folder is on main, not the task's branch agent/t1",
+    );
+    expect(run(repoPath, "rev-parse", "agent/t1")).toBe(tip);
+    expect(subjects(repoPath, "main")).toEqual(["initial"]);
+  });
+});
+
 describe("free-text tasks", () => {
   it("offers the local merge and a squash, and never a push", async () => {
     const { task } = await seed({ branch: "agent/t1" });

@@ -245,6 +245,8 @@ describe("repo service", () => {
       defaultOrigin: "github-pr",
     });
     expect(service.get(repo.id).defaultOrigin).toBe("github-pr");
+    expect(service.update(repo.id, { defaultInRepo: true })).toMatchObject({ defaultInRepo: true });
+    expect(service.get(repo.id).defaultInRepo).toBe(true);
     expect(service.update(repo.id, { maxBacklogTasks: 2 })).toMatchObject({ maxBacklogTasks: 2 });
     expect(service.get(repo.id).maxBacklogTasks).toBe(2);
     expect(service.update(repo.id, { name: "App" }).maxBacklogTasks).toBe(2);
@@ -628,6 +630,21 @@ describe("rename", () => {
     const task = r.tasks.update(created.id, { worktreePath: worktree, status: "needs-you" });
     return { path, repo, task };
   }
+
+  it("moves an in-repo task's folder with the repo", async () => {
+    const { path, repo } = await appRepo({ withTask: false });
+    const created = r.tasks.create({
+      title: "t1",
+      origin: { kind: "free-text" },
+      repoId: repo.id,
+      inRepo: true,
+    });
+    const task = r.tasks.update(created.id, { worktreePath: path, status: "needs-you" });
+    const { tasks } = await renamer().rename(repo.id, "shop");
+    const newPath = join(root, "shop");
+    expect(r.tasks.get(task.id)?.worktreePath).toBe(newPath);
+    expect(tasks.map((t) => t.worktreePath)).toEqual([newPath]);
+  });
 
   it("renames on GitHub, origin, folder and records", async () => {
     const { repo, task } = await appRepo();

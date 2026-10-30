@@ -1448,6 +1448,115 @@ describe("removeWorktree", () => {
   });
 });
 
+describe("switchBranch", () => {
+  const input = () => ({ repoPath: repo, branch: "agent/t1", base: "main" });
+
+  it("creates the branch from base in the repo's folder", async () => {
+    const main = git(repo, "rev-parse", "main");
+    expect(await service.switchBranch(input())).toEqual({
+      path: repo,
+      branch: "agent/t1",
+      baseSha: main,
+    });
+    expect(git(repo, "branch", "--show-current")).toBe("agent/t1");
+    expect(git(repo, "worktree", "list")).not.toContain(".worktrees");
+  });
+
+  it("is a no-op on the branch, uncommitted changes included", async () => {
+    await service.switchBranch(input());
+    write(repo, "dirty.txt", "mine\n");
+    await service.switchBranch(input());
+    expect(git(repo, "branch", "--show-current")).toBe("agent/t1");
+    expect(readFileSync(join(repo, "dirty.txt"), "utf8")).toBe("mine\n");
+  });
+
+  it("switches to an existing branch", async () => {
+    git(repo, "switch", "--quiet", "-c", "agent/t1");
+    const sha = commit(repo, "a.txt", "a\n");
+    git(repo, "switch", "--quiet", "main");
+    expect((await service.switchBranch(input())).baseSha).toBe(sha);
+    expect(git(repo, "branch", "--show-current")).toBe("agent/t1");
+  });
+
+  it("refuses a folder with uncommitted changes on another branch and leaves them", async () => {
+    write(repo, "README.md", "edited\n");
+    write(repo, "new.txt", "new\n");
+    const error = await service.switchBranch(input()).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitError);
+    expect((error as Error).message).toContain("commit or stash them first");
+    expect((error as Error).message).toContain(repo);
+    expect(git(repo, "branch", "--show-current")).toBe("main");
+    expect(readFileSync(join(repo, "README.md"), "utf8")).toBe("edited\n");
+    expect(readFileSync(join(repo, "new.txt"), "utf8")).toBe("new\n");
+    expect(git(repo, "branch", "--list", "agent/t1")).toBe("");
+  });
+});
+
+describe("leaveBranch", () => {
+  const leave = (extra: { deleteBranch?: string } = {}) =>
+    service.leaveBranch({ repoPath: repo, branch: "agent/t1", to: "main", ...extra });
+
+  beforeEach(async () => {
+    await service.switchBranch({ repoPath: repo, branch: "agent/t1", base: "main" });
+    commit(repo, "a.txt", "a\n");
+  });
+
+  it("switches a clean folder back and deletes the branch", async () => {
+    await leave({ deleteBranch: "agent/t1" });
+    expect(git(repo, "branch", "--show-current")).toBe("main");
+    expect(git(repo, "branch", "--list", "agent/t1")).toBe("");
+  });
+
+  it("switches a clean folder back and keeps the branch without deleteBranch", async () => {
+    await leave();
+    expect(git(repo, "branch", "--show-current")).toBe("main");
+    expect(git(repo, "branch", "--list", "agent/t1")).toContain("agent/t1");
+  });
+
+  it("leaves a dirty folder on the branch alone", async () => {
+    write(repo, "a.txt", "edited\n");
+    await leave({ deleteBranch: "agent/t1" });
+    expect(git(repo, "branch", "--show-current")).toBe("agent/t1");
+    expect(readFileSync(join(repo, "a.txt"), "utf8")).toBe("edited\n");
+    expect(git(repo, "branch", "--list", "agent/t1")).toContain("agent/t1");
+  });
+
+  it("leaves a folder on another branch alone, deleting the task's branch only when asked", async () => {
+    git(repo, "switch", "--quiet", "-c", "other", "main");
+    write(repo, "README.md", "mine\n");
+    await leave();
+    expect(git(repo, "branch", "--list", "agent/t1")).toContain("agent/t1");
+    await leave({ deleteBranch: "agent/t1" });
+    expect(git(repo, "branch", "--list", "agent/t1")).toBe("");
+    expect(git(repo, "branch", "--show-current")).toBe("other");
+    expect(readFileSync(join(repo, "README.md"), "utf8")).toBe("mine\n");
+  });
+
+  it("refuses to delete a protected branch", async () => {
+    await expect(
+      service.leaveBranch({ repoPath: repo, branch: "main", to: "main", deleteBranch: "main" }),
+    ).rejects.toBeInstanceOf(ProtectedBranchError);
+    expect(git(repo, "branch", "--list", "main")).toContain("main");
+  });
+});
+
+describe("reads of an explicit head", () => {
+  it("read that branch rather than HEAD", async () => {
+    const base = git(repo, "rev-parse", "main");
+    git(repo, "switch", "--quiet", "-c", "agent/t1");
+    commit(repo, "a.txt", "a\n");
+    const tip = commit(repo, "b.txt", "b\n");
+    git(repo, "switch", "--quiet", "main");
+    commit(repo, "c.txt", "c\n");
+    const head = "refs/heads/agent/t1";
+
+    expect(await service.headSha(repo, head)).toBe(tip);
+    expect(await service.mergeBase(repo, "main", head)).toBe(base);
+    expect(await service.commitsSince(repo, base, head)).toBe(2);
+    expect(await service.commitsSince(repo, base)).toBe(1);
+  });
+});
+
 describe("snapshotWorktree and restoreWorktree", () => {
   /** A worktree with a staged, an unstaged and an untracked change on top of two committed files. */
   async function dirty(id: string): Promise<string> {

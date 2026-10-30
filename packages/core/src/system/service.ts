@@ -144,8 +144,10 @@ export function createSystemService({ dataDir, db, tasks }: SystemServiceOptions
   }
 
   async function worktrees(worktreeSizes: boolean): Promise<SystemSnapshot["worktrees"]> {
+    // An in-repo task's folder is the repo itself, not a worktree.
     const paths = tasks
       .list()
+      .filter((task) => !task.inRepo)
       .map((task) => task.worktreePath)
       .filter((p): p is string => p !== null && existsSync(p));
     let artifactCount = 0;

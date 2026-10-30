@@ -403,11 +403,15 @@ export function createRepoService({ repos, connections, rename }: RepoServiceOpt
             (task) =>
               task.repoId === repo.id &&
               task.worktreePath !== null &&
-              isUnder(task.worktreePath, oldWorktrees),
+              (task.worktreePath === oldPath || isUnder(task.worktreePath, oldWorktrees)),
           )
           .map((task) =>
             options.tasks.update(task.id, {
-              worktreePath: movedPath(task.worktreePath!, oldWorktrees, newWorktrees),
+              // In-repo tasks work in the repo's own folder.
+              worktreePath:
+                task.worktreePath === oldPath
+                  ? newPath
+                  : movedPath(task.worktreePath!, oldWorktrees, newWorktrees),
             }),
           );
         const updated = repos.update(repo.id, {
@@ -494,6 +498,7 @@ export function createRepoService({ repos, connections, rename }: RepoServiceOpt
         defaultBranch,
         favorite,
         watchCi,
+        defaultInRepo,
         jiraProject,
         referenceRepoIds,
         agentTrust,
@@ -512,6 +517,7 @@ export function createRepoService({ repos, connections, rename }: RepoServiceOpt
         ...(defaultBranch === undefined ? {} : { defaultBranch }),
         ...(favorite === undefined ? {} : { favorite }),
         ...(watchCi === undefined ? {} : { watchCi }),
+        ...(defaultInRepo === undefined ? {} : { defaultInRepo }),
         ...(jiraProject === undefined ? {} : { jiraProject }),
         ...(referenceRepoIds === undefined ? {} : { referenceRepoIds }),
         ...(agentTrust === undefined ? {} : { agentTrust }),

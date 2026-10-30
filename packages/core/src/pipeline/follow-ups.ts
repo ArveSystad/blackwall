@@ -84,6 +84,7 @@ export function createFollowUpTasks({
       // Follow-ups use the target repo's reference repos.
       referenceRepoIds: null,
       triageMode: task.triageMode,
+      inRepo: false,
       dependsOn: [],
       status: "waiting" as const,
       sourceTaskId: task.id,

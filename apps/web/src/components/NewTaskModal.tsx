@@ -408,6 +408,33 @@ function ReferenceReposField({
   );
 }
 
+/** Tooltip of "Work in the repo folder": what working without a worktree means. */
+const IN_REPO_HINT =
+  "Agents edit and commit on a task branch in your own checkout, with no worktree. If you change files while the agents are working, things may behave oddly, and your edits get committed with the task. Needs a clean folder; one such task per repo at a time.";
+
+function InRepoToggle({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label
+      className="flex cursor-pointer items-center gap-2 text-foreground-strong"
+      title={IN_REPO_HINT}
+    >
+      <input
+        type="checkbox"
+        className="focus:outline-none"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span className={fieldLabel}>Work in the repo folder</span>
+    </label>
+  );
+}
+
 function NewTaskForm({
   defaults,
   item,
@@ -470,6 +497,10 @@ function NewTaskForm({
   // The "work started" comment is opt-in: unticked until the user ticks it.
   const [startCommentOn, setStartCommentOn] = useState(restored?.startCommentOn ?? false);
   const [startComment, setStartComment] = useState(restored?.startComment ?? START_COMMENT_DRAFT);
+  // Until the user ticks or unticks it, "Work in the repo folder" follows the repo's default.
+  const [inRepoChoice, setInRepoChoice] = useState<boolean | null>(
+    item ? item.inRepo : (restored?.inRepoChoice ?? null),
+  );
   // New PR tasks default to Review PR.
   const [mode, setMode] = useState<PrMode>(item?.mode ?? restored?.mode ?? "review");
   const [chosenRepo, setChosenRepo] = useState<string | null>(
@@ -547,6 +578,7 @@ function NewTaskForm({
     roles: roleOverrides(roles, defaults),
     agentClis,
     triageMode,
+    inRepoChoice,
   };
   const draftEmpty = isNewTaskDraftEmpty(snapshot);
   const snapshotJson = JSON.stringify(snapshot);
@@ -572,6 +604,7 @@ function NewTaskForm({
     setRoles(defaults);
     setAgentClis({});
     setTriageMode("intervene");
+    setInRepoChoice(null);
     setDependsOn([]);
     setReferencePick(null);
     setError(null);
@@ -606,6 +639,11 @@ function NewTaskForm({
     selectedRepo ??
     (usableRepos.length === 1 ? usableRepos[0]!.id : null);
   const cli: AgentCli = (repos.data ?? []).find((r) => r.id === repoId)?.defaultCli ?? "claude";
+  // PR tasks always get a worktree; a voice draft is created by the server as it is.
+  const inRepoOffered = kind !== "github-pr" && !voiceDraft;
+  const inRepo =
+    inRepoOffered &&
+    (inRepoChoice ?? (repos.data ?? []).find((r) => r.id === repoId)?.defaultInRepo ?? false);
   // Stored choices survive a repo change; only those that still differ are sent.
   const overrides = activeOverrides(agentClis, cli, taskAgentIds(roles));
   const { ids: referenceIds, override: refOverride } = referenceRepoChoice(
@@ -672,6 +710,7 @@ function NewTaskForm({
         agentClis: overrides,
         referenceRepoIds: refOverride,
         triageMode,
+        ...(edited.origin.kind === "github-pr" ? {} : { inRepo }),
       });
       await queryClient.invalidateQueries({ queryKey: queryKeys.backlog(edited.repoId) });
       onClose();
@@ -708,6 +747,7 @@ function NewTaskForm({
         dependsOn: chosenDeps,
         start: true,
         ...(comment ? { startComment: { body: comment } } : {}),
+        ...(inRepo ? { inRepo } : {}),
       };
       const created = await withCredential(
         { label: "New task", target: originKey({ origin: resolved }) },
@@ -981,6 +1021,7 @@ function NewTaskForm({
               <span className="mono text-[12.5px] text-muted-foreground">
                 {itemRepo?.name ?? item.repoId}
               </span>
+              {inRepoOffered && <InRepoToggle checked={inRepo} onChange={setInRepoChoice} />}
             </Field>
           ) : (
             <div className="flex flex-col gap-1.5">
@@ -1008,6 +1049,7 @@ function NewTaskForm({
                 </SelectMenuContent>
               </SelectMenu>
               {repoHint && <span className="text-[11.5px] text-muted-foreground">{repoHint}</span>}
+              {inRepoOffered && <InRepoToggle checked={inRepo} onChange={setInRepoChoice} />}
               {repos.data && usableRepos.length === 0 && (
                 <span className="text-[11.5px] text-muted-foreground">
                   No repos registered.{" "}

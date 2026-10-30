@@ -34,6 +34,7 @@ import {
   createVoiceService,
   createTaskDiffs,
   createPrHeadSync,
+  createInRepoClaims,
   createWorkspacePreparer,
   createWorkspaceRemover,
   createWorkspaceSyncer,
@@ -246,6 +247,8 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       renaming: renameLocks,
     });
     shutdown.onShutdown(() => memoryBackfill.stop());
+    // Which in-repo task holds each repo's own folder.
+    const inRepoClaims = createInRepoClaims();
     const pipeline = createPipelineEngine({
       repositories,
       invocation: agents.invocation,
@@ -261,11 +264,17 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       prepareWorkspace: createWorkspacePreparer({
         git,
         repos: repositories.repos,
+        tasks: repositories.tasks,
+        claims: inRepoClaims,
         branchFor: firstBranchFor(jira.branchFor, github.branchFor),
         baseBranchFor: github.baseBranchFor,
       }),
       syncWorkspace: createWorkspaceSyncer({ git, repos: repositories.repos }),
-      removeWorkspace: createWorkspaceRemover({ git, repos: repositories.repos }),
+      removeWorkspace: createWorkspaceRemover({
+        git,
+        repos: repositories.repos,
+        claims: inRepoClaims,
+      }),
       prHead: createPrHeadSync({ git, repos: repositories.repos }),
       // Uses the chat only once a task is deleted, after the chat below exists.
       beforeDelete: (taskId) => chat.forgetTask(taskId),

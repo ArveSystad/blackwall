@@ -1142,6 +1142,20 @@ describe("stop and delete", () => {
     });
   });
 
+  it("prepares an in-repo task's workspace again on every drive, not a worktree task's", async () => {
+    const prepareWorkspace = vi.fn(async (t: Task) => ({
+      branch: t.branch ?? `agent/${t.id}`,
+      worktreePath: dir,
+    }));
+    const h = harness(() => ({}), { prepareWorkspace });
+    const inRepo = seedTask({ inRepo: true, branch: "agent/x", worktreePath: dir });
+    const worktree = seedTask({ branch: "agent/y", worktreePath: dir });
+    h.engine.enqueue(inRepo.id);
+    h.engine.enqueue(worktree.id);
+    await settle(h.engine);
+    expect(prepareWorkspace.mock.calls.map(([t]) => t.id)).toEqual([inRepo.id]);
+  });
+
   it("leaves a task that is neither queued, running nor waiting as it is", async () => {
     const seeded = seedTask();
     const h = harness((stage) => (stage === "inform" ? { fail: "boom" } : {}));
@@ -2860,7 +2874,11 @@ describe("code review panel and triage", () => {
 
     const prompt = h.calls.find((c) => c.stage === "code-review")!.options.prompt;
     expect(prompt).toContain("`git diff parent-tip h0`");
-    expect(reviewGit.mergeBase).toHaveBeenCalledWith(expect.any(String), "origin/feature/a");
+    expect(reviewGit.mergeBase).toHaveBeenCalledWith(
+      expect.any(String),
+      "origin/feature/a",
+      "HEAD",
+    );
   });
 
   it("gives the code reviewers the task's details", async () => {
@@ -5034,6 +5052,36 @@ describe("read-only backstop under Trusted", () => {
     expect(git("status", "--porcelain").trim()).toBe("");
   });
 
+  it("lets an in-repo task's Trusted reviewer change the folder, without the guard", async () => {
+    const guard = {
+      snapshotWorktree: vi.fn(realGit.snapshotWorktree),
+      restoreWorktree: vi.fn(realGit.restoreWorktree),
+    };
+    const h = backstopHarness((stage) => {
+      if (stage === "code-review") {
+        writeFileSync(join(repo, "mine.txt"), "x\n");
+        return { structured: { findings: [] } };
+      }
+      return {};
+    }, guard);
+    const seeded = seedTask({ inRepo: true });
+    r.repos.update(seeded.repoId, { agentTrust: "trusted" });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    await h.engine.respond(seeded.id, { gate: "plan-approval", decision: "approve" });
+    await settle(h.engine);
+
+    const reviewSteps = stepsOf(seeded.id).filter(
+      (s) => s.stage === "code-review" && s.agentId !== null,
+    );
+    expect(reviewSteps.length).toBeGreaterThan(0);
+    expect(reviewSteps.every((s) => s.status === "succeeded")).toBe(true);
+    expect(task(seeded.id).status).not.toBe("failed");
+    expect(existsSync(join(repo, "mine.txt"))).toBe(true);
+    expect(guard.snapshotWorktree).not.toHaveBeenCalled();
+    expect(guard.restoreWorktree).not.toHaveBeenCalled();
+  });
+
   it("never runs the guard on a worktree twice at once while the panel reviews", async () => {
     let running = 0;
     let overlapped = false;
@@ -5563,6 +5611,21 @@ describe("worktree setup", () => {
     expect(task(seeded.id).status).toBe("needs-you");
     expect(f.setup.run).not.toHaveBeenCalled();
     expect(setupSteps(seeded.id)).toEqual([]);
+  });
+
+  it("sets an in-repo task up alongside the planner under Trusted, as nothing undoes it", async () => {
+    const f = fakeSetup();
+    const worktreeGuard = {
+      snapshotWorktree: async () => ({ head: "h", index: "i", worktree: "w" }),
+      restoreWorktree: async () => undefined,
+    };
+    const h = harness(() => ({}), { setup: f.setup, worktreeGuard });
+    const seeded = seedSetupTask([INSTALL], { inRepo: true });
+    r.repos.update(seeded.repoId, { agentTrust: "trusted" });
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    expect(task(seeded.id).gate).toBe("plan-approval");
+    expect(f.setup.run).toHaveBeenCalledTimes(1);
   });
 
   it("does not start Implement when stopped while waiting for setup under Trusted", async () => {

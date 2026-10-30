@@ -826,6 +826,16 @@ describe("new tasks", () => {
     expect(taskSchema.parse(await plain.json())).toMatchObject({ cli: "claude", agentClis: {} });
   });
 
+  it("works in the repo folder only when the form asks, never by the repo's default", async () => {
+    repositories.repos.update(repoId, { defaultInRepo: true });
+    const body = { origin: { kind: "free-text" }, repoId, freeText: "Add dark mode" };
+    const plain = await request("/api/tasks", { method: "POST", body });
+    expect(taskSchema.parse(await plain.json()).inRepo).toBe(false);
+    const inRepo = await request("/api/tasks", { method: "POST", body: { ...body, inRepo: true } });
+    expect(inRepo.status).toBe(201);
+    expect(taskSchema.parse(await inRepo.json()).inRepo).toBe(true);
+  });
+
   it("copies the repo's reference repos onto the task unless the form picked others", async () => {
     const lib = repositories.repos.create({ path: "/code/lib", name: "lib" });
     repositories.repos.update(repoId, { referenceRepoIds: [lib.id] });

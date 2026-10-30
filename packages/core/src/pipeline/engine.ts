@@ -120,6 +120,7 @@ export type NewTaskValues = Pick<
   | "agentClis"
   | "referenceRepoIds"
   | "triageMode"
+  | "inRepo"
 >;
 
 /** Prompt sent when a step resumes its interrupted CLI session. */
@@ -747,8 +748,13 @@ export function createPipelineEngine({
     // The backstop: a read-only step under Trusted must leave the worktree as it
     // found it, staged changes and untracked files included (the summarizer
     // starts on a staged round). Any change is undone and fails the step.
+    // In-repo tasks share the user's own checkout, where the user may edit
+    // while agents work, so the backstop is off for them.
     const guard =
-      worktreeGuard && inv.permissions.profile === "read-only" && trust.level === "trusted"
+      worktreeGuard &&
+      !ctx.task.inRepo &&
+      inv.permissions.profile === "read-only" &&
+      trust.level === "trusted"
         ? worktreeGuard
         : undefined;
     let before: WorktreeSnapshot | undefined;
@@ -1048,7 +1054,9 @@ export function createPipelineEngine({
       if (run.status !== "running") run = saveRun(run.id, "running");
       task = saveTask(taskId, { status: "running", gate: null, error: null });
 
-      if (!task.worktreePath) {
+      // An in-repo task prepares on every drive, so a resumed one gets its
+      // branch checked out in the repo's folder again.
+      if (!task.worktreePath || task.inRepo) {
         const workspace = await prepareWorkspace(task);
         task = saveTask(taskId, workspace);
         scheduler.setBranch(taskId, workspace.branch);
@@ -1099,11 +1107,12 @@ export function createPipelineEngine({
         const ctx = stageContext(task, run, stage, round, visit, instructions, signal, guidance);
         // Setup runs alongside the planner, as part of this visit. The Trusted
         // backstop would undo what it writes during a read-only step, so those
-        // tasks set up just before Implement instead.
+        // tasks set up just before Implement instead. In-repo tasks have no
+        // backstop, so they set up alongside the planner too.
         if (
           first &&
           (stage === "inform" || stage === "plan-review") &&
-          !(worktreeGuard && trustFor(taskId).level === "trusted")
+          !(worktreeGuard && trustFor(taskId).level === "trusted" && !task.inRepo)
         ) {
           inFlight = ensureSetup(ctx);
         }

@@ -1,6 +1,11 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDatabase, type OpenedDatabase } from "../db/database.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
+import { createGitService } from "../git/service.js";
 import { createBranchDiff, createTaskDiffs } from "./diffs.js";
 import { REVIEW_DIFF_EVENT, type ReviewGit } from "./stages.js";
 
@@ -227,5 +232,67 @@ describe("stacked PR diffs", () => {
       (await createTaskDiffs({ repositories: r, git: stackGit("c1", "missing") })(missing))[0]
         ?.from,
     ).toBe("main-fork");
+  });
+});
+
+describe("in-repo task diffs", () => {
+  let root: string;
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync("git", args, {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  const commit = (cwd: string, file: string, content: string) => {
+    writeFileSync(join(cwd, file), content);
+    git(cwd, "add", "-A");
+    git(cwd, "commit", "--quiet", "-m", `edit ${file}`);
+    return git(cwd, "rev-parse", "HEAD");
+  };
+
+  beforeEach(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), "blackwall-diffs-")));
+    git(root, "init", "--quiet", "-b", "main");
+    git(root, "config", "user.name", "Test");
+    git(root, "config", "user.email", "test@example.com");
+    git(root, "config", "commit.gpgsign", "false");
+    git(root, "config", "core.autocrlf", "false");
+    commit(root, "README.md", "hello\n");
+  });
+
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  it("shows the task's branch after the folder moved to another branch", async () => {
+    const fork = git(root, "rev-parse", "HEAD");
+    git(root, "switch", "--quiet", "-c", "agent/t1");
+    const tip = commit(root, "task.txt", "task\n");
+    git(root, "switch", "--quiet", "-c", "agent/t2", "main");
+    commit(root, "other.txt", "other\n");
+
+    const repo = r.repos.create({ path: root, name: "app" });
+    const fields = {
+      title: "Fix login",
+      origin: { kind: "free-text" as const },
+      repoId: repo.id,
+      branch: "agent/t1",
+      worktreePath: root,
+    };
+    const task = r.tasks.create({ ...fields, inRepo: true });
+    const service = createGitService();
+
+    const branch = await createBranchDiff({ git: service, repositories: r })(task);
+    expect(branch).toMatchObject({ from: fork, to: tip });
+    expect(branch?.diff).toContain("task.txt");
+    expect(branch?.diff).not.toContain("other.txt");
+
+    const [round] = await createTaskDiffs({ repositories: r, git: service })(task);
+    expect(round).toMatchObject({ from: fork, to: tip });
+    expect(round?.diff).toContain("task.txt");
+
+    // A worktree task reads the folder's HEAD, as before.
+    const worktreeTask = r.tasks.create(fields);
+    expect(
+      (await createBranchDiff({ git: service, repositories: r })(worktreeTask))?.diff,
+    ).toContain("other.txt");
   });
 });

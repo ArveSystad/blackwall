@@ -5,9 +5,56 @@ import { errorMessage } from "../git/errors.js";
 import type { GitService } from "../git/service.js";
 import type { PreparedWorkspace } from "./engine.js";
 
+/**
+ * Which task holds each repo's own folder, for in-repo tasks. Prepares of one
+ * repo run one at a time under {@link InRepoClaims.withRepoLock}, so two tasks
+ * starting at once can't both switch the folder. Kept in memory: after a
+ * restart the tasks' saved `worktreePath` alone shows which one holds it.
+ */
+export interface InRepoClaims {
+  /** Runs `fn` after every earlier call for the same repo has settled. */
+  withRepoLock<T>(repoId: string, fn: () => Promise<T>): Promise<T>;
+  /** The task that claimed the repo's folder, if any. */
+  holder(repoId: string): string | undefined;
+  claim(repoId: string, taskId: string): void;
+  /** Clears the claim only when `taskId` holds it. */
+  release(repoId: string, taskId: string): void;
+}
+
+export function createInRepoClaims(): InRepoClaims {
+  const locks = new Map<string, Promise<void>>();
+  const claims = new Map<string, string>();
+  return {
+    async withRepoLock(repoId, fn) {
+      const previous = locks.get(repoId) ?? Promise.resolve();
+      let release!: () => void;
+      const current = new Promise<void>((resolve) => (release = resolve));
+      const tail = previous.then(() => current);
+      locks.set(repoId, tail);
+      await previous;
+      try {
+        return await fn();
+      } finally {
+        release();
+        if (locks.get(repoId) === tail) locks.delete(repoId);
+      }
+    },
+    holder: (repoId) => claims.get(repoId),
+    claim(repoId, taskId) {
+      claims.set(repoId, taskId);
+    },
+    release(repoId, taskId) {
+      if (claims.get(repoId) === taskId) claims.delete(repoId);
+    },
+  };
+}
+
 export interface WorkspacePreparerOptions {
-  git: Pick<GitService, "createWorktree">;
+  git: Pick<GitService, "createWorktree" | "switchBranch">;
   repos: Pick<Repositories["repos"], "get">;
+  /** Finds the in-repo task that already holds a repo's folder. */
+  tasks: Pick<Repositories["tasks"], "list">;
+  claims: InRepoClaims;
   /**
    * Derives the branch of a task created without one, e.g. a Jira task's
    * `feature/<key>-<slug>` from the issue's summary and type, or a GitHub
@@ -29,13 +76,39 @@ export interface WorkspacePreparerOptions {
  * when the task has none yet. PR tasks also record and fetch the PR's base
  * branch from `baseBranchFor`. Idempotent, so a
  * resumed task finds its worktree where it left it.
+ *
+ * An in-repo task gets no worktree: its branch is checked out in the repo's
+ * own folder, which becomes its `worktreePath`. Only one in-repo task per repo
+ * may hold the folder; another one, or a folder with uncommitted changes on
+ * another branch, fails the prepare rather than waiting.
  */
 export function createWorkspacePreparer({
   git,
   repos,
+  tasks,
+  claims,
   branchFor,
   baseBranchFor,
 }: WorkspacePreparerOptions) {
+  /** Another active in-repo task holding the task's repo folder, if any. */
+  function holderOf(task: Task): Task | undefined {
+    const active = (other: Task | undefined): other is Task =>
+      other !== undefined &&
+      other.id !== task.id &&
+      other.inRepo &&
+      other.repoId === task.repoId &&
+      other.status !== "done";
+    const all = tasks.list();
+    const claimed = claims.holder(task.repoId);
+    if (claimed !== undefined && claimed !== task.id) {
+      const other = all.find((t) => t.id === claimed);
+      if (active(other)) return other;
+      // Its task is gone or done, so it no longer holds the folder.
+      claims.release(task.repoId, claimed);
+    }
+    return all.find((other) => active(other) && other.worktreePath !== null);
+  }
+
   return async (task: Task): Promise<PreparedWorkspace> => {
     const repo = repos.get(task.repoId);
     if (!repo) throw new Error(`Repo ${task.repoId} not found`);
@@ -45,6 +118,24 @@ export function createWorkspacePreparer({
         ? branchForTask({ kind: "free-text", taskId: task.id })
         : await branchFor?.(task));
     if (!branch) throw new Error("The task's branch is not known yet");
+    if (task.inRepo) {
+      return claims.withRepoLock(repo.id, async () => {
+        const holder = holderOf(task);
+        if (holder) {
+          throw new Error(
+            `The repo folder is in use by task ${holder.title} (${holder.id}); finish or delete it first`,
+          );
+        }
+        claims.claim(repo.id, task.id);
+        try {
+          await git.switchBranch({ repoPath: repo.path, branch, base: repo.defaultBranch });
+        } catch (error) {
+          claims.release(repo.id, task.id);
+          throw error;
+        }
+        return { branch, worktreePath: repo.path, baseBranch: null };
+      });
+    }
     const worktreePath = task.worktreePath ?? worktreePathFor(repo.path, task.id);
     const isPr = task.origin.kind === "github-pr";
     const baseBranch = isPr ? (task.baseBranch ?? (await baseBranchFor?.(task))) : undefined;
@@ -147,8 +238,9 @@ export function createPrHeadSync({ git, repos }: PrHeadSyncOptions): PrHeadSync 
 }
 
 export interface WorkspaceRemoverOptions {
-  git: Pick<GitService, "removeWorktree">;
+  git: Pick<GitService, "removeWorktree" | "leaveBranch">;
   repos: Pick<Repositories["repos"], "get">;
+  claims: InRepoClaims;
 }
 
 /**
@@ -156,16 +248,36 @@ export interface WorkspaceRemoverOptions {
  * work on the PR's existing branch, so only their worktree goes; so does a
  * delivered task's (`keepBranch`), whose branch may hold unpushed commits. The
  * repo's default branch and other protected branches are refused by the git
- * service.
+ * service. An in-repo task's folder is the repo itself and is never removed:
+ * see {@link GitService.leaveBranch}. Its claim on the folder is released.
  */
-export function createWorkspaceRemover({ git, repos }: WorkspaceRemoverOptions) {
+export function createWorkspaceRemover({ git, repos, claims }: WorkspaceRemoverOptions) {
   return async (task: Task, options?: { keepBranch?: boolean }): Promise<void> => {
     const repo = repos.get(task.repoId);
-    if (!repo || !task.worktreePath) return;
+    if (!repo || !task.worktreePath) {
+      claims.release(task.repoId, task.id);
+      return;
+    }
     const deleteBranch =
       options?.keepBranch || task.origin.kind === "github-pr" || !task.branch
         ? undefined
         : task.branch;
+    if (task.inRepo) {
+      try {
+        if (task.branch) {
+          await git.leaveBranch({
+            repoPath: repo.path,
+            branch: task.branch,
+            to: repo.defaultBranch,
+            ...(deleteBranch ? { deleteBranch } : {}),
+            mainBranch: repo.defaultBranch,
+          });
+        }
+      } finally {
+        claims.release(repo.id, task.id);
+      }
+      return;
+    }
     await git.removeWorktree({
       repoPath: repo.path,
       worktreePath: task.worktreePath,

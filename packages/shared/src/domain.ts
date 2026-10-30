@@ -555,6 +555,8 @@ export const repoSchema = z.object({
   position: z.int(),
   /** Watch CI after a task pushes its branch; matters only for GitHub/GHE remotes. */
   watchCi: z.boolean(),
+  /** Whether the New task form starts with "Work in the repo folder" ticked; never applied by the server. */
+  defaultInRepo: z.boolean(),
   /** Jira project key whose open issues the Backlog lists; null = none. */
   jiraProject: z
     .string()
@@ -625,6 +627,7 @@ export const repoUpdateSchema = z.object({
   defaultBranch: branchNameSchema.optional(),
   favorite: z.boolean().optional(),
   watchCi: z.boolean().optional(),
+  defaultInRepo: z.boolean().optional(),
   jiraProject: z
     .string()
     .trim()
@@ -1365,6 +1368,16 @@ function checkMode(
   }
 }
 
+/** PR tasks always work in a worktree of their own. */
+function checkInRepo(
+  value: { origin: TaskOrigin; inRepo?: boolean | undefined },
+  ctx: z.RefinementCtx,
+): void {
+  if (value.inRepo && value.origin.kind === "github-pr") {
+    ctx.addIssue({ code: "custom", path: ["inRepo"], message: "PR tasks always use a worktree" });
+  }
+}
+
 export const taskSchema = z
   .object({
     id,
@@ -1375,6 +1388,11 @@ export const taskSchema = z
     /** PR tasks only: whether the branch holds only the user's commits; null for other tasks. */
     prBranch: prBranchSchema.nullable(),
     ...workspaceSchema.shape,
+    /**
+     * Works on its branch in the repo's own folder (`worktreePath` is the
+     * repo's path) instead of a separate worktree. Never set for PR tasks.
+     */
+    inRepo: z.boolean(),
     status: taskStatusSchema,
     /** Current pipeline stage; null before the first step starts. */
     stage: stageSchema.nullable(),
@@ -1416,7 +1434,10 @@ export const taskSchema = z
     createdAt: timestamp,
     updatedAt: timestamp,
   })
-  .superRefine(checkMode);
+  .superRefine((value, ctx) => {
+    checkMode(value, ctx);
+    checkInRepo(value, ctx);
+  });
 export type Task = z.infer<typeof taskSchema>;
 
 /**
@@ -1508,6 +1529,8 @@ export const newTaskInputSchema = z
     /** Reference repos for the task; null uses the repo's. */
     referenceRepoIds: referenceRepoIdsSchema.nullable().default(null),
     triageMode: triageModeSchema.default("intervene"),
+    /** Work in the repo's own folder instead of a worktree; not for PR tasks. */
+    inRepo: z.boolean().default(false),
     /**
      * GitHub issue tasks only: a comment the user confirmed, posted on the
      * issue when the task is created. Omitted: nothing is posted.
@@ -1523,6 +1546,7 @@ export const newTaskInputSchema = z
     }
     checkStartComment(value, ctx);
     checkAssignToMe(value, ctx);
+    checkInRepo(value, ctx);
   });
 export type NewTaskInput = z.input<typeof newTaskInputSchema>;
 
@@ -1564,6 +1588,8 @@ export const backlogItemSchema = z
     /** Reference repos for the task once promoted; null follows the repo's until then. */
     referenceRepoIds: z.array(id).nullable(),
     triageMode: triageModeSchema,
+    /** The task it becomes works in the repo's own folder instead of a worktree. */
+    inRepo: z.boolean(),
     /** Manual order in the repo's backlog. */
     position: z.int(),
     /** Backlog items (same repo) that must be done first. */
@@ -1576,7 +1602,10 @@ export const backlogItemSchema = z
     createdAt: timestamp,
     updatedAt: timestamp,
   })
-  .superRefine(checkMode);
+  .superRefine((value, ctx) => {
+    checkMode(value, ctx);
+    checkInRepo(value, ctx);
+  });
 export type BacklogItem = z.infer<typeof backlogItemSchema>;
 
 /** A backlog item as listed: in pick order, with the dependencies holding it back. */
@@ -1607,6 +1636,8 @@ export const newBacklogItemInputSchema = z
     /** Null follows the repo's reference repos until the item is promoted. */
     referenceRepoIds: referenceRepoIdsSchema.nullable().default(null),
     triageMode: triageModeSchema.default("intervene"),
+    /** Work in the repo's own folder instead of a worktree once promoted; not for PR items. */
+    inRepo: z.boolean().default(false),
     dependsOn: backlogDependsOn.default([]),
     /** Not stored: whether to promote the item at once when the runner would. */
     start: z.boolean().default(false),
@@ -1620,6 +1651,7 @@ export const newBacklogItemInputSchema = z
     checkMode(value, ctx);
     checkBacklogText(value, ctx);
     checkStartComment(value, ctx);
+    checkInRepo(value, ctx);
   });
 export type NewBacklogItemInput = z.input<typeof newBacklogItemInputSchema>;
 
@@ -1634,6 +1666,8 @@ export const updateBacklogItemInputSchema = z.object({
   agentClis: agentClisSchema.optional(),
   referenceRepoIds: referenceRepoIdsSchema.nullable().optional(),
   triageMode: triageModeSchema.optional(),
+  /** Work in the repo's own folder once promoted; refused for PR items. */
+  inRepo: z.boolean().optional(),
 });
 export type UpdateBacklogItemInput = z.infer<typeof updateBacklogItemInputSchema>;
 

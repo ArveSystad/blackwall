@@ -1328,6 +1328,8 @@ export interface NewTaskDraft {
   roles: RoleAgents;
   agentClis: AgentClis;
   triageMode: TriageMode;
+  /** "Work in the repo folder" as ticked by the user; null follows the repo's default. */
+  inRepoChoice: boolean | null;
 }
 
 /** The roles in `roles` that differ from `defaults`; `{ ...defaults, ...overrides }` gives `roles` back. */
@@ -1355,6 +1357,9 @@ export function parseNewTaskDraft(raw: unknown): NewTaskDraft | undefined {
     return undefined;
   }
   if (typeof d.startCommentOn !== "boolean") return undefined;
+  // Drafts kept before the choice existed have none.
+  const inRepoChoice = d.inRepoChoice ?? null;
+  if (inRepoChoice !== null && typeof inRepoChoice !== "boolean") return undefined;
   if (!PR_MODES.includes(d.mode as PrMode)) return undefined;
   if (!TRIAGE_MODES.includes(d.triageMode as TriageMode)) return undefined;
   if (d.chosenRepo !== null && typeof d.chosenRepo !== "string") return undefined;
@@ -1385,6 +1390,7 @@ export function parseNewTaskDraft(raw: unknown): NewTaskDraft | undefined {
     roles: roles.data,
     agentClis: agentClis.data,
     triageMode: d.triageMode as TriageMode,
+    inRepoChoice,
   };
 }
 
@@ -1401,6 +1407,7 @@ export function isNewTaskDraftEmpty(draft: NewTaskDraft): boolean {
     !draft.startCommentOn &&
     draft.mode === "review" &&
     draft.triageMode === "intervene" &&
+    draft.inRepoChoice === null &&
     Object.keys(draft.agentClis).length === 0 &&
     Object.keys(draft.roles).length === 0
   );

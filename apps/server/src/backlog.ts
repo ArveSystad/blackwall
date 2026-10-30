@@ -96,8 +96,18 @@ export function promoteBacklogItem(
   if (!current || current.status === "promoted") {
     throw new Error("The item was already promoted to a task");
   }
-  const { title, origin, mode, repoId, freeText, agents, agentClis, referenceRepoIds, triageMode } =
-    current;
+  const {
+    title,
+    origin,
+    mode,
+    repoId,
+    freeText,
+    agents,
+    agentClis,
+    referenceRepoIds,
+    triageMode,
+    inRepo,
+  } = current;
   const task = queueTask(pipeline, newTask, {
     title,
     origin,
@@ -108,6 +118,7 @@ export function promoteBacklogItem(
     agentClis,
     referenceRepoIds,
     triageMode,
+    inRepo,
   });
   backlogItems.markPromoted(item.id, task.id);
   broadcast({ type: "backlog.changed", payload: { repoId } });
@@ -552,6 +563,9 @@ export function backlogRoutes(
     const input = updateBacklogItemInputSchema.safeParse(await readJson(c));
     if (!input.success) return badRequest(c, input.error.issues);
     const { dependsOn } = input.data;
+    if (input.data.inRepo && item.origin.kind === "github-pr") {
+      return c.json({ error: "PR tasks always use a worktree" }, 400);
+    }
     if (dependsOn) {
       const items = backlogItems.list(item.repoId);
       const foreign = foreignDependencies(items, dependsOn);

@@ -94,6 +94,7 @@ const task = {
   branch: "feature/abc-123-fix-login",
   baseBranch: null,
   worktreePath: null,
+  inRepo: false,
   status: "needs-you",
   stage: "plan-review",
   gate: "plan-approval",
@@ -359,6 +360,7 @@ describe("newTaskInputSchema", () => {
       agentClis: {},
       referenceRepoIds: null,
       triageMode: "intervene",
+      inRepo: false,
     });
   });
 
@@ -453,6 +455,44 @@ describe("repo backlog runner", () => {
     expect(repoBacklogRunnerUpdateSchema.parse({ includeRemoteIssues: true })).toEqual({
       includeRemoteIssues: true,
     });
+  });
+});
+
+describe("in-repo tasks", () => {
+  const pr = {
+    kind: "github-pr",
+    url: "https://github.com/acme/web/pull/7",
+    owner: "acme",
+    repo: "web",
+    number: 7,
+    connectionId: null,
+  };
+
+  it("default to a worktree", () => {
+    const base = { origin: { kind: "free-text" }, freeText: "x" };
+    expect(newTaskInputSchema.parse({ ...base, repoId: "r1" }).inRepo).toBe(false);
+    expect(newBacklogItemInputSchema.parse(base).inRepo).toBe(false);
+    expect(newTaskInputSchema.parse({ ...base, repoId: "r1", inRepo: true }).inRepo).toBe(true);
+  });
+
+  it("are refused for PR origins", () => {
+    const task = newTaskInputSchema.safeParse({
+      origin: pr,
+      mode: "work",
+      repoId: "r1",
+      inRepo: true,
+    });
+    expect(task.success).toBe(false);
+    expect(task.error?.issues[0]).toMatchObject({
+      path: ["inRepo"],
+      message: "PR tasks always use a worktree",
+    });
+    const item = newBacklogItemInputSchema.safeParse({ origin: pr, mode: "work", inRepo: true });
+    expect(item.success).toBe(false);
+    expect(item.error?.issues[0]?.path).toEqual(["inRepo"]);
+    expect(newTaskInputSchema.safeParse({ origin: pr, mode: "work", repoId: "r1" }).success).toBe(
+      true,
+    );
   });
 });
 
@@ -803,6 +843,11 @@ describe("settings and inputs", () => {
       defaultOrigin: "github-pr",
     });
     expect(repoUpdateSchema.safeParse({ defaultOrigin: "email" }).success).toBe(false);
+  });
+
+  it("accepts a repo's in-repo default", () => {
+    expect(repoUpdateSchema.parse({ defaultInRepo: true })).toEqual({ defaultInRepo: true });
+    expect(repoUpdateSchema.safeParse({ defaultInRepo: "yes" }).success).toBe(false);
   });
 
   it("accepts a repo's backlog cap, or null to clear it, and rejects others", () => {

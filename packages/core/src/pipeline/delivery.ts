@@ -23,6 +23,7 @@ import {
   commitWithRewrites,
   conventionalType,
   forkPoint,
+  taskHead,
   withoutLeftovers,
 } from "./stages.js";
 import { InvalidGateResponseError, pipelineKind } from "./transitions.js";
@@ -115,6 +116,26 @@ export interface DeliveryPorts {
   ): Promise<{ url: string }>;
 }
 
+/**
+ * Throws a {@link DeliveryError} when an in-repo task's folder is not on the
+ * task's branch, so delivery never squashes or rebases another branch.
+ */
+export async function assertOnTaskBranch(
+  git: Pick<GitService, "currentBranch">,
+  task: Pick<Task, "inRepo" | "branch" | "worktreePath">,
+): Promise<void> {
+  if (!task.inRepo || !task.worktreePath || !task.branch) return;
+  const current = await git.currentBranch(task.worktreePath);
+  if (current !== task.branch) {
+    throw new DeliveryError(
+      `The repo folder is on ${current ?? "a detached HEAD"}, not the task's branch ${task.branch}; check ${task.branch} out there, then finish again`,
+    );
+  }
+}
+
+/** Delivery targets that rewrite, push or merge the task's branch. */
+const GIT_TARGETS: readonly DeliveryTarget[] = ["push-branch", "merge-main"];
+
 export type DeliveryGit = Pick<
   GitService,
   | "isProtected"
@@ -126,6 +147,7 @@ export type DeliveryGit = Pick<
   | "finishIntoMain"
   | "branchExists"
   | "renameBranch"
+  | "currentBranch"
 >;
 
 /** What the engine hands delivery when the user confirms. */
@@ -243,7 +265,9 @@ export function createDeliverer({
    */
   async function squashBase(task: Task, worktree: string): Promise<string | undefined> {
     const main = defaultBranchOf(r.repos, task.repoId);
-    if (task.origin.kind !== "github-pr") return forkPoint(task, git, worktree, main);
+    if (task.origin.kind !== "github-pr") {
+      return forkPoint(task, git, worktree, main, taskHead(task));
+    }
     try {
       return await git.mergeBase(worktree, `origin/${task.branch}`);
     } catch {
@@ -259,7 +283,7 @@ export function createDeliverer({
   async function pushedBase(task: Task, worktree: string): Promise<string | undefined> {
     if (task.branch && task.deliveryTargets.includes("push-branch")) {
       try {
-        return await git.mergeBase(worktree, `origin/${task.branch}`);
+        return await git.mergeBase(worktree, `origin/${task.branch}`, taskHead(task));
       } catch {
         // The remote branch is gone or was never fetched: fall back to the fork point.
       }
@@ -276,7 +300,7 @@ export function createDeliverer({
     if (!worktree || completed.includes("push-branch")) return null;
     const base = await pushedBase(task, worktree);
     if (!base) return null;
-    const commits = await git.commitsSince(worktree, base);
+    const commits = await git.commitsSince(worktree, base, taskHead(task));
     if (commits < 2) return null;
     return {
       commits,
@@ -415,7 +439,7 @@ export function createDeliverer({
     if (!worktree) return true;
     const base = await squashBase(task, worktree);
     if (!base) return true;
-    return (await git.commitsSince(worktree, base)) > 0;
+    return (await git.commitsSince(worktree, base, taskHead(task))) > 0;
   }
 
   async function plan(task: Task, completed: readonly DeliveryStep[]): Promise<DeliveryPlan> {
@@ -513,6 +537,15 @@ export function createDeliverer({
     const worktree = task.worktreePath;
     const target = <K extends DeliveryAction["kind"]>(kind: K) =>
       planned.actions.find((a): a is Extract<DeliveryAction, { kind: K }> => a.kind === kind)!;
+
+    // An in-repo task's folder may have moved to another branch since; squash,
+    // push and merge would then rewrite or discard that branch instead.
+    const touchesBranch =
+      (confirmation.squash && planned.squash && !completed.includes("squash")) ||
+      GIT_TARGETS.some(
+        (action) => confirmation.actions.includes(action) && !completed.includes(action),
+      );
+    if (touchesBranch) await assertOnTaskBranch(git, task);
 
     if (confirmation.squash && planned.squash && worktree && !completed.includes("squash")) {
       const { base, message: plannedMessage } = planned.squash;

@@ -253,7 +253,7 @@ export function queueTask(
   newTask: NewTaskServices,
   input: QueuedTaskInput,
 ): Task {
-  const { title, origin, mode, repoId, freeText, triageMode } = input;
+  const { title, origin, mode, repoId, freeText, triageMode, inRepo } = input;
   const repo = newTask.repos.use(repoId);
   const agents = newTask.resolveRoles(input.agents);
   const cli = repo.defaultCli;
@@ -269,6 +269,7 @@ export function queueTask(
     agentClis,
     referenceRepoIds: input.referenceRepoIds ?? repo.referenceRepoIds,
     triageMode,
+    inRepo,
   });
 }
 

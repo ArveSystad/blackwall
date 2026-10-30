@@ -1,7 +1,13 @@
 import type { BranchDiff, Task, TaskDiff } from "@blackwall/shared";
 import type { Repositories } from "../db/repositories.js";
 import { defaultBranchOf } from "../repos/service.js";
-import { REVIEW_DIFF_EVENT, forkPoint, type ReviewDiffRange, type ReviewGit } from "./stages.js";
+import {
+  REVIEW_DIFF_EVENT,
+  forkPoint,
+  taskHead,
+  type ReviewDiffRange,
+  type ReviewGit,
+} from "./stages.js";
 
 export interface TaskDiffsOptions {
   repositories: Pick<Repositories, "repos" | "runs" | "steps" | "stepEvents">;
@@ -43,10 +49,10 @@ export function createTaskDiffs({ repositories: r, git }: TaskDiffsOptions) {
       ranges.push({ ...range, round: step.round, reviewed: true });
     }
 
-    const head = await git.headSha(worktree);
+    const head = await git.headSha(worktree, taskHead(task));
     const from =
       ranges.at(-1)?.to ??
-      (await forkPoint(task, git, worktree, defaultBranchOf(r.repos, task.repoId)));
+      (await forkPoint(task, git, worktree, defaultBranchOf(r.repos, task.repoId), taskHead(task)));
     if (from && from !== head) {
       const round = Math.max(0, ...steps.map((s) => s.round));
       ranges.push({ from, to: head, round, reviewed: false });
@@ -78,9 +84,10 @@ export function createBranchDiff({
   return async function branchDiff(task: Task): Promise<BranchDiff | null> {
     const worktree = task.worktreePath;
     if (!worktree) return null;
-    const from = await forkPoint(task, git, worktree, defaultBranchOf(r.repos, task.repoId));
+    const head = taskHead(task);
+    const from = await forkPoint(task, git, worktree, defaultBranchOf(r.repos, task.repoId), head);
     if (!from) return null;
-    const to = await git.headSha(worktree);
+    const to = await git.headSha(worktree, head);
     if (from === to) return null;
     return { from, to, diff: await git.diff(worktree, from, to) };
   };

@@ -8,6 +8,7 @@ import {
 } from "../git/service.js";
 import { worktreePathFor } from "../git/branches.js";
 import {
+  createInRepoClaims,
   createPrHeadSync,
   createWorkspacePreparer,
   createWorkspaceRemover,
@@ -26,8 +27,10 @@ function preparer(
     baseSha: "abc",
   }));
   const prepare = createWorkspacePreparer({
-    git: { createWorktree },
+    git: { createWorktree, switchBranch: vi.fn() },
     repos: { get: (id) => (id === forRepo.id ? forRepo : undefined) },
+    tasks: { list: () => [] },
+    claims: createInRepoClaims(),
     ...(baseBranchFor ? { baseBranchFor } : {}),
   });
   return { prepare, createWorktree };
@@ -167,8 +170,10 @@ describe("createWorkspacePreparer", () => {
     }));
     const branchFor = vi.fn(async () => "feature/abc-1-export");
     const prepare = createWorkspacePreparer({
-      git: { createWorktree },
+      git: { createWorktree, switchBranch: vi.fn() },
       repos: { get: () => repo },
+      tasks: { list: () => [] },
+      claims: createInRepoClaims(),
       branchFor,
     });
     const ws = await prepare(
@@ -191,8 +196,10 @@ describe("createWorkspacePreparer", () => {
     }));
     const branchFor = vi.fn(async () => "fix/7-export-drops-a-row");
     const prepare = createWorkspacePreparer({
-      git: { createWorktree },
+      git: { createWorktree, switchBranch: vi.fn() },
       repos: { get: () => repo },
+      tasks: { list: () => [] },
+      claims: createInRepoClaims(),
       branchFor,
     });
     const origin = {
@@ -257,8 +264,9 @@ describe("createWorkspaceRemover", () => {
       async () => undefined,
     );
     const remove = createWorkspaceRemover({
-      git: { removeWorktree },
+      git: { removeWorktree, leaveBranch: vi.fn() },
       repos: { get: (id) => (id === forRepo.id ? forRepo : undefined) },
+      claims: createInRepoClaims(),
     });
     return { remove, removeWorktree };
   }
@@ -313,6 +321,163 @@ describe("createWorkspaceRemover", () => {
       worktreePath: "/wt",
       mainBranch: "main",
     });
+  });
+});
+
+describe("in-repo tasks", () => {
+  const inRepo = (patch: Partial<Task>) =>
+    task({
+      origin: { kind: "free-text" },
+      title: "Fix login",
+      inRepo: true,
+      status: "running",
+      ...patch,
+    });
+
+  function setup(listed: Task[] = []) {
+    const tasks = [...listed];
+    const claims = createInRepoClaims();
+    const createWorktree = vi.fn<GitService["createWorktree"]>();
+    const switchBranch = vi.fn<GitService["switchBranch"]>(async (input) => ({
+      path: input.repoPath,
+      branch: input.branch,
+      baseSha: "abc",
+    }));
+    const leaveBranch = vi.fn<GitService["leaveBranch"]>(async () => undefined);
+    const removeWorktree = vi.fn<GitService["removeWorktree"]>(async () => undefined);
+    const repos = { get: (id: string) => (id === repo.id ? repo : undefined) };
+    const prepare = createWorkspacePreparer({
+      git: { createWorktree, switchBranch },
+      repos,
+      tasks: { list: () => tasks },
+      claims,
+    });
+    const remove = createWorkspaceRemover({ git: { removeWorktree, leaveBranch }, repos, claims });
+    return { tasks, claims, prepare, remove, createWorktree, switchBranch, leaveBranch };
+  }
+
+  it("checks the branch out in the repo's folder instead of a worktree", async () => {
+    const { prepare, createWorktree, switchBranch } = setup();
+    expect(await prepare(inRepo({}))).toEqual({
+      branch: "agent/t1",
+      worktreePath: "/code/app",
+      baseBranch: null,
+    });
+    expect(switchBranch).toHaveBeenCalledWith({
+      repoPath: "/code/app",
+      branch: "agent/t1",
+      base: "main",
+    });
+    expect(createWorktree).not.toHaveBeenCalled();
+  });
+
+  it("refuses while another active in-repo task holds the folder, naming it", async () => {
+    const other = inRepo({ id: "t0", title: "Other work", worktreePath: "/code/app" });
+    const { prepare, switchBranch } = setup([other]);
+    await expect(prepare(inRepo({}))).rejects.toThrow(
+      "The repo folder is in use by task Other work (t0); finish or delete it first",
+    );
+    expect(switchBranch).not.toHaveBeenCalled();
+  });
+
+  it("ignores done tasks, other repos, worktree tasks and the task itself", async () => {
+    const { prepare, switchBranch } = setup([
+      inRepo({ id: "t0", worktreePath: "/code/app", status: "done" }),
+      inRepo({ id: "t2", repoId: "r2", worktreePath: "/code/other" }),
+      task({ id: "t3", inRepo: false, worktreePath: "/wt", status: "running" }),
+      inRepo({ worktreePath: "/code/app" }),
+    ]);
+    await prepare(inRepo({ worktreePath: "/code/app" }));
+    expect(switchBranch).toHaveBeenCalledOnce();
+  });
+
+  it("lets only one of two tasks starting at once take the folder", async () => {
+    const first = inRepo({ id: "t1" });
+    const second = inRepo({ id: "t2" });
+    const { prepare, switchBranch } = setup([first, second]);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    switchBranch.mockImplementation(async (input) => {
+      await gate;
+      return { path: input.repoPath, branch: input.branch, baseSha: "abc" };
+    });
+
+    const both = [prepare(first), prepare(second)];
+    release();
+    const [a, b] = await Promise.allSettled(both);
+
+    expect(a.status).toBe("fulfilled");
+    expect(b.status).toBe("rejected");
+    expect((b as PromiseRejectedResult).reason.message).toContain("Fix login (t1)");
+    expect(switchBranch).toHaveBeenCalledOnce();
+  });
+
+  it("lets the next task in once the holder is done or removed", async () => {
+    const first = inRepo({ id: "t1", branch: "agent/t1" });
+    const second = inRepo({ id: "t2" });
+    const { tasks, prepare, remove } = setup([first, second]);
+    await prepare(first);
+    await expect(prepare(second)).rejects.toThrow("in use");
+
+    tasks[0] = { ...first, status: "done", worktreePath: "/code/app" };
+    await prepare(second);
+
+    // Removed instead: the claim goes with it.
+    const third = inRepo({ id: "t3" });
+    tasks.push(third);
+    await expect(prepare(third)).rejects.toThrow("(t2)");
+    tasks.splice(1, 1);
+    await remove({ ...second, branch: "agent/t2", worktreePath: "/code/app" });
+    await prepare(third);
+  });
+
+  it("releases the claim when switching the branch fails", async () => {
+    const first = inRepo({ id: "t1" });
+    const second = inRepo({ id: "t2" });
+    const { prepare, switchBranch } = setup([first, second]);
+    switchBranch.mockRejectedValueOnce(new Error("dirty"));
+    await expect(prepare(first)).rejects.toThrow("dirty");
+    await prepare(second);
+  });
+
+  it("prepares the claim holder again on resume", async () => {
+    const { prepare, switchBranch } = setup();
+    await prepare(inRepo({}));
+    await prepare(inRepo({ branch: "agent/t1", worktreePath: "/code/app" }));
+    expect(switchBranch).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves the branch instead of removing a worktree, deleting it only when it is the task's own", async () => {
+    const { remove, leaveBranch } = setup();
+    const done = inRepo({ branch: "agent/t1", worktreePath: "/code/app" });
+    await remove(done);
+    expect(leaveBranch).toHaveBeenLastCalledWith({
+      repoPath: "/code/app",
+      branch: "agent/t1",
+      to: "main",
+      deleteBranch: "agent/t1",
+      mainBranch: "main",
+    });
+    await remove(done, { keepBranch: true });
+    expect(leaveBranch).toHaveBeenLastCalledWith({
+      repoPath: "/code/app",
+      branch: "agent/t1",
+      to: "main",
+      mainBranch: "main",
+    });
+  });
+
+  it("never removes the repo's folder", async () => {
+    const { remove, leaveBranch } = setup();
+    const removeWorktree = vi.fn<GitService["removeWorktree"]>();
+    const own = createWorkspaceRemover({
+      git: { removeWorktree, leaveBranch },
+      repos: { get: () => repo },
+      claims: createInRepoClaims(),
+    });
+    await own(inRepo({ branch: "agent/t1", worktreePath: "/code/app" }));
+    await remove(inRepo({ branch: "agent/t1", worktreePath: "/code/app" }));
+    expect(removeWorktree).not.toHaveBeenCalled();
   });
 });
 

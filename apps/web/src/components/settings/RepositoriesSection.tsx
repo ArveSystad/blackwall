@@ -550,6 +550,7 @@ export function RepoEditor({
     repo.maxBacklogTasks === null ? "" : String(repo.maxBacklogTasks),
   );
   const [watchCi, setWatchCi] = useState(repo.watchCi);
+  const [defaultInRepo, setDefaultInRepo] = useState(repo.defaultInRepo);
   const [jiraProject, setJiraProject] = useState(repo.jiraProject ?? "");
   const [referenceRepoIds, setReferenceRepoIds] = useState(repo.referenceRepoIds);
   const [agentTrust, setAgentTrust] = useState(repo.agentTrust);
@@ -584,6 +585,7 @@ export function RepoEditor({
     backlogCapInvalid ||
     backlogCapValue !== repo.maxBacklogTasks ||
     watchCi !== repo.watchCi ||
+    defaultInRepo !== repo.defaultInRepo ||
     jiraProjectValue !== repo.jiraProject ||
     !sameList([...referenceRepoIds].sort(), [...repo.referenceRepoIds].sort()) ||
     agentTrust !== repo.agentTrust ||
@@ -637,6 +639,7 @@ export function RepoEditor({
         defaultBranch: defaultBranch.trim(),
         maxBacklogTasks: backlogCapValue,
         watchCi,
+        defaultInRepo,
         jiraProject: jiraProjectValue,
         referenceRepoIds,
         agentTrust,
@@ -906,6 +909,22 @@ export function RepoEditor({
           </span>
         </label>
 
+        <label className="flex cursor-pointer items-start gap-2.5">
+          <input
+            type="checkbox"
+            className="mt-[3px]"
+            checked={defaultInRepo}
+            onChange={(event) => setDefaultInRepo(event.target.checked)}
+          />
+          <span className="flex flex-col gap-0.5">
+            <span className={fieldLabel}>Work in the repo folder by default</span>
+            <span className="text-meta text-muted-foreground">
+              New tasks start with &ldquo;Work in the repo folder&rdquo; ticked: agents work on a
+              task branch in this folder instead of a separate worktree. Not for PR tasks.
+            </span>
+          </span>
+        </label>
+
         <div className="flex flex-col gap-1.5">
           <span className="flex items-center gap-1">
             <span className={fieldLabel} id="repo-agent-trust-label">
@@ -1118,6 +1137,7 @@ export function RepoEditor({
           setDefaultBranch(repo.defaultBranch);
           setBacklogCap(repo.maxBacklogTasks === null ? "" : String(repo.maxBacklogTasks));
           setWatchCi(repo.watchCi);
+          setDefaultInRepo(repo.defaultInRepo);
           setJiraProject(repo.jiraProject ?? "");
           setReferenceRepoIds(repo.referenceRepoIds);
           setAgentTrust(repo.agentTrust);
