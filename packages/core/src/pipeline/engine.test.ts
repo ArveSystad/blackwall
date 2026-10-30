@@ -1956,6 +1956,72 @@ describe("worktree removal on archive", () => {
     expect(task(done.id)).toMatchObject({ worktreePath: dir, worktreeRemovedAt: null });
   });
 
+  it("removes the worktrees of archived tasks that still have one on startup", async () => {
+    const port = fakeArchiver();
+    const h = harness(() => ({}), { archiveWorkspace: port });
+    const archivedAt = new Date("2026-01-01");
+    const kept = delivered();
+    r.tasks.update(kept.id, { archivedAt });
+    const inRepo = delivered({ inRepo: true });
+    r.tasks.update(inRepo.id, { archivedAt });
+    const removedAt = new Date("2026-01-02");
+    const removed = delivered();
+    r.tasks.update(removed.id, { archivedAt, worktreeRemovedAt: removedAt });
+    const unarchived = delivered();
+    const before = [inRepo, removed, unarchived].map((t) => task(t.id));
+
+    h.engine.recover();
+    await settle(h.engine);
+
+    expect(port.archive).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: kept.id }));
+    expect(task(kept.id)).toMatchObject({
+      worktreePath: null,
+      worktreeRemovedAt: expect.any(Date),
+      archivedAt,
+    });
+    expect([inRepo, removed, unarchived].map((t) => task(t.id))).toEqual(before);
+  });
+
+  it("does not wait for those removals on startup", async () => {
+    const port = fakeArchiver();
+    const pending = deferred<{ sha: string } | null>();
+    port.archive.mockReturnValueOnce(pending.promise);
+    const h = harness(() => ({}), { archiveWorkspace: port });
+    const archived = delivered();
+    r.tasks.update(archived.id, { archivedAt: new Date() });
+    const running = seedTask();
+    r.tasks.update(running.id, { status: "running", stage: "inform" });
+
+    h.engine.recover();
+
+    expect(port.archive).toHaveBeenCalledOnce();
+    expect(task(archived.id)).toMatchObject({ worktreePath: dir, worktreeRemovedAt: null });
+    expect(task(running.id).status).toBe("interrupted");
+    pending.resolve({ sha: "head" });
+    await settle(h.engine);
+    expect(task(archived.id)).toMatchObject({
+      worktreePath: null,
+      worktreeRemovedAt: expect.any(Date),
+    });
+  });
+
+  it("logs a failed removal on startup and keeps the worktree", async () => {
+    const port = fakeArchiver();
+    port.archive.mockRejectedValueOnce(new WorkspaceArchiveError("file is locked", false));
+    const log = vi.fn();
+    const h = harness(() => ({}), { archiveWorkspace: port, log });
+    const archived = delivered();
+    r.tasks.update(archived.id, { archivedAt: new Date() });
+
+    expect(() => h.engine.recover()).not.toThrow();
+    await settle(h.engine);
+
+    expect(log).toHaveBeenCalledWith(
+      `Task ${archived.id}: could not remove its worktree after archiving: file is locked`,
+    );
+    expect(task(archived.id)).toMatchObject({ worktreePath: dir, worktreeRemovedAt: null });
+  });
+
   it("records a partial removal with its leftover path, and rebuilds it on resume", async () => {
     const port = fakeArchiver();
     port.archive.mockRejectedValueOnce(new WorkspaceArchiveError("file is locked", true));

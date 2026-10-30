@@ -1366,6 +1366,16 @@ export function createPipelineEngine({
   }
 
   /**
+   * Starts {@link cleanupArchived} in the background unless one already runs
+   * for the task (say, unarchived and archived again meanwhile).
+   */
+  function startCleanup(taskId: string): void {
+    if (cleanups.has(taskId)) return;
+    const cleanup = cleanupArchived(taskId).finally(() => cleanups.delete(taskId));
+    cleanups.set(taskId, cleanup);
+  }
+
+  /**
    * Rebuilds a task's worktree that archiving removed, after waiting for a
    * removal still in flight. Returns the fresh task; a failed rebuild throws,
    * so nothing runs without its worktree.
@@ -1926,11 +1936,7 @@ export function createPipelineEngine({
       }
       if (task.archivedAt) return task;
       const archived = saveTask(taskId, { archivedAt: new Date() });
-      // Unarchived and archived again while the first removal still runs.
-      if (!cleanups.has(taskId)) {
-        const cleanup = cleanupArchived(taskId).finally(() => cleanups.delete(taskId));
-        cleanups.set(taskId, cleanup);
-      }
+      startCleanup(taskId);
       return archived;
     },
 
@@ -1996,7 +2002,10 @@ export function createPipelineEngine({
     /**
      * Startup recovery: steps and tasks a previous process left running become
      * `interrupted` (the user resumes them), queued tasks are scheduled, and a
-     * `delivering` flag left by a delivery cut short is cleared.
+     * `delivering` flag left by a delivery cut short is cleared. Archived
+     * tasks that still have a worktree (archived before removal existed, or
+     * whose removal a restart cut short) have it removed in the background;
+     * startup never waits for it, and a failure is retried on the next start.
      */
     recover(): void {
       for (const step of r.steps.interruptRunning()) {
@@ -2010,6 +2019,14 @@ export function createPipelineEngine({
           if (run && run.finishedAt === null) saveRun(run.id, "interrupted");
         } else if (task.status === "queued") {
           scheduler.enqueue({ id: task.id, repoId: task.repoId, branch: task.branch });
+        }
+        if (
+          task.archivedAt !== null &&
+          !task.inRepo &&
+          task.worktreePath &&
+          task.worktreeRemovedAt === null
+        ) {
+          startCleanup(task.id);
         }
       }
       pump();
