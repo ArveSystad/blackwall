@@ -220,6 +220,9 @@ describe("repo service", () => {
     expect(service.update(repo.id, { setupCommands: ["npm ci"] }).setupCommands).toEqual([
       "npm ci",
     ]);
+    expect(service.update(repo.id, { runCommands: ["pnpm dev"] }).runCommands).toEqual([
+      "pnpm dev",
+    ]);
     expect(() => service.update(repo.id, { name: " " })).toThrow(InvalidRepoError);
     expect(service.update(repo.id, { defaultCli: "copilot" })).toMatchObject({
       name: "App",

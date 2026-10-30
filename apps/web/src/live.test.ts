@@ -469,6 +469,58 @@ describe("applyServerEvent", () => {
     expect(client.getQueryState(queryKeys.voice)?.isInvalidated).toBe(false);
   });
 
+  it("writes a project run in place and refetches output from an earlier run", () => {
+    const run = {
+      repoId: "r1",
+      runId: "run2",
+      status: "starting" as const,
+      commands: ["pnpm dev"],
+      startedAt: new Date(0),
+      endedAt: null,
+      error: null,
+    };
+    const other = { ...run, repoId: "r2" };
+    client.setQueryData(queryKeys.projectRuns, [{ ...run, runId: "run1" }, other]);
+    client.setQueryData(queryKeys.projectRunOutput("r1"), { runId: "run1", end: 3, text: "abc" });
+    applyServerEvent(client, { type: "projectRun.upserted", payload: { run } });
+    expect(client.getQueryData(queryKeys.projectRuns)).toEqual([other, run]);
+    expect(client.getQueryState(queryKeys.projectRunOutput("r1"))?.isInvalidated).toBe(true);
+  });
+
+  it("appends contiguous project output and refetches after a gap", () => {
+    const key = queryKeys.projectRunOutput("r1");
+    client.setQueryData(key, { runId: "run1", end: 3, text: "abc" });
+    const output = (end: number, text: string, runId = "run1"): ServerEvent => ({
+      type: "projectRun.output",
+      payload: { repoId: "r1", runId, end, text },
+    });
+    applyServerEvent(client, output(5, "de"));
+    expect(client.getQueryData(key)).toEqual({ runId: "run1", end: 5, text: "abcde" });
+    expect(client.getQueryState(key)?.isInvalidated).toBe(false);
+
+    applyServerEvent(client, output(9, "gh"));
+    expect(client.getQueryData(key)).toEqual({ runId: "run1", end: 5, text: "abcde" });
+    expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+  });
+
+  it("refetches project output from another run", () => {
+    const key = queryKeys.projectRunOutput("r1");
+    client.setQueryData(key, { runId: "run1", end: 3, text: "abc" });
+    applyServerEvent(client, {
+      type: "projectRun.output",
+      payload: { repoId: "r1", runId: "run2", end: 2, text: "hi" },
+    });
+    expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+  });
+
+  it("ignores project output while none is cached", () => {
+    applyServerEvent(client, {
+      type: "projectRun.output",
+      payload: { repoId: "r1", runId: "run1", end: 2, text: "hi" },
+    });
+    expect(client.getQueryData(queryKeys.projectRunOutput("r1"))).toBeUndefined();
+  });
+
   it("drops every cached query after a data import", () => {
     client.setQueryData(queryKeys.tasks, [makeTask({ id: "t1" })]);
     client.setQueryData(queryKeys.backlog("r1"), []);

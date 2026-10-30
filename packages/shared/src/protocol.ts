@@ -3,6 +3,7 @@ import {
   chatStateSchema,
   connectionKindSchema,
   findingSchema,
+  projectRunSchema,
   grillQuestionSchema,
   quotaStateSchema,
   runSchema,
@@ -99,6 +100,21 @@ export const serverEventSchema = z.discriminatedUnion("type", [
   envelope("voice.upserted", z.object({ voice: voiceStateSchema })),
   /** The speech model download moved on: its phase, or (throttled) the bytes received. */
   envelope("voice.download", z.object({ download: voiceDownloadSchema })),
+  /** A repo's Run project run started or changed status. */
+  envelope("projectRun.upserted", z.object({ run: projectRunSchema })),
+  /**
+   * Run project output arrived (batched): `text` ends at character `end` of
+   * the run's output, so a client can tell whether it follows what it has.
+   */
+  envelope(
+    "projectRun.output",
+    z.object({
+      repoId: z.string().min(1),
+      runId: z.string().min(1),
+      end: z.int().min(0),
+      text: z.string(),
+    }),
+  ),
   /** A data import merged an export; clients refetch everything. */
   envelope("data.imported", z.object({})),
 ]);

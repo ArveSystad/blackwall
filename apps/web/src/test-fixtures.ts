@@ -85,6 +85,7 @@ export function makeRepo(overrides: Partial<RepoView> = {}): RepoView {
     connectionId: "c1",
     checkCommands: [],
     setupCommands: [],
+    runCommands: [],
     defaultCli: "claude",
     defaultOrigin: "free-text",
     maxBacklogTasks: null,

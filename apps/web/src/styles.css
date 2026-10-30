@@ -71,7 +71,8 @@
   --glow-primary-btn: 0 0 0 1px rgba(167, 123, 255, 0.5), 0 0 18px rgba(167, 123, 255, 0.35);
   --glow-text-magenta: 0 0 8px rgba(255, 61, 207, 0.55);
   --glow-text-cyan: 0 0 10px rgba(46, 230, 255, 0.6);
-  /* Stats screen only: resolved counts and chart bars, in --st-done. */
+  /* Stats screen and the running Run project button only: resolved counts, chart bars and
+   * the up project, in --st-done. */
   --glow-done: 0 0 0 1px rgba(92, 214, 154, 0.55), 0 0 14px rgba(92, 214, 154, 0.28);
   --glow-text-done: 0 0 10px rgba(92, 214, 154, 0.55);
   /* Backlog "Pushed to main" note; animated once by --animate-pushed-glow. */
@@ -82,6 +83,7 @@
   /* drop-shadow() arguments for chamfered (clipped) surfaces: clip-path drops box-shadow.
    * The chamfer frame line stands in for the 1px ring part of the --glow-* tokens. */
   --drop-glow-primary-btn: 0 0 9px rgba(167, 123, 255, 0.35);
+  --drop-glow-done: 0 0 9px rgba(92, 214, 154, 0.32);
   --drop-glow-needs: 0 0 9px rgba(255, 61, 207, 0.3);
   --drop-glow-status-needs: 0 0 5px rgba(255, 61, 207, 0.3);
   --drop-glow-cyan: 0 0 9px rgba(46, 230, 255, 0.28);
@@ -168,6 +170,7 @@
   --glow-tab: none;
   /* `none` is not a valid drop-shadow() argument and would void the whole filter. */
   --drop-glow-primary-btn: 0 0 0 transparent;
+  --drop-glow-done: 0 0 0 transparent;
   --drop-glow-needs: 0 0 2px rgba(196, 22, 124, 0.35);
   --drop-glow-status-needs: 0 0 0 transparent;
   --drop-glow-cyan: 0 0 2px rgba(29, 111, 224, 0.35);
@@ -259,6 +262,7 @@
   --text-shadow-glow-cyan: var(--glow-text-cyan);
   --text-shadow-glow-done: var(--glow-text-done);
   --drop-shadow-glow-primary-btn: var(--drop-glow-primary-btn);
+  --drop-shadow-glow-done: var(--drop-glow-done);
   --drop-shadow-glow-needs: var(--drop-glow-needs);
   --drop-shadow-glow-cyan: var(--drop-glow-cyan);
   --drop-shadow-glow-primary: var(--drop-glow-primary);

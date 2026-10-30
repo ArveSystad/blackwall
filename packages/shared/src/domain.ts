@@ -539,6 +539,8 @@ export const repoSchema = z.object({
   checkCommands: z.array(z.string().trim().min(1)),
   /** Commands run in each task worktree before agents work (dependency install); empty = no setup. */
   setupCommands: z.array(z.string().trim().min(1)),
+  /** Commands Run project starts side by side in the repo's folder; empty = disabled. */
+  runCommands: z.array(z.string().trim().min(1)),
   /** CLI new tasks in this repo run their agents on. */
   defaultCli: agentCliSchema,
   /** Origin the new-task and backlog forms open on for this repo. */
@@ -616,6 +618,7 @@ export const repoUpdateSchema = z.object({
   name: name.optional(),
   checkCommands: repoSchema.shape.checkCommands.optional(),
   setupCommands: repoSchema.shape.setupCommands.optional(),
+  runCommands: repoSchema.shape.runCommands.optional(),
   defaultCli: agentCliSchema.optional(),
   defaultOrigin: originKindSchema.optional(),
   maxBacklogTasks: backlogCapSchema.nullable().optional(),
@@ -634,6 +637,50 @@ export const repoUpdateSchema = z.object({
   trustProjectHooks: z.boolean().optional(),
 });
 export type RepoUpdate = z.infer<typeof repoUpdateSchema>;
+
+/** Run project output kept per repo: the tail, like a terminal's scrollback. */
+export const MAX_PROJECT_OUTPUT_CHARS = 200_000;
+
+/**
+ * Where a repo's Run project run is: `starting` until its commands have stayed
+ * up for the grace period, then `running`; `stopping` while the user's stop
+ * kills them; `stopped` after that, `exited` when every command exited 0 and
+ * `failed` when one could not start or exited non-zero.
+ */
+export const PROJECT_RUN_STATUSES = [
+  "starting",
+  "running",
+  "stopping",
+  "stopped",
+  "exited",
+  "failed",
+] as const;
+export const projectRunStatusSchema = z.enum(PROJECT_RUN_STATUSES);
+export type ProjectRunStatus = z.infer<typeof projectRunStatusSchema>;
+
+/** A repo's latest Run project run; one per repo, kept in the server's memory. */
+export const projectRunSchema = z.object({
+  repoId: id,
+  /** Tells a new run from the previous one of the same repo. */
+  runId: z.string().min(1),
+  status: projectRunStatusSchema,
+  /** The repo's run commands as they were when the run started. */
+  commands: z.array(z.string()),
+  startedAt: timestamp,
+  endedAt: timestamp.nullable(),
+  /** Why the run failed, in status `failed`. */
+  error: z.string().nullable(),
+});
+export type ProjectRun = z.infer<typeof projectRunSchema>;
+
+/** `GET /api/repos/:id/run/output`: the tail of a run's output. */
+export const projectRunOutputSchema = z.object({
+  runId: z.string().min(1),
+  /** Characters written since the run started; `text` is the last of them. */
+  end: z.int().min(0),
+  text: z.string(),
+});
+export type ProjectRunOutput = z.infer<typeof projectRunOutputSchema>;
 
 /** The steps of a repo rename, in the order they run. */
 export const REPO_RENAME_STEPS = ["github", "origin", "folder", "records"] as const;

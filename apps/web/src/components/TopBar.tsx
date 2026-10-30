@@ -16,6 +16,7 @@ import { BacklogIcon, GearIcon, SearchIcon, StatsIcon } from "./icons";
 import { PushToTalk } from "./PushToTalk";
 import { QuotaChip } from "./QuotaChip";
 import { RepoMenuItems } from "./RepoMenuItems";
+import { RunProjectButton } from "./RunProjectButton";
 import { ThemeToggle } from "./ThemeToggle";
 import { Button } from "./ui/button";
 import {
@@ -105,6 +106,7 @@ export function TopBar() {
                 View backlog
               </Link>
             </Button>
+            <RunProjectButton repo={repo} className="shrink-0" />
             {/* The path's zero basis makes it collapse before the status line starts to truncate. */}
             {status && (
               <span className="min-w-0 truncate whitespace-nowrap text-foreground" title={status}>

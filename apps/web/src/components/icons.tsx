@@ -200,6 +200,9 @@ export const ArchiveIcon = icon(<path d="M2.5 3.5h11v3h-11zM3.5 6.5V13h9V6.5M6.5
 
 export const PlayIcon = icon(<path d="M5 3.5v9l7-4.5-7-4.5Z" />);
 
+/** A run's terminal output. */
+export const TerminalIcon = icon(<path d="M3 4.5 6.5 8 3 11.5M8 12h5" />);
+
 /** Drag handle for reorderable rows. */
 export const GripIcon = icon(
   <>

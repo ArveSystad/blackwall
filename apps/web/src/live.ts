@@ -1,6 +1,8 @@
 import {
   parseServerEvent,
   type ChatState,
+  type ProjectRun,
+  type ProjectRunOutput,
   type ClientEvent,
   type Finding,
   type QuotaState,
@@ -13,6 +15,7 @@ import {
   type VoiceState,
 } from "@blackwall/shared";
 import type { QueryClient } from "@tanstack/react-query";
+import { appendProjectOutput } from "./project-run";
 import { queryKeys } from "./query";
 
 /** `connecting` before the first open; `reconnecting` after a drop until the next open. */
@@ -311,6 +314,30 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       if (download.phase === "done") {
         void client.invalidateQueries({ queryKey: queryKeys.voiceStatus });
       }
+      break;
+    }
+    case "projectRun.upserted": {
+      const { run } = event.payload;
+      client.setQueryData<ProjectRun[]>(queryKeys.projectRuns, (runs) =>
+        runs ? [...runs.filter((r) => r.repoId !== run.repoId), run] : runs,
+      );
+      const key = queryKeys.projectRunOutput(run.repoId);
+      const output = client.getQueryData<ProjectRunOutput | null>(key);
+      // A new run: the cached output belongs to the previous one.
+      if (output !== undefined && output?.runId !== run.runId) {
+        void client.invalidateQueries({ queryKey: key });
+      }
+      break;
+    }
+    case "projectRun.output": {
+      const { repoId } = event.payload;
+      const key = queryKeys.projectRunOutput(repoId);
+      const cached = client.getQueryData<ProjectRunOutput | null>(key);
+      // Nothing cached: the output window is closed and fetches it when opened.
+      if (cached === undefined) break;
+      const next = appendProjectOutput(cached, event.payload);
+      if (next) client.setQueryData(key, next);
+      else void client.invalidateQueries({ queryKey: key });
       break;
     }
     case "data.imported":

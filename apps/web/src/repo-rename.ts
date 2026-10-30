@@ -25,6 +25,8 @@ export function renameDisabledReason(
   connection: ConnectionView | undefined,
   tasks: readonly Task[],
   dirty: boolean,
+  /** Its Run project run is active; Windows can't move a folder a process runs in. */
+  projectRunning = false,
 ): string | null {
   if (!repo.exists && repo.renamePending === null) return "Folder is missing";
   const busy = tasks.some(
@@ -33,6 +35,7 @@ export function renameDisabledReason(
       (task.status === "queued" || task.status === "running" || task.delivering),
   );
   if (busy) return "A task in this repo is queued, running or delivering";
+  if (projectRunning) return "Stop the running project first";
   const slug = remoteRepoSlug(repo.remoteUrl);
   if (!slug) return "Origin is not a GitHub repo";
   if (!connection) return `No GitHub connection for ${slug.host}`;

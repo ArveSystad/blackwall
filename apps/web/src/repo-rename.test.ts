@@ -34,6 +34,9 @@ describe("renameDisabledReason", () => {
     expect(
       renameDisabledReason(makeRepo({ remoteUrl: "C:\\bare\\app" }), connection, [], false),
     ).toBe("Origin is not a GitHub repo");
+    expect(renameDisabledReason(repo, connection, [], false, true)).toBe(
+      "Stop the running project first",
+    );
     expect(renameDisabledReason(repo, undefined, [], false)).toBe(
       "No GitHub connection for github.com",
     );

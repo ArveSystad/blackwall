@@ -38,6 +38,38 @@ describe("protocol", () => {
     expect(parseServerEvent('{"type":"memories.changed","payload":{}}')).toBeNull();
   });
 
+  it("parses a project run and revives its timestamps", () => {
+    const run = {
+      repoId: "r1",
+      runId: "run1",
+      status: "failed",
+      commands: ["pnpm dev"],
+      startedAt: "2026-01-01T00:00:00.000Z",
+      endedAt: "2026-01-01T00:00:05.000Z",
+      error: "`pnpm dev` exited with code 1",
+    };
+    const event = parseServerEvent(
+      JSON.stringify({ type: "projectRun.upserted", payload: { run } }),
+    );
+    expect(event?.type).toBe("projectRun.upserted");
+    if (event?.type !== "projectRun.upserted") return;
+    expect(event.payload.run.startedAt).toEqual(new Date("2026-01-01T00:00:00.000Z"));
+    expect(event.payload.run.endedAt).toEqual(new Date("2026-01-01T00:00:05.000Z"));
+  });
+
+  it("parses project run output", () => {
+    const payload = { repoId: "r1", runId: "run1", end: 6, text: "ready\n" };
+    expect(parseServerEvent(JSON.stringify({ type: "projectRun.output", payload }))).toEqual({
+      type: "projectRun.output",
+      payload,
+    });
+    expect(
+      parseServerEvent(
+        JSON.stringify({ type: "projectRun.output", payload: { ...payload, end: -1 } }),
+      ),
+    ).toBeNull();
+  });
+
   it("parses a data import", () => {
     expect(parseServerEvent('{"type":"data.imported","payload":{}}')).toEqual({
       type: "data.imported",

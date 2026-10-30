@@ -73,6 +73,10 @@ describe("connections and repos", () => {
     expect(r.repos.update(repo.id, { setupCommands: ["pnpm i"] }).setupCommands).toEqual([
       "pnpm i",
     ]);
+    expect(repo.runCommands).toEqual([]);
+    expect(r.repos.update(repo.id, { runCommands: ["pnpm dev"] }).runCommands).toEqual([
+      "pnpm dev",
+    ]);
     expect(repo.defaultCli).toBe("claude");
     expect(r.repos.update(repo.id, { defaultCli: "copilot" }).defaultCli).toBe("copilot");
     expect(repo.defaultOrigin).toBe("jira-issue");

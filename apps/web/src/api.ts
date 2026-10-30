@@ -57,6 +57,8 @@ import {
   stepUsageSchema,
   taskSchema,
   voiceDownloadSchema,
+  projectRunOutputSchema,
+  projectRunSchema,
   voiceStateSchema,
   voiceStatusSchema,
   voiceTranscriptSchema,
@@ -133,6 +135,8 @@ import {
   type TaskWorktree,
   type UpdateBacklogItemInput,
   type VoiceDownload,
+  type ProjectRun,
+  type ProjectRunOutput,
   type VoiceModelId,
   type VoiceState,
   type VoiceStatus,
@@ -554,6 +558,28 @@ export function reorderRepos(ids: string[]): Promise<RepoView[]> {
 
 export function deleteRepo(id: string): Promise<void> {
   return requestEmpty(at("/api/repos", id), { method: "DELETE" });
+}
+
+/** Every repo's latest Run project run. */
+export function listProjectRuns(): Promise<ProjectRun[]> {
+  return request("/api/project-runs", projectRunSchema.array());
+}
+
+const runPath = (repoId: string) => `${at("/api/repos", repoId)}/run`;
+
+/** Starts the repo's run commands; answers 409 while a run is active. */
+export function startProjectRun(repoId: string): Promise<ProjectRun> {
+  return request(runPath(repoId), projectRunSchema, { method: "POST" });
+}
+
+/** Stops the repo's run; resolves once its processes are gone. */
+export function stopProjectRun(repoId: string): Promise<void> {
+  return requestEmpty(runPath(repoId), { method: "DELETE" });
+}
+
+/** The tail of the repo's latest run's output; null before its first run. */
+export function getProjectRunOutput(repoId: string): Promise<ProjectRunOutput | null> {
+  return request(`${runPath(repoId)}/output`, projectRunOutputSchema.nullable());
 }
 
 /**

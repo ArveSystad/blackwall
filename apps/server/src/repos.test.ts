@@ -37,6 +37,8 @@ const cookie = `${tokenCookieName(port)}=${launchToken}`;
 let opened: OpenedDatabase;
 let root: string;
 let app: ReturnType<typeof createApp>["app"];
+/** Repos whose Run project run the routes stopped. */
+let stopped: string[];
 
 beforeEach(() => {
   opened = openDatabase(":memory:");
@@ -48,7 +50,20 @@ beforeEach(() => {
   });
   const connections = createConnectionService({ connections: repositories.connections, tokens });
   const repos = createRepoService({ repos: repositories.repos, connections });
-  app = createApp({ token: launchToken, getPort: () => port, repos }).app;
+  stopped = [];
+  app = createApp({
+    token: launchToken,
+    getPort: () => port,
+    repos,
+    projectRuns: {
+      list: () => [],
+      start: () => {
+        throw new Error("not used");
+      },
+      stop: async (id) => void stopped.push(id),
+      output: () => null,
+    },
+  }).app;
   root = realpathSync(mkdtempSync(join(tmpdir(), "blackwall-repo-routes-")));
 });
 
@@ -132,6 +147,7 @@ describe("repo routes", () => {
       body: {
         checkCommands: [],
         setupCommands: ["pnpm install --frozen-lockfile"],
+        runCommands: ["pnpm dev"],
         defaultCli: "copilot",
         defaultOrigin: "free-text",
         maxBacklogTasks: 2,
@@ -140,6 +156,7 @@ describe("repo routes", () => {
     expect(repoSchema.parse(await patch.json())).toMatchObject({
       checkCommands: [],
       setupCommands: ["pnpm install --frozen-lockfile"],
+      runCommands: ["pnpm dev"],
       defaultCli: "copilot",
       defaultOrigin: "free-text",
       maxBacklogTasks: 2,
@@ -162,7 +179,9 @@ describe("repo routes", () => {
     });
     expect(badBranch.status).toBe(400);
 
+    expect(stopped).toEqual([]);
     expect((await request(`/api/repos/${repo.id}`, { method: "DELETE" })).status).toBe(204);
+    expect(stopped).toEqual([repo.id]);
     expect((await request(`/api/repos/${repo.id}`)).status).toBe(404);
   });
 

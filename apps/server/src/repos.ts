@@ -22,7 +22,14 @@ import { badRequest, readJson } from "./validation.js";
  */
 export function repoRoutes(
   repos: RepoService,
-  { broadcast = () => undefined }: { broadcast?: (event: ServerEvent) => void } = {},
+  {
+    broadcast = () => undefined,
+    onDeleted = () => undefined,
+  }: {
+    broadcast?: (event: ServerEvent) => void;
+    /** Called after a repo is removed from the registry, e.g. to stop its Run project run. */
+    onDeleted?: (id: string) => void;
+  } = {},
 ): Hono {
   const routes = new Hono();
 
@@ -57,7 +64,9 @@ export function repoRoutes(
   });
 
   routes.delete("/:id", (c) => {
-    repos.delete(c.req.param("id"));
+    const id = c.req.param("id");
+    repos.delete(id);
+    onDeleted(id);
     return c.body(null, 204);
   });
 

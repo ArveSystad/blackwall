@@ -1,0 +1,1 @@
+ALTER TABLE `repos` ADD `run_commands` text DEFAULT '[]' NOT NULL;

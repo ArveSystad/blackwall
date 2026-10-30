@@ -29,6 +29,7 @@ import {
   createSystemService,
   createTaskArtifacts,
   createVoiceCommandService,
+  createProjectRuns,
   createVoiceModelDownloads,
   createVoiceService,
   createTaskDiffs,
@@ -340,6 +341,8 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
     });
     const voiceDownloads = createVoiceModelDownloads({ modelsDir, publish });
     shutdown.onShutdown(() => voiceDownloads.shutdown());
+    const projectRuns = createProjectRuns({ repos: repositories.repos, publish });
+    shutdown.onShutdown(() => projectRuns.shutdown());
     const voiceCommands = createVoiceCommandService({
       adapters,
       repos: repositories.repos,
@@ -452,6 +455,7 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       voice,
       voiceCommands,
       voiceDownloads,
+      projectRuns,
       shutdown,
     });
     broadcast = send;

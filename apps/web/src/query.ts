@@ -21,8 +21,10 @@ import {
   getTask,
   listActiveAgents,
   listClis,
+  listProjectRuns,
   listArtifacts,
   getTaskWorktree,
+  getProjectRunOutput,
   getVoiceDownload,
   getVoiceState,
   getVoiceStatus,
@@ -108,6 +110,10 @@ export const queryKeys = {
   voiceDownload: ["voice", "download"] as const,
   /** Voice control's last command and draft; written in place by `voice.upserted`. */
   voice: ["voice", "state"] as const,
+  /** Every repo's latest Run project run; written in place by `projectRun.upserted`. */
+  projectRuns: ["project-runs"] as const,
+  /** A repo's run output; appended to by `projectRun.output`. */
+  projectRunOutput: (repoId: string) => ["project-runs", repoId, "output"] as const,
   reviewRequests: ["review-requests"] as const,
   assignedIssues: ["assigned-issues"] as const,
   repoIssues: (repoId: string) => ["repo-issues", repoId] as const,
@@ -281,6 +287,21 @@ export const voiceDownloadQuery = queryOptions({
   queryFn: getVoiceDownload,
   staleTime: Infinity,
 });
+
+/** Written in place by `projectRun.upserted`, so it never goes stale once loaded. */
+export const projectRunsQuery = queryOptions({
+  queryKey: queryKeys.projectRuns,
+  queryFn: listProjectRuns,
+  staleTime: Infinity,
+});
+
+/** Appended to by `projectRun.output`, and refetched when a chunk doesn't follow on. */
+export const projectRunOutputQuery = (repoId: string) =>
+  queryOptions({
+    queryKey: queryKeys.projectRunOutput(repoId),
+    queryFn: () => getProjectRunOutput(repoId),
+    staleTime: Infinity,
+  });
 
 /** Written in place by `voice.upserted`, so it never goes stale once loaded. */
 export const voiceQuery = queryOptions({

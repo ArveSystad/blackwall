@@ -19,6 +19,7 @@ import type {
   Search,
   SettingsService,
   SystemService,
+  ProjectRuns,
   VoiceModelDownloads,
   VoiceService,
 } from "@blackwall/core";
@@ -35,6 +36,7 @@ import { issueRoutes, pullRequestRoutes } from "./github.js";
 import { jiraIssueRoutes } from "./jira.js";
 import { mcpRoutes, type McpCommandService } from "./mcp.js";
 import { memoryRoutes, type MemoryRouteStores } from "./memories.js";
+import { projectRunListRoutes, projectRunRoutes } from "./project-runs.js";
 import { quotaRoutes } from "./quota.js";
 import { repoRoutes } from "./repos.js";
 import { searchRoutes } from "./search.js";
@@ -90,6 +92,8 @@ export interface AppOptions {
   voiceCommands?: VoiceCommandRouteService & McpCommandService;
   /** Speech model downloads from Settings → Voice; omit to leave them out (e.g. in tests). */
   voiceDownloads?: Pick<VoiceModelDownloads, "state" | "start">;
+  /** Run project's processes; omit to leave the run routes out (e.g. in tests). */
+  projectRuns?: Pick<ProjectRuns, "list" | "start" | "stop" | "output">;
 }
 
 function send(ws: { send(data: string): void }, event: ServerEvent): void {
@@ -126,6 +130,7 @@ export function createApp({
   voice,
   voiceCommands,
   voiceDownloads,
+  projectRuns,
 }: AppOptions): CreatedApp {
   const app = new Hono();
   const { upgradeWebSocket, injectWebSocket, wss } = createNodeWebSocket({ app });
@@ -163,7 +168,19 @@ export function createApp({
     app.route("/api/repos/:repoId/chat", chatRoutes(chat));
     app.route("/api/repos/:repoId/tasks/:taskId/chat", chatRoutes(chat));
   }
-  if (repos) app.route("/api/repos", repoRoutes(repos, { broadcast }));
+  if (projectRuns) {
+    app.route("/api/repos/:repoId/run", projectRunRoutes(projectRuns));
+    app.route("/api/project-runs", projectRunListRoutes(projectRuns));
+  }
+  if (repos) {
+    app.route(
+      "/api/repos",
+      repoRoutes(repos, {
+        broadcast,
+        ...(projectRuns ? { onDeleted: (id: string) => void projectRuns.stop(id) } : {}),
+      }),
+    );
+  }
   if (repos && connections) {
     app.route(
       "/api/pull-requests",

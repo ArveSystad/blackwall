@@ -776,6 +776,14 @@ describe("settings and inputs", () => {
     );
   });
 
+  it("trims repo run commands and rejects blank ones", () => {
+    expect(repoUpdateSchema.parse({ runCommands: [" pnpm dev "] })).toEqual({
+      runCommands: ["pnpm dev"],
+    });
+    expect(repoUpdateSchema.parse({ runCommands: [] })).toEqual({ runCommands: [] });
+    expect(repoUpdateSchema.safeParse({ runCommands: ["  "] }).success).toBe(false);
+  });
+
   it("accepts a repo's default CLI and rejects unknown ones", () => {
     expect(repoUpdateSchema.parse({ defaultCli: "copilot" })).toEqual({ defaultCli: "copilot" });
     expect(repoUpdateSchema.safeParse({ defaultCli: "codex" }).success).toBe(false);

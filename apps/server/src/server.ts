@@ -10,6 +10,7 @@ import type {
   Search,
   SettingsService,
   SystemService,
+  ProjectRuns,
   VoiceModelDownloads,
   VoiceService,
 } from "@blackwall/core";
@@ -53,6 +54,7 @@ export interface StartOptions {
   voice?: Pick<VoiceService, "status" | "transcribe">;
   voiceCommands?: VoiceCommandRouteService & McpCommandService;
   voiceDownloads?: Pick<VoiceModelDownloads, "state" | "start">;
+  projectRuns?: Pick<ProjectRuns, "list" | "start" | "stop" | "output">;
   shutdown: Shutdown;
 }
 
@@ -89,6 +91,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     ...(options.voice ? { voice: options.voice } : {}),
     ...(options.voiceCommands ? { voiceCommands: options.voiceCommands } : {}),
     ...(options.voiceDownloads ? { voiceDownloads: options.voiceDownloads } : {}),
+    ...(options.projectRuns ? { projectRuns: options.projectRuns } : {}),
     ...(options.dev ? {} : { webDist: WEB_DIST }),
   });
 

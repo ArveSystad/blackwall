@@ -40,11 +40,13 @@ import {
   connectionsQuery,
   memoriesQuery,
   memoryBackfillQuery,
+  projectRunsQuery,
   queryKeys,
   reposQuery,
   settingsQuery,
   tasksQuery,
 } from "../../query";
+import { isRunActive } from "../../project-run";
 import { moveRepo, reorderRepoIds } from "../../repo-order";
 import { renameDisabledReason } from "../../repo-rename";
 import { CLI_NAMES, errorMessage, parseCap, parseLines, sameList } from "../../settings-forms";
@@ -535,9 +537,11 @@ export function RepoEditor({
   const settings = useQuery(settingsQuery);
   const repos = useQuery(reposQuery);
   const tasks = useQuery(tasksQuery);
+  const projectRuns = useQuery(projectRunsQuery);
   const [name, setName] = useState(repo.name);
   const [setup, setSetup] = useState(repo.setupCommands.join("\n"));
   const [checks, setChecks] = useState(repo.checkCommands.join("\n"));
+  const [run, setRun] = useState(repo.runCommands.join("\n"));
   const [defaultCli, setDefaultCli] = useState(repo.defaultCli);
   const [defaultOrigin, setDefaultOrigin] = useState(repo.defaultOrigin);
   const [defaultBranch, setDefaultBranch] = useState(repo.defaultBranch);
@@ -570,6 +574,7 @@ export function RepoEditor({
     name.trim() !== repo.name ||
     !sameList(parseLines(setup), repo.setupCommands) ||
     !sameList(parseLines(checks), repo.checkCommands) ||
+    !sameList(parseLines(run), repo.runCommands) ||
     defaultCli !== repo.defaultCli ||
     defaultOrigin !== repo.defaultOrigin ||
     defaultBranch.trim() !== repo.defaultBranch ||
@@ -584,7 +589,13 @@ export function RepoEditor({
   const otherRepos = repos.data?.filter((other) => other.id !== repo.id) ?? [];
   const connection = connections.data?.find((c) => c.id === repo.connectionId);
   const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeys.repos });
-  const renameBlocked = renameDisabledReason(repo, connection, tasks.data ?? [], dirty);
+  const renameBlocked = renameDisabledReason(
+    repo,
+    connection,
+    tasks.data ?? [],
+    dirty,
+    isRunActive(projectRuns.data?.find((r) => r.repoId === repo.id)),
+  );
 
   /** A stale repo was removed (or flagged) by the server; refresh the list either way. */
   async function failed(cause: unknown) {
@@ -617,6 +628,7 @@ export function RepoEditor({
         name: name.trim(),
         setupCommands: parseLines(setup),
         checkCommands: parseLines(checks),
+        runCommands: parseLines(run),
         defaultCli,
         defaultOrigin,
         defaultBranch: defaultBranch.trim(),
@@ -1040,6 +1052,23 @@ export function RepoEditor({
             onChange={(event) => setChecks(event.target.value)}
           />
         </label>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="flex items-center gap-2">
+            <span className={fieldLabel}>Run commands</span>
+            <span className="text-meta text-faint">
+              One per line, run side by side in the repo folder by Run project. Chain steps with
+              &amp;&amp;. Empty disables it.
+            </span>
+          </span>
+          <Textarea
+            className="mono min-h-20 bg-code text-code"
+            spellCheck={false}
+            value={run}
+            placeholder="pnpm dev"
+            onChange={(event) => setRun(event.target.value)}
+          />
+        </label>
         <MemoryVault repo={repo} />
         {notice && <p className="m-0 text-meta text-muted-foreground">{notice}</p>}
       </div>
@@ -1052,6 +1081,7 @@ export function RepoEditor({
           setName(repo.name);
           setSetup(repo.setupCommands.join("\n"));
           setChecks(repo.checkCommands.join("\n"));
+          setRun(repo.runCommands.join("\n"));
           setDefaultCli(repo.defaultCli);
           setDefaultOrigin(repo.defaultOrigin);
           setDefaultBranch(repo.defaultBranch);

@@ -99,6 +99,11 @@ export const repos = sqliteTable(
       .$type<string[]>()
       .notNull()
       .default(sql`'[]'`),
+    /** Commands Run project starts side by side in the repo's folder; empty = disabled. */
+    runCommands: text("run_commands", { mode: "json" })
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'`),
     defaultCli: text("default_cli", { enum: AGENT_CLIS }).notNull().default("claude"),
     defaultOrigin: text("default_origin", { enum: ORIGIN_KINDS }).notNull().default("jira-issue"),
     maxBacklogTasks: integer("max_backlog_tasks"),
