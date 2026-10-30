@@ -106,7 +106,7 @@ export function TopBar() {
                 View backlog
               </Link>
             </Button>
-            <RunProjectButton repo={repo} className="shrink-0" />
+            <RunProjectButton key={repo.id} repo={repo} className="shrink-0" />
             {/* The path's zero basis makes it collapse before the status line starts to truncate. */}
             {status && (
               <span className="min-w-0 truncate whitespace-nowrap text-foreground" title={status}>

@@ -40,5 +40,5 @@ export function useProjectRun(repo: RepoView) {
     }
   }
 
-  return { run, state, pending, error, act };
+  return { run, state, loaded: runs.isSuccess, pending, error, act };
 }

@@ -315,6 +315,9 @@
   --animate-scan-hold: bw-scan-hold 120ms linear forwards;
   /* Inbox rows slide in once when their task first appears; dropped on animationend, no JS mirror. */
   --animate-arrive: bw-arrive 180ms ease-out both;
+  /* The Run project output button slides out from behind Run/Stop once, when a run first appears;
+     no JS mirror. */
+  --animate-slide-out: bw-slide-out 180ms ease-out both;
 }
 
 @keyframes bw-fade-in {
@@ -337,6 +340,13 @@
   from {
     opacity: 0;
     transform: translateX(-12px);
+  }
+}
+
+@keyframes bw-slide-out {
+  from {
+    opacity: 0;
+    transform: translateX(-100%);
   }
 }
 
