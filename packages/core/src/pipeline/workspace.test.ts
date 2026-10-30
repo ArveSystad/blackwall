@@ -693,6 +693,67 @@ describe("createWorkspaceArchiver", () => {
     expect(refOf("refs/heads/fix-login")).not.toBeNull();
   });
 
+  /** How many worktrees git has registered, the repo folder included. */
+  const worktreeCount = () =>
+    sh(repoPath, "worktree", "list", "--porcelain")
+      .split("\n")
+      .filter((line) => line.startsWith("worktree ")).length;
+
+  it("treats a missing worktree folder as removed, keeping the branch head at the hidden ref", async () => {
+    const t = await started("t1");
+    const head = headOf(t);
+    rmSync(t.worktreePath!, { recursive: true, force: true });
+    await expect(archiver().archive(t)).resolves.toEqual({ sha: head });
+    expect(refOf(archivedRefFor("t1"))).toBe(head);
+    expect(refOf("refs/heads/agent/t1")).toBeNull();
+    expect(worktreeCount()).toBe(1);
+  });
+
+  it("keeps a PR task's branch when its worktree folder is missing", async () => {
+    const t = await started("t1", {
+      branch: "fix-login",
+      origin: {
+        kind: "github-pr",
+        url: "https://github.com/acme/app/pull/7",
+        owner: "acme",
+        repo: "app",
+        number: 7,
+        connectionId: null,
+      },
+    });
+    const head = headOf(t);
+    rmSync(t.worktreePath!, { recursive: true, force: true });
+    await expect(archiver().archive(t)).resolves.toEqual({ sha: head });
+    expect(refOf("refs/heads/fix-login")).toBe(head);
+    expect(refOf(archivedRefFor("t1"))).toBe(head);
+  });
+
+  it("uses an existing hidden ref when the folder and branch are already gone", async () => {
+    const t = await started("t1");
+    const head = headOf(t);
+    sh(repoPath, "update-ref", archivedRefFor("t1"), head);
+    rmSync(t.worktreePath!, { recursive: true, force: true });
+    sh(repoPath, "worktree", "prune");
+    sh(repoPath, "branch", "-D", "agent/t1");
+    await expect(archiver().archive(t)).resolves.toEqual({ sha: head });
+    expect(refOf(archivedRefFor("t1"))).toBe(head);
+  });
+
+  it("reports a partial removal when the folder and branch are gone with nothing to keep", async () => {
+    const t = await started("t1");
+    rmSync(t.worktreePath!, { recursive: true, force: true });
+    // Deleted without pruning first, so the stale registration is still there.
+    sh(repoPath, "update-ref", "-d", "refs/heads/agent/t1");
+    expect(worktreeCount()).toBe(2);
+    const error = await archiver()
+      .archive(t)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(WorkspaceArchiveError);
+    expect((error as WorkspaceArchiveError).partial).toBe(true);
+    expect(refOf(archivedRefFor("t1"))).toBeNull();
+    expect(worktreeCount()).toBe(1);
+  });
+
   it("skips in-repo tasks and tasks without a worktree", async () => {
     const archive = archiver();
     await expect(

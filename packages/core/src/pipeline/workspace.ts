@@ -330,8 +330,11 @@ export interface WorkspaceArchiver {
   /**
    * Keeps the worktree's head at {@link archivedRefFor}, then removes the
    * worktree (discarding uncommitted changes) and its local branch; PR tasks
-   * keep theirs. `null` when there was nothing to remove (in-repo tasks, no
-   * worktree or repo). Throws {@link WorkspaceArchiveError} on failure.
+   * keep theirs. A missing worktree folder counts as already removed: its
+   * head is then taken from the hidden ref or the task's branch, and when
+   * neither exists the removal is reported as partial. `null` when there was
+   * nothing to remove (in-repo tasks, no worktree or repo). Throws
+   * {@link WorkspaceArchiveError} on failure.
    */
   archive(task: Task): Promise<{ sha: string } | null>;
   /**
@@ -386,6 +389,24 @@ export function createWorkspaceArchiver({
     return task.origin.kind === "github-pr" || !task.branch ? undefined : task.branch;
   }
 
+  /**
+   * The commit to keep when archiving: the worktree's HEAD, or, when its folder
+   * is gone, the hidden ref (an earlier interrupted archive) or the task's
+   * branch. `null` when the folder is gone and neither ref exists.
+   */
+  async function archivedHead(
+    task: Task,
+    repoPath: string,
+    worktreePath: string,
+  ): Promise<string | null> {
+    if (existsSync(worktreePath)) return git.headSha(worktreePath);
+    const branch = task.branch ?? branchForTask({ kind: "free-text", taskId: task.id });
+    for (const ref of [archivedRefFor(task.id), `refs/heads/${branch}`]) {
+      if (await git.refExists(repoPath, ref)) return git.headSha(repoPath, ref);
+    }
+    return null;
+  }
+
   return {
     async archive(task) {
       if (task.inRepo) {
@@ -397,7 +418,19 @@ export function createWorkspaceArchiver({
       if (!repo || !worktreePath) return null;
       return serial(repo.id, async () => {
         const ref = archivedRefFor(task.id);
-        const sha = await git.headSha(worktreePath);
+        let sha: string | null;
+        try {
+          sha = await archivedHead(task, repo.path, worktreePath);
+        } catch (error) {
+          throw new WorkspaceArchiveError(errorMessage(error), false);
+        }
+        if (sha === null) {
+          await git.removeWorktree({ repoPath: repo.path, worktreePath });
+          throw new WorkspaceArchiveError(
+            "The task's worktree folder and branch are both gone; there is no commit to keep",
+            true,
+          );
+        }
         await git.setRef(repo.path, ref, sha);
         const deleteBranch = branchToDelete(task);
         try {
