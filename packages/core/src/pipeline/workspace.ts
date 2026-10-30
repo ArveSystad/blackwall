@@ -349,6 +349,12 @@ export interface WorkspaceArchiver {
    * a branch archiving deleted is recreated from the ref.
    */
   forget(task: Task, options?: { keepBranch?: boolean }): Promise<void>;
+  /**
+   * Runs `fn` in the repo's git queue, after the archiver's work queued for
+   * that repo and before work queued later, for worktree commands run outside
+   * the archiver.
+   */
+  exclusive<T>(repoId: string, fn: () => Promise<T>): Promise<T>;
 }
 
 /**
@@ -510,6 +516,10 @@ export function createWorkspaceArchiver({
         }
         await git.deleteRef(repo.path, ref);
       });
+    },
+
+    exclusive(repoId, fn) {
+      return serial(repoId, fn);
     },
   };
 }

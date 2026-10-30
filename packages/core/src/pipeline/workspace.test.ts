@@ -930,4 +930,31 @@ describe("createWorkspaceArchiver ordering", () => {
     releases.shift()!();
     await expect(second).resolves.toEqual({ sha: "sha" });
   });
+
+  it("runs exclusive work after the repo's queued work and before later work", async () => {
+    const { archive, removeWorktree, releases } = setup();
+    let finish!: () => void;
+    const fn = vi.fn(() => new Promise<string>((resolve) => (finish = () => resolve("done"))));
+    const first = archive.archive(started("a"));
+    const exclusive = archive.exclusive("r1", fn);
+    const later = archive.archive(started("c"));
+    const elsewhere = vi.fn(async () => "elsewhere");
+    await expect(archive.exclusive("r2", elsewhere)).resolves.toBe("elsewhere");
+    await flush();
+    expect(fn).not.toHaveBeenCalled();
+    expect(removeWorktree).toHaveBeenCalledOnce();
+
+    releases.shift()!();
+    await first;
+    await flush();
+    expect(fn).toHaveBeenCalledOnce();
+    expect(removeWorktree).toHaveBeenCalledOnce();
+
+    finish();
+    await expect(exclusive).resolves.toBe("done");
+    await flush();
+    expect(removeWorktree).toHaveBeenCalledTimes(2);
+    releases.shift()!();
+    await expect(later).resolves.toEqual({ sha: "sha" });
+  });
 });

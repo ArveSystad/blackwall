@@ -348,6 +348,7 @@ const NO_ARCHIVER: WorkspaceArchiver = {
     throw new Error("Restoring a removed worktree is not available");
   },
   forget: async () => undefined,
+  exclusive: (_repoId, fn) => fn(),
 };
 
 /**
@@ -445,6 +446,10 @@ export function createPipelineEngine({
   const drives = new Map<string, Promise<void>>();
   /** Worktree removals after archiving, by task; an entry goes when it settles. */
   const cleanups = new Map<string, Promise<void>>();
+  /** The last startup removal queued per repo (see {@link queueCleanup}); goes when it settles. */
+  const cleanupTails = new Map<string, Promise<void>>();
+  /** Skips a queued startup removal that has not started, by task. */
+  const waitingCleanups = new Map<string, () => void>();
   /** Autonomous gate answers in flight after a drive (see {@link autopilot}). */
   const autopilots = new Set<Promise<void>>();
   const controllers = new Map<string, AbortController>();
@@ -1376,12 +1381,78 @@ export function createPipelineEngine({
   }
 
   /**
+   * Queues a startup {@link cleanupArchived} behind the earlier startup
+   * removals of the task's repo, so they run one at a time and a reopen or
+   * delete waits for at most the one running. {@link awaitCleanup} skips a
+   * removal that has not started; one whose turn comes after the task was
+   * unarchived is skipped too. The repo's tail is the chain link, not the
+   * task's entry in `cleanups` (which settles early on a skip), so a skip
+   * never lets the next removal start before the running one settles.
+   */
+  function queueCleanup(task: Task): void {
+    const id = task.id;
+    const repoId = task.repoId;
+    if (cleanups.has(id)) return;
+    let skipped = false;
+    let skip!: () => void;
+    const skipSignal = new Promise<void>((resolve) => {
+      skip = () => {
+        skipped = true;
+        resolve();
+      };
+    });
+    waitingCleanups.set(id, skip);
+    const run = async (): Promise<void> => {
+      // Before any await, so a later skip cannot overtake a started removal.
+      waitingCleanups.delete(id);
+      if (skipped) return;
+      const current = r.tasks.get(id);
+      if (
+        current &&
+        current.archivedAt !== null &&
+        !current.inRepo &&
+        current.worktreePath &&
+        current.worktreeRemovedAt === null
+      ) {
+        await cleanupArchived(id);
+      }
+    };
+    // The repo's first removal starts at once, like {@link startCleanup}.
+    const prev = cleanupTails.get(repoId);
+    const link = prev ? prev.then(run) : run();
+    cleanupTails.set(repoId, link);
+    void link.finally(() => {
+      if (cleanupTails.get(repoId) === link) cleanupTails.delete(repoId);
+    });
+    const cleanup = Promise.race([skipSignal, link]).finally(() => cleanups.delete(id));
+    cleanups.set(id, cleanup);
+  }
+
+  /**
+   * Waits for a task's worktree removal: one running is awaited, a queued
+   * startup removal that has not started is skipped. Returns `true` when it
+   * skipped one, so the task keeps its worktree while another removal in its
+   * repo may still be running.
+   */
+  async function awaitCleanup(taskId: string): Promise<boolean> {
+    const skip = waitingCleanups.get(taskId);
+    if (skip) {
+      skip();
+      await cleanups.get(taskId);
+      return true;
+    }
+    await cleanups.get(taskId);
+    return false;
+  }
+
+  /**
    * Rebuilds a task's worktree that archiving removed, after waiting for a
-   * removal still in flight. Returns the fresh task; a failed rebuild throws,
-   * so nothing runs without its worktree.
+   * removal still in flight (a queued startup removal is skipped instead).
+   * Returns the fresh task; a failed rebuild throws, so nothing runs without
+   * its worktree.
    */
   async function ensureWorkspace(taskId: string): Promise<Task> {
-    await cleanups.get(taskId);
+    await awaitCleanup(taskId);
     const task = getTask(taskId);
     if (!task.worktreeRemovedAt) return task;
     const { worktreePath, branch } = await archiveWorkspace.restore(task);
@@ -1957,7 +2028,9 @@ export function createPipelineEngine({
      * Backlog items that promoted it keep `taskId: null`. `beforeDelete` runs
      * once the task has stopped, before the worktree goes. For a task whose
      * worktree archiving removed, the hidden ref (and any leftover folder)
-     * goes, and a delivered task's branch is recreated from the ref.
+     * goes, and a delivered task's branch is recreated from the ref. A queued
+     * startup removal is skipped; the worktree is then removed in the
+     * archiver's repo queue, behind a startup removal still running.
      */
     async delete(taskId: string): Promise<void> {
       const task = getTask(taskId);
@@ -1977,7 +2050,7 @@ export function createPipelineEngine({
       scheduler.dequeue(taskId);
       pending.delete(taskId);
       await drives.get(taskId);
-      await cleanups.get(taskId);
+      const skipped = await awaitCleanup(taskId);
       await beforeDelete?.(taskId);
       const settled = getTask(taskId);
       // A repo folder that is gone (say, after an import on another machine) has nothing to remove.
@@ -1993,7 +2066,13 @@ export function createPipelineEngine({
             );
         }
       } else if (settled.worktreePath && repo && pathExists(repo.path)) {
-        await removeWorkspace(settled, delivered ? { keepBranch: true } : undefined);
+        const options = delivered ? { keepBranch: true } : undefined;
+        if (skipped) {
+          // Another startup removal may still run in the repo; worktree commands must not overlap.
+          await archiveWorkspace.exclusive(settled.repoId, () => removeWorkspace(settled, options));
+        } else {
+          await removeWorkspace(settled, options);
+        }
       }
       r.tasks.delete(taskId);
       publish({ type: "task.removed", payload: { taskId } });
@@ -2004,8 +2083,10 @@ export function createPipelineEngine({
      * `interrupted` (the user resumes them), queued tasks are scheduled, and a
      * `delivering` flag left by a delivery cut short is cleared. Archived
      * tasks that still have a worktree (archived before removal existed, or
-     * whose removal a restart cut short) have it removed in the background;
-     * startup never waits for it, and a failure is retried on the next start.
+     * whose removal a restart cut short) have it removed in the background,
+     * one at a time per repo; a removal is skipped for a task reopened or
+     * deleted before its turn. Startup never waits for them, and a failure is
+     * retried on the next start.
      */
     recover(): void {
       for (const step of r.steps.interruptRunning()) {
@@ -2026,7 +2107,7 @@ export function createPipelineEngine({
           task.worktreePath &&
           task.worktreeRemovedAt === null
         ) {
-          startCleanup(task.id);
+          queueCleanup(task);
         }
       }
       pump();
@@ -2049,8 +2130,13 @@ export function createPipelineEngine({
      * removal after archiving is pending (tests).
      */
     async idle(): Promise<void> {
-      while (drives.size > 0 || autopilots.size > 0 || cleanups.size > 0) {
-        await Promise.all([...drives.values(), ...autopilots, ...cleanups.values()]);
+      while (drives.size > 0 || autopilots.size > 0 || cleanups.size > 0 || cleanupTails.size > 0) {
+        await Promise.all([
+          ...drives.values(),
+          ...autopilots,
+          ...cleanups.values(),
+          ...cleanupTails.values(),
+        ]);
       }
     },
 

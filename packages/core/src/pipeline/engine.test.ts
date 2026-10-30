@@ -1843,6 +1843,10 @@ function fakeArchiver(order: string[] = []) {
       return { worktreePath: dir, branch: t.branch ?? `agent/${t.id}` };
     }),
     forget: vi.fn<WorkspaceArchiver["forget"]>(async () => undefined),
+    exclusive: vi.fn<WorkspaceArchiver["exclusive"]>(async (repoId, fn) => {
+      order.push(`exclusive ${repoId}`);
+      return fn();
+    }),
   };
 }
 
@@ -2081,7 +2085,140 @@ describe("worktree removal on archive", () => {
       { keepBranch: true },
     );
     expect(removeWorkspace).not.toHaveBeenCalled();
+    expect(port.exclusive).not.toHaveBeenCalled();
     expect(r.tasks.get(done.id)).toBeUndefined();
+  });
+
+  it("removes a live task's worktree on delete outside the repo queue", async () => {
+    const port = fakeArchiver();
+    const removeWorkspace = vi.fn(async () => undefined);
+    const h = harness(() => ({}), { archiveWorkspace: port, removeWorkspace });
+    const done = delivered();
+    await h.engine.delete(done.id);
+    expect(removeWorkspace).toHaveBeenCalledOnce();
+    expect(port.exclusive).not.toHaveBeenCalled();
+  });
+
+  /** Archived tasks seeded in one repo, the first one's startup removal pending. */
+  function archivedTrio(port: ReturnType<typeof fakeArchiver>) {
+    const pending = deferred<{ sha: string } | null>();
+    port.archive.mockImplementationOnce(async (t) => {
+      port.order.push(`archive ${t.id}`);
+      return pending.promise;
+    });
+    const archivedAt = new Date("2026-01-01");
+    const [a, b, c] = [delivered(), delivered({ status: "failed" }), delivered()];
+    for (const t of [a, b, c]) r.tasks.update(t.id, { archivedAt });
+    return { a: a!, b: b!, c: c!, pending };
+  }
+
+  const archivedIds = (port: ReturnType<typeof fakeArchiver>) =>
+    port.archive.mock.calls.map(([t]) => t.id);
+
+  it("runs startup removals one at a time per repo", async () => {
+    const port = fakeArchiver();
+    const h = harness(() => ({}), { archiveWorkspace: port });
+    const { a, b, c, pending } = archivedTrio(port);
+
+    h.engine.recover();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(archivedIds(port)).toEqual([a.id]);
+
+    pending.resolve({ sha: "head" });
+    await settle(h.engine);
+    expect(archivedIds(port)).toEqual([a.id, b.id, c.id]);
+    for (const t of [a, b, c]) {
+      expect(task(t.id)).toMatchObject({ worktreePath: null, worktreeRemovedAt: expect.any(Date) });
+    }
+  });
+
+  it("skips a queued startup removal when its task is resumed", async () => {
+    const port = fakeArchiver();
+    const h = harness(
+      (stage) => {
+        port.order.push(stage);
+        return {};
+      },
+      { archiveWorkspace: port },
+    );
+    const { a, b, c, pending } = archivedTrio(port);
+
+    h.engine.recover();
+    h.engine.resume(b.id);
+    await vi.waitFor(() => expect(port.order.length).toBeGreaterThan(1));
+    expect(archivedIds(port)).toEqual([a.id]);
+    expect(port.exclusive).not.toHaveBeenCalled();
+
+    pending.resolve({ sha: "head" });
+    await settle(h.engine);
+    expect(archivedIds(port)).toEqual([a.id, c.id]);
+    expect(port.restore).not.toHaveBeenCalled();
+    expect(task(b.id)).toMatchObject({ worktreePath: dir, worktreeRemovedAt: null });
+  });
+
+  it("skips a queued startup removal when its task is deleted and removes it in the repo queue", async () => {
+    const port = fakeArchiver();
+    const removeWorkspace = vi.fn(
+      async (t: Task) => void port.order.push(`removeWorkspace ${t.id}`),
+    );
+    const h = harness(() => ({}), { archiveWorkspace: port, removeWorkspace });
+    const { a, b, c, pending } = archivedTrio(port);
+
+    h.engine.recover();
+    await h.engine.delete(b.id);
+    expect(r.tasks.get(b.id)).toBeUndefined();
+    expect(port.exclusive).toHaveBeenCalledExactlyOnceWith(b.repoId, expect.any(Function));
+    expect(port.order).toEqual([
+      `archive ${a.id}`,
+      `exclusive ${b.repoId}`,
+      `removeWorkspace ${b.id}`,
+    ]);
+    expect(archivedIds(port)).toEqual([a.id]);
+    expect(port.forget).not.toHaveBeenCalled();
+
+    pending.resolve({ sha: "head" });
+    await settle(h.engine);
+    expect(archivedIds(port)).toEqual([a.id, c.id]);
+  });
+
+  it("skips a queued startup removal of a task unarchived before its turn", async () => {
+    const port = fakeArchiver();
+    const h = harness(() => ({}), { archiveWorkspace: port });
+    const { a, b, c, pending } = archivedTrio(port);
+
+    h.engine.recover();
+    h.engine.unarchive(b.id);
+    pending.resolve({ sha: "head" });
+    await settle(h.engine);
+    expect(archivedIds(port)).toEqual([a.id, c.id]);
+    expect(task(b.id)).toMatchObject({ worktreePath: dir, worktreeRemovedAt: null });
+  });
+
+  it("waits for a startup removal that already runs before restoring", async () => {
+    const port = fakeArchiver();
+    const h = harness(
+      (stage) => {
+        port.order.push(stage);
+        return {};
+      },
+      { archiveWorkspace: port },
+    );
+    const failed = delivered({ status: "failed" });
+    r.tasks.update(failed.id, { archivedAt: new Date() });
+    const pending = deferred<{ sha: string } | null>();
+    port.archive.mockImplementationOnce(async (t) => {
+      port.order.push(`archive ${t.id}`);
+      return pending.promise;
+    });
+
+    h.engine.recover();
+    h.engine.resume(failed.id);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(port.order).toEqual([`archive ${failed.id}`]);
+
+    pending.resolve({ sha: "head" });
+    await settle(h.engine);
+    expect(port.order.slice(0, 2)).toEqual([`archive ${failed.id}`, `restore ${failed.id}`]);
   });
 });
 
