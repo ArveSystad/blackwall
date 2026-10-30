@@ -15,12 +15,12 @@ let repo: Repo;
 const node = (script: string) => `node -e "${script}"`;
 const forever = node("console.log('up'); setInterval(() => {}, 1000)");
 
-function setup(commands: string[], path = dir): void {
+function setup(commands: string[], path = dir, graceMs = 200): void {
   repo = { id: "r1", name: "app", path, runCommands: commands } as Repo;
   runs = createProjectRuns({
     repos: { get: (id) => (id === repo.id ? repo : undefined) },
     publish: (event) => events.push(event),
-    graceMs: 200,
+    graceMs,
     throttleMs: 10,
   });
 }
@@ -68,7 +68,8 @@ describe("createProjectRuns", () => {
   });
 
   it("fails when a command exits non-zero and kills its siblings", async () => {
-    setup([forever, node("setTimeout(() => process.exit(3), 50)")]);
+    // A long grace period, so a slow process start under load cannot reach running first.
+    setup([forever, node("setTimeout(() => process.exit(3), 50)")], dir, 60_000);
     runs.start("r1");
     await ended();
     expect(runs.list()[0]).toMatchObject({
