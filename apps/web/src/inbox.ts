@@ -170,10 +170,15 @@ export function nextArrivals(
   return next;
 }
 
-/** "1 active agent", "3 active agents"; null when none run. */
-export function activeAgentsLabel(count: number): string | null {
+/**
+ * "1 active agent", "3 active agents"; null when none run. With sub-agents
+ * running, appends their count: ", 1 sub-agent", ", 5 sub-agents".
+ */
+export function activeAgentsLabel(count: number, subagents = 0): string | null {
   if (count <= 0) return null;
-  return `${count} active agent${count === 1 ? "" : "s"}`;
+  const agents = `${count} active agent${count === 1 ? "" : "s"}`;
+  if (subagents <= 0) return agents;
+  return `${agents}, ${subagents} sub-agent${subagents === 1 ? "" : "s"}`;
 }
 
 /** Case-insensitive match on title and origin key. */

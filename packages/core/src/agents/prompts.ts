@@ -174,7 +174,7 @@ export interface SystemPromptContext {
   agent: Pick<Agent, "prompt">;
   stage: Stage;
   profile: PermissionProfile;
-  /** The CLI the agent runs on: only Claude and Copilot implementers get the sub-agent guide. */
+  /** The CLI the agent runs on: agents on a CLI with the worker get the sub-agent guide. */
   cli: AgentCli;
   /** Current finding tags, in display order. */
   tags: readonly string[];
@@ -196,20 +196,34 @@ function contractsFor(stage: Stage, tags: readonly string[]): string[] {
   }
 }
 
+const SUBAGENT_GUIDES: Record<PermissionProfile, readonly string[]> = {
+  "read-only": [
+    "- Delegate fact-finding only: searching the code, reading and summarising files or a reference repo, checking git history.",
+    "- When the task spans distinct repos or features, send one worker per area, in parallel.",
+    "- Keep every judgement for yourself: the plan, the questions and the findings. Check the evidence behind a finding yourself before you report it.",
+    "- Brief it with only the exact paths (absolute paths for reference repos), the question and what to report back. Never paste the plan, the task context or the conversation: it sees only the brief.",
+    "- Run independent jobs in parallel, never in the background. Skip delegation when doing the job yourself is quicker.",
+  ],
+  implement: [
+    "- Delegate mechanical, self-contained jobs to it: an edit across named files, a search, running a build or test and reporting the result.",
+    "- Keep design decisions, tricky logic and the final check of the worker's changes for yourself.",
+    "- Brief it with only the exact files, the change or command, and what to report back. Never paste the plan, the task context or the conversation: it sees only the brief.",
+    "- Run independent jobs in parallel, never in the background. Skip delegation when doing the job yourself is quicker.",
+  ],
+};
+
 /**
- * How an implementer hands narrow jobs to the harness-defined sub-agent, and
- * how lean its briefs must be: the worker sees only the brief.
+ * How an agent step hands narrow jobs to the harness-defined sub-agent, and
+ * how lean its briefs must be: the worker sees only the brief. Read-only
+ * stages delegate fact-finding only and keep every judgement.
  */
-export function subagentGuide(cli: AgentCli): string {
+export function subagentGuide(cli: AgentCli, profile: PermissionProfile): string {
   return [
     "## Sub-agents",
     "",
     `A cheaper, faster sub-agent, \`${SUBAGENT_NAME}\`, is available through the ${subagentTool(cli)} tool. It follows the same workspace rules.`,
     "",
-    "- Delegate mechanical, self-contained jobs to it: an edit across named files, a search, running a build or test and reporting the result.",
-    "- Keep design decisions, tricky logic and the final check of the worker's changes for yourself.",
-    "- Brief it with only the exact files, the change or command, and what to report back. Never paste the plan, the task context or the conversation: it sees only the brief.",
-    "- Run independent jobs in parallel, never in the background. Skip delegation when doing the job yourself is quicker.",
+    ...SUBAGENT_GUIDES[profile],
   ].join("\n");
 }
 
@@ -594,8 +608,8 @@ export function voiceCommandPrompt({
  * its permission profile and the output contracts of the stage: the plan
  * contract for Inform, plan and questions for Plan review, and the tag list and
  * findings contract for Code review. Read-only agents also get their reference
- * repos ({@link referenceReposSection}). Implementers on a CLI with the worker
- * ({@link SUBAGENT_CLIS}) also get the sub-agent guide.
+ * repos ({@link referenceReposSection}). Agents on a CLI with the worker
+ * ({@link SUBAGENT_CLIS}) also get the sub-agent guide for their profile.
  */
 export function buildSystemPrompt({
   agent,
@@ -610,7 +624,7 @@ export function buildSystemPrompt({
     `## Workspace rules\n\n${WORKSPACE_RULES[profile]}`,
     profile === "read-only" ? referenceReposSection(referenceRepos) : "",
     ...contractsFor(stage, tags),
-    ...(profile === "implement" && SUBAGENT_CLIS.includes(cli) ? [subagentGuide(cli)] : []),
+    ...(SUBAGENT_CLIS.includes(cli) ? [subagentGuide(cli, profile)] : []),
   ];
   return parts.filter((part) => part !== "").join("\n\n");
 }

@@ -324,7 +324,7 @@ describe("claudeArgs", () => {
     expect(args).not.toContain("--max-turns");
   });
 
-  it("defines the worker sub-agent for implementers only", () => {
+  it("defines the worker sub-agent for runs with it only", () => {
     const args = claudeArgs({ permissions: permissionsFor("claude", "implement") });
     const agents = JSON.parse(args[args.indexOf("--agents") + 1] ?? "{}");
     expect(agents["blackwall-worker"]).toMatchObject({
@@ -334,6 +334,20 @@ describe("claudeArgs", () => {
     expect(agents["blackwall-worker"].prompt).not.toContain("\n");
     expect(agents["blackwall-worker"].prompt).toContain("Do not commit, push");
     expect(claudeArgs({ permissions: readOnly })).not.toContain("--agents");
+  });
+
+  it("defines a read-only worker for read-only runs with it", () => {
+    const permissions = permissionsFor("claude", "read-only", {}, [], LOCKED_TRUST, {
+      subagent: true,
+    });
+    const args = claudeArgs({ permissions });
+    const agents = JSON.parse(args[args.indexOf("--agents") + 1] ?? "{}");
+    expect(agents["blackwall-worker"]).toMatchObject({
+      model: "haiku",
+      tools: ["Read", "Grep", "Glob", "Bash"],
+    });
+    expect(agents["blackwall-worker"].prompt).not.toContain("Do not commit, push");
+    expect(args[args.indexOf("--tools") + 1]?.split(",")).toContain("Agent");
   });
 
   it("adds reference repo dirs before --tools, keeping the rest in order", () => {

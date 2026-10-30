@@ -104,11 +104,20 @@ function TaskList({ tasks, filter }: { tasks: Task[]; filter: string }) {
 
 const LIVE_LABELS = { open: "Live", connecting: "Connecting…", reconnecting: "Reconnecting…" };
 
-/** The socket state and, while live, how many agents run; opens the active agents page. */
+/**
+ * The socket state and, while live, how many agents run and how many sub-agents
+ * they have; opens the active agents page.
+ */
 function LiveIndicator() {
   const status = useLiveStatus();
   const active = useQuery(activeAgentsQuery);
-  const agents = status === "open" ? activeAgentsLabel(active.data?.length ?? 0) : null;
+  const agents =
+    status === "open"
+      ? activeAgentsLabel(
+          active.data?.length ?? 0,
+          active.data?.reduce((n, s) => n + s.subagents.length, 0),
+        )
+      : null;
   return (
     <Link
       to="/active"

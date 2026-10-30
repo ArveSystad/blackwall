@@ -46,10 +46,12 @@ function globalConfigDir(cli: AgentCli): string {
 // packages/core; update it when they change.
 
 /**
- * The sub-agents an implementer may start, per CLI: see `CLAUDE_BUILTIN_SUBAGENTS`,
- * `COPILOT_EXCLUDED_TOOLS` and `OPENCODE_BUILTIN_SUBAGENTS` in core's permissions.
+ * The sub-agents a pipeline agent (planner, reviewer or implementer) may start,
+ * per CLI: see `SUBAGENT_RULES`, `CLAUDE_BUILTIN_SUBAGENTS`,
+ * `COPILOT_NO_SUBAGENT_EXCLUDED_TOOLS` and `OPENCODE_BUILTIN_SUBAGENTS` in
+ * core's permissions. Planners' and reviewers' worker is read-only.
  */
-export const IMPLEMENTER_SUBAGENTS: Record<AgentCli, string> = {
+export const PIPELINE_SUBAGENTS: Record<AgentCli, string> = {
   claude: "only the Blackwall worker; built-in sub-agents are denied",
   copilot:
     "the Blackwall worker and Copilot's built-in sub-agents, which follow the same deny rules",
@@ -58,13 +60,15 @@ export const IMPLEMENTER_SUBAGENTS: Record<AgentCli, string> = {
 
 /**
  * The sub-agents a read-only agent may start under Trusted, per CLI: see
- * `CLAUDE_TRUSTED_TOOLS`, `COPILOT_EXCLUDED_TOOLS` and `TRUSTED_RULES` in core's
- * permissions.
+ * `CLAUDE_TRUSTED_TOOLS`, `SUBAGENT_RULES`, `TRUSTED_RULES` and
+ * `opencodeConfig` in core's permissions. The chat has no worker, so only
+ * Claude's chat reaches the repo's sub-agents.
  */
 export const READONLY_TRUSTED_SUBAGENTS: Record<AgentCli, string> = {
-  claude: "the repo's sub-agents, built-ins denied",
-  copilot: "none",
-  opencode: "none",
+  claude: "the Blackwall worker and the repo's sub-agents, built-ins denied",
+  copilot:
+    "the Blackwall worker, the repo's sub-agents and Copilot's built-ins, same denies (chat: none)",
+  opencode: "the Blackwall worker and the repo's sub-agents, built-ins denied (chat: none)",
 };
 
 /** The two permission profiles every agent runs under, before trust is applied. */
@@ -76,7 +80,7 @@ export const TRUST_PROFILES: {
 }[] = [
   {
     name: "Read-only",
-    detail: `Planners, reviewers and chat. They read files and run ${SAFE_GIT_COMMANDS.join(", ")}; they never edit. No sub-agents under Locked.`,
+    detail: `Planners, reviewers and chat. They read files and run ${SAFE_GIT_COMMANDS.join(", ")}; they never edit. Under Locked, planners and reviewers may start the Blackwall worker (read-only); the chat starts no sub-agents.`,
     subagentsLabel: "Sub-agents under Trusted",
     subagents: READONLY_TRUSTED_SUBAGENTS,
   },
@@ -84,7 +88,7 @@ export const TRUST_PROFILES: {
     name: "Implement",
     detail: "Implementers. They read, edit and write files and run any shell command.",
     subagentsLabel: "Sub-agents",
-    subagents: IMPLEMENTER_SUBAGENTS,
+    subagents: PIPELINE_SUBAGENTS,
   },
 ];
 
@@ -141,7 +145,8 @@ export type TrustCell = string | { readOnly: string; implement: string };
 
 /**
  * What each level allows, for the help dialog's table. Mirrors `permissionsFor`,
- * `TRUSTED_RULES`, `OPENCODE_DENIED` and `COPILOT_EXCLUDED_TOOLS` in core.
+ * `TRUSTED_RULES`, `SUBAGENT_RULES`, `OPENCODE_DENIED` and
+ * `COPILOT_NO_SUBAGENT_EXCLUDED_TOOLS` in core.
  */
 export const TRUST_MATRIX: { capability: string; cells: Record<AgentTrustLevel, TrustCell> }[] = [
   {
@@ -168,7 +173,7 @@ export const TRUST_MATRIX: { capability: string; cells: Record<AgentTrustLevel, 
     capability: "Sub-agents",
     cells: {
       locked: {
-        readOnly: "none",
+        readOnly: `Blackwall worker, read-only (${CLI_NAMES.copilot}: also its built-ins, same denies); chat: none`,
         implement: `Blackwall worker (${CLI_NAMES.copilot}: also its built-ins, same denies)`,
       },
       trusted: {

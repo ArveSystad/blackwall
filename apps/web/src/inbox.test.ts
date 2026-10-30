@@ -188,6 +188,12 @@ describe("activeAgentsLabel", () => {
     expect(activeAgentsLabel(1)).toBe("1 active agent");
     expect(activeAgentsLabel(3)).toBe("3 active agents");
   });
+
+  it("appends the sub-agent count when there are sub-agents", () => {
+    expect(activeAgentsLabel(2, 5)).toBe("2 active agents, 5 sub-agents");
+    expect(activeAgentsLabel(1, 1)).toBe("1 active agent, 1 sub-agent");
+    expect(activeAgentsLabel(0, 3)).toBeNull();
+  });
 });
 
 describe("relativeTime", () => {

@@ -529,7 +529,7 @@ describe("prepareCopilotPlugin", () => {
   });
 
   it("writes a plugin defining the worker under the root, and removes it", async () => {
-    const plugin = await prepareCopilotPlugin(root);
+    const plugin = await prepareCopilotPlugin("implement", root);
     expect(join(plugin.dir, "..")).toBe(root);
     expect(JSON.parse(readFileSync(join(plugin.dir, "plugin.json"), "utf8"))).toMatchObject({
       name: "blackwall",
@@ -541,6 +541,15 @@ describe("prepareCopilotPlugin", () => {
     expect(agent).toContain("Do not commit, push");
     await plugin.dispose();
     expect(existsSync(plugin.dir)).toBe(false);
+  });
+
+  it("writes a read-only worker for read-only runs", async () => {
+    const plugin = await prepareCopilotPlugin("read-only", root);
+    const agent = readFileSync(join(plugin.dir, "agents", "blackwall-worker.agent.md"), "utf8");
+    expect(agent).toContain(`model: ${COPILOT_SUBAGENT_MODEL}\n`);
+    expect(agent).toContain('tools: ["read","search","shell"]\n');
+    expect(agent).not.toContain("Do not commit, push");
+    await plugin.dispose();
   });
 });
 

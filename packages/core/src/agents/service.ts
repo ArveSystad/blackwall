@@ -455,6 +455,7 @@ export function createAgentService({
      * agent's overrides for that CLI. Read-only stages may also read the
      * repo's reference repos; implementers never get them. `trust` is the
      * level the step runs under (Locked unless the engine says otherwise).
+     * Every step may start the worker sub-agent, under the stage's profile.
      */
     invocation(
       agentId: string,
@@ -486,6 +487,7 @@ export function createAgentService({
           agent.permissionOverrides[cli],
           referenceRepos.map((ref) => ref.path),
           trust,
+          { subagent: true },
         ),
       };
     },

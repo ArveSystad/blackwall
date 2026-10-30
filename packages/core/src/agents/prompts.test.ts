@@ -86,7 +86,7 @@ describe("buildSystemPrompt", () => {
     expect(prompt).not.toContain("Findings output contract");
   });
 
-  it("guides only implementers on Claude Code, Copilot and OpenCode to the sub-agent", () => {
+  it("guides implementers on Claude Code, Copilot and OpenCode to the sub-agent", () => {
     const implementer = { agent, stage: "implement", profile: "implement", tags: [] } as const;
     const onClaude = buildSystemPrompt({ ...implementer, cli: "claude" });
     expect(onClaude).toContain("## Sub-agents");
@@ -99,33 +99,25 @@ describe("buildSystemPrompt", () => {
     const onOpencode = buildSystemPrompt({ ...implementer, cli: "opencode" });
     expect(onOpencode).toContain("## Sub-agents");
     expect(onOpencode).toContain("`blackwall-worker`, is available through the task tool");
-    expect(
-      buildSystemPrompt({
-        agent,
-        stage: "code-review",
-        profile: "read-only",
-        cli: "claude",
-        tags: [],
-      }),
-    ).not.toContain("## Sub-agents");
-    expect(
-      buildSystemPrompt({
-        agent,
-        stage: "code-review",
-        profile: "read-only",
-        cli: "copilot",
-        tags: [],
-      }),
-    ).not.toContain("## Sub-agents");
-    expect(
-      buildSystemPrompt({
-        agent,
-        stage: "code-review",
-        profile: "read-only",
-        cli: "opencode",
-        tags: [],
-      }),
-    ).not.toContain("## Sub-agents");
+    expect(onOpencode).toContain("an edit across named files");
+    expect(onOpencode).not.toContain("Delegate fact-finding only");
+  });
+
+  it("guides read-only stages on Claude Code, Copilot and OpenCode to fact-finding only", () => {
+    for (const [stage, cli, tool] of [
+      ["inform", "claude", "Agent"],
+      ["plan-review", "copilot", "task"],
+      ["code-review", "opencode", "task"],
+    ] as const) {
+      const prompt = buildSystemPrompt({ agent, stage, profile: "read-only", cli, tags: [] });
+      expect(prompt).toContain("## Sub-agents");
+      expect(prompt).toContain(`\`blackwall-worker\`, is available through the ${tool} tool`);
+      expect(prompt).toContain("Delegate fact-finding only");
+      expect(prompt).toContain("send one worker per area, in parallel");
+      expect(prompt).toContain("Keep every judgement for yourself");
+      expect(prompt).toContain("absolute paths for reference repos");
+      expect(prompt).not.toContain("an edit across named files");
+    }
   });
 
   it("lists reference repos for read-only agents only", () => {

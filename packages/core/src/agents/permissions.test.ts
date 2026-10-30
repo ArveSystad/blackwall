@@ -14,6 +14,7 @@ import {
   type OpencodeProject,
   type ProjectLoad,
 } from "./permissions.js";
+import { SUBAGENT_NAME } from "./subagents.js";
 
 /** A command's action under a bash map, mirroring OpenCode's last-match glob rule. */
 function bashAction(bash: Record<string, string>, command: string): string | undefined {
@@ -97,6 +98,31 @@ describe("Claude Code permissions", () => {
     expect(permissions.allow.some((rule) => rule.startsWith("Agent"))).toBe(false);
   });
 
+  it("starts reviewers without the worker unless the run asks for it", () => {
+    expect(permissionsFor("claude", "read-only").subagent).toBe(false);
+    expect(permissionsFor("claude", "implement").subagent).toBe(true);
+  });
+
+  it("lets a read-only run with the worker start only the worker", () => {
+    const permissions = permissionsFor("claude", "read-only", {}, [], LOCKED_TRUST, {
+      subagent: true,
+    });
+    const args = permissionArgs(permissions);
+    expect(listAfter(args, "--tools")).toEqual(["Read", "Grep", "Glob", "Bash", "Agent"]);
+    expect(listAfter(args, "--allowedTools")).toContain("Agent(blackwall-worker)");
+    expect(listAfter(args, "--allowedTools")).not.toContain("Agent");
+    expect(listAfter(args, "--disallowedTools")).toEqual(
+      expect.arrayContaining([
+        "Agent(general-purpose)",
+        "Agent(Explore)",
+        "Edit",
+        "Write",
+        "Bash(git push:*)",
+      ]),
+    );
+    expect(listAfter(args, "--disallowedTools")).not.toContain("Agent(blackwall-worker)");
+  });
+
   it("adds an agent's overrides without lifting a deny or adding edit tools", () => {
     const permissions = permissionsFor("claude", "read-only", {
       allow: ["Bash(npm test:*)", "Edit"],
@@ -124,6 +150,16 @@ describe("Copilot CLI permissions", () => {
     expect(flagValues(args, "--deny-tool")).toEqual(
       expect.arrayContaining(["write", "shell(git push)"]),
     );
+  });
+
+  it("keeps the task tool for a read-only run with the worker, still denying writes", () => {
+    const args = permissionArgs(
+      permissionsFor("copilot", "read-only", {}, [], LOCKED_TRUST, { subagent: true }),
+    );
+    expect(args).not.toContain("--excluded-tools=task");
+    expect(flagValues(args, "--excluded-tools")).toEqual(["skill"]);
+    expect(flagValues(args, "--deny-tool")).toEqual(expect.arrayContaining(["write"]));
+    expect(flagValues(args, "--allow-tool")).not.toContain("task");
   });
 
   it("lets implementers write and use the shell but never push or use gh", () => {
@@ -223,6 +259,24 @@ describe("OpenCode permissions", () => {
     expect(worker?.permission.task).toBe("deny");
     expect(worker?.permission.bash).toEqual(config.permission.bash);
     expect(worker?.permission.bash).toMatchObject({ "git push*": "deny", "gh*": "deny" });
+  });
+
+  it("lets a read-only run start only the worker, which stays read-only", () => {
+    const config = opencodeConfig(
+      permissionsFor("opencode", "read-only", {}, [], LOCKED_TRUST, { subagent: true }),
+    );
+    expect(config.permission.task).toEqual({
+      "*": "deny",
+      [SUBAGENT_NAME]: "allow",
+      general: "deny",
+      explore: "deny",
+    });
+    expect(config.permission.edit).toBe("deny");
+    const worker = config.agent[SUBAGENT_NAME];
+    expect(worker).toBeDefined();
+    expect(worker?.permission.edit).not.toBe("allow");
+    expect(worker?.permission.task).toBe("deny");
+    expect(worker?.prompt).toContain("You are read-only");
   });
 
   it("runs the worker on the given sub-agent model", () => {
@@ -632,6 +686,21 @@ describe("Trust levels", () => {
     expect(readOnly.agent.docs).toMatchObject({ mode: "subagent", prompt: "Write docs." });
     expect(readOnly.agent.docs?.permission.bash).toEqual(readOnly.permission.bash);
     expect(readOnly.agent.blackwall).toEqual({ mode: "primary", permission: readOnly.permission });
+
+    const withWorker = opencodeConfig(
+      permissionsFor("opencode", "read-only", {}, [], allOn, { subagent: true }),
+      { project: repoPieces },
+    );
+    expect(withWorker.permission.task).toMatchObject({
+      "*": "deny",
+      [SUBAGENT_NAME]: "allow",
+      docs: "allow",
+      general: "deny",
+      explore: "deny",
+    });
+    expect(withWorker.agent[SUBAGENT_NAME]).toBeDefined();
+    expect(withWorker.agent.docs).toMatchObject({ mode: "subagent" });
+    expect(withWorker.agent.docs?.permission.task).toBe("deny");
 
     const implement = opencodeConfig(permissionsFor("opencode", "implement", {}, [], allOn), {
       project: repoPieces,

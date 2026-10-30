@@ -11,7 +11,7 @@ import { CLI_NAMES } from "./settings-forms";
 import {
   ALLOW_EVERYTHING_MODES,
   FORCED_LOCKED_HELP,
-  IMPLEMENTER_SUBAGENTS,
+  PIPELINE_SUBAGENTS,
   READONLY_TRUSTED_SUBAGENTS,
   TRUST_MATRIX,
   alwaysDeniedCommands,
@@ -108,24 +108,24 @@ describe("trust help", () => {
   });
 
   it("has per-CLI copy for every CLI", () => {
-    for (const record of [
-      ALLOW_EVERYTHING_MODES,
-      IMPLEMENTER_SUBAGENTS,
-      READONLY_TRUSTED_SUBAGENTS,
-    ]) {
+    for (const record of [ALLOW_EVERYTHING_MODES, PIPELINE_SUBAGENTS, READONLY_TRUSTED_SUBAGENTS]) {
       for (const cli of AGENT_CLIS) expect(record[cli]).not.toBe("");
     }
   });
 
   it("describes which sub-agents each CLI allows", () => {
-    // Copilot implementers keep `task`, built-ins included; Claude and OpenCode deny the built-ins.
-    expect(IMPLEMENTER_SUBAGENTS.copilot).toMatch(/built-in sub-agents, which follow/);
-    expect(IMPLEMENTER_SUBAGENTS.claude).toMatch(/built-in sub-agents are denied/);
-    expect(IMPLEMENTER_SUBAGENTS.opencode).toMatch(/built-in sub-agents are denied/);
-    // Under Trusted only Claude's read-only agents get the repo's sub-agents.
-    expect(READONLY_TRUSTED_SUBAGENTS.claude).toMatch(/the repo's sub-agents/);
-    expect(READONLY_TRUSTED_SUBAGENTS.copilot).toBe("none");
-    expect(READONLY_TRUSTED_SUBAGENTS.opencode).toBe("none");
+    // Copilot pipeline agents keep `task`, built-ins included; Claude and OpenCode deny the built-ins.
+    expect(PIPELINE_SUBAGENTS.copilot).toMatch(/built-in sub-agents, which follow/);
+    expect(PIPELINE_SUBAGENTS.claude).toMatch(/built-in sub-agents are denied/);
+    expect(PIPELINE_SUBAGENTS.opencode).toMatch(/built-in sub-agents are denied/);
+    // Under Trusted, planners and reviewers get the worker and the repo's sub-agents on every
+    // CLI; only Claude's chat reaches the repo's sub-agents.
+    for (const cli of AGENT_CLIS) {
+      expect(READONLY_TRUSTED_SUBAGENTS[cli]).toMatch(/Blackwall worker.*the repo's sub-agents/);
+    }
+    expect(READONLY_TRUSTED_SUBAGENTS.claude).not.toMatch(/chat: none/);
+    expect(READONLY_TRUSTED_SUBAGENTS.copilot).toMatch(/chat: none/);
+    expect(READONLY_TRUSTED_SUBAGENTS.opencode).toMatch(/chat: none/);
   });
 
   it("groups CLIs with the same text", () => {
@@ -133,7 +133,9 @@ describe("trust help", () => {
       `${CLI_NAMES.claude}: a; ${CLI_NAMES.copilot}, ${CLI_NAMES.opencode}: b`,
     );
     const { cells } = row("Sub-agents");
-    expect(cells.locked).toMatchObject({ readOnly: "none" });
+    expect(cells.locked).toMatchObject({
+      readOnly: expect.stringMatching(/^Blackwall worker, read-only/),
+    });
     const trusted = cells.trusted;
     if (typeof trusted === "string") throw new Error("expected a split cell");
     expect(trusted.readOnly).toBe(perCli(READONLY_TRUSTED_SUBAGENTS));

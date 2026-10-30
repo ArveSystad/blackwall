@@ -33,6 +33,12 @@ export interface AgentPermissions {
    */
   trust: AgentTrust;
   /**
+   * Whether the run may start the harness-defined worker sub-agent
+   * (`blackwall-worker`), under the run's own profile. Pipeline steps get it;
+   * the chat, voice turns and the memory backfill do not.
+   */
+  subagent: boolean;
+  /**
    * The harness's own MCP server for this run, its tools allowed by name.
    * Only voice turns set it; it reaches the run at every trust level.
    */
@@ -78,28 +84,17 @@ export { REMOTE_COMMANDS, SAFE_GIT_COMMANDS } from "@blackwall/shared";
 
 /**
  * Claude Code built-in tools available per profile (`--tools`); anything else is
- * removed. Implementers get `Agent` for the harness-defined worker only: see
- * {@link CLAUDE_BUILTIN_SUBAGENTS}.
+ * removed. Runs with the worker add `Agent` (see {@link SUBAGENT_RULES}).
  */
 const CLAUDE_TOOLS: Record<PermissionProfile, readonly string[]> = {
   "read-only": ["Read", "Grep", "Glob", "Bash"],
-  implement: [
-    "Read",
-    "Grep",
-    "Glob",
-    "Edit",
-    "Write",
-    "NotebookEdit",
-    "Bash",
-    "TodoWrite",
-    "Agent",
-  ],
+  implement: ["Read", "Grep", "Glob", "Edit", "Write", "NotebookEdit", "Bash", "TodoWrite"],
 };
 
 /**
  * Claude Code tools added under Trusted: `Skill` for the repo's skills, and,
- * for read-only agents, `Agent` for the repo's sub-agents (implementers have it
- * already). The built-in sub-agents stay denied. Described to users by
+ * for read-only agents, `Agent` for the repo's sub-agents (runs with the
+ * worker have it already). The built-in sub-agents stay denied. Described to users by
  * `READONLY_TRUSTED_SUBAGENTS` in `apps/web/src/trust.ts`.
  */
 const CLAUDE_TRUSTED_TOOLS: Record<PermissionProfile, readonly string[]> = {
@@ -110,8 +105,8 @@ const CLAUDE_TRUSTED_TOOLS: Record<PermissionProfile, readonly string[]> = {
 /**
  * Claude Code's built-in sub-agent types (as listed in its `init` line), all
  * denied. Claude Code runs any sub-agent type without an allow rule, so an
- * `Agent(<name>)` allow alone does not keep implementers to the worker.
- * Described to users by `IMPLEMENTER_SUBAGENTS` in `apps/web/src/trust.ts`.
+ * `Agent(<name>)` allow alone does not keep a run to the worker.
+ * Described to users by `PIPELINE_SUBAGENTS` in `apps/web/src/trust.ts`.
  */
 const CLAUDE_BUILTIN_SUBAGENTS = [
   "general-purpose",
@@ -122,17 +117,14 @@ const CLAUDE_BUILTIN_SUBAGENTS = [
 ] as const;
 
 /**
- * Copilot tools removed per profile (`--excluded-tools`). Copilot runs its
- * `task` tool (sub-agents) without asking, and a `--deny-tool=task` rule does
- * not stop it, so reviewers lose the tool itself. Implementers keep it: every
- * sub-agent, the harness-defined worker or a built-in one, inherits the run's
- * allow and deny rules. Described to users by `IMPLEMENTER_SUBAGENTS` in
- * `apps/web/src/trust.ts`.
+ * Copilot tools removed from runs without the worker (`--excluded-tools`).
+ * Copilot runs its `task` tool (sub-agents) without asking, and a
+ * `--deny-tool=task` rule does not stop it, so such runs lose the tool itself.
+ * Runs with the worker keep it: every sub-agent, the harness-defined worker or
+ * a built-in one, inherits the run's allow and deny rules. Described to users
+ * by `PIPELINE_SUBAGENTS` in `apps/web/src/trust.ts`.
  */
-const COPILOT_EXCLUDED_TOOLS: Record<PermissionProfile, readonly string[]> = {
-  "read-only": ["task"],
-  implement: [],
-};
+const COPILOT_NO_SUBAGENT_EXCLUDED_TOOLS = ["task"] as const;
 
 /**
  * Copilot loads the repo's skills by itself whenever the user trusts the
@@ -169,7 +161,7 @@ const OPENCODE_DENIED = ["webfetch", "websearch", "codesearch", "skill"] as cons
 /**
  * OpenCode's built-in sub-agents, all denied: they run on the parent's model,
  * and a user's bare `task` allow must not open them. Described to users by
- * `IMPLEMENTER_SUBAGENTS` in `apps/web/src/trust.ts`.
+ * `PIPELINE_SUBAGENTS` in `apps/web/src/trust.ts`.
  */
 const OPENCODE_BUILTIN_SUBAGENTS = ["general", "explore"] as const;
 
@@ -183,23 +175,8 @@ const PROFILE_RULES: Record<
       deny: ["Edit", "Write", "NotebookEdit", ...REMOTE_COMMANDS.map(claudeBash)],
     },
     implement: {
-      // Only the harness-defined worker, never the built-in sub-agents (which
-      // run on the parent's model). The deny rules bind the worker too.
-      allow: [
-        "Read",
-        "Grep",
-        "Glob",
-        "Edit",
-        "Write",
-        "NotebookEdit",
-        "Bash",
-        "TodoWrite",
-        `Agent(${SUBAGENT_NAME})`,
-      ],
-      deny: [
-        ...CLAUDE_BUILTIN_SUBAGENTS.map((name) => `Agent(${name})`),
-        ...REMOTE_COMMANDS.map(claudeBash),
-      ],
+      allow: ["Read", "Grep", "Glob", "Edit", "Write", "NotebookEdit", "Bash", "TodoWrite"],
+      deny: REMOTE_COMMANDS.map(claudeBash),
     },
   },
   copilot: {
@@ -215,27 +192,40 @@ const PROFILE_RULES: Record<
   opencode: {
     "read-only": {
       allow: ["read", "grep", "glob", "list", ...SAFE_GIT_COMMANDS.flatMap(opencodeAllow)],
-      deny: ["edit", "task", ...OPENCODE_DENIED, ...REMOTE_COMMANDS.map(opencodeDeny)],
+      deny: ["edit", ...OPENCODE_DENIED, ...REMOTE_COMMANDS.map(opencodeDeny)],
     },
     implement: {
-      // As for Claude: only the harness-defined worker, never the built-in sub-agents.
-      allow: [
-        "read",
-        "grep",
-        "glob",
-        "list",
-        "edit",
-        "todowrite",
-        "todoread",
-        "bash(*)",
-        `task(${SUBAGENT_NAME})`,
-      ],
-      deny: [
-        ...OPENCODE_DENIED,
-        ...OPENCODE_BUILTIN_SUBAGENTS.map((name) => `task(${name})`),
-        ...REMOTE_COMMANDS.map(opencodeDeny),
-      ],
+      allow: ["read", "grep", "glob", "list", "edit", "todowrite", "todoread", "bash(*)"],
+      deny: [...OPENCODE_DENIED, ...REMOTE_COMMANDS.map(opencodeDeny)],
     },
+  },
+};
+
+/**
+ * What the worker changes in a profile's rules, per CLI. With it, only the
+ * harness-defined worker is allowed, never the built-in sub-agents (which run
+ * on the parent's model); the run's deny rules bind the worker too. Without
+ * it, read-only OpenCode denies `task` outright. Copilot has no rules here:
+ * see {@link COPILOT_NO_SUBAGENT_EXCLUDED_TOOLS}.
+ */
+const SUBAGENT_RULES: Record<
+  AgentCli,
+  { with: { allow: string[]; deny: string[] }; without: Record<PermissionProfile, string[]> }
+> = {
+  claude: {
+    with: {
+      allow: [`Agent(${SUBAGENT_NAME})`],
+      deny: CLAUDE_BUILTIN_SUBAGENTS.map((name) => `Agent(${name})`),
+    },
+    without: { "read-only": [], implement: [] },
+  },
+  copilot: { with: { allow: [], deny: [] }, without: { "read-only": [], implement: [] } },
+  opencode: {
+    with: {
+      allow: [`task(${SUBAGENT_NAME})`],
+      deny: OPENCODE_BUILTIN_SUBAGENTS.map((name) => `task(${name})`),
+    },
+    without: { "read-only": ["task"], implement: [] },
   },
 };
 
@@ -283,7 +273,9 @@ function unique(rules: readonly string[]): string[] {
  * (the reference repos) are kept only for the read-only profile, so only the
  * harness ever writes outside the worktree. Under Trusted the skill tool comes
  * into reach (see {@link TRUSTED_RULES}); under Unrestricted there are no rules
- * at all, overrides included. Update the help copy in `apps/web/src/trust.ts`
+ * at all, overrides included. `subagent` brings the worker into reach (see
+ * {@link SUBAGENT_RULES}); it defaults to implementers only, and pipeline steps
+ * turn it on for every profile. Update the help copy in `apps/web/src/trust.ts`
  * when this changes.
  */
 export function permissionsFor(
@@ -292,24 +284,30 @@ export function permissionsFor(
   overrides: PermissionOverrides = {},
   readDirs: readonly string[] = [],
   trust: AgentTrust = LOCKED_TRUST,
+  { subagent = profile === "implement" }: { subagent?: boolean } = {},
 ): AgentPermissions {
   const dirs = profile === "read-only" ? unique(readDirs) : [];
   if (trust.level === "unrestricted") {
-    return { cli, profile, allow: [], deny: [], readDirs: dirs, trust };
+    return { cli, profile, allow: [], deny: [], readDirs: dirs, trust, subagent };
   }
   const rules = PROFILE_RULES[cli][profile];
   const extra = trust.level === "trusted" ? TRUSTED_RULES[cli][profile] : NO_TRUSTED_RULES;
+  const worker = subagent
+    ? SUBAGENT_RULES[cli].with
+    : { allow: [], deny: SUBAGENT_RULES[cli].without[profile] };
   return {
     cli,
     profile,
-    allow: unique([...rules.allow, ...extra.allow, ...(overrides.allow ?? [])]),
+    allow: unique([...rules.allow, ...worker.allow, ...extra.allow, ...(overrides.allow ?? [])]),
     deny: unique([
       ...rules.deny.filter((rule) => !extra.lift.includes(rule)),
+      ...worker.deny,
       ...extra.deny,
       ...(overrides.deny ?? []),
     ]),
     readDirs: dirs,
     trust,
+    subagent,
   };
 }
 
@@ -398,7 +396,7 @@ export interface ProjectLoad {
  * inline JSON at every level, its tools allowed by name.
  */
 export function permissionArgs(permissions: AgentPermissions, project: ProjectLoad = {}): string[] {
-  const { cli, profile, allow, deny, readDirs, trust, harnessMcp } = permissions;
+  const { cli, profile, allow, deny, readDirs, trust, harnessMcp, subagent } = permissions;
   const addDirs = readDirs.flatMap((dir) => ["--add-dir", dir]);
   // OpenCode has no permission flags; its rules go in through config (`opencodeConfig`).
   if (cli === "opencode") return [];
@@ -421,6 +419,7 @@ export function permissionArgs(permissions: AgentPermissions, project: ProjectLo
     const settings = guarded(permissions) ? guardSettings() : hooks ? { hooks } : undefined;
     const tools = unique([
       ...CLAUDE_TOOLS[profile],
+      ...(subagent ? ["Agent"] : []),
       ...(trusted ? CLAUDE_TRUSTED_TOOLS[profile] : []),
     ]);
     const mcpAllow = mcpConfig ? (project.mcpServers ?? []).map((name) => `mcp__${name}`) : [];
@@ -449,7 +448,7 @@ export function permissionArgs(permissions: AgentPermissions, project: ProjectLo
     return ["--no-ask-user", "--allow-all", ...addDirs, ...harnessArgs];
   }
   const excluded = [
-    ...COPILOT_EXCLUDED_TOOLS[profile],
+    ...(subagent ? [] : COPILOT_NO_SUBAGENT_EXCLUDED_TOOLS),
     ...(trusted ? [] : COPILOT_LOCKED_EXCLUDED_TOOLS),
   ];
   return [
@@ -629,7 +628,7 @@ export function opencodeConfig(
     project,
   }: { subagentModel?: string | undefined; project?: OpencodeProject | undefined } = {},
 ): OpencodeConfig {
-  const { cli, profile, allow, deny, readDirs, trust, harnessMcp } = permissions;
+  const { cli, profile, allow, deny, readDirs, trust, harnessMcp, subagent } = permissions;
   if (cli !== "opencode") throw new Error(`Permissions for ${cli} are not OpenCode rules`);
   const harness = harnessMcp
     ? {
@@ -647,8 +646,8 @@ export function opencodeConfig(
       permission,
       agent: {
         blackwall: { mode: "primary", permission },
-        ...(profile === "implement"
-          ? { [SUBAGENT_NAME]: opencodeSubagent(permission, subagentModel) }
+        ...(subagent
+          ? { [SUBAGENT_NAME]: opencodeSubagent(profile, permission, subagentModel) }
           : {}),
       },
       ...(harnessMcp ? { mcp: harness } : {}),
@@ -691,7 +690,7 @@ export function opencodeConfig(
   for (const rule of harnessToolRules(harnessMcp, cli)) permission[rule] = "allow";
   const agent: OpencodeConfig["agent"] = { blackwall: { mode: "primary", permission } };
   if (workerAllowed) {
-    agent[SUBAGENT_NAME] = opencodeSubagent(permission, subagentModel);
+    agent[SUBAGENT_NAME] = opencodeSubagent(profile, permission, subagentModel);
   }
   if (!trusted) return { permission, agent, mcp: harness, plugin: [], share: "disabled" };
   for (const name of projectAgents) {

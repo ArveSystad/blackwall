@@ -147,6 +147,28 @@ async function runCopilot(profile: PermissionProfile, prompt: string): Promise<A
   return events;
 }
 
+/** A read-only pipeline step through the adapter, with the read-only worker sub-agent. */
+async function runReadOnlyWithWorker(cli: AgentCli, prompt: string): Promise<AgentEvent[]> {
+  const adapter =
+    cli === "claude"
+      ? createClaudeAdapter()
+      : cli === "copilot"
+        ? createCopilotAdapter()
+        : createOpencodeAdapter({
+            command: OPENCODE_COMMAND,
+            env: { ...process.env, XDG_CONFIG_HOME: configHome },
+          });
+  const run = adapter.run({
+    cwd: work,
+    prompt,
+    permissions: permissionsFor(cli, "read-only", {}, [], LOCKED_TRUST, { subagent: true }),
+  });
+  const events: AgentEvent[] = [];
+  for await (const event of run) events.push(event);
+  await run.result;
+  return events;
+}
+
 /** Sub-agents that were started and returned without an error. */
 function succeededSubagents(events: AgentEvent[]): AgentEvent[] {
   const started = events.filter((e) => e.type === "subagent-start");
@@ -244,6 +266,23 @@ describe.runIf(process.env.BLACKWALL_TEST_CLIS === "1")("CLI permission profiles
       },
       TIMEOUT_MS,
     );
+
+    it(
+      `${cli}: a reviewer's worker sub-agent cannot edit files`,
+      async () => {
+        const tool = cli === "claude" ? "Agent" : "task";
+        const events = await runReadOnlyWithWorker(
+          cli,
+          `Use the ${tool} tool to give the blackwall-worker sub-agent this exact job: ${EDIT_PROMPT}`,
+        );
+        expect(events).toContainEqual(
+          expect.objectContaining({ type: "subagent-start", agentType: "blackwall-worker" }),
+        );
+        expect(existsSync(join(work, "pwned.txt"))).toBe(false);
+        expect(git(work, "status", "--porcelain")).toBe("");
+      },
+      TIMEOUT_MS,
+    );
   }
 
   it(
@@ -338,7 +377,7 @@ describe.runIf(process.env.BLACKWALL_TEST_CLIS === "1")("CLI permission profiles
   );
 
   it(
-    "opencode: a reviewer cannot start sub-agents",
+    "opencode: a read-only run without the worker (the chat) cannot start sub-agents",
     async () => {
       const { events } = await runOpencode(
         "read-only",
@@ -424,7 +463,7 @@ describe.runIf(process.env.BLACKWALL_TEST_CLIS === "1")("CLI permission profiles
   );
 
   it(
-    "copilot: a reviewer cannot start sub-agents",
+    "copilot: a read-only run without the worker (the chat) cannot start sub-agents",
     async () => {
       const events = await runCopilot(
         "read-only",

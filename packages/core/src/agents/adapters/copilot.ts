@@ -1,4 +1,4 @@
-import { effortFlagApplies } from "@blackwall/shared";
+import { effortFlagApplies, type PermissionProfile } from "@blackwall/shared";
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -294,7 +294,10 @@ export interface CopilotPlugin {
  * user's `~/.copilot` is written to, and it loads even with
  * `--disallow-temp-dir`.
  */
-export async function prepareCopilotPlugin(root: string = tmpdir()): Promise<CopilotPlugin> {
+export async function prepareCopilotPlugin(
+  profile: PermissionProfile,
+  root: string = tmpdir(),
+): Promise<CopilotPlugin> {
   const dir = await mkdtemp(join(root, "blackwall-copilot-"));
   const dispose = () => rm(dir, { recursive: true, force: true });
   try {
@@ -303,7 +306,7 @@ export async function prepareCopilotPlugin(root: string = tmpdir()): Promise<Cop
       JSON.stringify({ name: COPILOT_PLUGIN, description: "Blackwall harness agents" }),
     );
     await mkdir(join(dir, "agents"));
-    await writeFile(join(dir, "agents", `${SUBAGENT_NAME}.agent.md`), copilotSubagentFile());
+    await writeFile(join(dir, "agents", `${SUBAGENT_NAME}.agent.md`), copilotSubagentFile(profile));
   } catch (error) {
     await dispose();
     throw error;
@@ -319,15 +322,15 @@ export interface CopilotAdapterOptions {
   env?: NodeJS.ProcessEnv;
   /** GitHub connection to authenticate with, instead of Copilot's stored login. */
   auth?: CopilotAuth;
-  /** Where implement runs get their plugin directory. Default the OS temp dir. */
+  /** Where runs with the worker get their plugin directory. Default the OS temp dir. */
   pluginRoot?: string;
 }
 
 /**
  * Runs GitHub Copilot CLI headless with JSONL output. Structured output uses a
  * prompt contract (a fenced JSON block), validated against the schema with one
- * repair turn on the same session. Implement runs load a per-run plugin
- * defining the worker sub-agent, removed once the run settled.
+ * repair turn on the same session. Runs with the worker load a per-run plugin
+ * defining it for the run's profile, removed once the run settled.
  */
 export function createCopilotAdapter({
   command = "copilot",
@@ -397,12 +400,17 @@ export function createCopilotAdapter({
         return withStructuredOutput(first, jsonSchema, (repair) => spawn(repair, true));
       };
 
-      if (permissions.profile !== "implement") return start();
-      const { trust } = permissions;
+      const { trust, profile, subagent } = permissions;
+      // Project MCP servers only ever reach implementers (see permissionArgs).
+      const implement = profile === "implement";
+      if (!subagent && !implement) return start();
       return deferredRun("Copilot", async () => {
         const mcp =
-          trust.level === "trusted" && trust.projectMcp ? await projectMcp(cwd) : undefined;
-        const plugin = await prepareCopilotPlugin(pluginRoot);
+          implement && trust.level === "trusted" && trust.projectMcp
+            ? await projectMcp(cwd)
+            : undefined;
+        if (!subagent) return { run: start(undefined, mcp?.path), dispose: async () => {} };
+        const plugin = await prepareCopilotPlugin(profile, pluginRoot);
         return { run: start(plugin.dir, mcp?.path), dispose: plugin.dispose };
       });
     },

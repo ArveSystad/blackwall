@@ -314,7 +314,7 @@ export function claudeArgs(
     ...(systemPrompt ? ["--append-system-prompt", systemPrompt] : []),
     ...(jsonSchema ? ["--json-schema", JSON.stringify(withoutDialect(jsonSchema))] : []),
     ...(maxTurns !== undefined ? ["--max-turns", String(maxTurns)] : []),
-    ...(permissions.profile === "implement" ? ["--agents", claudeSubagents()] : []),
+    ...(permissions.subagent ? ["--agents", claudeSubagents(permissions.profile)] : []),
     ...permissionArgs(permissions, project),
   ];
 }
