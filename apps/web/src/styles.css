@@ -1,8 +1,9 @@
 /*
  * blackwall design tokens. Values come from the Claude Design export
  * (docs/design/bw.css); this file is now the source of truth in code.
- * Dark is the default; light applies only when the user picks it
- * (`data-theme="light"` on <html>, see src/theme.ts). The OS setting is ignored.
+ * Dark is the primary theme and the fallback; light applies when
+ * `data-theme="light"` is set on <html>, whether from the device preference
+ * or the user's choice (see src/theme.ts).
  * Components style with the Tailwind utilities mapped in `@theme inline`
  * below, never raw colors.
  */

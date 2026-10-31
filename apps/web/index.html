@@ -7,9 +7,14 @@
     <title>blackwall</title>
     <meta name="theme-color" content="#0a0918" />
     <script>
-      // Apply a chosen light theme before first paint. Dark is the default (see src/theme.ts).
+      // Apply the stored theme, or else the device preference, before first paint. Dark is the
+      // fallback (see src/theme.ts).
       try {
-        if (localStorage.getItem("blackwall.theme") === "light") {
+        var t = localStorage.getItem("blackwall.theme");
+        if (t !== "light" && t !== "dark") {
+          t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+        }
+        if (t === "light") {
           document.documentElement.setAttribute("data-theme", "light");
           document.querySelector('meta[name="theme-color"]')?.setAttribute("content", "#f3f3f6");
         }

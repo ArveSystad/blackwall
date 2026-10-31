@@ -85,8 +85,9 @@ its copy lives in `apps/web/src/trust.ts`.
 ## 2. Visual identity
 
 A dark, neon HUD: deep indigo-black surfaces, chamfered corners, cyan for the machine and magenta
-for the human. Dark is always the default. Light is opt-in (top bar toggle or `T`) and never
-follows the OS.
+for the human. The theme follows the device's light/dark setting, falling back to dark. The top
+bar toggle or `T` flips it until the device next switches; a long press on the toggle locks or
+unlocks the current theme for this browser.
 
 ### Colour tokens
 

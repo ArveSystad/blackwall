@@ -25,7 +25,7 @@ import { isSettingsSection } from "./settings-sections";
 import { isSettingsPath } from "./settings-shutter";
 import { useChatHotkey } from "./chat";
 import { useSearchHotkey } from "./search-palette";
-import { useThemeHotkey } from "./theme";
+import { useSystemThemeSync, useThemeHotkey } from "./theme";
 import { recordWindowOrigin } from "./window-origin";
 
 // Heavier routes load as their own chunks. The wrapped ones get a `loader` that preloads the
@@ -37,6 +37,7 @@ const rootRoute = createRootRoute({
   component: function Root() {
     // App-wide shortcuts that must work on every route, Settings included.
     useThemeHotkey();
+    useSystemThemeSync();
     useChatHotkey();
     useSearchHotkey();
     useVoiceActions();

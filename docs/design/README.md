@@ -30,7 +30,7 @@ production code, and they predate parts of the app (see [Drift between mockups a
 - Diffs use plain green and red. Never put neon or glow on diffs, text blocks or table rows.
 - Glow is dark-theme only. Light theme replaces it with a 3px tinted ring, and the focus ring is violet instead of cyan.
 - Every radius is 0. Corners are chamfered (8px top-left and bottom-right; 5px on pills; 3px on checkboxes), and focus is a 2px cyan frame line.
-- In the app, dark is always the default; light is opt-in via the top bar toggle or `T` (never the OS setting).
+- In the app, the theme follows the device's light/dark setting (dark when there is none). The top bar toggle or `T` flips it until the next device switch; long-pressing the toggle locks or unlocks the current theme per browser.
 - The UI is keyboard-first: N new task, / filter, C chat, Ctrl+K (⌘K) search, T theme, ⌘↵ to confirm, F/I to force fix or ignore a finding, J/K to move in the Backlog.
 - The "CC", "CP" and "OC" tiles are placeholders for the real Claude Code, Copilot CLI and OpenCode icons.
 - Fonts: Geist (UI), Geist Mono (code, paths, branches, hashes), Chakra Petch (wordmark and display headings only).
