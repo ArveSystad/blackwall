@@ -17,7 +17,10 @@ import {
   type RepoRenameStep,
   type RepoScanInput,
   type RepoScanResult,
+  type RepoCommitResult,
+  type RepoFile,
   type RepoSync,
+  type RepoTree,
   type RepoUpdate,
   type RepoView,
   type Task,
@@ -26,7 +29,9 @@ import { MissingCredentialError, type ConnectionService } from "../connections/s
 import type { Repositories } from "../db/repositories.js";
 import { suggestCheckCommands, suggestRunCommands, suggestSetupCommands } from "./checks.js";
 import { describeGitError } from "../git/errors.js";
-import { GitError } from "../git/service.js";
+import { createGitService, GitError, type GitService } from "../git/service.js";
+import { commitMessage } from "../pipeline/stages.js";
+import { currentBranch, readRepoFile, readRepoTree } from "./code.js";
 import {
   gitDirKind,
   listWorktreePaths,
@@ -88,6 +93,22 @@ export class RepoPushError extends Error {
   }
 }
 
+/** Git refused the user's commit from the Code view, or the checkout moved; maps to 409. */
+export class RepoCommitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RepoCommitError";
+  }
+}
+
+/** The Code view asked for a file that is not listed in the repo's working copy. */
+export class RepoFileNotFoundError extends Error {
+  constructor(readonly path: string) {
+    super(`${path} is not a file in the repo`);
+    this.name = "RepoFileNotFoundError";
+  }
+}
+
 /** The repo has queued, running or delivering tasks, or is already being renamed. Maps to 409. */
 export class RepoBusyError extends Error {
   constructor(message: string) {
@@ -135,6 +156,15 @@ export interface RepoServiceOptions {
   repos: Repositories["repos"];
   connections: Pick<ConnectionService, "resolve">;
   rename?: RepoRenameOptions | undefined;
+  /** Commits the Code view's changes; defaults to a new git service. */
+  git?: Pick<GitService, "commitAll"> | undefined;
+  /**
+   * Runs `fn` under the per-repo lock in-repo prepares take, so a commit never
+   * interleaves with a task switching the folder's branch. Defaults to no lock.
+   */
+  withRepoLock?: (<T>(repoId: string, fn: () => Promise<T>) => Promise<T>) | undefined;
+  /** The in-repo task holding the repo's folder, for the commit warning; defaults to none. */
+  inRepoTask?: ((repoId: string) => { id: string; title: string } | null) | undefined;
 }
 
 export type RepoService = ReturnType<typeof createRepoService>;
@@ -213,7 +243,14 @@ async function canonicalFolder(path: string): Promise<string> {
  * its `origin` remote, the GitHub connection resolved from it, and the check
  * commands the Checks stage runs.
  */
-export function createRepoService({ repos, connections, rename }: RepoServiceOptions) {
+export function createRepoService({
+  repos,
+  connections,
+  rename,
+  git = createGitService(),
+  withRepoLock = (_repoId, fn) => fn(),
+  inRepoTask = () => null,
+}: RepoServiceOptions) {
   function existing(id: string): Repo {
     const repo = repos.get(id);
     if (!repo) throw new RepoNotFoundError(id);
@@ -610,6 +647,49 @@ export function createRepoService({ repos, connections, rename }: RepoServiceOpt
         throw error;
       }
       return readBranchSync(repo.path, mainBranch);
+    },
+
+    /** The working copy's files and changes, for the Code view. */
+    async codeTree(id: string): Promise<RepoTree> {
+      const repo = use(id);
+      const tree = await readRepoTree(repo.path);
+      return { ...tree, activeInRepoTask: inRepoTask(repo.id) };
+    },
+
+    /** One working-copy file; `RepoFileNotFoundError` when git doesn't list it. */
+    async codeFile(id: string, path: string): Promise<RepoFile> {
+      const repo = use(id);
+      const file = await readRepoFile(repo.path, path);
+      if (!file) throw new RepoFileNotFoundError(path);
+      return file;
+    },
+
+    /**
+     * Commits every change in the repo's own folder (`git add -A`), hooks
+     * included; never pushes. A message without a type gets `chore:`. Runs
+     * under the in-repo lock and is refused when the checkout is no longer on
+     * `expectedBranch`, the branch the user saw. Allowed while an in-repo task
+     * holds the folder: the commit then lands on its branch.
+     */
+    async commit(id: string, message: string, expectedBranch: string): Promise<RepoCommitResult> {
+      const repo = use(id);
+      return withRepoLock(repo.id, async () => {
+        const branch = await currentBranch(repo.path);
+        if (branch !== expectedBranch) {
+          throw new RepoCommitError(
+            `The checkout is now on ${branch}, not ${expectedBranch}. Review and commit again`,
+          );
+        }
+        let sha: string | null;
+        try {
+          sha = await git.commitAll(repo.path, commitMessage(message, undefined));
+        } catch (error) {
+          if (error instanceof GitError) throw new RepoCommitError(describeGitError(error));
+          throw error;
+        }
+        if (sha === null) throw new InvalidRepoError("Nothing to commit");
+        return { sha, branch };
+      });
     },
 
     /**

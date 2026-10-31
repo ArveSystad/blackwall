@@ -12,7 +12,7 @@ import {
 } from "../selected-repo";
 import { isSettingsPath } from "../settings-shutter";
 import { ChatToggle } from "./ChatToggle";
-import { BacklogIcon, GearIcon, SearchIcon, StatsIcon } from "./icons";
+import { BacklogIcon, CodeIcon, GearIcon, SearchIcon, StatsIcon } from "./icons";
 import { PushToTalk } from "./PushToTalk";
 import { QuotaChip } from "./QuotaChip";
 import { RepoMenuItems } from "./RepoMenuItems";
@@ -104,6 +104,12 @@ export function TopBar() {
               <Link to="/repos/$repoId/backlog" params={{ repoId: repo.id }}>
                 <BacklogIcon size="sm" />
                 View backlog
+              </Link>
+            </Button>
+            <Button variant="ghost" size="sm" className="shrink-0" asChild>
+              <Link to="/repos/$repoId/code" params={{ repoId: repo.id }}>
+                <CodeIcon size="sm" />
+                View code
               </Link>
             </Button>
             <RunProjectButton key={repo.id} repo={repo} className="shrink-0" />

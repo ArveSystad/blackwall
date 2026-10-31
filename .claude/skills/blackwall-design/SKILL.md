@@ -165,8 +165,8 @@ Rules:
 ## Layout
 
 - **Top bar:** a global 44px bar (`TopBar.tsx`) over every page. Left: the wordmark, in a 352px
-  column that lines up with the inbox. Middle: the "Repo" picker, View backlog, the repo status line
-  and the path. Right: the quota chip, Search (`⌘K`), Chat, Theme, Stats and Settings.
+  column that lines up with the inbox. Middle: the "Repo" picker, View backlog, View code, Run
+  project, the repo status line and the path. Right: the quota chip, Search (`⌘K`), Chat, Theme, Stats and Settings.
 - **Shell:** inbox on the left (~352px), task view on the right. Settings replaces both panes with
   a settings nav, a list and an editor.
 - **Stats:** a full page at `/stats`, opened from the top bar's Stats button. Its header has an

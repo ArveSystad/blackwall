@@ -41,7 +41,10 @@ import {
   repoRenameResultSchema,
   repoScanResultSchema,
   repoSchema,
+  repoCommitResultSchema,
+  repoFileSchema,
   repoSyncSchema,
+  repoTreeSchema,
   repoViewSchema,
   runSchema,
   searchResultsSchema,
@@ -78,7 +81,11 @@ import {
   type CompactResult,
   type ConnectionInput,
   type ConnectionTestResult,
+  type RepoCommitInput,
+  type RepoCommitResult,
+  type RepoFile,
   type RepoSync,
+  type RepoTree,
   type ConnectionView,
   type DataImportDecisions,
   type DataImportPreview,
@@ -606,6 +613,27 @@ export function getRepoSync(id: string): Promise<RepoSync | null> {
 /** Pushes the repo's local main to origin (the user confirmed); returns the fresh status. */
 export function pushRepo(id: string): Promise<RepoSync | null> {
   return request(`${at("/api/repos", id)}/push`, repoSyncSchema.nullable(), { method: "POST" });
+}
+
+/** The working copy's files and changes, for the Code view. */
+export function getRepoTree(id: string): Promise<RepoTree> {
+  return request(`${at("/api/repos", id)}/code/tree`, repoTreeSchema);
+}
+
+/** One working-copy file by its repo-relative path. */
+export function getRepoFile(id: string, path: string): Promise<RepoFile> {
+  return request(
+    `${at("/api/repos", id)}/code/file?path=${encodeURIComponent(path)}`,
+    repoFileSchema,
+  );
+}
+
+/** Commits every change in the repo's own folder; refused when it is no longer on `branch`. */
+export function commitRepo(id: string, input: RepoCommitInput): Promise<RepoCommitResult> {
+  return request(`${at("/api/repos", id)}/code/commit`, repoCommitResultSchema, {
+    method: "POST",
+    body: input,
+  });
 }
 
 /** Check commands suggested from the repo's build files; a missing folder is a `StaleRepoError`. */

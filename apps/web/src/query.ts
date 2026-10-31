@@ -11,7 +11,9 @@ import {
   getBacklogRunner,
   getChat,
   getQuota,
+  getRepoFile,
   getRepoSync,
+  getRepoTree,
   getRoleDefaults,
   getSettings,
   getSystemInfo,
@@ -97,6 +99,10 @@ export const queryKeys = {
    * the default branch) refresh it.
    */
   repoSync: (repoId: string) => ["backlog", repoId, "sync"] as const,
+  /** Everything the Code view reads from a repo's working copy; a commit invalidates it. */
+  repoCode: (repoId: string) => ["repo-code", repoId] as const,
+  repoCodeTree: (repoId: string) => ["repo-code", repoId, "tree"] as const,
+  repoCodeFile: (repoId: string, path: string) => ["repo-code", repoId, "file", path] as const,
   /** A repo's memories; `memories.changed` invalidates it (and, by prefix, the backfill status). */
   memories: (repoId: string) => ["memories", repoId] as const,
   /** A repo's memory backfill; polled while a pass runs. */
@@ -271,6 +277,25 @@ export const repoSyncQuery = (repoId: string) =>
   queryOptions({
     queryKey: queryKeys.repoSync(repoId),
     queryFn: () => getRepoSync(repoId),
+    refetchOnWindowFocus: "always",
+  });
+
+/** How often the Code view rereads the working copy: edits made outside blackwall have no event. */
+export const CODE_POLL_MS = 4000;
+
+export const repoCodeTreeQuery = (repoId: string) =>
+  queryOptions({
+    queryKey: queryKeys.repoCodeTree(repoId),
+    queryFn: () => getRepoTree(repoId),
+    refetchInterval: CODE_POLL_MS,
+    refetchOnWindowFocus: "always",
+  });
+
+export const repoCodeFileQuery = (repoId: string, path: string) =>
+  queryOptions({
+    queryKey: queryKeys.repoCodeFile(repoId, path),
+    queryFn: () => getRepoFile(repoId, path),
+    refetchInterval: CODE_POLL_MS,
     refetchOnWindowFocus: "always",
   });
 

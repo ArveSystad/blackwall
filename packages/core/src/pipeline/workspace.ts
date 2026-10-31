@@ -51,6 +51,41 @@ export function createInRepoClaims(): InRepoClaims {
   };
 }
 
+/**
+ * The active in-repo task holding the repo's own folder, if any, other than
+ * `exclude`: the task that claimed it, else (claims are lost on restart) one
+ * that is not done and still has a `worktreePath`. A claim whose task is gone
+ * or done is released. Shared by the prepare guard and the Code view's commit
+ * warning, so the two always agree.
+ */
+export function inRepoHolder({
+  repoId,
+  tasks,
+  claims,
+  exclude,
+}: {
+  repoId: string;
+  tasks: Pick<Repositories["tasks"], "list">;
+  claims: Pick<InRepoClaims, "holder" | "release">;
+  exclude?: string | undefined;
+}): Task | undefined {
+  const active = (other: Task | undefined): other is Task =>
+    other !== undefined &&
+    other.id !== exclude &&
+    other.inRepo &&
+    other.repoId === repoId &&
+    other.status !== "done";
+  const all = tasks.list();
+  const claimed = claims.holder(repoId);
+  if (claimed !== undefined && claimed !== exclude) {
+    const other = all.find((t) => t.id === claimed);
+    if (active(other)) return other;
+    // Its task is gone or done, so it no longer holds the folder.
+    claims.release(repoId, claimed);
+  }
+  return all.find((other) => active(other) && other.worktreePath !== null);
+}
+
 export interface WorkspacePreparerOptions {
   git: Pick<GitService, "createWorktree" | "switchBranch">;
   repos: Pick<Repositories["repos"], "get">;
@@ -94,21 +129,7 @@ export function createWorkspacePreparer({
 }: WorkspacePreparerOptions) {
   /** Another active in-repo task holding the task's repo folder, if any. */
   function holderOf(task: Task): Task | undefined {
-    const active = (other: Task | undefined): other is Task =>
-      other !== undefined &&
-      other.id !== task.id &&
-      other.inRepo &&
-      other.repoId === task.repoId &&
-      other.status !== "done";
-    const all = tasks.list();
-    const claimed = claims.holder(task.repoId);
-    if (claimed !== undefined && claimed !== task.id) {
-      const other = all.find((t) => t.id === claimed);
-      if (active(other)) return other;
-      // Its task is gone or done, so it no longer holds the folder.
-      claims.release(task.repoId, claimed);
-    }
-    return all.find((other) => active(other) && other.worktreePath !== null);
+    return inRepoHolder({ repoId: task.repoId, tasks, claims, exclude: task.id });
   }
 
   return async (task: Task): Promise<PreparedWorkspace> => {

@@ -222,3 +222,9 @@ export const StarIcon = icon(
 
 /** The backlog: stacked items waiting their turn. */
 export const BacklogIcon = icon(<path d="M3 4h10M3 8h10M3 12h6M12 11v3M10.5 12.5h3" />);
+
+export const CodeIcon = icon(<path d="M5.5 4.5 2 8l3.5 3.5M10.5 4.5 14 8l-3.5 3.5M9 3l-2 10" />);
+
+export const FileIcon = icon(<path d="M4 2h5l3 3v9H4zM9 2v3h3" />);
+
+export const FolderIcon = icon(<path d="M2 4.5V13h12V6H7.5L6 4.5z" />);

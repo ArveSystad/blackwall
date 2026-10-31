@@ -1,14 +1,18 @@
 import type { RepoService } from "@blackwall/core";
 import {
   reorderReposInputSchema,
+  repoCommitInputSchema,
   repoInputSchema,
   repoRenameInputSchema,
   repoScanInputSchema,
   repoUpdateSchema,
   type Repo,
+  type RepoCommitResult,
+  type RepoFile,
   type RepoRenameResult,
   type RepoScanResult,
   type RepoSync,
+  type RepoTree,
   type RepoView,
   type ServerEvent,
 } from "@blackwall/shared";
@@ -97,6 +101,30 @@ export function repoRoutes(
   routes.post("/:id/push", async (c) =>
     c.json<RepoSync | null>(await repos.push(c.req.param("id"))),
   );
+
+  /** The working copy's files and changes, for the Code view. */
+  routes.get("/:id/code/tree", async (c) =>
+    c.json<RepoTree>(await repos.codeTree(c.req.param("id"))),
+  );
+
+  /** One working-copy file by its repo-relative `path`; 404 when git doesn't list it. */
+  routes.get("/:id/code/file", async (c) => {
+    const path = c.req.query("path");
+    if (!path) return c.json({ error: "path is required" }, 400);
+    return c.json<RepoFile>(await repos.codeFile(c.req.param("id"), path));
+  });
+
+  /**
+   * Commits every change in the repo's own folder (never pushes). 409 when a
+   * hook rejects it or the checkout is no longer on the body's `branch`.
+   */
+  routes.post("/:id/code/commit", async (c) => {
+    const input = repoCommitInputSchema.safeParse(await readJson(c));
+    if (!input.success) return badRequest(c, input.error.issues);
+    return c.json<RepoCommitResult>(
+      await repos.commit(c.req.param("id"), input.data.message, input.data.branch),
+    );
+  });
 
   /**
    * Renames the repo on GitHub, in `origin` and on disk, then in the records.

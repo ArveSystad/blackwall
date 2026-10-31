@@ -598,6 +598,50 @@ export const repoSyncSchema = z.object({
 });
 export type RepoSync = z.infer<typeof repoSyncSchema>;
 
+/** Files above this size are listed in the Code view but not shown. */
+export const MAX_CODE_FILE_BYTES = 1024 * 1024;
+
+/** How a file in the repo's working copy differs from HEAD; `null` when unchanged. */
+export const repoFileChangeSchema = z
+  .enum(["modified", "added", "deleted", "renamed", "untracked"])
+  .nullable();
+export type RepoFileChange = z.infer<typeof repoFileChangeSchema>;
+
+/** The repo's working copy as the Code view lists it: tracked and untracked, not ignored, files. */
+export const repoTreeSchema = z.object({
+  /** The checked-out branch; `HEAD` when detached. */
+  branch: z.string().min(1),
+  files: z.array(z.object({ path: z.string().min(1), change: repoFileChangeSchema })),
+  /** The in-repo task holding the repo's folder, whose branch a commit would land on. */
+  activeInRepoTask: z.object({ id: z.string(), title: z.string() }).nullable(),
+});
+export type RepoTree = z.infer<typeof repoTreeSchema>;
+export type RepoTreeFile = RepoTree["files"][number];
+
+/** One working-copy file for the Code view, with its whole-file diff against HEAD when changed. */
+export const repoFileSchema = z.object({
+  path: z.string().min(1),
+  change: repoFileChangeSchema,
+  kind: z.enum(["text", "binary", "too-large", "symlink", "deleted"]),
+  size: z.int().min(0),
+  /** The file's text; `null` unless `kind` is `text`. */
+  content: z.string().nullable(),
+  /** `git diff HEAD` of the file with every line as context; `null` when unchanged or untracked. */
+  diff: z.string().nullable(),
+});
+export type RepoFile = z.infer<typeof repoFileSchema>;
+
+/** Body for committing every change in the repo's own folder. */
+export const repoCommitInputSchema = z.object({
+  message: z.string().trim().min(1),
+  /** The branch the user saw; the commit is refused when the checkout is now on another. */
+  branch: z.string().min(1),
+});
+export type RepoCommitInput = z.infer<typeof repoCommitInputSchema>;
+
+export const repoCommitResultSchema = z.object({ sha: z.string(), branch: z.string() });
+export type RepoCommitResult = z.infer<typeof repoCommitResultSchema>;
+
 /** Body for registering one repo. */
 export const repoInputSchema = z.object({
   path: z.string().trim().min(1),

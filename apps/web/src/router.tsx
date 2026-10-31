@@ -32,6 +32,7 @@ import { recordWindowOrigin } from "./window-origin";
 // chunk, since the router only preloads a route's own `component` on hover.
 const TaskView = lazyRouteComponent(() => import("./routes/TaskView"), "TaskView");
 const Backlog = lazyRouteComponent(() => import("./routes/Backlog"), "Backlog");
+const CodeView = lazyRouteComponent(() => import("./routes/CodeView"), "CodeView");
 
 const rootRoute = createRootRoute({
   component: function Root() {
@@ -80,14 +81,14 @@ const shellRoute = createRoute({
   ),
 });
 
-/** The grid behind Home, the task view and the Backlog; it stays mounted between them. */
+/** The grid behind Home and the task, Backlog and Code views; it stays mounted between them. */
 const gridRoute = createRoute({
   getParentRoute: () => shellRoute,
   id: "grid",
   component: GridLayout,
 });
 
-/** The window the task view and the Backlog float in over the grid. */
+/** The window the task view, the Backlog and the Code view float in over the grid. */
 const windowRoute = createRoute({
   getParentRoute: () => gridRoute,
   id: "window",
@@ -122,6 +123,20 @@ const backlogRoute = createRoute({
     const { repoId } = backlogRoute.useParams();
     const { item } = backlogRoute.useSearch();
     return <Backlog key={repoId} repoId={repoId} openItemId={item} />;
+  },
+});
+
+const codeRoute = createRoute({
+  getParentRoute: () => windowRoute,
+  path: "/repos/$repoId/code",
+  /** `file`: the repo-relative path of the file on screen. */
+  validateSearch: (search: Record<string, unknown>): { file?: string } =>
+    typeof search.file === "string" ? { file: search.file } : {},
+  loader: () => CodeView.preload?.(),
+  component: function CodeRoute() {
+    const { repoId } = codeRoute.useParams();
+    const { file } = codeRoute.useSearch();
+    return <CodeView key={repoId} repoId={repoId} file={file} />;
   },
 });
 
@@ -175,7 +190,10 @@ const statsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   shellRoute.addChildren([
-    gridRoute.addChildren([homeRoute, windowRoute.addChildren([taskRoute, backlogRoute])]),
+    gridRoute.addChildren([
+      homeRoute,
+      windowRoute.addChildren([taskRoute, backlogRoute, codeRoute]),
+    ]),
     activeRoute,
     reviewsRoute,
     issuesRoute,

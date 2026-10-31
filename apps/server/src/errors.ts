@@ -18,6 +18,8 @@ import {
   InvalidSettingsError,
   MissingCredentialError,
   RepoBusyError,
+  RepoCommitError,
+  RepoFileNotFoundError,
   RepoInUseError,
   RepoNotFoundError,
   RepoPushError,
@@ -69,7 +71,8 @@ export function errorResponse(error: unknown, c: Context) {
     error instanceof GrillQuestionNotFoundError ||
     error instanceof FindingNotFoundError ||
     error instanceof ChatActionNotFoundError ||
-    error instanceof ChatMessageNotFoundError
+    error instanceof ChatMessageNotFoundError ||
+    error instanceof RepoFileNotFoundError
   ) {
     return c.json({ error: error.message }, 404);
   }
@@ -87,6 +90,7 @@ export function errorResponse(error: unknown, c: Context) {
   if (
     error instanceof RepoInUseError ||
     error instanceof RepoBusyError ||
+    error instanceof RepoCommitError ||
     error instanceof TaskStateError ||
     error instanceof DataImportBusyError ||
     error instanceof DataImportDecisionsError ||

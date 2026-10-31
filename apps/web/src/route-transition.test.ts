@@ -30,6 +30,10 @@ describe("routeTransitionTypes", () => {
     expect(routeTransitionTypes("/", "/repos/x/backlog", false)).toBe(false);
     expect(routeTransitionTypes("/", "/tasks/a", false)).toBe(false);
     expect(routeTransitionTypes("/tasks/a", "/repos/x/backlog", false)).toBe(false);
+    expect(routeTransitionTypes("/repos/x/code", "/tasks/y", false)).toBe(false);
+    expect(routeTransitionTypes("/tasks/y", "/repos/x/code", false)).toBe(false);
+    expect(routeTransitionTypes("/repos/x/code", "/repos/x/backlog", false)).toBe(false);
+    expect(routeTransitionTypes("/repos/x/backlog", "/repos/x/code", false)).toBe(false);
   });
 
   it("does not wipe within a view", () => {

@@ -35,6 +35,7 @@ import {
   createTaskDiffs,
   createPrHeadSync,
   createInRepoClaims,
+  inRepoHolder,
   createWorkspacePreparer,
   createWorkspaceArchiver,
   createWorkspaceRemover,
@@ -115,9 +116,18 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
     const github = createGitHubOrigin({ connections });
     // Shared by the repo rename, the engine and the memory backfill.
     const renameLocks = createRepoRenameLocks();
+    // Which in-repo task holds each repo's own folder.
+    const inRepoClaims = createInRepoClaims();
     const repos = createRepoService({
       repos: repositories.repos,
       connections,
+      git,
+      // Commits from the Code view never interleave with an in-repo task's branch switch.
+      withRepoLock: inRepoClaims.withRepoLock,
+      inRepoTask: (repoId) => {
+        const holder = inRepoHolder({ repoId, tasks: repositories.tasks, claims: inRepoClaims });
+        return holder ? { id: holder.id, title: holder.title } : null;
+      },
       // Reads the engine and the backfill only during a rename, after both exist.
       rename: {
         tasks: repositories.tasks,
@@ -248,8 +258,6 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       renaming: renameLocks,
     });
     shutdown.onShutdown(() => memoryBackfill.stop());
-    // Which in-repo task holds each repo's own folder.
-    const inRepoClaims = createInRepoClaims();
     const pipeline = createPipelineEngine({
       repositories,
       invocation: agents.invocation,

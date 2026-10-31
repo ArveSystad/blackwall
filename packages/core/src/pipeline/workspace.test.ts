@@ -20,6 +20,8 @@ import {
   createWorkspacePreparer,
   createWorkspaceRemover,
   createWorkspaceSyncer,
+  inRepoHolder,
+  type InRepoClaims,
   type WorkspaceArchiverOptions,
 } from "./workspace.js";
 
@@ -956,5 +958,62 @@ describe("createWorkspaceArchiver ordering", () => {
     expect(removeWorktree).toHaveBeenCalledTimes(2);
     releases.shift()!();
     await expect(later).resolves.toEqual({ sha: "sha" });
+  });
+});
+
+describe("inRepoHolder", () => {
+  const inRepo = (patch: Partial<Task>) =>
+    task({
+      origin: { kind: "free-text" },
+      title: "Fix login",
+      inRepo: true,
+      status: "running",
+      worktreePath: "/code/app",
+      ...patch,
+    });
+
+  const holder = (tasks: Task[], claims: InRepoClaims, exclude?: string) =>
+    inRepoHolder({ repoId: "r1", tasks: { list: () => tasks }, claims, exclude });
+
+  it("returns the task that claimed the folder", () => {
+    const claims = createInRepoClaims();
+    claims.claim("r1", "t1");
+    const tasks = [inRepo({ id: "t1", worktreePath: null })];
+    expect(holder(tasks, claims)?.id).toBe("t1");
+  });
+
+  it("falls back to an active in-repo task with a worktree path when nothing claimed the folder", () => {
+    const tasks = [inRepo({ id: "t1", worktreePath: null }), inRepo({ id: "t2" })];
+    expect(holder(tasks, createInRepoClaims())?.id).toBe("t2");
+  });
+
+  it("ignores done tasks, tasks of other repos and tasks that are not in-repo", () => {
+    const tasks = [
+      inRepo({ id: "done", status: "done" }),
+      inRepo({ id: "other", repoId: "r2" }),
+      inRepo({ id: "worktree", inRepo: false }),
+    ];
+    expect(holder(tasks, createInRepoClaims())).toBeUndefined();
+  });
+
+  it("releases a claim whose task is done or gone", () => {
+    const claims = createInRepoClaims();
+    claims.claim("r1", "t1");
+    expect(holder([inRepo({ id: "t1", status: "done" })], claims)).toBeUndefined();
+    expect(claims.holder("r1")).toBeUndefined();
+
+    claims.claim("r1", "gone");
+    expect(holder([], claims)).toBeUndefined();
+    expect(claims.holder("r1")).toBeUndefined();
+  });
+
+  it("honours exclude, and does not release a claim held by the excluded task", () => {
+    const claims = createInRepoClaims();
+    const tasks = [inRepo({ id: "t1" })];
+    expect(holder(tasks, claims, "t1")).toBeUndefined();
+
+    claims.claim("r1", "t1");
+    expect(holder([...tasks, inRepo({ id: "t2" })], claims, "t1")?.id).toBe("t2");
+    expect(claims.holder("r1")).toBe("t1");
   });
 });

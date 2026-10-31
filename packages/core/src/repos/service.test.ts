@@ -8,12 +8,14 @@ import { MissingCredentialError, createConnectionService } from "../connections/
 import { openDatabase, type OpenedDatabase } from "../db/database.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
 import { worktreePathFor } from "../git/branches.js";
+import { createInRepoClaims } from "../pipeline/workspace.js";
 import { createMemorySecretStore } from "../secrets/secret-store.js";
 import { createConnectionTokens } from "../secrets/tokens.js";
 import { RepoRenamingError, createRepoRenameLocks, type RepoRenameLocks } from "./rename-lock.js";
 import {
   InvalidRepoError,
   RepoBusyError,
+  RepoCommitError,
   RepoInUseError,
   RepoNotFoundError,
   RepoPushError,
@@ -23,6 +25,7 @@ import {
   referenceReposFrom,
   referenceReposOf,
   type RepoService,
+  type RepoServiceOptions,
 } from "./service.js";
 
 let opened: OpenedDatabase;
@@ -808,5 +811,149 @@ describe("rename", () => {
     await expect(renamer().rename(repo.id, "shop")).rejects.toThrow(MissingCredentialError);
     expect(locks.isHeld(repo.id)).toBe(false);
     expect(existsSync(join(root, "app"))).toBe(true);
+  });
+});
+
+describe("committing from the Code view", () => {
+  /** A repo on `main` with one commit, registered with the service. */
+  async function committedRepo(): Promise<{ path: string; id: string }> {
+    const path = gitRepo(["app"]);
+    git(path, "symbolic-ref", "HEAD", "refs/heads/main");
+    git(path, "config", "user.name", "Test");
+    git(path, "config", "user.email", "test@example.com");
+    git(path, "config", "commit.gpgsign", "false");
+    git(path, "config", "core.autocrlf", "false");
+    writeFileSync(join(path, "README.md"), "hello\n");
+    git(path, "add", "-A");
+    git(path, "commit", "--quiet", "-m", "initial");
+    const repo = await service.add({ path });
+    return { path, id: repo.id };
+  }
+
+  function out(cwd: string, ...args: string[]): string {
+    return execFileSync("git", args, {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  }
+
+  /** A service over the same registry, with the given options. */
+  function serviceWith(
+    options: Omit<RepoServiceOptions, "repos" | "connections"> = {},
+  ): RepoService {
+    const tokens = createConnectionTokens({
+      store: createMemorySecretStore(),
+      connections: r.connections,
+      env: {},
+    });
+    const connections = createConnectionService({ connections: r.connections, tokens });
+    return createRepoService({ repos: r.repos, connections, ...options });
+  }
+
+  it("commits every change, tracked and untracked, and returns the new head", async () => {
+    const { path, id } = await committedRepo();
+    writeFileSync(join(path, "README.md"), "changed\n");
+    writeFileSync(join(path, "new.txt"), "new\n");
+
+    const result = await service.commit(id, "add stuff", "main");
+    expect(result).toEqual({ sha: out(path, "rev-parse", "HEAD"), branch: "main" });
+    expect(out(path, "show", "--name-only", "--format=", "HEAD").split("\n").sort()).toEqual([
+      "README.md",
+      "new.txt",
+    ]);
+    expect(out(path, "status", "--porcelain")).toBe("");
+  });
+
+  it("prefixes a message without a type with chore: and keeps a typed one", async () => {
+    const { path, id } = await committedRepo();
+    writeFileSync(join(path, "a.txt"), "a\n");
+    await service.commit(id, "fix it", "main");
+    expect(out(path, "log", "-1", "--format=%s")).toBe("chore: fix it");
+
+    writeFileSync(join(path, "b.txt"), "b\n");
+    await service.commit(id, "feat: x", "main");
+    expect(out(path, "log", "-1", "--format=%s")).toBe("feat: x");
+  });
+
+  it("refuses a commit with nothing to commit", async () => {
+    const { id } = await committedRepo();
+    await expect(service.commit(id, "fix it", "main")).rejects.toThrow(InvalidRepoError);
+  });
+
+  it("reports a rejecting pre-commit hook as a commit error and commits nothing", async () => {
+    const { path, id } = await committedRepo();
+    const head = out(path, "rev-parse", "HEAD");
+    writeFileSync(join(path, ".git", "hooks", "pre-commit"), "#!/bin/sh\necho nope >&2\nexit 1\n", {
+      mode: 0o755,
+    });
+    writeFileSync(join(path, "README.md"), "changed\n");
+
+    await expect(service.commit(id, "fix it", "main")).rejects.toThrow(RepoCommitError);
+    expect(out(path, "rev-parse", "HEAD")).toBe(head);
+  });
+
+  it("reports a repo whose folder is gone as stale", async () => {
+    const { path, id } = await committedRepo();
+    rmSync(path, { recursive: true, force: true });
+    await expect(service.commit(id, "fix it", "main")).rejects.toThrow(StaleRepoError);
+  });
+
+  it("refuses when the checkout is on another branch than the one the user saw", async () => {
+    const { path, id } = await committedRepo();
+    const head = out(path, "rev-parse", "HEAD");
+    writeFileSync(join(path, "README.md"), "changed\n");
+
+    await expect(service.commit(id, "fix it", "feature")).rejects.toThrow(RepoCommitError);
+    expect(out(path, "rev-parse", "HEAD")).toBe(head);
+  });
+
+  it("checks the branch under the repo lock, so a switch made while it is held is refused", async () => {
+    const { path, id } = await committedRepo();
+    const claims = createInRepoClaims();
+    const locked = serviceWith({ withRepoLock: claims.withRepoLock });
+    const head = out(path, "rev-parse", "HEAD");
+    let release!: () => void;
+    const holding = claims.withRepoLock(
+      id,
+      () => new Promise<void>((resolve) => (release = resolve)),
+    );
+    writeFileSync(join(path, "README.md"), "changed\n");
+
+    const outcome = locked.commit(id, "fix it", "main").then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(out(path, "rev-parse", "HEAD")).toBe(head);
+
+    git(path, "switch", "-c", "other");
+    release();
+    await holding;
+
+    expect(await outcome).toBeInstanceOf(RepoCommitError);
+    expect(out(path, "rev-parse", "refs/heads/other")).toBe(head);
+  });
+
+  it("reports the in-repo task from inRepoTask in the tree, and none by default", async () => {
+    const { id } = await committedRepo();
+    expect((await service.codeTree(id)).activeInRepoTask).toBeNull();
+
+    const withTask = serviceWith({ inRepoTask: () => ({ id: "t1", title: "T" }) });
+    expect(await withTask.codeTree(id)).toMatchObject({
+      branch: "main",
+      activeInRepoTask: { id: "t1", title: "T" },
+    });
+  });
+
+  it("still commits while an in-repo task holds the folder", async () => {
+    const { path, id } = await committedRepo();
+    const withTask = serviceWith({ inRepoTask: () => ({ id: "t1", title: "T" }) });
+    writeFileSync(join(path, "README.md"), "changed\n");
+
+    expect(await withTask.commit(id, "fix it", "main")).toEqual({
+      sha: out(path, "rev-parse", "HEAD"),
+      branch: "main",
+    });
   });
 });

@@ -18,6 +18,7 @@ import {
   repoScanResultSchema,
   repoSchema,
   repoSyncSchema,
+  repoTreeSchema,
   repoViewSchema,
   staleRepoSchema,
   type ServerEvent,
@@ -458,5 +459,112 @@ describe("repo rename route", () => {
     const moved = repositories.tasks.get(task!.id)!;
     expect(moved.worktreePath).toBe(join(root, "shop.worktrees", task!.id));
     expect(events).toEqual([{ type: "task.upserted", payload: { task: moved } }]);
+  });
+});
+
+describe("code view routes", () => {
+  /** A git repo on `main` with one commit, under the temp root. */
+  function committedRepo(name: string): string {
+    const path = join(root, name);
+    mkdirSync(path);
+    git(path, "init", "--quiet", "-b", "main");
+    git(path, "config", "user.name", "Test");
+    git(path, "config", "user.email", "test@example.com");
+    git(path, "config", "commit.gpgsign", "false");
+    git(path, "config", "core.autocrlf", "false");
+    commit(path, "README.md");
+    return path;
+  }
+
+  async function register(path: string) {
+    const res = await request("/api/repos", { method: "POST", body: { path } });
+    return repoSchema.parse(await res.json());
+  }
+
+  function commitRequest(id: string, body: unknown) {
+    return request(`/api/repos/${id}/code/commit`, { method: "POST", body });
+  }
+
+  it("needs a path to read a file", async () => {
+    const repo = await register(committedRepo("app"));
+    const res = await request(`/api/repos/${repo.id}/code/file`);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "path is required" });
+  });
+
+  it("answers 404 for a file git does not list and for a gitignored one", async () => {
+    const path = committedRepo("app");
+    writeFileSync(join(path, ".gitignore"), ".env\n");
+    git(path, "add", "-A");
+    git(path, "commit", "--quiet", "-m", "ignore secrets");
+    writeFileSync(join(path, ".env"), "SECRET=1\n");
+    const repo = await register(path);
+
+    const missing = await request(`/api/repos/${repo.id}/code/file?path=nope.txt`);
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toEqual({ error: "nope.txt is not a file in the repo" });
+
+    const ignored = await request(`/api/repos/${repo.id}/code/file?path=.env`);
+    expect(ignored.status).toBe(404);
+    expect(await ignored.text()).not.toContain("SECRET");
+  });
+
+  it("answers 400 for an empty message or a missing branch", async () => {
+    const repo = await register(committedRepo("app"));
+    expect((await commitRequest(repo.id, { message: "", branch: "main" })).status).toBe(400);
+    expect((await commitRequest(repo.id, { message: "fix it" })).status).toBe(400);
+  });
+
+  it("answers 409 when a hook rejects the commit", async () => {
+    const path = committedRepo("app");
+    const repo = await register(path);
+    writeFileSync(join(path, ".git", "hooks", "pre-commit"), "#!/bin/sh\necho nope >&2\nexit 1\n", {
+      mode: 0o755,
+    });
+    writeFileSync(join(path, "README.md"), "changed\n");
+
+    const res = await commitRequest(repo.id, { message: "fix it", branch: "main" });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: expect.any(String) });
+  });
+
+  it("answers 409 when the checkout is not on the branch given", async () => {
+    const path = committedRepo("app");
+    const repo = await register(path);
+    writeFileSync(join(path, "README.md"), "changed\n");
+
+    const res = await commitRequest(repo.id, { message: "fix it", branch: "feature" });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: expect.stringContaining("not feature") });
+  });
+
+  it("commits the changes and answers with the new head and branch", async () => {
+    const path = committedRepo("app");
+    const repo = await register(path);
+    writeFileSync(join(path, "README.md"), "changed\n");
+    writeFileSync(join(path, "new.txt"), "new\n");
+
+    const res = await commitRequest(repo.id, { message: "fix it", branch: "main" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ sha: git(path, "rev-parse", "HEAD"), branch: "main" });
+    expect(git(path, "log", "-1", "--format=%s")).toBe("chore: fix it");
+    expect(git(path, "status", "--porcelain")).toBe("");
+  });
+
+  it("lists the working copy with no in-repo task holding it", async () => {
+    const path = committedRepo("app");
+    const repo = await register(path);
+    writeFileSync(join(path, "new.txt"), "new\n");
+
+    const res = await request(`/api/repos/${repo.id}/code/tree`);
+    expect(res.status).toBe(200);
+    expect(repoTreeSchema.parse(await res.json())).toEqual({
+      branch: "main",
+      files: [
+        { path: "README.md", change: null },
+        { path: "new.txt", change: "untracked" },
+      ],
+      activeInRepoTask: null,
+    });
   });
 });

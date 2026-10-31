@@ -11,8 +11,9 @@ export function routeViewKey(pathname: string): string {
 }
 
 /**
- * The views that share the grid (GridLayout.tsx): Home, a task and the Backlog. Moving between
- * them keeps the grid, and the task and Backlog window flickers in instead of wiping.
+ * The views that share the grid (GridLayout.tsx): Home, a task, the Backlog and the Code view.
+ * Moving between them keeps the grid, and the task, Backlog and Code window flickers in instead
+ * of wiping.
  */
 const GRID_VIEW_KEYS = new Set(["", "tasks", "repos"]);
 
