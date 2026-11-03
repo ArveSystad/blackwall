@@ -111,8 +111,7 @@ Rules:
   tube (`.bw-wordmark-flicker`), then settles. It adds no glow or colour, never plays on first mount
   and is skipped under reduced motion. Only the wordmark may do this. Details in `blackwall-motion`.
 - The route wipe is the fourth sanctioned exception: a 150ms left-to-right `clip-path` reveal of the
-  page area when the top-level view changes (Home, Active, Backlog, a task, Reviews, Issues,
-  Stats). Never into or out of Settings (the shutter animates those), on task → task, switching
+  page area between the grid (Home and its windows) and Stats. Never into or out of Settings (the shutter animates those), on task → task, switching
   the Backlog repo, search params or data updates. It adds no colour or glow and is skipped under
   reduced motion and in browsers without View Transition types. Details in `blackwall-motion`.
 - The Settings shutter scanline is the fifth sanctioned exception. The shutter's bottom edge is a
@@ -171,6 +170,14 @@ Rules:
   while main has commits to push), View code, Run project, the repo status line and the path. Right: the quota chip, Search (`⌘K`), Chat, Theme, Stats and Settings.
 - **Shell:** inbox on the left (~352px), task view on the right. Settings replaces both panes with
   a settings nav, a list and an editor.
+- **Grid windows:** Task, Backlog, Code, Review requests, Assigned issues, My pull requests and
+  Active agents float in `GridWindow` (inset 16px, chamfered, `bg-background/92`) over the mounted
+  grid, which keeps animating around them. Full-width bars and side panels are `bg-sidebar/40`;
+  inset cards and rows stay opaque. The rightmost header keeps `pr-14` to clear the close X. Esc
+  and the X belong to the window (a task returns to the Backlog or list it came from); views never
+  add their own leave-on-Esc, and inner Esc handlers `preventDefault`. New lists and sections
+  reachable from the grid go under `windowRoute` and into `GRID_VIEW_KEYS` by default. Settings
+  (shutter) and Stats are the exceptions.
 - **Stats:** a full page at `/stats`, opened from the top bar's Stats button. Its header has an
   "Inbox" back button with `Esc`. It shows tasks resolved, a tile per task type, repositories
   touched and a per-day bar chart of the last 10 days.

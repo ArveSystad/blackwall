@@ -32,7 +32,13 @@ import { Kbd } from "../components/ui/kbd";
 import { useWithCredential } from "../credentials";
 import { useNow } from "../hooks";
 import { relativeTime } from "../inbox";
-import { isModKey, isTypingTarget, modKeyLabel, useEscapeTo, useWindowKeydown } from "../keyboard";
+import {
+  isEscapeToLeave,
+  isModKey,
+  isTypingTarget,
+  modKeyLabel,
+  useWindowKeydown,
+} from "../keyboard";
 import { cn } from "../lib/utils";
 import {
   MERGE_METHOD_LABELS,
@@ -373,7 +379,8 @@ function MyPullRequestPane({ url, row }: { url: string; row: MyPullRequest | und
 
   return (
     <section aria-label="Pull request" className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className={paneHeader}>
+      {/* `pr-14` keeps the last control clear of the window's close button. */}
+      <div className={cn(paneHeader, "bg-sidebar/40 pr-14")}>
         <span className="flex min-w-0 flex-1 flex-col">
           <h2 className={cn(paneTitle, "text-body")}>
             {detail.data?.title ?? row?.title ?? pullRequestName(url)}
@@ -436,12 +443,28 @@ export function MyPullRequests({ openUrl }: { openUrl?: string | undefined }) {
     if (data && data.errors.length === 0) forgetUnlisted(data.pullRequests.map((pr) => pr.url));
   }, [data]);
 
-  useEscapeTo(() => void navigate(openUrl ? { to: "/pulls" } : { to: "/" }));
+  // Escape closes the open pull request first; the window's own Escape leaves for the grid after.
+  // Capture phase, so it runs before the window's listener whichever mounted first.
+  useWindowKeydown(
+    (event) => {
+      if (!isEscapeToLeave(event) || document.querySelector("[role=dialog]")) return;
+      event.preventDefault();
+      void navigate({ to: "/pulls" });
+    },
+    Boolean(openUrl),
+    true,
+  );
 
   return (
     <div className="flex h-full min-w-0">
-      <div className={cn("flex h-full min-w-0 flex-col", openUrl ? listPane : "flex-1")}>
-        <div className={cn(paneHeader, "bg-sidebar")}>
+      <div
+        className={cn(
+          "flex h-full min-w-0 flex-col",
+          openUrl ? cn(listPane, "bg-sidebar/40") : "flex-1",
+        )}
+      >
+        {/* `pr-14` keeps the last control clear of the window's close button. */}
+        <div className={cn(paneHeader, "bg-sidebar/40", !openUrl && "pr-14")}>
           <h1 className={paneTitle}>My pull requests</h1>
           {pulls.data && (
             <span className="mono text-label text-faint">

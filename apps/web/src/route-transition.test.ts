@@ -21,10 +21,17 @@ describe("routeTransitionTypes", () => {
     expect(routeTransitionTypes("/stats", "/", false)).toEqual(["bw-route"]);
   });
 
-  it("wipes between a grid view and another shell page", () => {
-    expect(routeTransitionTypes("/tasks/a", "/reviews", false)).toEqual(["bw-route"]);
-    expect(routeTransitionTypes("/", "/pulls", false)).toEqual(["bw-route"]);
-    expect(routeTransitionTypes("/active", "/", false)).toEqual(["bw-route"]);
+  it("wipes between a list window and Stats", () => {
+    expect(routeTransitionTypes("/reviews", "/stats", false)).toEqual(["bw-route"]);
+    expect(routeTransitionTypes("/stats", "/active", false)).toEqual(["bw-route"]);
+  });
+
+  it("does not wipe between the grid and its list windows", () => {
+    expect(routeTransitionTypes("/tasks/a", "/reviews", false)).toBe(false);
+    expect(routeTransitionTypes("/", "/pulls", false)).toBe(false);
+    expect(routeTransitionTypes("/active", "/", false)).toBe(false);
+    expect(routeTransitionTypes("/issues", "/tasks/a", false)).toBe(false);
+    expect(routeTransitionTypes("/reviews", "/repos/x/backlog", false)).toBe(false);
   });
 
   it("does not wipe between grid views", () => {
@@ -45,6 +52,7 @@ describe("routeTransitionTypes", () => {
 
   it("does not wipe on a search-only change", () => {
     expect(routeTransitionTypes("/repos/x/backlog", "/repos/x/backlog", false)).toBe(false);
+    expect(routeTransitionTypes("/pulls", "/pulls", false)).toBe(false);
   });
 
   it("does not wipe on first load", () => {

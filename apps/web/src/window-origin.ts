@@ -1,6 +1,6 @@
 /**
- * Where the task window was opened from, so leaving it lands there: the Backlog it came from, or
- * the grid. Recorded per history entry by the router (router.tsx), so every way of opening a task
+ * Where the task window was opened from, so leaving it lands there: the Backlog or list it came
+ * from, or the grid. Recorded per history entry by the router (router.tsx), so every way of opening a task
  * counts and Back/Forward keep each entry's own origin. Held in memory only: after a reload a task
  * leaves to the grid.
  */
@@ -12,7 +12,16 @@ export interface OriginLocation {
 }
 
 /** Where leaving the window goes. */
-export type WindowExit = { to: "/" } | { to: "/repos/$repoId/backlog"; params: { repoId: string } };
+export type WindowExit =
+  | { to: "/" }
+  | { to: "/repos/$repoId/backlog"; params: { repoId: string } }
+  | { to: "/reviews" }
+  | { to: "/issues" }
+  | { to: "/pulls" }
+  | { to: "/active" };
+
+/** The list windows a task can be opened from. */
+const LIST_PATHS = ["/reviews", "/issues", "/pulls", "/active"] as const;
 
 const BACKLOG_PATH = /^\/repos\/([^/]+)\/backlog$/;
 const TASK_PATH = /^\/tasks\/[^/]+$/;
@@ -28,15 +37,24 @@ export function isTaskPath(pathname: string): boolean {
   return TASK_PATH.test(pathname);
 }
 
-/** Leaving a task goes to the Backlog it was opened from, if any; everything else goes home. */
-export function windowExitTarget(pathname: string, originRepoId: string | null): WindowExit {
-  return isTaskPath(pathname) && originRepoId !== null
-    ? { to: "/repos/$repoId/backlog", params: { repoId: originRepoId } }
-    : { to: "/" };
+/** The window exit back to the Backlog or list at `pathname`, or null for any other path. */
+export function windowOriginOfPath(pathname: string): WindowExit | null {
+  const repoId = backlogRepoIdOf(pathname);
+  if (repoId !== null) return { to: "/repos/$repoId/backlog", params: { repoId } };
+  const list = LIST_PATHS.find((path) => path === pathname);
+  return list === undefined ? null : { to: list };
 }
 
-/** History entry key → the Backlog repo the task in that entry was opened from, or null. */
-const origins = new Map<string, string | null>();
+/**
+ * Leaving a task goes to the Backlog or list it was opened from, if any; everything else goes
+ * home.
+ */
+export function windowExitTarget(pathname: string, origin: WindowExit | null): WindowExit {
+  return isTaskPath(pathname) && origin !== null ? origin : { to: "/" };
+}
+
+/** History entry key → where the task in that entry was opened from, or null. */
+const origins = new Map<string, WindowExit | null>();
 
 function entryKey(location: OriginLocation): string | undefined {
   return location.state.__TSR_key ?? location.state.key;
@@ -53,15 +71,15 @@ export function recordWindowOrigin(
   if (!isTaskPath(toLocation.pathname)) return;
   const key = entryKey(toLocation);
   if (key === undefined || origins.has(key)) return;
-  origins.set(key, fromPathname === undefined ? null : backlogRepoIdOf(fromPathname));
+  origins.set(key, fromPathname === undefined ? null : windowOriginOfPath(fromPathname));
 }
 
-/** The Backlog repo the entry with `key` was opened from, or null when unknown. */
-export function windowOriginFor(key: string | undefined): string | null {
+/** Where the entry with `key` was opened from, or null when unknown. */
+export function windowOriginFor(key: string | undefined): WindowExit | null {
   return key === undefined ? null : (origins.get(key) ?? null);
 }
 
 /** The origin of the entry at `location`. */
-export function windowOriginOf(location: OriginLocation): string | null {
+export function windowOriginOf(location: OriginLocation): WindowExit | null {
   return windowOriginFor(entryKey(location));
 }

@@ -1,6 +1,5 @@
 import type { AssignedIssue, BacklogItemView } from "@blackwall/shared";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { issueOrigin, issueWork, type IssueWork } from "../assigned-issues";
 import { paneBody, paneHeader, paneTitle } from "../components/classes";
@@ -11,7 +10,6 @@ import { Section } from "../components/Section";
 import { Button } from "../components/ui/button";
 import { WorkOnTask } from "../components/WorkOnTask";
 import { useNow } from "../hooks";
-import { useEscapeTo } from "../keyboard";
 import { cn } from "../lib/utils";
 import {
   assignedIssuesQuery,
@@ -44,7 +42,6 @@ function IssueAction({ issue, work }: { issue: AssignedIssue; work: IssueWork })
  * Polled at the GitHub issues refresh interval, since GitHub sends no live events.
  */
 export function AssignedIssues() {
-  const navigate = useNavigate();
   const settings = useQuery(settingsQuery);
   const issues = useQuery(assignedIssuesQuery(issuesRefreshSeconds(settings.data)));
   const now = useNow();
@@ -57,11 +54,10 @@ export function AssignedIssues() {
   const backlogs = useQueries({ queries: repoIds.map((repoId) => backlogQuery(repoId)) });
   const backlogItems: BacklogItemView[] = backlogs.flatMap((backlog) => backlog.data ?? []);
 
-  useEscapeTo(() => void navigate({ to: "/" }));
-
   return (
     <div className="flex h-full min-w-0 flex-col">
-      <div className={cn(paneHeader, "bg-sidebar")}>
+      {/* `pr-14` keeps the last control clear of the window's close button. */}
+      <div className={cn(paneHeader, "bg-sidebar/40 pr-14")}>
         <h1 className={paneTitle}>Assigned issues</h1>
         {issues.data && (
           <span className="mono text-label text-faint">{issues.data.issues.length} open</span>

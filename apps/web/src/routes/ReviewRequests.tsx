@@ -1,6 +1,5 @@
 import type { BacklogItemView, ReviewRequest } from "@blackwall/shared";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import { useMemo, type ReactNode } from "react";
 import type { IssueWork } from "../assigned-issues";
 import { paneBody, paneHeader, paneTitle } from "../components/classes";
@@ -14,7 +13,6 @@ import { Button } from "../components/ui/button";
 import { WorkOnTask } from "../components/WorkOnTask";
 import { useNow } from "../hooks";
 import { relativeTime } from "../inbox";
-import { useEscapeTo } from "../keyboard";
 import { cn } from "../lib/utils";
 import { backlogQuery, reviewRequestsQuery, tasksQuery } from "../query";
 import { groupByHost, prOrigin, pullRequestWork, reviewStatusLabel } from "../review-requests";
@@ -83,7 +81,6 @@ function ReviewRow({ pr, now, action }: { pr: ReviewRequest; now: Date; action: 
  * adds a PR to its registered repo's backlog as a Review PR task and starts it.
  */
 export function ReviewRequests() {
-  const navigate = useNavigate();
   const reviews = useQuery(reviewRequestsQuery);
   const now = useNow();
   const groups = useMemo(
@@ -98,11 +95,10 @@ export function ReviewRequests() {
   const backlogs = useQueries({ queries: repoIds.map((repoId) => backlogQuery(repoId)) });
   const backlogItems: BacklogItemView[] = backlogs.flatMap((backlog) => backlog.data ?? []);
 
-  useEscapeTo(() => void navigate({ to: "/" }));
-
   return (
     <div className="flex h-full min-w-0 flex-col">
-      <div className={cn(paneHeader, "bg-sidebar")}>
+      {/* `pr-14` keeps the last control clear of the window's close button. */}
+      <div className={cn(paneHeader, "bg-sidebar/40 pr-14")}>
         <h1 className={paneTitle}>Review requests</h1>
         {reviews.data && (
           <span className="mono text-label text-faint">

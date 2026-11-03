@@ -32,8 +32,15 @@ export function modKeyLabel(key: string): string {
   return isMac() ? `⌘${key}` : `Ctrl ${key}`;
 }
 
-/** Calls the latest `handler` for every key press on the window while `enabled`. */
-export function useWindowKeydown(handler: (event: KeyboardEvent) => void, enabled = true): void {
+/**
+ * Calls the latest `handler` for every key press on the window while `enabled`. `capture` runs it
+ * before every bubble listener, such as `GridWindow`'s Escape, whatever order they mounted in.
+ */
+export function useWindowKeydown(
+  handler: (event: KeyboardEvent) => void,
+  enabled = true,
+  capture = false,
+): void {
   const latest = useRef(handler);
   useEffect(() => {
     latest.current = handler;
@@ -43,9 +50,9 @@ export function useWindowKeydown(handler: (event: KeyboardEvent) => void, enable
     function onKeyDown(event: KeyboardEvent) {
       latest.current(event);
     }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [enabled]);
+    window.addEventListener("keydown", onKeyDown, capture);
+    return () => window.removeEventListener("keydown", onKeyDown, capture);
+  }, [enabled, capture]);
 }
 
 /** A plain Escape no other handler claimed and not aimed at a text field or select menu. */

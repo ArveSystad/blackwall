@@ -1,13 +1,12 @@
 import type { ActiveAgentStep, Agent, Task } from "@blackwall/shared";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { AgentTile } from "../components/AgentTile";
 import { paneBody, paneHeader, paneTitle } from "../components/classes";
 import { EmptyState } from "../components/EmptyState";
 import { useAgentLibrary, useNow } from "../hooks";
 import { originKey, relativeTime } from "../inbox";
-import { useEscapeTo } from "../keyboard";
 import { cn } from "../lib/utils";
 import { activeAgentsQuery, reposQuery, stepEventsQuery, tasksQuery } from "../query";
 import {
@@ -97,7 +96,6 @@ function AgentRow({
 
 /** Every running agent across all tasks, oldest first, updated live. */
 export function ActiveAgents() {
-  const navigate = useNavigate();
   const active = useQuery(activeAgentsQuery);
   const tasks = useQuery(tasksQuery);
   const library = useAgentLibrary();
@@ -112,11 +110,10 @@ export function ActiveAgents() {
     [repos.data],
   );
 
-  useEscapeTo(() => void navigate({ to: "/" }));
-
   return (
     <div className="flex h-full min-w-0 flex-col">
-      <div className={cn(paneHeader, "bg-sidebar")}>
+      {/* `pr-14` keeps the last control clear of the window's close button. */}
+      <div className={cn(paneHeader, "bg-sidebar/40 pr-14")}>
         <h1 className={paneTitle}>Active agents</h1>
         {active.data && (
           <span className="mono text-label text-faint">{active.data.length} running</span>

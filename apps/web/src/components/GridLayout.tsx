@@ -8,8 +8,8 @@ import { CloseIcon } from "./icons";
 import { Button } from "./ui/button";
 
 /**
- * The grid shared by Home, the task, Backlog and Code views. It stays mounted while moving between
- * them, so the drift never restarts. Its `fade` comes from the view on top via `useGridFade`.
+ * The grid shared by Home and every window over it (task, Backlog, Code, review requests, assigned
+ * issues, my pull requests and active agents). It stays mounted while moving between them, so the drift never restarts. Its `fade` comes from the view on top via `useGridFade`.
  * `isolate` keeps the film within the pane and below portalled dialogs; the layout itself never
  * scrolls, its views do.
  */
@@ -26,16 +26,16 @@ export function GridLayout() {
 }
 
 /**
- * The window the task, Backlog and Code views float in over the grid: 16px in from every edge, so the
- * grid shows around it, and above the film (`z-40`), so its text gets no grain. It stays mounted
- * between task, Backlog and Code pages, so its flicker in (`.bw-window`, the archive crumble's opacity
+ * The window the task, Backlog, Code, review requests, assigned issues, my pull requests and active
+ * agents views float in over the grid: 16px in from every edge, so the grid shows around it, and
+ * above the film (`z-40`), so its text gets no grain. It stays mounted between those pages, so its flicker in (`.bw-window`, the archive crumble's opacity
  * stutter in reverse) plays only when it opens over the bare grid. The grid runs full width around
  * it.
  * Slightly see-through in two layers: the window is `bg-background/92`, and the bars and side
  * panels that make up its structure are `bg-sidebar/40` on top (~95% stacked), so the scan line and
  * the film's flicker show faintly behind both. Inset cards stay opaque so their text reads cleanly.
- * Escape and the close button leave it: a Backlog or the Code view for the grid, a task for the Backlog it was
- * opened from (window-origin.ts), else the grid.
+ * Escape and the close button leave it: a task for the Backlog or list it was opened from
+ * (window-origin.ts), everything else for the grid.
  */
 export function GridWindow() {
   useGridFade(false);

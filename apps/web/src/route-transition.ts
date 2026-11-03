@@ -11,11 +11,12 @@ export function routeViewKey(pathname: string): string {
 }
 
 /**
- * The views that share the grid (GridLayout.tsx): Home, a task, the Backlog and the Code view.
- * Moving between them keeps the grid, and the task, Backlog and Code window flickers in instead
- * of wiping.
+ * The views that share the grid (GridLayout.tsx): Home and every window view over it (task,
+ * Backlog, Code, review requests, assigned issues, my pull requests and active agents). Moving
+ * between them keeps the grid, and the window flickers in instead of wiping. New grid screens are
+ * added here.
  */
-const GRID_VIEW_KEYS = new Set(["", "tasks", "repos"]);
+const GRID_VIEW_KEYS = new Set(["", "tasks", "repos", "reviews", "issues", "pulls", "active"]);
 
 /**
  * The View Transition types for a navigation, or `false` to commit it without one. Skips the

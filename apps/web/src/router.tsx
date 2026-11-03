@@ -67,7 +67,7 @@ const rootRoute = createRootRoute({
   notFoundComponent: NotFound,
 });
 
-/** Two-pane shell: the inbox on the left, the selected task (or home) on the right. */
+/** Two-pane shell: the inbox on the left, the grid (Home and its windows) on the right. */
 const shellRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: "shell",
@@ -85,14 +85,17 @@ const shellRoute = createRoute({
   ),
 });
 
-/** The grid behind Home and the task, Backlog and Code views; it stays mounted between them. */
+/** The grid behind Home and every window over it; it stays mounted between them. */
 const gridRoute = createRoute({
   getParentRoute: () => shellRoute,
   id: "grid",
   component: GridLayout,
 });
 
-/** The window the task view, the Backlog and the Code view float in over the grid. */
+/**
+ * The window the task, Backlog, Code, review requests, assigned issues, my pull requests and
+ * active agents views float in over the grid. New grid screens go here.
+ */
 const windowRoute = createRoute({
   getParentRoute: () => gridRoute,
   id: "window",
@@ -145,19 +148,19 @@ const codeRoute = createRoute({
 });
 
 const activeRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => windowRoute,
   path: "/active",
   component: lazyRouteComponent(() => import("./routes/ActiveAgents"), "ActiveAgents"),
 });
 
 const reviewsRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => windowRoute,
   path: "/reviews",
   component: lazyRouteComponent(() => import("./routes/ReviewRequests"), "ReviewRequests"),
 });
 
 const pullsRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => windowRoute,
   path: "/pulls",
   /** `pr`: the link of the pull request open beside the list. */
   validateSearch: (search: Record<string, unknown>): { pr?: string } =>
@@ -170,7 +173,7 @@ const pullsRoute = createRoute({
 });
 
 const issuesRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => windowRoute,
   path: "/issues",
   component: lazyRouteComponent(() => import("./routes/AssignedIssues"), "AssignedIssues"),
 });
@@ -209,12 +212,16 @@ const routeTree = rootRoute.addChildren([
   shellRoute.addChildren([
     gridRoute.addChildren([
       homeRoute,
-      windowRoute.addChildren([taskRoute, backlogRoute, codeRoute]),
+      windowRoute.addChildren([
+        taskRoute,
+        backlogRoute,
+        codeRoute,
+        activeRoute,
+        reviewsRoute,
+        pullsRoute,
+        issuesRoute,
+      ]),
     ]),
-    activeRoute,
-    reviewsRoute,
-    pullsRoute,
-    issuesRoute,
   ]),
   settingsIndexRoute,
   settingsRoute,
