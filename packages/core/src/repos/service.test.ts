@@ -543,7 +543,8 @@ describe("pushing main", () => {
       /^Could not reach the remote\. Check the connection and retry\. \(fatal: unable to access 'http:\/\/127\.0\.0\.1:1\/app\.git\/'/,
     );
     expect((error as Error).message).not.toContain("secret");
-  }, 15_000);
+    // Windows retries the refused connect for ~10s on its own, longer under a full test run.
+  }, 45_000);
 
   it("tracks the repo's default branch", async () => {
     cloneWithOrigin("trunk");
