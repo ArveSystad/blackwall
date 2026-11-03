@@ -1,7 +1,6 @@
 import {
   ciNeedsYou,
   isUserComment,
-  type CiCheck,
   type DeliveryAction,
   type DeliveryPlan,
   type DeliveryTarget,
@@ -32,7 +31,8 @@ import {
   toggleTick,
 } from "../../task-view";
 import { CiBadge } from "../CiBadge";
-import { CheckIcon, FailedIcon, SpinnerIcon, WallIcon, WarnIcon } from "../icons";
+import { CiChecksList } from "../CiChecksList";
+import { CheckIcon, SpinnerIcon, WallIcon, WarnIcon } from "../icons";
 import { Markdown } from "../Markdown";
 import { OutboundAction } from "../OutboundAction";
 import { Segmented, type SegmentedOption } from "../Segmented";
@@ -557,46 +557,12 @@ export function Outbound({
   );
 }
 
-const CHECK_ORDER: Record<CiCheck["state"], number> = {
-  failed: 0,
-  pending: 1,
-  passed: 2,
-  skipped: 3,
-};
-
-function CheckStateIcon({ state }: { state: CiCheck["state"] }) {
-  switch (state) {
-    case "pending":
-      return <SpinnerIcon size="sm" className="animate-spin text-running" />;
-    case "failed":
-      return <FailedIcon size="sm" className="text-failed" />;
-    case "passed":
-      return <CheckIcon size="sm" className="text-done" />;
-    case "skipped":
-      return <CheckIcon size="sm" className="text-faint" />;
-  }
-}
-
-function checkStateLabel(check: CiCheck): string {
-  switch (check.state) {
-    case "pending":
-      return "running";
-    case "failed":
-      return check.conclusion?.replaceAll("_", " ") ?? "failed";
-    case "passed":
-      return "passed";
-    case "skipped":
-      return "skipped";
-  }
-}
-
 /**
  * CI on the commit the task pushed: each check with its state and link,
  * failing ones first, the token hint if CI can't be read fully, and Fix CI
  * when it failed on a done task.
  */
 function CiSection({ task, ci, action }: { task: Task; ci: TaskCi; action: TaskAction }) {
-  const checks = ci.checks.toSorted((a, b) => CHECK_ORDER[a.state] - CHECK_ORDER[b.state]);
   return (
     <section aria-label="CI" className="flex flex-col gap-2 border-b border-border px-[18px] py-3">
       <span className="flex items-center gap-2">
@@ -605,27 +571,7 @@ function CiSection({ task, ci, action }: { task: Task; ci: TaskCi; action: TaskA
         <span className="flex-1" />
         <CiBadge ci={ci} />
       </span>
-      {checks.length > 0 && (
-        <ul className="m-0 flex max-h-48 list-none flex-col gap-1 overflow-auto p-0">
-          {checks.map((check) => (
-            <li
-              key={`${check.kind}:${check.id}`}
-              className="flex min-w-0 items-center gap-2 text-meta"
-            >
-              <CheckStateIcon state={check.state} />
-              {check.url ? (
-                <a href={check.url} target="_blank" rel="noreferrer" className="truncate">
-                  {check.name}
-                </a>
-              ) : (
-                <span className="truncate text-foreground">{check.name}</span>
-              )}
-              <span className="flex-1" />
-              <span className="flex-none text-muted-foreground">{checkStateLabel(check)}</span>
-            </li>
-          ))}
-        </ul>
-      )}
+      <CiChecksList checks={ci.checks} />
       {ci.hint && <p className="m-0 text-meta text-muted-foreground">{ci.hint}</p>}
       {ciNeedsYou(task) && (
         <Button

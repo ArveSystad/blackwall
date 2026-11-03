@@ -1648,6 +1648,26 @@ describe("issue comments at plan approval", () => {
     await h.engine.shutdown();
   });
 
+  it("leaves a task posting its comment alone when its pull request is merged", async () => {
+    const post = deferred();
+    const { h, id } = await atPlanApproval(() => post.promise);
+    const run = r.runs.listByTask(id).at(-1)!;
+    const step = r.steps.create({ runId: run.id, stage: "summarize", agentId: null });
+    r.stepEvents.append(step.id, DELIVERY_DONE_EVENT, {
+      action: "open-pr",
+      detail: "https://github.com/acme/app/pull/12",
+    });
+
+    const responding = h.engine.respond(id, approve());
+    expect(await h.engine.finishMergedPullRequest("https://github.com/acme/app/pull/12")).toEqual(
+      [],
+    );
+    expect(task(id)).toMatchObject({ status: "needs-you", gate: "plan-approval" });
+    post.release({ url: ISSUE_COMMENT_URL });
+    await responding;
+    await h.engine.shutdown();
+  });
+
   it("leaves the task at its gate when the post fails, and a retry goes through", async () => {
     const commentOnIssue = vi
       .fn<(task: Task, body: string) => Promise<{ url: string }>>()
@@ -5244,6 +5264,110 @@ describe("CI", () => {
       await settle(h.engine);
     });
   });
+
+  describe("merged pull request", () => {
+    const MERGED = "https://github.com/acme/app/pull/12";
+
+    /** Records that a delivery of the task opened `url`, as a finish visit does. */
+    function openedPr(taskId: string, url = "https://github.com/acme/app/pulls/12/") {
+      const run = r.runs.listByTask(taskId).at(-1) ?? r.runs.create(taskId);
+      const step = r.steps.create({ runId: run.id, stage: "summarize", agentId: null });
+      r.stepEvents.append(step.id, DELIVERY_DONE_EVENT, { action: "open-pr", detail: url });
+    }
+
+    it("finishes a task at its finish gate whose delivery opened the pull request", async () => {
+      const ci = fakeCi();
+      const h = harness(() => ({}), { ci });
+      const seeded = await atFinish(h);
+      openedPr(seeded.id);
+      r.tasks.update(seeded.id, { ci: failedCi() });
+      const eventsBefore = h.events.length;
+
+      expect(await h.engine.finishMergedPullRequest(MERGED)).toEqual([seeded.id]);
+      expect(task(seeded.id)).toMatchObject({
+        status: "done",
+        gate: null,
+        error: null,
+        ci: null,
+        archivedAt: null,
+      });
+      expect(r.runs.listByTask(seeded.id).at(-1)).toMatchObject({ status: "succeeded" });
+      expect(ci.cancel).toHaveBeenCalledWith(seeded.id);
+      expect(h.events.slice(eventsBefore)).toContainEqual({
+        type: "task.upserted",
+        payload: { task: expect.objectContaining({ id: seeded.id, status: "done" }) },
+      });
+    });
+
+    it("keeps an archived task archived", async () => {
+      const h = harness();
+      const seeded = await atFinish(h);
+      openedPr(seeded.id);
+      const archivedAt = new Date("2026-10-20T10:00:00Z");
+      r.tasks.update(seeded.id, { archivedAt });
+
+      expect(await h.engine.finishMergedPullRequest(MERGED)).toEqual([seeded.id]);
+      expect(task(seeded.id)).toMatchObject({ status: "done", archivedAt });
+    });
+
+    it("stops a running work task on the pull request, then finishes it", async () => {
+      const seeded = seedTask({
+        origin: { ...prOrigin(), url: MERGED, number: 12 },
+        mode: "work",
+        branch: "feature/x",
+      });
+      const h = harness((stage) => (stage === "inform" ? { hang: true, sessionId: "s1" } : {}));
+      h.engine.enqueue(seeded.id);
+      await vi.waitFor(() => expect(lastStep(seeded.id)?.sessionId).toBe("s1"));
+
+      expect(await h.engine.finishMergedPullRequest(MERGED)).toEqual([seeded.id]);
+      expect(h.calls[0]!.options.signal?.aborted).toBe(true);
+      expect(task(seeded.id)).toMatchObject({ status: "done", gate: null, error: null });
+      expect(h.engine.activeTaskIds()).toEqual([]);
+    });
+
+    it("leaves a task that is delivering alone", async () => {
+      const h = harness();
+      const seeded = await atFinish(h);
+      openedPr(seeded.id);
+      r.tasks.update(seeded.id, { delivering: true });
+
+      expect(await h.engine.finishMergedPullRequest(MERGED)).toEqual([]);
+      expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish" });
+    });
+
+    it.each(["pending", "failed"] as const)(
+      "stops watching a done task's %s CI and drops it, so Fix CI is gone",
+      async (state) => {
+        const ci = fakeCi();
+        const h = harness(() => ({}), { ci });
+        const seeded = await atFinish(h);
+        openedPr(seeded.id);
+        r.tasks.update(seeded.id, { status: "done", gate: null, ci: { ...failedCi(), state } });
+
+        expect(await h.engine.finishMergedPullRequest(MERGED)).toEqual([seeded.id]);
+        expect(ci.cancel).toHaveBeenCalledWith(seeded.id);
+        expect(task(seeded.id)).toMatchObject({ status: "done", ci: null });
+        await expect(h.engine.fixCi(seeded.id)).rejects.toThrow(TaskStateError);
+      },
+    );
+
+    it("leaves review tasks and tasks on another pull request alone", async () => {
+      const h = harness();
+      const review = seedTask({
+        mode: "review",
+        origin: { ...prOrigin(), url: MERGED, number: 12 },
+        branch: "feature/r",
+      });
+      r.tasks.update(review.id, { status: "needs-you", gate: "triage" });
+      const other = await atFinish(h);
+      openedPr(other.id, "https://github.com/acme/app/pull/13");
+
+      expect(await h.engine.finishMergedPullRequest(MERGED)).toEqual([]);
+      expect(task(review.id)).toMatchObject({ status: "needs-you", gate: "triage" });
+      expect(task(other.id)).toMatchObject({ status: "needs-you", gate: "finish" });
+    });
+  });
 });
 
 describe("agent effort", () => {
@@ -6117,6 +6241,28 @@ describe("worktree setup", () => {
     expect(setupSteps(seeded.id).map((s) => s.status)).toEqual(["interrupted"]);
     expect(f.stamps.has(dir)).toBe(false);
     expect(h.engine.activeTaskIds()).toEqual([]);
+  });
+
+  it("finishes a task on a merged pull request once setup at its gate has stopped", async () => {
+    const f = fakeSetup(untilAborted);
+    const h = harness(() => ({}), { setup: f.setup });
+    const merged = "https://github.com/acme/app/pull/7";
+    const seeded = seedSetupTask([INSTALL], {
+      origin: prOrigin(),
+      mode: "work",
+      branch: "feature/x",
+    });
+    h.engine.enqueue(seeded.id);
+    await vi.waitFor(() =>
+      expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "plan-approval" }),
+    );
+    await vi.waitFor(() => expect(f.setup.run).toHaveBeenCalledTimes(1));
+
+    expect(await h.engine.finishMergedPullRequest(merged)).toEqual([seeded.id]);
+    expect(setupSteps(seeded.id).map((s) => s.status)).toEqual(["interrupted"]);
+    expect(task(seeded.id)).toMatchObject({ status: "done", gate: null, error: null });
+    await settle(h.engine);
+    expect(task(seeded.id)).toMatchObject({ status: "done", gate: null });
   });
 
   it("stops setup a drive still runs at its gate", async () => {

@@ -33,6 +33,10 @@ import { recordWindowOrigin } from "./window-origin";
 const TaskView = lazyRouteComponent(() => import("./routes/TaskView"), "TaskView");
 const Backlog = lazyRouteComponent(() => import("./routes/Backlog"), "Backlog");
 const CodeView = lazyRouteComponent(() => import("./routes/CodeView"), "CodeView");
+const MyPullRequests = lazyRouteComponent(
+  () => import("./routes/MyPullRequests"),
+  "MyPullRequests",
+);
 
 const rootRoute = createRootRoute({
   component: function Root() {
@@ -152,6 +156,19 @@ const reviewsRoute = createRoute({
   component: lazyRouteComponent(() => import("./routes/ReviewRequests"), "ReviewRequests"),
 });
 
+const pullsRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: "/pulls",
+  /** `pr`: the link of the pull request open beside the list. */
+  validateSearch: (search: Record<string, unknown>): { pr?: string } =>
+    typeof search.pr === "string" ? { pr: search.pr } : {},
+  loader: () => MyPullRequests.preload?.(),
+  component: function PullsRoute() {
+    const { pr } = pullsRoute.useSearch();
+    return <MyPullRequests openUrl={pr} />;
+  },
+});
+
 const issuesRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/issues",
@@ -196,6 +213,7 @@ const routeTree = rootRoute.addChildren([
     ]),
     activeRoute,
     reviewsRoute,
+    pullsRoute,
     issuesRoute,
   ]),
   settingsIndexRoute,

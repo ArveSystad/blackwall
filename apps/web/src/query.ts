@@ -47,6 +47,8 @@ import {
   listRepoJiraIssues,
   listRepos,
   listReviewRequests,
+  listMyPullRequests,
+  getMyPullRequest,
   listTags,
   listTasks,
   listUsage,
@@ -121,6 +123,8 @@ export const queryKeys = {
   /** A repo's run output; appended to by `projectRun.output`. */
   projectRunOutput: (repoId: string) => ["project-runs", repoId, "output"] as const,
   reviewRequests: ["review-requests"] as const,
+  myPullRequests: ["my-pull-requests"] as const,
+  myPullRequest: (url: string) => ["my-pull-requests", "detail", url] as const,
   assignedIssues: ["assigned-issues"] as const,
   repoIssues: (repoId: string) => ["repo-issues", repoId] as const,
   /** Keyed by the repo's Jira project too; `["repo-jira-issues", repoId]` matches every project. */
@@ -357,6 +361,35 @@ export const reviewRequestsQuery = queryOptions({
   refetchInterval: 300_000,
   refetchOnWindowFocus: "always",
 });
+
+/** How often the user's PRs and an open PR poll while checks run. */
+const PENDING_CHECKS_POLL_MS = 30_000;
+
+/**
+ * Open PRs the user wrote. Polls like the review requests, and every 30s
+ * while any of them has checks running.
+ */
+export const myPullRequestsQuery = queryOptions({
+  queryKey: queryKeys.myPullRequests,
+  queryFn: listMyPullRequests,
+  staleTime: 120_000,
+  refetchInterval: (query) =>
+    query.state.data?.pullRequests.some((pr) => pr.checks === "pending")
+      ? PENDING_CHECKS_POLL_MS
+      : 300_000,
+  refetchOnWindowFocus: "always",
+});
+
+/** One of the user's PRs, for its detail pane; polls every 30s while its checks run. */
+export const myPullRequestQuery = (url: string) =>
+  queryOptions({
+    queryKey: queryKeys.myPullRequest(url),
+    queryFn: () => getMyPullRequest(url),
+    refetchInterval: (query) =>
+      query.state.data?.checks.some((check) => check.state === "pending")
+        ? PENDING_CHECKS_POLL_MS
+        : false,
+  });
 
 /** The user's GitHub issues refresh interval, or the default until settings load. */
 export function issuesRefreshSeconds(

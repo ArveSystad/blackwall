@@ -364,6 +364,22 @@ There is **no input bar** in the task view. You steer a task from the chat (see 
 - Assigned issues: "Assigned issues", "N open". The empty state is "All clear. No issues assigned
   to you.". A row shows "Open task" or "In backlog" once the work exists.
 
+### My pull requests (`/pulls`)
+
+- "My pull requests", "N open", grouped by host: the open PRs the user wrote, drafts included. A row
+  shows its checks (spinner, check or failed icon), a "Draft" tag, the review status pill
+  ("Approved", "Changes requested", "Review required", "No review required") and a small yellow dot
+  when it has news the user hasn't opened. The empty state is "All clear. No open pull requests.".
+- A row opens the PR beside the list (`?pr=`): Status (review pill and checks), Conversation and
+  Review comments ("Outdated" threads labelled), each comment with author and time. Opening it marks
+  its news seen.
+- On the right, a Finish aside like a task's ("Outbound · crosses the wall", "Nothing is merged
+  until you confirm."): "Merge pull request" with `{base} ← {head}` and the merge methods the repo
+  allows ("Merge commit", "Squash and merge", "Rebase and merge"; all three when blackwall can't
+  tell). Warnings above the "Merge" button (`⌘↵`): not approved, checks failing or running, draft,
+  conflicts, or "Mergeability unknown". "Merging also finishes the blackwall task that opened it, if
+  any." GitHub's refusal shows inline.
+
 ### Active agents (`/active`)
 
 "Active agents", "N running": one row per agent with its stage, task, "round N", model and activity
@@ -485,8 +501,11 @@ centre column. When agents are shown the grid runs **full width**. The fade chan
 - **Nothing active**: "Nothing on deck. Awaiting orders." with "Create task" (`N`), plus "View
   backlog", or "Backlog clear. Nothing queued.". On error it shows "Could not load tasks" with
   "Retry".
-- **Bottom pills** (after first run): "N pull requests need your review" and "N issues assigned to you",
-  36px chamfered pills. With a count they are magenta, with a blinking dot; with none they are muted.
+- **Bottom pills** (after first run): "N pull requests need your review", "N issues assigned to you"
+  and "N pull requests open" (the user's own), 36px chamfered pills. With a count they are magenta,
+  with a blinking dot; with none they are muted. While one of the user's own PRs has a review,
+  comment or settled checks they haven't opened, the third pill has a steady yellow halo instead of
+  its magenta glow.
 
 ### Agent dots
 

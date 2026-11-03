@@ -1836,6 +1836,68 @@ export const reviewRequestsSchema = z.object({
 });
 export type ReviewRequests = z.infer<typeof reviewRequestsSchema>;
 
+/** GitHub's review decision on a pull request the user wrote; null when the repo requires no reviews. */
+export const myPullRequestReviewDecisionSchema = z
+  .enum(["approved", "review-required", "changes-requested"])
+  .nullable();
+
+/** The head commit's checks rolled up; null when it has none GitHub can roll up. */
+export const myPullRequestChecksSchema = z.enum(["pending", "passed", "failed"]).nullable();
+
+/** How a pull request is merged on GitHub. */
+export const MERGE_METHODS = ["merge", "squash", "rebase"] as const;
+export const mergeMethodSchema = z.enum(MERGE_METHODS);
+export type MergeMethod = z.infer<typeof mergeMethodSchema>;
+
+/** An open pull request the user wrote on one GitHub/GHE host, drafts included. */
+export const myPullRequestSchema = z.object({
+  /** Host of the connection it came from (`github.com`, `acme.ghe.com`). */
+  host: z.string(),
+  owner: z.string(),
+  repo: z.string(),
+  number: z.int(),
+  title: z.string(),
+  url: z.url(),
+  updatedAt: timestamp,
+  draft: z.boolean(),
+  reviewDecision: myPullRequestReviewDecisionSchema,
+  checks: myPullRequestChecksSchema,
+  /**
+   * The newest review or comment by someone other than the user and not a
+   * bot, ISO 8601; null when there is none.
+   */
+  activityAt: z.string().nullable(),
+  headSha: z.string(),
+  /** The registered repo whose `origin` remote is the PR's repository; null: not registered. */
+  repoId: id.nullable(),
+  /** The connection for the PR's host; null when none matches. */
+  connectionId: id.nullable(),
+});
+export type MyPullRequest = z.infer<typeof myPullRequestSchema>;
+
+/** `GET /api/pull-requests/mine`: every host's rows, newest first, and the hosts that failed. */
+export const myPullRequestsSchema = z.object({
+  pullRequests: myPullRequestSchema.array(),
+  errors: z.object({ host: z.string(), message: z.string() }).array(),
+});
+export type MyPullRequests = z.infer<typeof myPullRequestsSchema>;
+
+/** Body of `POST /api/pull-requests/merge`: merge only if the head is still `sha`. */
+export const mergePullRequestInputSchema = z.object({
+  url: z.string().trim().min(1),
+  method: mergeMethodSchema,
+  sha: z.string().trim().min(1),
+});
+export type MergePullRequestInput = z.infer<typeof mergePullRequestInputSchema>;
+
+/** `POST /api/pull-requests/merge`: the merge commit and the blackwall tasks it finished. */
+export const mergePullRequestResultSchema = z.object({
+  sha: z.string(),
+  merged: z.boolean(),
+  finishedTaskIds: id.array(),
+});
+export type MergePullRequestResult = z.infer<typeof mergePullRequestResultSchema>;
+
 /** An open issue assigned to the user on one GitHub/GHE host. */
 export const assignedIssueSchema = z.object({
   /** Host of the connection it came from (`github.com`, `acme.ghe.com`). */
@@ -1968,6 +2030,45 @@ export const pullRequestCommentsSchema = z.object({
   error: z.string().nullable(),
 });
 export type PullRequestComments = z.infer<typeof pullRequestCommentsSchema>;
+
+/** A conversation comment or a review's summary on a pull request, oldest first. */
+export const pullRequestConversationEntrySchema = z.object({
+  id: z.int(),
+  kind: z.enum(["comment", "review"]),
+  author: z.string(),
+  body: z.string(),
+  createdAt: timestamp.nullable(),
+  /** Reviews only: `APPROVED`, `CHANGES_REQUESTED`, `COMMENTED`. */
+  reviewState: z.string().nullable(),
+  url: z.string(),
+});
+export type PullRequestConversationEntry = z.infer<typeof pullRequestConversationEntrySchema>;
+
+/**
+ * `GET /api/pull-requests/detail?url=`: what the My pull requests view shows
+ * of one pull request, and how it can be merged.
+ */
+export const myPullRequestDetailSchema = z.object({
+  url: z.url(),
+  title: z.string(),
+  /** Branch it merges into. */
+  base: z.string(),
+  /** Branch with the changes. */
+  head: z.string(),
+  headSha: z.string(),
+  draft: z.boolean(),
+  reviewDecision: myPullRequestReviewDecisionSchema,
+  /** Whether it merges cleanly; null while GitHub is still working it out. */
+  mergeable: z.boolean().nullable(),
+  /** The merge methods to offer, in GitHub's order; never empty. */
+  mergeMethods: mergeMethodSchema.array().min(1),
+  checks: z.array(ciCheckSchema),
+  /** Why the checks can't be read fully; null when they can. */
+  checksHint: z.string().nullable(),
+  conversation: pullRequestConversationEntrySchema.array(),
+  threads: pullRequestThreadSchema.array(),
+});
+export type MyPullRequestDetail = z.infer<typeof myPullRequestDetailSchema>;
 
 /**
  * `POST /api/tasks/:id/pr/refresh`: the head a Review PR task last reviewed,

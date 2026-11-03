@@ -7,8 +7,10 @@ import { useCountBoom } from "./use-count-boom";
  * A pill in the home grid's bottom row: a count gathered from every GitHub
  * host. While above zero the whole pill glows magenta (with a blinking dot)
  * and the count and label share the colour. When the count rises from zero
- * it booms yellow once, then settles to magenta. The parent row places it, and
- * must sit in a clipping layer (see Home).
+ * it booms yellow once, then settles to magenta. With `activity` (and a count
+ * above zero) its glow becomes a steady yellow halo around the magenta pill,
+ * until the user looks. The parent row places it, and must sit in a clipping
+ * layer (see Home).
  */
 export function CountPill<T extends { errors: { host: string; message: string }[] }>({
   to,
@@ -18,8 +20,9 @@ export function CountPill<T extends { errors: { host: string; message: string }[
   unit,
   loadingLabel,
   errorLabel,
+  activity = false,
 }: {
-  to: "/reviews" | "/issues";
+  to: "/reviews" | "/issues" | "/pulls";
   query: UseQueryResult<T>;
   count: (data: T) => number;
   /** The full label, also the accessible name. */
@@ -28,6 +31,8 @@ export function CountPill<T extends { errors: { host: string; message: string }[
   unit: (count: number) => string;
   loadingLabel: string;
   errorLabel: string;
+  /** Something counted has news the user hasn't seen. */
+  activity?: boolean;
 }) {
   const data = query.data;
   const count = data ? countOf(data) : 0;
@@ -49,7 +54,10 @@ export function CountPill<T extends { errors: { host: string; message: string }[
       className={cn(
         "bw-chamfer-fill bw-chamfer-focus pointer-events-auto flex h-9 items-center gap-2 px-4 whitespace-nowrap no-underline [--bw-chamfer-bg:var(--bg-4)] hover:no-underline focus-visible:outline-none",
         needed
-          ? "drop-shadow-glow-needs [--bw-chamfer-line:var(--magenta)]"
+          ? cn(
+              "[--bw-chamfer-line:var(--magenta)]",
+              activity ? "drop-shadow-glow-activity" : "drop-shadow-glow-needs",
+            )
           : "drop-shadow-pop [--bw-chamfer-line:var(--border-strong)]",
         needed ? "text-needs text-shadow-glow-needs" : "text-muted-foreground",
       )}

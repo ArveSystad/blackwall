@@ -249,6 +249,127 @@ const REVIEW_DECISIONS = {
   CHANGES_REQUESTED: "changes-requested",
 } as const;
 
+/** GitHub's review decision on a PR the user wrote, approved included. */
+export type AuthoredReviewDecision = "approved" | "review-required" | "changes-requested";
+
+const AUTHORED_REVIEW_DECISIONS = {
+  ...REVIEW_DECISIONS,
+  APPROVED: "approved",
+} as const;
+
+/** The combined state of a commit's checks and statuses. */
+export type ChecksRollup = "pending" | "passed" | "failed";
+
+const CHECK_ROLLUPS: Record<string, ChecksRollup> = {
+  SUCCESS: "passed",
+  FAILURE: "failed",
+  ERROR: "failed",
+  PENDING: "pending",
+  EXPECTED: "pending",
+};
+
+/** A merge strategy GitHub offers on a pull request. */
+export type GitHubMergeMethod = "merge" | "squash" | "rebase";
+
+/**
+ * An open pull request the user wrote, as {@link createGitHubClient}'s
+ * `searchAuthoredPullRequests` returns it.
+ */
+export interface GitHubAuthoredPullRequest {
+  /** The connection's host (`github.com`, `acme.ghe.com`). */
+  host: string;
+  owner: string;
+  repo: string;
+  number: number;
+  title: string;
+  url: string;
+  /** ISO 8601. */
+  updatedAt: string;
+  draft: boolean;
+  reviewDecision: AuthoredReviewDecision | null;
+  /** The head commit's checks; null when it has none GitHub can roll up. */
+  checks: ChecksRollup | null;
+  /**
+   * Newest review or comment by someone other than the author and not a bot,
+   * ISO 8601; null when there is none among the last ten of each.
+   */
+  activityAt: string | null;
+  headSha: string;
+}
+
+/** The author of a comment or review; `__typename` tells bots apart. */
+interface ActivityAuthor {
+  __typename?: string;
+  login: string;
+}
+
+/** A `PullRequest` node of the authored pull requests search. */
+interface AuthoredPullRequestNode {
+  url?: string;
+  number?: number;
+  title?: string;
+  updatedAt?: string;
+  isDraft?: boolean;
+  reviewDecision?: keyof typeof AUTHORED_REVIEW_DECISIONS | null;
+  headRefOid?: string;
+  author?: { login: string } | null;
+  repository?: { name: string; owner: { login: string } };
+  commits?: {
+    nodes?: ({ commit?: { statusCheckRollup?: { state?: string } | null } | null } | null)[];
+  } | null;
+  comments?: { nodes?: ({ createdAt?: string; author?: ActivityAuthor | null } | null)[] } | null;
+  reviews?: {
+    nodes?: ({ submittedAt?: string | null; author?: ActivityAuthor | null } | null)[];
+  } | null;
+}
+
+/** Open PRs the user wrote outside archived repos, drafts and approved ones included. */
+const AUTHORED_PRS_SEARCH = "is:pr is:open archived:false author:@me";
+
+const AUTHORED_PRS_QUERY = `query AuthoredPullRequests($search: String!) {
+  search(type: ISSUE, query: $search, first: 100) {
+    nodes {
+      ... on PullRequest {
+        url
+        number
+        title
+        updatedAt
+        isDraft
+        reviewDecision
+        headRefOid
+        author { login }
+        repository { name owner { login } }
+        commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+        comments(last: 10) { nodes { createdAt author { __typename login } } }
+        reviews(last: 10) { nodes { submittedAt author { __typename login } } }
+      }
+    }
+  }
+}`;
+
+const PULL_REQUEST_STATUS_QUERY = `query PullRequestStatus($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) { reviewDecision mergeable }
+  }
+}`;
+
+/**
+ * The newest time among comments and reviews by someone other than `author`
+ * and not a bot; an item whose author is gone counts.
+ */
+function latestActivity(
+  author: string | null,
+  items: readonly { at: string | null | undefined; by: ActivityAuthor | null | undefined }[],
+): string | null {
+  let latest: string | null = null;
+  for (const { at, by } of items) {
+    if (!at) continue;
+    if (by && (by.__typename === "Bot" || (author !== null && by.login === author))) continue;
+    if (latest === null || Date.parse(at) > Date.parse(latest)) latest = at;
+  }
+  return latest;
+}
+
 /**
  * An open issue assigned to the user, as {@link createGitHubClient}'s
  * `searchAssignedIssues` returns it.
@@ -635,6 +756,115 @@ export function createGitHubClient(credentials: GitHubCredentials, fetchImpl: Fe
     },
 
     /**
+     * Open PRs on this host the user wrote (see {@link AUTHORED_PRS_SEARCH}),
+     * at most 100, as GitHub's search orders them, with their head's checks
+     * and the time of the last review or comment from someone else.
+     */
+    searchAuthoredPullRequests(signal?: AbortSignal) {
+      return call("Your pull requests", signal, async () => {
+        const res = await octokit.graphql<{ search: { nodes: AuthoredPullRequestNode[] } }>(
+          AUTHORED_PRS_QUERY,
+          { search: AUTHORED_PRS_SEARCH, request: requestOptions(signal) },
+        );
+        return res.search.nodes.flatMap((node): GitHubAuthoredPullRequest[] => {
+          if (!node.url || !node.repository || node.number === undefined) return [];
+          const author = node.author?.login ?? null;
+          const rollup = node.commits?.nodes?.at(-1)?.commit?.statusCheckRollup?.state;
+          return [
+            {
+              host,
+              owner: node.repository.owner.login,
+              repo: node.repository.name,
+              number: node.number,
+              title: node.title ?? "",
+              url: node.url,
+              updatedAt: node.updatedAt ?? new Date(0).toISOString(),
+              draft: node.isDraft ?? false,
+              reviewDecision: node.reviewDecision
+                ? (AUTHORED_REVIEW_DECISIONS[node.reviewDecision] ?? null)
+                : null,
+              checks: rollup ? (CHECK_ROLLUPS[rollup] ?? null) : null,
+              activityAt: latestActivity(author, [
+                ...(node.comments?.nodes ?? []).map((c) => ({ at: c?.createdAt, by: c?.author })),
+                ...(node.reviews?.nodes ?? []).map((r) => ({ at: r?.submittedAt, by: r?.author })),
+              ]),
+              headSha: node.headRefOid ?? "",
+            },
+          ];
+        });
+      });
+    },
+
+    /**
+     * The pull request's review decision and whether it merges cleanly;
+     * `mergeable` is null while GitHub is still working it out.
+     */
+    getPullRequestStatus(pr: PullRequestCoordinates, signal?: AbortSignal) {
+      return call(prName(pr), signal, async () => {
+        const res = await octokit.graphql<{
+          repository: {
+            pullRequest: {
+              reviewDecision?: keyof typeof AUTHORED_REVIEW_DECISIONS | null;
+              mergeable?: string | null;
+            } | null;
+          } | null;
+        }>(PULL_REQUEST_STATUS_QUERY, {
+          owner: pr.owner,
+          name: pr.repo,
+          number: pr.number,
+          request: requestOptions(signal),
+        });
+        const node = res.repository?.pullRequest;
+        if (!node) throw new GitHubError(`${host}: ${prName(pr)} not found`, 404);
+        return {
+          reviewDecision: node.reviewDecision
+            ? ((AUTHORED_REVIEW_DECISIONS[node.reviewDecision] ??
+                null) as AuthoredReviewDecision | null)
+            : null,
+          mergeable:
+            node.mergeable === "MERGEABLE" ? true : node.mergeable === "CONFLICTING" ? false : null,
+        };
+      });
+    },
+
+    /**
+     * Merges the pull request with `method`, only if its head is still `sha`.
+     * GitHub's refusal (405: not mergeable or method not allowed, 409: the head
+     * moved) comes back as a {@link GitHubError} carrying GitHub's message.
+     */
+    mergePullRequest(
+      pr: PullRequestCoordinates,
+      { method, sha }: { method: GitHubMergeMethod; sha: string },
+    ) {
+      return call(prName(pr), undefined, async () => {
+        try {
+          const res = await octokit.rest.pulls.merge({
+            owner: pr.owner,
+            repo: pr.repo,
+            pull_number: pr.number,
+            merge_method: method,
+            sha,
+            request: requestOptions(),
+          });
+          return { sha: res.data.sha, merged: res.data.merged };
+        } catch (error) {
+          const status = statusOf(error);
+          if (status !== 405 && status !== 409) throw error;
+          const data = (error as { response?: { data?: unknown } }).response?.data;
+          const message =
+            data && typeof data === "object" ? (data as { message?: unknown }).message : undefined;
+          const reason =
+            typeof message === "string" && message.trim()
+              ? message.replaceAll(credentials.token, "***").trim()
+              : status === 409
+                ? "the head branch moved; refresh and try again"
+                : "GitHub refused the merge";
+          throw new GitHubError(`${host}: ${reason}`, status);
+        }
+      });
+    },
+
+    /**
      * Open issues on this host assigned to the user (see
      * {@link ASSIGNED_ISSUES_SEARCH}), at most 100, as GitHub's search orders them.
      */
@@ -694,7 +924,9 @@ export function createGitHubClient(credentials: GitHubCredentials, fetchImpl: Fe
 
     /**
      * The repository's current name. Follows GitHub's redirect, so a repo
-     * renamed since `repository` was read answers with its new name.
+     * renamed since `repository` was read answers with its new name. The
+     * merge settings are undefined when GitHub leaves them out, as it does
+     * for a token that can't push to the repo.
      */
     getRepo(repository: { owner: string; repo: string }, signal?: AbortSignal) {
       return call(`${repository.owner}/${repository.repo}`, signal, async () => {
@@ -703,7 +935,13 @@ export function createGitHubClient(credentials: GitHubCredentials, fetchImpl: Fe
           repo: repository.repo,
           request: requestOptions(signal),
         });
-        return { name: res.data.name, fullName: res.data.full_name };
+        return {
+          name: res.data.name,
+          fullName: res.data.full_name,
+          allowMergeCommit: res.data.allow_merge_commit as boolean | undefined,
+          allowSquashMerge: res.data.allow_squash_merge as boolean | undefined,
+          allowRebaseMerge: res.data.allow_rebase_merge as boolean | undefined,
+        };
       });
     },
 

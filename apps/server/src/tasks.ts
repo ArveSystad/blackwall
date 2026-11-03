@@ -68,6 +68,7 @@ export type TaskPipeline = Pick<
   | "deliveryPlan"
   | "fixCi"
   | "fixPrComments"
+  | "finishMergedPullRequest"
   | "refreshPullRequest"
   | "reReviewPullRequest"
   | "autopilotRepo"

@@ -86,6 +86,8 @@
   --drop-glow-primary-btn: 0 0 9px rgba(167, 123, 255, 0.35);
   --drop-glow-done: 0 0 9px rgba(92, 214, 154, 0.32);
   --drop-glow-needs: 0 0 9px rgba(255, 61, 207, 0.3);
+  /* The My pull requests pill while one has unseen news: a steady yellow halo (--st-assigned). */
+  --drop-glow-activity: 0 0 10px rgba(255, 225, 77, 0.55);
   --drop-glow-status-needs: 0 0 5px rgba(255, 61, 207, 0.3);
   --drop-glow-cyan: 0 0 9px rgba(46, 230, 255, 0.28);
   --drop-glow-primary: 0 0 9px rgba(167, 123, 255, 0.32);
@@ -173,6 +175,7 @@
   --drop-glow-primary-btn: 0 0 0 transparent;
   --drop-glow-done: 0 0 0 transparent;
   --drop-glow-needs: 0 0 2px rgba(196, 22, 124, 0.35);
+  --drop-glow-activity: 0 0 2px rgba(163, 122, 0, 0.75);
   --drop-glow-status-needs: 0 0 0 transparent;
   --drop-glow-cyan: 0 0 2px rgba(29, 111, 224, 0.35);
   --drop-glow-primary: 0 0 2px rgba(90, 69, 224, 0.35);
@@ -265,6 +268,7 @@
   --drop-shadow-glow-primary-btn: var(--drop-glow-primary-btn);
   --drop-shadow-glow-done: var(--drop-glow-done);
   --drop-shadow-glow-needs: var(--drop-glow-needs);
+  --drop-shadow-glow-activity: var(--drop-glow-activity);
   --drop-shadow-glow-cyan: var(--drop-glow-cyan);
   --drop-shadow-glow-primary: var(--drop-glow-primary);
   --drop-shadow-pop: var(--drop-pop);

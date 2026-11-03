@@ -23,6 +23,7 @@ describe("routeTransitionTypes", () => {
 
   it("wipes between a grid view and another shell page", () => {
     expect(routeTransitionTypes("/tasks/a", "/reviews", false)).toEqual(["bw-route"]);
+    expect(routeTransitionTypes("/", "/pulls", false)).toEqual(["bw-route"]);
     expect(routeTransitionTypes("/active", "/", false)).toEqual(["bw-route"]);
   });
 

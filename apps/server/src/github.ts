@@ -40,16 +40,25 @@ import {
   type GitHubClient,
   type GitHubCredentials,
   type JiraCredentials,
+  type PullRequestRef,
   type PullRequestStackMember,
 } from "@blackwall/integrations";
 import {
   JIRA_EMAIL_META,
+  MERGE_METHODS,
+  ciScopeHint,
+  ciSsoHint,
   issueLookupInputSchema,
+  mergePullRequestInputSchema,
   pullRequestLookupInputSchema,
   type AssignedIssues,
   type CiCheck,
   type Finding,
   type IssueLookup,
+  type MergeMethod,
+  type MergePullRequestResult,
+  type MyPullRequestDetail,
+  type MyPullRequests,
   type PullRequestComments,
   type PullRequestLookup,
   type Repo,
@@ -58,6 +67,7 @@ import {
   type Task,
 } from "@blackwall/shared";
 import { Hono } from "hono";
+import type { TaskPipeline } from "./tasks.js";
 import { badRequest, readJson } from "./validation.js";
 
 type PrOrigin = Extract<Task["origin"], { kind: "github-pr" }>;
@@ -602,9 +612,36 @@ async function searchEveryGitHubHost<T extends { updatedAt: string }>(
 }
 
 export interface PullRequestRoutesOptions {
-  connections: Pick<ConnectionService, "resolve" | "list" | "credentialById">;
+  connections: Pick<ConnectionService, "resolve" | "list" | "credentialById" | "requireCredential">;
   repos: Pick<RepoService, "list">;
+  /** Finishes the blackwall tasks behind a pull request merged through `/merge`. */
+  tasks?: Pick<TaskPipeline, "finishMergedPullRequest">;
   fetch?: Fetch;
+  log?: (message: string) => void;
+}
+
+/**
+ * The merge methods to offer, in GitHub's order: each one the repo does not
+ * explicitly turn off. GitHub leaves the settings out for a token that can't
+ * push to the repo (a fork PR into upstream), and `repo` is null when it
+ * could not be read; then, like when all are off, all three are offered and
+ * GitHub refuses the ones it doesn't allow.
+ */
+export function mergeMethodsOf(
+  repo: {
+    allowMergeCommit?: boolean | undefined;
+    allowSquashMerge?: boolean | undefined;
+    allowRebaseMerge?: boolean | undefined;
+  } | null,
+): MergeMethod[] {
+  if (!repo) return [...MERGE_METHODS];
+  const allowed: Record<MergeMethod, boolean | undefined> = {
+    merge: repo.allowMergeCommit,
+    squash: repo.allowSquashMerge,
+    rebase: repo.allowRebaseMerge,
+  };
+  const methods = MERGE_METHODS.filter((method) => allowed[method] !== false);
+  return methods.length > 0 ? methods : [...MERGE_METHODS];
 }
 
 /**
@@ -617,13 +654,161 @@ export interface PullRequestRoutesOptions {
  * listed in `errors`; the other hosts' PRs still come back. Each PR carries its
  * registered repo (`repoId`, null when no repo's `origin` is the PR's
  * repository) and its host's connection (`connectionId`), resolved as `/lookup` does.
+ *
+ * `GET /mine`: the open PRs the user wrote on every GitHub/GHE connection with
+ * a token, drafts and approved ones included, with their checks and latest
+ * outside activity; rows and `errors` as for `/review-requests`.
+ *
+ * `GET /detail?url=`: one PR for the My pull requests view: its branches,
+ * review decision, mergeability, checks, conversation and review threads, and
+ * the merge methods to offer (see {@link mergeMethodsOf}).
+ *
+ * `POST /merge`: merges the PR with the user's method, only if its head is
+ * still the `sha` they saw, then finishes the blackwall tasks behind it.
+ * GitHub's refusal comes back as a 409 with its message. `/detail` and
+ * `/merge` answer a missing token with the token modal's error.
  */
 export function pullRequestRoutes({
   connections,
   repos,
+  tasks,
   fetch: fetchImpl,
+  log = console.error,
 }: PullRequestRoutesOptions): Hono {
   const routes = new Hono();
+
+  /** The PR at `url` and a client for its host; null for a link that is not a PR. */
+  async function pullRequestClient(url: string) {
+    const ref = parsePullRequestUrl(url);
+    if (!ref) return null;
+    const { connection, token } = await connections.requireCredential({
+      kind: "github",
+      remote: ref.url,
+    });
+    return { ref, client: createGitHubClient({ baseUrl: connection.baseUrl, token }, fetchImpl) };
+  }
+
+  const notPullRequest = "Expected a pull request link like https://github.com/owner/repo/pull/1";
+
+  routes.get("/mine", async (c) => {
+    const { rows, errors } = await searchEveryGitHubHost(connections, fetchImpl, (client) =>
+      client.searchAuthoredPullRequests(),
+    );
+    const registered = repos.list();
+    const pullRequests = rows.map((pr) => {
+      const ref = parsePullRequestUrl(pr.url);
+      const repo = ref && findRepoForPullRequest(registered, ref);
+      const connection = connections.resolve({ kind: "github", remote: pr.url });
+      return { ...pr, repoId: repo?.id ?? null, connectionId: connection?.id ?? null };
+    });
+    return c.json<MyPullRequests>({ pullRequests, errors });
+  });
+
+  routes.get("/detail", async (c) => {
+    const target = await pullRequestClient(c.req.query("url") ?? "");
+    if (!target) return c.json({ error: notPullRequest }, 400);
+    try {
+      return c.json<MyPullRequestDetail>(await readDetail(target.ref, target.client));
+    } catch (error) {
+      if (error instanceof GitHubError) return c.json({ error: error.message }, 502);
+      throw error;
+    }
+  });
+
+  async function readDetail(ref: PullRequestRef, client: GitHubClient) {
+    const [pr, status, reviewComments, issueComments, reviews, repo] = await Promise.all([
+      client.getPullRequest(ref),
+      client.getPullRequestStatus(ref),
+      client.listReviewComments(ref),
+      client.listIssueComments(ref),
+      client.listReviews(ref),
+      client.getRepo(ref).catch((error: unknown) => {
+        if (error instanceof GitHubError) return null;
+        throw error;
+      }),
+    ]);
+    const { checks, unreadable } = await readCommitChecks(client, {
+      owner: ref.owner,
+      repo: ref.repo,
+      sha: pr.head.sha,
+    });
+    const checksHint =
+      unreadable.length === 0
+        ? null
+        : unreadable.some((u) => u.reason === "sso")
+          ? ciSsoHint(ref.host)
+          : ciScopeHint(ref.host);
+    return {
+      url: ref.url,
+      title: pr.title,
+      base: pr.base.ref,
+      head: pr.head.ref,
+      headSha: pr.head.sha,
+      draft: pr.draft ?? false,
+      reviewDecision: status.reviewDecision,
+      mergeable: status.mergeable,
+      mergeMethods: mergeMethodsOf(repo),
+      checks,
+      checksHint,
+      conversation: conversationOf(issueComments, reviews).map((item) => ({
+        id: item.id,
+        kind: item.kind,
+        author: item.author,
+        body: item.body,
+        createdAt: item.created ? new Date(item.created) : null,
+        reviewState: item.reviewState ?? null,
+        url: `${ref.url}#${item.kind === "review" ? "pullrequestreview-" : "issuecomment-"}${item.id}`,
+      })),
+      threads: groupReviewThreads(reviewComments).map((t) => ({
+        id: t.id,
+        path: t.path,
+        line: t.line,
+        startLine: t.startLine,
+        side: t.side,
+        outdated: t.outdated,
+        url: t.url,
+        comments: t.comments.map((comment) => ({
+          id: comment.id,
+          author: comment.author,
+          body: comment.body,
+          createdAt: comment.created ? new Date(comment.created) : null,
+        })),
+      })),
+    } satisfies MyPullRequestDetail;
+  }
+
+  routes.post("/merge", async (c) => {
+    const input = mergePullRequestInputSchema.safeParse(await readJson(c));
+    if (!input.success) {
+      return badRequest(c, input.error.issues);
+    }
+    const target = await pullRequestClient(input.data.url);
+    if (!target) return c.json({ error: notPullRequest }, 400);
+    const { ref, client } = target;
+    let merged: { sha: string; merged: boolean };
+    try {
+      merged = await client.mergePullRequest(ref, {
+        method: input.data.method,
+        sha: input.data.sha,
+      });
+    } catch (error) {
+      if (!(error instanceof GitHubError)) throw error;
+      // 405: not mergeable or the method is not allowed; 409: the head moved.
+      const refused = error.status === 405 || error.status === 409;
+      return c.json({ error: error.message }, refused ? 409 : 502);
+    }
+    let finishedTaskIds: string[] = [];
+    if (tasks) {
+      try {
+        finishedTaskIds = await tasks.finishMergedPullRequest(ref.url);
+      } catch (error) {
+        log(
+          `Merged ${ref.url}, but finishing its tasks failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    return c.json<MergePullRequestResult>({ ...merged, finishedTaskIds });
+  });
 
   routes.get("/review-requests", async (c) => {
     const { rows, errors } = await searchEveryGitHubHost(connections, fetchImpl, (client) =>

@@ -60,6 +60,10 @@ import {
   reviewOutputJsonSchema,
   reviewOutputSchema,
   reviewRequestsSchema,
+  myPullRequestsSchema,
+  myPullRequestDetailSchema,
+  mergePullRequestInputSchema,
+  mergePullRequestResultSchema,
   searchQuerySchema,
   searchResultsSchema,
   settingsSchema,
@@ -986,6 +990,110 @@ describe("reviewRequestsSchema", () => {
       errors: [],
     });
     expect(parsed.success).toBe(false);
+  });
+});
+
+describe("myPullRequestsSchema", () => {
+  const pr = {
+    host: "acme.ghe.com",
+    owner: "acme",
+    repo: "shop",
+    number: 42,
+    title: "Round invoice totals once",
+    url: "https://acme.ghe.com/acme/shop/pull/42",
+    updatedAt: now,
+    draft: true,
+    reviewDecision: "approved",
+    checks: "pending",
+    activityAt: "2026-10-02T10:00:00Z",
+    headSha: "abc123",
+    repoId: "r1",
+    connectionId: null,
+  };
+  const parse = (row: Record<string, unknown>) =>
+    myPullRequestsSchema.safeParse({ pullRequests: [row], errors: [] });
+
+  it("parses a row with its draft flag, decision, checks and activity", () => {
+    const parsed = myPullRequestsSchema.parse({
+      pullRequests: [pr, { ...pr, reviewDecision: null, checks: null, activityAt: null }],
+      errors: [{ host: "github.com", message: "github.com: token rejected" }],
+    });
+    expect(parsed.pullRequests[0]!.updatedAt).toEqual(new Date(now));
+    expect(parsed.pullRequests[0]).toMatchObject({
+      draft: true,
+      reviewDecision: "approved",
+      checks: "pending",
+      activityAt: "2026-10-02T10:00:00Z",
+    });
+    expect(parsed.pullRequests[1]).toMatchObject({ reviewDecision: null, checks: null });
+  });
+
+  it("rejects an unknown decision or checks state", () => {
+    expect(parse({ ...pr, reviewDecision: "APPROVED" }).success).toBe(false);
+    expect(parse({ ...pr, checks: "skipped" }).success).toBe(false);
+  });
+});
+
+describe("myPullRequestDetailSchema", () => {
+  const detail = {
+    url: "https://github.com/acme/shop/pull/42",
+    title: "Round invoice totals once",
+    base: "main",
+    head: "feature/round",
+    headSha: "abc123",
+    draft: false,
+    reviewDecision: "review-required",
+    mergeable: null,
+    mergeMethods: ["squash"],
+    checks: [
+      { name: "test", kind: "check-run", id: 1, state: "passed", conclusion: "success", url: null },
+    ],
+    checksHint: null,
+    conversation: [
+      {
+        id: 7,
+        kind: "review",
+        author: "kari",
+        body: "Looks good",
+        createdAt: now,
+        reviewState: "APPROVED",
+        url: "https://github.com/acme/shop/pull/42#pullrequestreview-7",
+      },
+    ],
+    threads: [],
+  };
+
+  it("parses a pull request's status, checks and conversation", () => {
+    const parsed = myPullRequestDetailSchema.parse(detail);
+    expect(parsed.mergeMethods).toEqual(["squash"]);
+    expect(parsed.conversation[0]!.createdAt).toEqual(new Date(now));
+  });
+
+  it("rejects no merge methods, an unknown one and an unknown decision", () => {
+    expect(myPullRequestDetailSchema.safeParse({ ...detail, mergeMethods: [] }).success).toBe(
+      false,
+    );
+    expect(
+      myPullRequestDetailSchema.safeParse({ ...detail, mergeMethods: ["fast-forward"] }).success,
+    ).toBe(false);
+    expect(
+      myPullRequestDetailSchema.safeParse({ ...detail, reviewDecision: "commented" }).success,
+    ).toBe(false);
+  });
+});
+
+describe("merge pull request schemas", () => {
+  it("needs a link, a known method and a head sha", () => {
+    const input = { url: "https://github.com/acme/shop/pull/42", method: "rebase", sha: "abc" };
+    expect(mergePullRequestInputSchema.parse(input)).toEqual(input);
+    expect(mergePullRequestInputSchema.safeParse({ ...input, method: "ff" }).success).toBe(false);
+    expect(mergePullRequestInputSchema.safeParse({ ...input, sha: " " }).success).toBe(false);
+  });
+
+  it("carries the merge commit and the finished tasks", () => {
+    expect(
+      mergePullRequestResultSchema.parse({ sha: "m1", merged: true, finishedTaskIds: ["t1"] }),
+    ).toEqual({ sha: "m1", merged: true, finishedTaskIds: ["t1"] });
   });
 });
 

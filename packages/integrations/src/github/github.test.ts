@@ -788,6 +788,207 @@ describe("review requests search", () => {
   });
 });
 
+describe("authored pull requests search", () => {
+  const person = (login: string) => ({ __typename: "User", login });
+  const node = (number: number, patch: Record<string, unknown> = {}) => ({
+    url: `https://acme.ghe.com/acme/shop/pull/${number}`,
+    number,
+    title: `PR ${number}`,
+    updatedAt: "2026-10-01T10:00:00Z",
+    isDraft: false,
+    reviewDecision: "REVIEW_REQUIRED",
+    headRefOid: `sha${number}`,
+    author: { login: "me" },
+    repository: { name: "shop", owner: { login: "acme" } },
+    commits: { nodes: [{ commit: { statusCheckRollup: { state: "SUCCESS" } } }] },
+    comments: { nodes: [] },
+    reviews: { nodes: [] },
+    ...patch,
+  });
+  const answering = (body: unknown) =>
+    vi.fn<typeof fetch>(() => Promise.resolve(json(JSON.stringify(body))));
+  const searching = (nodes: unknown[]) => answering({ data: { search: { nodes } } });
+
+  it("searches the user's open PRs on the host's GraphQL endpoint", async () => {
+    const github = searching([]);
+    await createGitHubClient(
+      { baseUrl: "https://github.com", token: TOKEN },
+      github,
+    ).searchAuthoredPullRequests();
+    const [url, init] = github.mock.calls[0]!;
+    expect(String(url)).toBe("https://api.github.com/graphql");
+    const { query, variables } = JSON.parse(String(init?.body)) as {
+      query: string;
+      variables: { search: string };
+    };
+    expect(query).toContain("statusCheckRollup");
+    expect(variables.search).toContain("author:@me");
+    expect(variables.search).toContain("is:open");
+    expect(variables.search).not.toContain("draft:false");
+
+    const ghe = searching([]);
+    await createGitHubClient(GHE, ghe).searchAuthoredPullRequests();
+    expect(String(ghe.mock.calls[0]![0])).toBe("https://api.acme.ghe.com/graphql");
+  });
+
+  it("keeps drafts and approved PRs and maps decisions and checks", async () => {
+    const rollup = (state: string | null) => ({
+      commits: { nodes: [{ commit: { statusCheckRollup: state ? { state } : null } }] },
+    });
+    const rows = await createGitHubClient(
+      GHE,
+      searching([
+        node(1),
+        node(2, { reviewDecision: "APPROVED", ...rollup("FAILURE") }),
+        node(3, { isDraft: true, reviewDecision: null, ...rollup("PENDING") }),
+        node(4, { reviewDecision: "CHANGES_REQUESTED", ...rollup("ERROR") }),
+        node(5, rollup("EXPECTED")),
+        node(6, rollup(null)),
+        node(7, { commits: null }),
+        {},
+      ]),
+    ).searchAuthoredPullRequests();
+    expect(rows[0]).toEqual({
+      host: "acme.ghe.com",
+      owner: "acme",
+      repo: "shop",
+      number: 1,
+      title: "PR 1",
+      url: "https://acme.ghe.com/acme/shop/pull/1",
+      updatedAt: "2026-10-01T10:00:00Z",
+      draft: false,
+      reviewDecision: "review-required",
+      checks: "passed",
+      activityAt: null,
+      headSha: "sha1",
+    });
+    expect(rows.map((r) => [r.number, r.draft, r.reviewDecision, r.checks])).toEqual([
+      [1, false, "review-required", "passed"],
+      [2, false, "approved", "failed"],
+      [3, true, null, "pending"],
+      [4, false, "changes-requested", "failed"],
+      [5, false, "review-required", "pending"],
+      [6, false, "review-required", null],
+      [7, false, "review-required", null],
+    ]);
+  });
+
+  it("takes the newest comment or review by someone else, skipping self and bots", async () => {
+    const rows = await createGitHubClient(
+      GHE,
+      searching([
+        node(1, {
+          comments: {
+            nodes: [
+              { createdAt: "2026-10-02T10:00:00Z", author: person("kari") },
+              { createdAt: "2026-10-05T10:00:00Z", author: person("me") },
+              { createdAt: "2026-10-06T10:00:00Z", author: { __typename: "Bot", login: "ci" } },
+            ],
+          },
+          reviews: {
+            nodes: [
+              { submittedAt: "2026-10-03T10:00:00Z", author: person("ola") },
+              { submittedAt: null, author: person("ola") },
+            ],
+          },
+        }),
+        node(2, {
+          comments: { nodes: [{ createdAt: "2026-10-04T10:00:00Z", author: null }] },
+        }),
+        node(3, {
+          comments: { nodes: [{ createdAt: "2026-10-04T10:00:00Z", author: person("me") }] },
+          reviews: {
+            nodes: [
+              { submittedAt: "2026-10-05T10:00:00Z", author: { __typename: "Bot", login: "x" } },
+            ],
+          },
+        }),
+      ]),
+    ).searchAuthoredPullRequests();
+    expect(rows.map((r) => r.activityAt)).toEqual([
+      "2026-10-03T10:00:00Z",
+      "2026-10-04T10:00:00Z",
+      null,
+    ]);
+  });
+});
+
+describe("pull request status and merge", () => {
+  const answering = (body: unknown, status = 200) =>
+    vi.fn<typeof fetch>(() => Promise.resolve(json(JSON.stringify(body), status)));
+  const status = (pullRequest: unknown) => answering({ data: { repository: { pullRequest } } });
+
+  it("maps the review decision and mergeability", async () => {
+    const read = (pullRequest: unknown) =>
+      createGitHubClient(GHE, status(pullRequest)).getPullRequestStatus(PR);
+    expect(await read({ reviewDecision: "APPROVED", mergeable: "MERGEABLE" })).toEqual({
+      reviewDecision: "approved",
+      mergeable: true,
+    });
+    expect(await read({ reviewDecision: "CHANGES_REQUESTED", mergeable: "CONFLICTING" })).toEqual({
+      reviewDecision: "changes-requested",
+      mergeable: false,
+    });
+    expect(await read({ reviewDecision: null, mergeable: "UNKNOWN" })).toEqual({
+      reviewDecision: null,
+      mergeable: null,
+    });
+    expect(await read({ reviewDecision: "REVIEW_REQUIRED", mergeable: "UNKNOWN" })).toEqual({
+      reviewDecision: "review-required",
+      mergeable: null,
+    });
+  });
+
+  it("asks for the PR by owner, name and number", async () => {
+    const github = status({ reviewDecision: null, mergeable: "MERGEABLE" });
+    await createGitHubClient(GHE, github).getPullRequestStatus(PR);
+    const { variables } = JSON.parse(String(github.mock.calls[0]![1]?.body)) as {
+      variables: Record<string, unknown>;
+    };
+    expect(variables).toMatchObject({ owner: "acme", name: "shop", number: 42 });
+  });
+
+  it("merges with the method, only at the given head", async () => {
+    const github = answering({
+      sha: "m1",
+      merged: true,
+      message: "Pull Request successfully merged",
+    });
+    const result = await createGitHubClient(GHE, github).mergePullRequest(PR, {
+      method: "squash",
+      sha: "h1",
+    });
+    expect(result).toEqual({ sha: "m1", merged: true });
+    const [input, init] = github.mock.calls[0]!;
+    expect(new URL(String(input)).pathname).toBe("/repos/acme/shop/pulls/42/merge");
+    expect(init?.method).toBe("PUT");
+    expect(JSON.parse(String(init?.body))).toEqual({ merge_method: "squash", sha: "h1" });
+  });
+
+  it("surfaces GitHub's refusal as a GitHubError with its message", async () => {
+    const refused = await createGitHubClient(
+      GHE,
+      answering({ message: "Squash merges are not allowed on this repository." }, 405),
+    )
+      .mergePullRequest(PR, { method: "squash", sha: "h1" })
+      .catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(GitHubError);
+    expect((refused as GitHubError).status).toBe(405);
+    expect((refused as GitHubError).message).toBe(
+      "acme.ghe.com: Squash merges are not allowed on this repository.",
+    );
+
+    const moved = await createGitHubClient(
+      GHE,
+      answering({ message: "Head branch was modified. Review and try the merge again." }, 409),
+    )
+      .mergePullRequest(PR, { method: "merge", sha: "h1" })
+      .catch((e: unknown) => e);
+    expect((moved as GitHubError).status).toBe(409);
+    expect((moved as GitHubError).message).toContain("Head branch was modified");
+  });
+});
+
 describe("assigned issues search", () => {
   const node = (number: number, patch: Record<string, unknown> = {}) => ({
     url: `https://acme.ghe.com/acme/shop/issues/${number}`,
@@ -1218,5 +1419,28 @@ describe("repo rename", () => {
       fullName: "acme/store",
     });
     expect(new URL(String(fetchImpl.mock.calls[0]![0])).pathname).toBe("/repos/acme/shop");
+  });
+
+  it("reads the merge settings when GitHub sends them, and leaves them undefined when not", async () => {
+    const withSettings = createGitHubClient(GHE, () =>
+      Promise.resolve(
+        json(
+          '{"name":"shop","full_name":"acme/shop","allow_merge_commit":false,"allow_squash_merge":true,"allow_rebase_merge":false}',
+        ),
+      ),
+    );
+    expect(await withSettings.getRepo({ owner: "acme", repo: "shop" })).toMatchObject({
+      allowMergeCommit: false,
+      allowSquashMerge: true,
+      allowRebaseMerge: false,
+    });
+
+    const without = createGitHubClient(GHE, () =>
+      Promise.resolve(json('{"name":"shop","full_name":"acme/shop"}')),
+    );
+    const repo = await without.getRepo({ owner: "acme", repo: "shop" });
+    expect(repo.allowMergeCommit).toBeUndefined();
+    expect(repo.allowSquashMerge).toBeUndefined();
+    expect(repo.allowRebaseMerge).toBeUndefined();
   });
 });

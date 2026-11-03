@@ -38,6 +38,9 @@ import {
   repoJiraIssuesSchema,
   repoMemoriesSchema,
   reviewRequestsSchema,
+  myPullRequestsSchema,
+  myPullRequestDetailSchema,
+  mergePullRequestResultSchema,
   repoRenameResultSchema,
   repoScanResultSchema,
   repoSchema,
@@ -127,6 +130,10 @@ import {
   type RepoUpdate,
   type RepoView,
   type ReviewRequests,
+  type MyPullRequests,
+  type MyPullRequestDetail,
+  type MergePullRequestInput,
+  type MergePullRequestResult,
   type RoleAgents,
   type Run,
   type SearchResults,
@@ -274,6 +281,25 @@ export function lookupPullRequest(url: string): Promise<PullRequestLookup> {
 /** Open PRs waiting on the user's review on every GitHub host, and the hosts that failed. */
 export function listReviewRequests(): Promise<ReviewRequests> {
   return request("/api/pull-requests/review-requests", reviewRequestsSchema);
+}
+
+/** Open PRs the user wrote on every GitHub host, and the hosts that failed. */
+export function listMyPullRequests(): Promise<MyPullRequests> {
+  return request("/api/pull-requests/mine", myPullRequestsSchema);
+}
+
+/** One of the user's PRs: status, checks, conversation, review threads and merge methods. */
+export function getMyPullRequest(url: string): Promise<MyPullRequestDetail> {
+  const params = new URLSearchParams({ url });
+  return request(`/api/pull-requests/detail?${params}`, myPullRequestDetailSchema);
+}
+
+/** Merges a PR on GitHub if its head is still `sha`, finishing the blackwall tasks behind it. */
+export function mergePullRequest(input: MergePullRequestInput): Promise<MergePullRequestResult> {
+  return request("/api/pull-requests/merge", mergePullRequestResultSchema, {
+    method: "POST",
+    body: input,
+  });
 }
 
 /** Open issues assigned to the user on every GitHub host, and the hosts that failed. */

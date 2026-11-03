@@ -5,6 +5,9 @@ import type {
   ConnectionView,
   Finding,
   IssueLookup,
+  MergePullRequestResult,
+  MyPullRequestDetail,
+  MyPullRequests,
   PullRequestLookup,
   RepoIssues,
   ReviewRequests,
@@ -1125,6 +1128,336 @@ describe("review requests route", () => {
   it("returns nothing without connections", async () => {
     const res = await setup([]).routes.request("/review-requests");
     expect(await res.json()).toEqual({ pullRequests: [], errors: [] });
+  });
+});
+
+describe("my pull requests routes", () => {
+  const PR = "https://acme.ghe.com/acme/shop/pull/42";
+  const conn = (id: string, baseUrl: string) =>
+    ({
+      id,
+      name: id,
+      kind: "github",
+      baseUrl,
+      authMeta: {},
+      hasToken: true,
+    }) as unknown as ConnectionView;
+  const github = conn("c1", "https://github.com");
+  const acme = conn("c2", "https://acme.ghe.com");
+
+  interface Answers {
+    /** `GET /repos/acme/shop`; a number answers with that status. */
+    repo?: Record<string, unknown> | number;
+    /** `PUT .../merge`'s status and message when GitHub refuses. */
+    mergeRefusal?: { status: number; message: string };
+    failHosts?: string[];
+  }
+
+  /** Answers GitHub's GraphQL and REST calls for acme/shop#42 like GitHub would. */
+  function fakeGitHub({ repo = {}, mergeRefusal, failHosts = [] }: Answers = {}) {
+    const answer = (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      const path = url.pathname;
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "content-type": "application/json" },
+        });
+      if (failHosts.includes(url.host)) return json({ message: "Bad credentials" }, 401);
+      if (path.endsWith("/graphql")) {
+        const { query } = JSON.parse(String(init?.body)) as { query: string };
+        if (query.includes("PullRequestStatus")) {
+          return json({
+            data: {
+              repository: {
+                pullRequest: { reviewDecision: "APPROVED", mergeable: "CONFLICTING" },
+              },
+            },
+          });
+        }
+        const host = url.host === "api.github.com" ? "github.com" : "acme.ghe.com";
+        return json({
+          data: {
+            search: {
+              nodes: [
+                {
+                  url: `https://${host}/acme/shop/pull/42`,
+                  number: 42,
+                  title: "Round invoice totals once",
+                  updatedAt: "2026-10-03T10:00:00Z",
+                  isDraft: true,
+                  reviewDecision: "APPROVED",
+                  headRefOid: "abc",
+                  author: { login: "me" },
+                  repository: { name: "shop", owner: { login: "acme" } },
+                  commits: { nodes: [{ commit: { statusCheckRollup: { state: "PENDING" } } }] },
+                  comments: {
+                    nodes: [
+                      {
+                        createdAt: "2026-10-02T10:00:00Z",
+                        author: { __typename: "User", login: "kari" },
+                      },
+                    ],
+                  },
+                  reviews: { nodes: [] },
+                },
+              ],
+            },
+          },
+        });
+      }
+      if (path === "/repos/acme/shop/pulls/42/merge") {
+        if (mergeRefusal) return json({ message: mergeRefusal.message }, mergeRefusal.status);
+        return json({ sha: "m1", merged: true, message: "Pull Request successfully merged" });
+      }
+      if (path === "/repos/acme/shop/pulls/42") {
+        return json({
+          number: 42,
+          html_url: PR,
+          title: "Round invoice totals once",
+          state: "open",
+          draft: false,
+          head: { ref: "fix/rounding", sha: "abc", repo: { full_name: "acme/shop" } },
+          base: { ref: "main", sha: "def", repo: { full_name: "acme/shop" } },
+        });
+      }
+      if (path === "/repos/acme/shop/pulls/42/comments") {
+        return json([
+          {
+            id: 101,
+            path: "src/money.ts",
+            line: null,
+            original_line: 12,
+            side: "RIGHT",
+            body: "Round before summing?",
+            user: { login: "kari" },
+            created_at: "2026-10-01T09:00:00Z",
+            html_url: `${PR}#discussion_r101`,
+          },
+        ]);
+      }
+      if (path === "/repos/acme/shop/issues/42/comments") {
+        return json([
+          {
+            id: 501,
+            body: "Cover refunds?",
+            user: { login: "dev" },
+            created_at: "2026-10-02T00:00:00Z",
+          },
+        ]);
+      }
+      if (path === "/repos/acme/shop/pulls/42/reviews") {
+        return json([
+          {
+            id: 601,
+            state: "APPROVED",
+            body: "Looks good",
+            user: { login: "kari" },
+            submitted_at: "2026-10-04T00:00:00Z",
+          },
+        ]);
+      }
+      if (path === "/repos/acme/shop") {
+        return typeof repo === "number"
+          ? json({ message: "Not Found" }, repo)
+          : json({ name: "shop", full_name: "acme/shop", ...repo });
+      }
+      if (path === "/repos/acme/shop/commits/abc/check-runs") {
+        return json({
+          total_count: 1,
+          check_runs: [{ id: 7, name: "unit", status: "in_progress", conclusion: null }],
+        });
+      }
+      if (path === "/repos/acme/shop/commits/abc/status") {
+        return json({ state: "pending", sha: "abc", statuses: [] });
+      }
+      return json({ message: "Not Found" }, 404);
+    };
+    // Responses carry the request's URL, which Octokit's pagination reads.
+    return vi.fn<typeof fetch>(async (input, init) =>
+      Object.defineProperty(answer(input, init), "url", { value: String(input) }),
+    );
+  }
+
+  function setup(
+    answers: Answers = {},
+    {
+      tasks,
+      list = [acme],
+    }: { tasks?: PullRequestRoutesOptions["tasks"]; list?: ConnectionView[] } = {},
+  ) {
+    const fetchImpl = fakeGitHub(answers);
+    const credential = (baseUrl: string | undefined) => {
+      const connection = list.find((c) => c.baseUrl === baseUrl);
+      if (!connection) throw new Error("no connection");
+      return { connection: connection as unknown as Connection, token: TOKEN };
+    };
+    const log = vi.fn();
+    const routes = pullRequestRoutes({
+      connections: {
+        resolve: ({ kind, ...target }) =>
+          kind === "github" && "remote" in target
+            ? (list.find((c) => target.remote.startsWith(c.baseUrl)) as unknown as Connection)
+            : undefined,
+        list: () => list,
+        credentialById: vi.fn(async (id: string) =>
+          credential(list.find((c) => c.id === id)?.baseUrl),
+        ),
+        requireCredential: vi.fn(async ({ remote }: { kind: "github"; remote: string }) =>
+          credential(list.find((c) => remote.startsWith(c.baseUrl))?.baseUrl),
+        ),
+      } as unknown as PullRequestRoutesOptions["connections"],
+      repos: { list: () => [{ id: "r1", remoteUrl: "git@acme.ghe.com:acme/shop.git" }] as never },
+      ...(tasks ? { tasks } : {}),
+      fetch: fetchImpl,
+      log,
+    });
+    return { routes, fetchImpl, log };
+  }
+
+  const detail = async (routes: ReturnType<typeof setup>["routes"]) => {
+    const res = await routes.request(`/detail?${new URLSearchParams({ url: PR })}`);
+    expect(res.status).toBe(200);
+    return (await res.json()) as MyPullRequestDetail;
+  };
+
+  const merge = (routes: ReturnType<typeof setup>["routes"], body: unknown) =>
+    routes.request("/merge", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  it("lists the user's PRs with their repo and connection, and a failing host in errors", async () => {
+    const { routes } = setup({ failHosts: ["api.github.com"] }, { list: [github, acme] });
+    const res = await routes.request("/mine");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as MyPullRequests;
+    expect(body.pullRequests).toEqual([
+      {
+        host: "acme.ghe.com",
+        owner: "acme",
+        repo: "shop",
+        number: 42,
+        title: "Round invoice totals once",
+        url: PR,
+        updatedAt: "2026-10-03T10:00:00.000Z",
+        draft: true,
+        reviewDecision: "approved",
+        checks: "pending",
+        activityAt: "2026-10-02T10:00:00Z",
+        headSha: "abc",
+        repoId: "r1",
+        connectionId: "c2",
+      },
+    ]);
+    expect(body.errors).toEqual([{ host: "github.com", message: "github.com: token rejected" }]);
+  });
+
+  it("combines a PR's status, checks, conversation and threads", async () => {
+    const { routes } = setup({
+      repo: { allow_merge_commit: true, allow_squash_merge: true, allow_rebase_merge: true },
+    });
+    const body = await detail(routes);
+    expect(body).toMatchObject({
+      url: PR,
+      title: "Round invoice totals once",
+      base: "main",
+      head: "fix/rounding",
+      headSha: "abc",
+      draft: false,
+      reviewDecision: "approved",
+      mergeable: false,
+      mergeMethods: ["merge", "squash", "rebase"],
+      checks: [expect.objectContaining({ name: "unit", state: "pending" })],
+      checksHint: null,
+    });
+    expect(body.conversation.map((c) => [c.kind, c.author, c.body, c.reviewState, c.url])).toEqual([
+      ["comment", "dev", "Cover refunds?", null, `${PR}#issuecomment-501`],
+      ["review", "kari", "Looks good", "APPROVED", `${PR}#pullrequestreview-601`],
+    ]);
+    expect(body.threads).toEqual([
+      expect.objectContaining({
+        id: 101,
+        path: "src/money.ts",
+        outdated: true,
+        comments: [expect.objectContaining({ author: "kari", body: "Round before summing?" })],
+      }),
+    ]);
+  });
+
+  it.each([
+    [
+      "only the allowed ones",
+      { allow_merge_commit: false, allow_squash_merge: true, allow_rebase_merge: false },
+      ["squash"],
+    ],
+    ["all three when GitHub leaves the settings out", {}, ["merge", "squash", "rebase"]],
+    [
+      "all three when every one is off",
+      { allow_merge_commit: false, allow_squash_merge: false, allow_rebase_merge: false },
+      ["merge", "squash", "rebase"],
+    ],
+    ["all three when the repo can't be read", 404, ["merge", "squash", "rebase"]],
+  ])("offers %s as merge methods", async (_name, repo, methods) => {
+    const { routes } = setup({ repo });
+    expect((await detail(routes)).mergeMethods).toEqual(methods);
+  });
+
+  it("merges at the head the user saw and finishes the tasks behind the PR", async () => {
+    const finishMergedPullRequest = vi.fn(async () => ["t1"]);
+    const { routes, fetchImpl } = setup({}, { tasks: { finishMergedPullRequest } });
+    const res = await merge(routes, { url: `${PR}/files`, method: "squash", sha: "abc" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual<MergePullRequestResult>({
+      sha: "m1",
+      merged: true,
+      finishedTaskIds: ["t1"],
+    });
+    expect(finishMergedPullRequest).toHaveBeenCalledExactlyOnceWith(PR);
+    const put = fetchImpl.mock.calls.find(([, init]) => init?.method === "PUT")!;
+    expect(JSON.parse(String(put[1]?.body))).toEqual({ merge_method: "squash", sha: "abc" });
+  });
+
+  it("still answers a merge when finishing the tasks fails, or without tasks", async () => {
+    const finishMergedPullRequest = vi.fn(async () => {
+      throw new Error("database is locked");
+    });
+    const failing = setup({}, { tasks: { finishMergedPullRequest } });
+    const res = await merge(failing.routes, { url: PR, method: "merge", sha: "abc" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ merged: true, finishedTaskIds: [] });
+    expect(failing.log).toHaveBeenCalledWith(expect.stringContaining("database is locked"));
+
+    const without = setup();
+    const plain = await merge(without.routes, { url: PR, method: "merge", sha: "abc" });
+    expect(plain.status).toBe(200);
+    expect(await plain.json()).toMatchObject({ merged: true, finishedTaskIds: [] });
+  });
+
+  it.each([
+    [405, "Squash merges are not allowed on this repository."],
+    [409, "Head branch was modified. Review and try the merge again."],
+  ])("answers GitHub's %i refusal as a 409 with its message", async (status, message) => {
+    const finishMergedPullRequest = vi.fn(async () => ["t1"]);
+    const { routes } = setup(
+      { mergeRefusal: { status, message } },
+      { tasks: { finishMergedPullRequest } },
+    );
+    const res = await merge(routes, { url: PR, method: "squash", sha: "abc" });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: `acme.ghe.com: ${message}` });
+    expect(finishMergedPullRequest).not.toHaveBeenCalled();
+  });
+
+  it("rejects links that are not pull requests", async () => {
+    const { routes } = setup();
+    const notPr = "https://acme.ghe.com/acme/shop/issues/1";
+    expect((await routes.request(`/detail?${new URLSearchParams({ url: notPr })}`)).status).toBe(
+      400,
+    );
+    expect((await merge(routes, { url: notPr, method: "merge", sha: "abc" })).status).toBe(400);
+    expect((await merge(routes, { url: PR, method: "fast-forward", sha: "abc" })).status).toBe(400);
   });
 });
 

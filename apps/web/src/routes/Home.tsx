@@ -5,6 +5,7 @@ import { gridDots, runningTaskCount } from "../agent-dots";
 import { pendingCount } from "../backlog";
 import { GridAgents } from "../components/GridAgents";
 import { IssuePill } from "../components/IssuePill";
+import { MyPullRequestsPill } from "../components/MyPullRequestsPill";
 import { BacklogIcon, CheckIcon, PlusIcon, WallIcon } from "../components/icons";
 import { NewTaskModal } from "../components/NewTaskModal";
 import { ReviewPill } from "../components/ReviewPill";
@@ -280,6 +281,7 @@ export function Home() {
           <div className="pointer-events-none absolute inset-x-0 bottom-4 flex flex-wrap justify-center gap-3 px-4">
             <ReviewPill />
             <IssuePill />
+            <MyPullRequestsPill />
           </div>
         </div>
       )}

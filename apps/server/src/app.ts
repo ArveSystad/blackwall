@@ -184,7 +184,11 @@ export function createApp({
   if (repos && connections) {
     app.route(
       "/api/pull-requests",
-      pullRequestRoutes({ connections: connections.connections, repos }),
+      pullRequestRoutes({
+        connections: connections.connections,
+        repos,
+        ...(pipeline ? { tasks: pipeline } : {}),
+      }),
     );
     app.route("/api/issues", issueRoutes({ connections: connections.connections, repos }));
     app.route("/api/issues/jira", jiraIssueRoutes({ connections: connections.connections, repos }));

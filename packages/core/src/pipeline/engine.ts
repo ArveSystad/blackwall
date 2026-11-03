@@ -380,6 +380,24 @@ export function localDelivery(plan: DeliveryPlan): DeliveryConfirmationInput | n
   };
 }
 
+/**
+ * A pull request link as `host/owner/repo/number`, lower-cased, so `pull` and
+ * `pulls`, sub-pages and a trailing slash compare equal; undefined for other links.
+ */
+function pullRequestKey(url: string): string | undefined {
+  let parsed: URL;
+  try {
+    parsed = new URL(url.trim());
+  } catch {
+    return undefined;
+  }
+  const match = /^\/([^/]+)\/([^/]+)\/pulls?\/(\d+)(?:\/.*)?$/.exec(parsed.pathname);
+  if (!match) return undefined;
+  const host = parsed.host.toLowerCase().replace(/^www\.github\.com$/, "github.com");
+  const repo = match[2]!.replace(/\.git$/i, "");
+  return `${host}/${match[1]}/${repo}/${Number(match[3])}`.toLowerCase();
+}
+
 /** A read-only agent step under Trusted left the worktree changed; the harness put it back. */
 export class WorktreeChangedError extends Error {
   constructor() {
@@ -1875,6 +1893,72 @@ export function createPipelineEngine({
       } finally {
         fixingPrComments.delete(taskId);
       }
+    },
+
+    /**
+     * Merged through blackwall: finishes the work tasks behind the pull
+     * request at `url`, those whose delivery opened it and work-mode PR tasks
+     * on it (review tasks are left alone). A queued, running or waiting task
+     * is stopped first, then marked done with its run succeeded; a done one
+     * stops watching CI and drops its CI, so Fix CI is no longer offered.
+     * Archived tasks stay archived. A task delivering, commenting, fixing CI
+     * or fetching PR comments is skipped. Returns the ids of the tasks it
+     * changed.
+     */
+    async finishMergedPullRequest(url: string): Promise<string[]> {
+      const key = pullRequestKey(url);
+      if (!key) return [];
+      const matches = r.tasks.list().filter((task) => {
+        if (pipelineKind(task.mode) !== "work") return false;
+        if (task.origin.kind === "github-pr" && pullRequestKey(task.origin.url) === key) {
+          return true;
+        }
+        const opened = openedPullRequestUrl(task.id);
+        return opened !== undefined && pullRequestKey(opened) === key;
+      });
+      const finished: string[] = [];
+      for (const match of matches) {
+        const taskId = match.id;
+        let task = getTask(taskId);
+        if (
+          delivering.has(taskId) ||
+          commenting.has(taskId) ||
+          fixingCi.has(taskId) ||
+          fixingPrComments.has(taskId) ||
+          task.delivering
+        ) {
+          log(`Task ${taskId}: its pull request was merged while it was busy; left as it is`);
+          continue;
+        }
+        if (task.status === "done") {
+          ci?.cancel(taskId);
+          if (task.ci !== null) saveTask(taskId, { ci: null });
+          finished.push(taskId);
+          continue;
+        }
+        if (task.status === "queued" || task.status === "running" || task.status === "needs-you") {
+          await stop(taskId);
+          await drives.get(taskId);
+          task = getTask(taskId);
+        }
+        if (
+          task.status !== "interrupted" &&
+          task.status !== "failed" &&
+          task.status !== "needs-you"
+        ) {
+          log(
+            `Task ${taskId}: its pull request was merged, but it is ${task.status}; left as it is`,
+          );
+          continue;
+        }
+        ci?.cancel(taskId);
+        const run = latestRun(taskId);
+        if (run) saveRun(run.id, "succeeded", new Date());
+        saveTask(taskId, { status: "done", gate: null, error: null, ci: null });
+        log(`Task ${taskId}: done, its pull request was merged`);
+        finished.push(taskId);
+      }
+      return finished;
     },
 
     /**
