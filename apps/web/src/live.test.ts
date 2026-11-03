@@ -529,18 +529,22 @@ describe("applyServerEvent", () => {
     expect(client.getQueryData(queryKeys.backlog("r1"))).toBeUndefined();
   });
 
-  it("refetches the repo's backlog when one of its tasks is done", () => {
+  it("refetches the repo's backlog and main's push state when one of its tasks is done", () => {
     client.setQueryData(queryKeys.backlog("r1"), []);
+    client.setQueryData(queryKeys.repoSync("r1"), { branch: "main", ahead: 0, behind: 0 });
     applyServerEvent(client, {
       type: "task.upserted",
       payload: { task: makeTask({ repoId: "r1", status: "running" }) },
     });
     expect(client.getQueryState(queryKeys.backlog("r1"))?.isInvalidated).toBe(false);
+    expect(client.getQueryState(queryKeys.repoSync("r1"))?.isInvalidated).toBe(false);
     applyServerEvent(client, {
       type: "task.upserted",
       payload: { task: makeTask({ repoId: "r1", status: "done" }) },
     });
     expect(client.getQueryState(queryKeys.backlog("r1"))?.isInvalidated).toBe(true);
+    // A merge into main leaves commits to push, so the pending-push dot must catch up.
+    expect(client.getQueryState(queryKeys.repoSync("r1"))?.isInvalidated).toBe(true);
   });
 
   it("refetches the done times when a task is done or removed", () => {

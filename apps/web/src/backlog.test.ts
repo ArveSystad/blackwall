@@ -5,10 +5,12 @@ import {
   backlogSections,
   countdown,
   dependencyChoices,
+  hasPendingPush,
   itemState,
   moveItem,
   nextBacklogItem,
   pendingCount,
+  pendingPushLabel,
   referenceRepoChoice,
   reorderIds,
   repoStatusLine,
@@ -495,6 +497,27 @@ describe("syncControl", () => {
       kind: "diverged",
       text: "main diverged from origin/main; pull first",
     });
+  });
+});
+
+describe("hasPendingPush", () => {
+  const sync = (ahead: number, behind: number) => ({ branch: "main", ahead, behind });
+
+  it("is false without a status, with nothing to push or when main has diverged", () => {
+    expect(hasPendingPush(undefined)).toBe(false);
+    expect(hasPendingPush(null)).toBe(false);
+    expect(hasPendingPush(sync(0, 0))).toBe(false);
+    expect(hasPendingPush(sync(0, 2))).toBe(false);
+    expect(hasPendingPush(sync(2, 1))).toBe(false);
+  });
+
+  it("is true when main has commits origin doesn't", () => {
+    expect(hasPendingPush(sync(1, 0))).toBe(true);
+  });
+
+  it("labels the dot with the commit count", () => {
+    expect(pendingPushLabel(sync(1, 0))).toBe("1 commit to push to main");
+    expect(pendingPushLabel(sync(3, 0))).toBe("3 commits to push to main");
   });
 });
 

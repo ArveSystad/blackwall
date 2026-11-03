@@ -128,6 +128,8 @@ Rules:
 - Severity colors never mean status, and status colors never mean severity.
 - Anything that needs the user uses magenta: magenta rail and wash on inbox cards, the banner in the
   main view, and the magenta button for the action that resolves it. Only needs-you uses magenta.
+  An unpushed default branch counts as needs-you (only the user pushes main): a magenta dot on View
+  backlog (`PendingPushDot.tsx`) and a magenta frame line on the Backlog header's Push button.
 - Critical and High findings gate the review loop. Always show the lock (gate) icon next to them.
 - Primary CTA is violet (`btn-primary`). The CTA that resolves a needs-you state is magenta (`btn-needs`).
   Use at most one of each per view.
@@ -165,8 +167,8 @@ Rules:
 ## Layout
 
 - **Top bar:** a global 44px bar (`TopBar.tsx`) over every page. Left: the wordmark, in a 352px
-  column that lines up with the inbox. Middle: the "Repo" picker, View backlog, View code, Run
-  project, the repo status line and the path. Right: the quota chip, Search (`⌘K`), Chat, Theme, Stats and Settings.
+  column that lines up with the inbox. Middle: the "Repo" picker, View backlog (with a magenta dot
+  while main has commits to push), View code, Run project, the repo status line and the path. Right: the quota chip, Search (`⌘K`), Chat, Theme, Stats and Settings.
 - **Shell:** inbox on the left (~352px), task view on the right. Settings replaces both panes with
   a settings nav, a list and an editor.
 - **Stats:** a full page at `/stats`, opened from the top bar's Stats button. Its header has an

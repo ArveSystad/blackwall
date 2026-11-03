@@ -8,6 +8,7 @@ import { IssuePill } from "../components/IssuePill";
 import { MyPullRequestsPill } from "../components/MyPullRequestsPill";
 import { BacklogIcon, CheckIcon, PlusIcon, WallIcon } from "../components/icons";
 import { NewTaskModal } from "../components/NewTaskModal";
+import { PendingPushDot } from "../components/PendingPushDot";
 import { ReviewPill } from "../components/ReviewPill";
 import { RunningHeadline } from "../components/RunningHeadline";
 import { useArchive } from "../components/use-archive-launches";
@@ -255,12 +256,15 @@ export function Home() {
           extra={
             repo && backlog.data ? (
               pendingCount(backlog.data) > 0 ? (
-                <Button asChild>
-                  <Link to="/repos/$repoId/backlog" params={{ repoId: repo.id }}>
-                    <BacklogIcon />
-                    View backlog
-                  </Link>
-                </Button>
+                <span className="relative inline-flex shrink-0">
+                  <Button asChild>
+                    <Link to="/repos/$repoId/backlog" params={{ repoId: repo.id }}>
+                      <BacklogIcon />
+                      View backlog
+                    </Link>
+                  </Button>
+                  <PendingPushDot repoId={repo.id} />
+                </span>
               ) : (
                 <span className="text-body text-muted-foreground">
                   Backlog clear. Nothing queued.

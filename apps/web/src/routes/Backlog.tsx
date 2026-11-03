@@ -1131,7 +1131,7 @@ export function Backlog({
           {!note && control?.kind === "push" && sync.data && (
             <Button
               size="sm"
-              className="shrink-0"
+              className="shrink-0 [--bw-chamfer-line:var(--magenta)]"
               title={control.title}
               onClick={() => setDialog({ kind: "push", sync: sync.data! })}
             >

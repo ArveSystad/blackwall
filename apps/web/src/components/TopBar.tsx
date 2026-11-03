@@ -13,6 +13,7 @@ import {
 import { isSettingsPath } from "../settings-shutter";
 import { ChatToggle } from "./ChatToggle";
 import { BacklogIcon, CodeIcon, GearIcon, SearchIcon, StatsIcon } from "./icons";
+import { PendingPushDot } from "./PendingPushDot";
 import { PushToTalk } from "./PushToTalk";
 import { QuotaChip } from "./QuotaChip";
 import { RepoMenuItems } from "./RepoMenuItems";
@@ -100,12 +101,15 @@ export function TopBar() {
         </SelectMenu>
         {repo ? (
           <>
-            <Button variant="ghost" size="sm" className="shrink-0" asChild>
-              <Link to="/repos/$repoId/backlog" params={{ repoId: repo.id }}>
-                <BacklogIcon size="sm" />
-                View backlog
-              </Link>
-            </Button>
+            <span className="relative inline-flex shrink-0">
+              <Button variant="ghost" size="sm" className="shrink-0" asChild>
+                <Link to="/repos/$repoId/backlog" params={{ repoId: repo.id }}>
+                  <BacklogIcon size="sm" />
+                  View backlog
+                </Link>
+              </Button>
+              <PendingPushDot repoId={repo.id} />
+            </span>
             <Button variant="ghost" size="sm" className="shrink-0" asChild>
               <Link to="/repos/$repoId/code" params={{ repoId: repo.id }}>
                 <CodeIcon size="sm" />

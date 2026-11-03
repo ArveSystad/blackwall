@@ -432,3 +432,13 @@ export function syncControl(sync: RepoSync | null | undefined): SyncControl {
     title: `Not yet on origin/${branch}`,
   };
 }
+
+/** Whether main has commits to push: the same rule that shows the Backlog header's push button. */
+export function hasPendingPush(sync: RepoSync | null | undefined): sync is RepoSync {
+  return syncControl(sync)?.kind === "push";
+}
+
+/** The pending-push dot's label: "3 commits to push to main". */
+export function pendingPushLabel(sync: RepoSync): string {
+  return `${plural(sync.ahead, "commit")} to push to ${sync.branch}`;
+}
