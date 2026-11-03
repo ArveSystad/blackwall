@@ -46,10 +46,22 @@ describe("resolveFollowUps", () => {
       [followUp("A", null), followUp("B", otherId)],
       r.repos.list(),
     );
+    const none = { issueTarget: null, created: null };
     expect(items).toEqual([
-      { title: "A", description: "Do A", repoId: task.repoId, repoName: "app" },
-      { title: "B", description: "Do B", repoId: otherId, repoName: "api" },
+      { title: "A", description: "Do A", repoId: task.repoId, repoName: "app", ...none },
+      { title: "B", description: "Do B", repoId: otherId, repoName: "api", ...none },
     ]);
+  });
+
+  it("sets the issue target of each item's repo", () => {
+    const target = { owner: "acme", repo: "app", connectionId: "c1" };
+    const items = resolveFollowUps(
+      task,
+      [followUp("A", null), followUp("B", otherId), followUp("C", "gone")],
+      r.repos.list(),
+      new Map([[task.repoId, target]]),
+    );
+    expect(items.map((i) => i.issueTarget)).toEqual([target, null, target]);
   });
 
   it("falls back to the task's repo for an unknown one, with a note", () => {
@@ -59,6 +71,8 @@ describe("resolveFollowUps", () => {
       description: "Do A\n\nProposed for repo `gone`, which is not registered.",
       repoId: task.repoId,
       repoName: "app",
+      issueTarget: null,
+      created: null,
     });
   });
 });

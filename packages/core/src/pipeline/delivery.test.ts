@@ -23,7 +23,9 @@ import {
   type DeliveryOutcome,
   type DeliveryPorts,
   type DeliveryStep,
+  type FollowUpOutcome,
 } from "./delivery.js";
+import { followUpIssueBody, type FollowUpIssueTarget } from "./follow-ups.js";
 import { InvalidGateResponseError } from "./transitions.js";
 
 let root: string;
@@ -91,6 +93,12 @@ function fakePorts(overrides: Partial<DeliveryPorts> = {}) {
       url: "https://github.com/acme/app/issues/7#issuecomment-1",
     })),
     reviewPullRequest: vi.fn(async () => ({ url: "https://github.com/acme/app/pull/7#r1" })),
+    githubConnectionId: vi.fn((): string | null => null),
+    requireIssueCredential: vi.fn(async () => {}),
+    createIssue: vi.fn(async (_target: FollowUpIssueTarget, { title }: { title: string }) => ({
+      number: 1,
+      url: `https://github.com/acme/app/issues/${title}`,
+    })),
     ...overrides,
   } satisfies DeliveryPorts;
 }
@@ -165,6 +173,8 @@ async function deliver(
     confirmation: deliveryConfirmationSchema.parse(confirmation),
     completed,
     record: (o) => outcomes.push(o),
+    createdFollowUps: [],
+    recordFollowUp: () => {},
     resolveConflicts,
   });
   return outcomes;
@@ -414,6 +424,8 @@ describe("free-text tasks", () => {
         confirmation: deliveryConfirmationSchema.parse({ actions: ["push-branch", "open-pr"] }),
         completed: [],
         record: (o) => outcomes.push(o),
+        createdFollowUps: [],
+        recordFollowUp: () => {},
         resolveConflicts: () => Promise.reject(new Error("no resolver")),
         renameBranch,
       });
@@ -461,6 +473,8 @@ describe("free-text tasks", () => {
           confirmation: deliveryConfirmationSchema.parse({ actions: ["push-branch", "open-pr"] }),
           completed: [],
           record: (o) => outcomes.push(o),
+          createdFollowUps: [],
+          recordFollowUp: () => {},
           resolveConflicts: () => Promise.reject(new Error("no resolver")),
         }),
       ).rejects.toThrow(DeliveryError);
@@ -1239,8 +1253,22 @@ describe("follow-up tasks", () => {
       {
         kind: "create-tasks",
         items: [
-          { title: "A", description: "Do A", repoId: task.repoId, repoName: "app" },
-          { title: "B", description: "Do B", repoId: task.repoId, repoName: "app" },
+          {
+            title: "A",
+            description: "Do A",
+            repoId: task.repoId,
+            repoName: "app",
+            issueTarget: null,
+            created: null,
+          },
+          {
+            title: "B",
+            description: "Do B",
+            repoId: task.repoId,
+            repoName: "app",
+            issueTarget: null,
+            created: null,
+          },
         ],
       },
     ]);
@@ -1341,6 +1369,303 @@ describe("follow-up tasks", () => {
     });
     expect(outcomes).toEqual([{ action: "create-tasks", detail: "1 task: app: B" }]);
     expect(r.backlogItems.list(repo.id)).toMatchObject([{ title: "B", status: "waiting" }]);
+  });
+
+  describe("as GitHub issues", () => {
+    const github = "https://github.com/acme/app.git";
+    const target = { owner: "acme", repo: "app", connectionId: "c1" };
+    const connected = (overrides: Partial<DeliveryPorts> = {}) =>
+      deliverer(fakePorts({ githubConnectionId: vi.fn(() => "c1"), ...overrides }));
+    const createTasksOf = async (
+      d: ReturnType<typeof createDeliverer>,
+      task: Task,
+      created: readonly FollowUpOutcome[] = [],
+    ) => {
+      const action = (await d.plan(task, [], created)).actions.find(
+        (a) => a.kind === "create-tasks",
+      );
+      if (action?.kind !== "create-tasks") throw new Error("no create-tasks");
+      return action.items;
+    };
+
+    /** Delivers with the given follow-ups created before; returns what this attempt logged. */
+    async function deliverFollowUps(
+      d: ReturnType<typeof createDeliverer>,
+      task: Task,
+      runRow: Run,
+      confirmation: DeliveryConfirmationInput,
+      createdFollowUps: readonly FollowUpOutcome[] = [],
+    ) {
+      const outcomes: DeliveryOutcome[] = [];
+      const followUps: FollowUpOutcome[] = [];
+      const result = d
+        .deliver({
+          task,
+          run: runRow,
+          confirmation: deliveryConfirmationSchema.parse(confirmation),
+          completed: [],
+          record: (o) => outcomes.push(o),
+          createdFollowUps,
+          recordFollowUp: (o) => followUps.push(o),
+          resolveConflicts: () => Promise.reject(new Error("no resolver")),
+        })
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+      return { error: await result, outcomes, followUps };
+    }
+
+    it("offers an issue target only for a GitHub/GHE origin with a connection", async () => {
+      const ghe = "https://acme.ghe.com/acme/app.git";
+      const parseRemote = vi.fn((url: string) =>
+        url === github
+          ? { host: "github.com", owner: "acme", repo: "app" }
+          : url === ghe
+            ? { host: "acme.ghe.com", owner: "acme", repo: "app" }
+            : undefined,
+      );
+      const withGitHub = await seed(
+        { branch: "agent/t1", followUps: [followUp("A"), followUp("B", apiId)] },
+        { remoteUrl: github },
+      );
+      const { deliverer: d, ports } = connected({ parseRemote });
+      // The other repo's folder does not exist: no target, and no failure.
+      expect((await createTasksOf(d, withGitHub.task)).map((i) => i.issueTarget)).toEqual([
+        target,
+        null,
+      ]);
+      expect(ports.githubConnectionId).toHaveBeenCalledWith(github);
+
+      run(repoPath, "remote", "set-url", "origin", ghe);
+      expect((await createTasksOf(d, withGitHub.task))[0]!.issueTarget).toEqual(target);
+
+      // No connection for the host.
+      const unconnected = deliverer(fakePorts({ parseRemote })).deliverer;
+      expect((await createTasksOf(unconnected, withGitHub.task))[0]!.issueTarget).toBeNull();
+
+      // Not a GitHub remote (the local bare repo).
+      run(repoPath, "remote", "set-url", "origin", originPath);
+      expect((await createTasksOf(d, withGitHub.task))[0]!.issueTarget).toBeNull();
+
+      // No remote at all.
+      run(repoPath, "remote", "remove", "origin");
+      expect((await createTasksOf(d, withGitHub.task))[0]!.issueTarget).toBeNull();
+    });
+
+    it("refuses an issue destination it cannot take, before creating anything", async () => {
+      const { task, run: runRow } = await seed(
+        { branch: "agent/t1", followUps: [followUp("A"), followUp("B", apiId)] },
+        { remoteUrl: github },
+      );
+      const { deliverer: d, ports } = connected();
+      for (const confirmation of [
+        // The api repo has no GitHub origin.
+        {
+          actions: ["create-tasks" as const],
+          followUpIndexes: [0, 1],
+          followUpDestinations: { "1": "github-issue" as const },
+        },
+        // A destination for a follow-up that is not picked.
+        {
+          actions: ["create-tasks" as const],
+          followUpIndexes: [0],
+          followUpDestinations: { "1": "backlog" as const },
+        },
+      ]) {
+        const { error } = await deliverFollowUps(d, task, runRow, confirmation);
+        expect(error).toBeInstanceOf(InvalidGateResponseError);
+      }
+      expect(r.backlogItems.list()).toEqual([]);
+      expect(ports.createIssue).not.toHaveBeenCalled();
+    });
+
+    it("creates backlog items and issues side by side, logging each", async () => {
+      const { task, run: runRow } = await seed(
+        { branch: "agent/t1", followUps: [followUp("A"), followUp("B"), followUp("C")] },
+        { remoteUrl: github },
+      );
+      const changed = vi.fn();
+      const ports = fakePorts({ githubConnectionId: vi.fn(() => "c1") });
+      const d = deliverer(ports, changed).deliverer;
+
+      const { error, outcomes, followUps } = await deliverFollowUps(d, task, runRow, {
+        actions: ["create-tasks"],
+        followUpIndexes: [0, 1, 2],
+        followUpDestinations: { "1": "github-issue" },
+      });
+
+      expect(error).toBeNull();
+      expect(ports.requireIssueCredential).toHaveBeenCalledWith(target);
+      expect(ports.createIssue).toHaveBeenCalledExactlyOnceWith(target, {
+        title: "B",
+        body: 'Do B\n\nFollow-up from the blackwall task "Fix login".',
+      });
+      const url = "https://github.com/acme/app/issues/B";
+      expect(followUps).toEqual([
+        { index: 0, title: "A", destination: "backlog", url: null },
+        { index: 2, title: "C", destination: "backlog", url: null },
+        { index: 1, title: "B", destination: "github-issue", url },
+      ]);
+      expect(outcomes).toEqual([
+        { action: "create-tasks", detail: `2 tasks: app: A; app: C; 1 issue: ${url}` },
+      ]);
+      expect(r.backlogItems.list(task.repoId).map((i) => i.title)).toEqual(["A", "C"]);
+      expect(changed).toHaveBeenCalledWith(task.repoId);
+    });
+
+    it("checks the token before creating anything, so the same request can be sent again", async () => {
+      const { task, run: runRow } = await seed(
+        { branch: "agent/t1", followUps: [followUp("A"), followUp("B")] },
+        { remoteUrl: github },
+      );
+      const missing = new MissingCredentialError("github", "github.com", "c1");
+      const requireIssueCredential = vi
+        .fn<DeliveryPorts["requireIssueCredential"]>()
+        .mockRejectedValueOnce(missing)
+        .mockResolvedValue(undefined);
+      const { deliverer: d, ports } = connected({ requireIssueCredential });
+      const confirmation = {
+        actions: ["create-tasks" as const],
+        followUpIndexes: [0, 1],
+        followUpDestinations: { "1": "github-issue" as const },
+      };
+
+      const first = await deliverFollowUps(d, task, runRow, confirmation);
+      expect(first.error).toBe(missing);
+      expect(first.followUps).toEqual([]);
+      expect(first.outcomes).toEqual([]);
+      expect(r.backlogItems.list()).toEqual([]);
+      expect(ports.createIssue).not.toHaveBeenCalled();
+
+      const second = await deliverFollowUps(d, task, runRow, confirmation);
+      expect(second.error).toBeNull();
+      expect(second.followUps.map((o) => o.title)).toEqual(["A", "B"]);
+      expect(second.outcomes.map((o) => o.action)).toEqual(["create-tasks"]);
+      expect(r.backlogItems.list().map((i) => i.title)).toEqual(["A"]);
+      expect(ports.createIssue).toHaveBeenCalledOnce();
+    });
+
+    it("keeps what was created when an issue fails, and a retry creates only the rest", async () => {
+      const { task, run: runRow } = await seed(
+        {
+          branch: "agent/t1",
+          origin: { kind: "jira-issue", key: "ABC-1", connectionId: null },
+          followUps: [followUp("A"), followUp("B"), followUp("C")],
+        },
+        { remoteUrl: github },
+      );
+      const createIssue = vi
+        .fn<DeliveryPorts["createIssue"]>()
+        .mockImplementation(async (_target, { title }) => ({
+          number: 1,
+          url: `https://github.com/acme/app/issues/${title}`,
+        }))
+        .mockImplementationOnce(async (_target, { title }) => ({
+          number: 1,
+          url: `https://github.com/acme/app/issues/${title}`,
+        }))
+        .mockImplementationOnce(async () => {
+          throw new Error("github.com: Issues are disabled");
+        });
+      const { deliverer: d } = connected({ createIssue });
+      const confirmation = {
+        actions: ["create-tasks" as const],
+        followUpIndexes: [0, 1, 2],
+        followUpDestinations: { "1": "github-issue" as const, "2": "github-issue" as const },
+      };
+
+      const first = await deliverFollowUps(d, task, runRow, confirmation);
+      expect(first.error).toBeInstanceOf(DeliveryError);
+      expect((first.error as Error).message).toBe(
+        'Could not create 1 follow-up issue: "C" (acme/app: github.com: Issues are disabled). The other follow-ups were created; finish again to retry.',
+      );
+      expect(first.followUps.map((o) => o.title)).toEqual(["A", "B"]);
+      expect(first.outcomes).toEqual([]);
+      expect(createIssue.mock.calls[0]![1].body).toBe('Do B\n\nFollow-up from ABC-1 "Fix login".');
+
+      const items = await createTasksOf(d, task, first.followUps);
+      expect(items.map((i) => i.created)).toEqual([
+        { destination: "backlog", url: null },
+        { destination: "github-issue", url: "https://github.com/acme/app/issues/B" },
+        null,
+      ]);
+
+      const second = await deliverFollowUps(d, task, runRow, confirmation, first.followUps);
+      expect(second.error).toBeNull();
+      expect(createIssue).toHaveBeenCalledTimes(3);
+      expect(createIssue.mock.calls[2]![1].title).toBe("C");
+      expect(second.followUps.map((o) => o.title)).toEqual(["C"]);
+      expect(r.backlogItems.list().map((i) => i.title)).toEqual(["A"]);
+      expect(second.outcomes).toEqual([
+        {
+          action: "create-tasks",
+          detail:
+            "1 task: app: A; 2 issues: https://github.com/acme/app/issues/B, https://github.com/acme/app/issues/C",
+        },
+      ]);
+
+      // Everything picked exists already: done, with nothing new.
+      const all = [...first.followUps, ...second.followUps];
+      const third = await deliverFollowUps(d, task, runRow, confirmation, all);
+      expect(third.error).toBeNull();
+      expect(third.followUps).toEqual([]);
+      expect(third.outcomes.map((o) => o.action)).toEqual(["create-tasks"]);
+      expect(createIssue).toHaveBeenCalledTimes(3);
+    });
+
+    it("passes on a token removed mid-way, and a retry skips what was logged", async () => {
+      const { task, run: runRow } = await seed(
+        { branch: "agent/t1", followUps: [followUp("A"), followUp("B")] },
+        { remoteUrl: github },
+      );
+      const missing = new MissingCredentialError("github", "github.com", "c1");
+      const createIssue = vi
+        .fn<DeliveryPorts["createIssue"]>()
+        .mockImplementation(async (_target, { title }) => ({
+          number: 2,
+          url: `https://github.com/acme/app/issues/${title}`,
+        }))
+        .mockImplementationOnce(async () => ({
+          number: 1,
+          url: "https://github.com/acme/app/issues/A",
+        }))
+        .mockRejectedValueOnce(missing);
+      const { deliverer: d } = connected({ createIssue });
+      const confirmation = {
+        actions: ["create-tasks" as const],
+        followUpIndexes: [0, 1],
+        followUpDestinations: { "0": "github-issue" as const, "1": "github-issue" as const },
+      };
+      const first = await deliverFollowUps(d, task, runRow, confirmation);
+      expect(first.error).toBe(missing);
+      expect(first.followUps.map((o) => o.title)).toEqual(["A"]);
+
+      const second = await deliverFollowUps(d, task, runRow, confirmation, first.followUps);
+      expect(second.error).toBeNull();
+      expect(second.followUps.map((o) => o.title)).toEqual(["B"]);
+      expect(createIssue).toHaveBeenCalledTimes(3);
+    });
+
+    it("names the source task in the issue body", () => {
+      const base = { title: "Fix login" } as Task;
+      expect(
+        followUpIssueBody(
+          {
+            ...base,
+            origin: {
+              kind: "github-issue",
+              url: "https://github.com/acme/app/issues/7",
+              owner: "acme",
+              repo: "app",
+              number: 7,
+              connectionId: null,
+            },
+          },
+          { description: "  Do it\n" },
+        ),
+      ).toBe('Do it\n\nFollow-up from acme/app#7 "Fix login".');
+    });
   });
 });
 

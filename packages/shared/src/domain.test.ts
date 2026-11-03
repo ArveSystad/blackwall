@@ -1226,6 +1226,7 @@ describe("delivery", () => {
       squash: false,
       findingIds: [],
       followUpIndexes: [],
+      followUpDestinations: {},
       approve: false,
     });
     expect(deliveryConfirmationSchema.parse({ approve: true }).approve).toBe(true);
@@ -1245,6 +1246,7 @@ describe("delivery", () => {
       squash: true,
       findingIds: [],
       followUpIndexes: [],
+      followUpDestinations: {},
       approve: false,
     });
   });
@@ -1252,9 +1254,42 @@ describe("delivery", () => {
   it("parses a create-tasks action", () => {
     const action = {
       kind: "create-tasks",
-      items: [{ title: "Add tests", description: "Cover login", repoId: "r1", repoName: "app" }],
+      items: [
+        {
+          title: "Add tests",
+          description: "Cover login",
+          repoId: "r1",
+          repoName: "app",
+          issueTarget: { owner: "acme", repo: "app", connectionId: "c1" },
+          created: { destination: "github-issue", url: "https://github.com/acme/app/issues/4" },
+        },
+        {
+          title: "Docs",
+          description: "Write docs",
+          repoId: "r1",
+          repoName: "app",
+          issueTarget: null,
+          created: null,
+        },
+      ],
     };
     expect(deliveryActionSchema.parse(action)).toEqual(action);
+  });
+
+  it("parses follow-up destinations by index, defaulting to none", () => {
+    expect(deliveryConfirmationSchema.parse({}).followUpDestinations).toEqual({});
+    expect(
+      deliveryConfirmationSchema.parse({
+        followUpIndexes: [0, 2],
+        followUpDestinations: { "2": "github-issue", "0": "backlog" },
+      }).followUpDestinations,
+    ).toEqual({ "2": "github-issue", "0": "backlog" });
+    expect(
+      deliveryConfirmationSchema.safeParse({ followUpDestinations: { a: "backlog" } }).success,
+    ).toBe(false);
+    expect(
+      deliveryConfirmationSchema.safeParse({ followUpDestinations: { "0": "jira" } }).success,
+    ).toBe(false);
   });
 
   it("parses an issue comment action and a plan approval's issue comment", () => {

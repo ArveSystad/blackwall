@@ -16,6 +16,7 @@ import {
   currentFindings,
   currentRound,
   deliveryConflicts,
+  followUpIssues,
   hasWorktree,
   latestHarnessStep,
   latestStep,
@@ -90,6 +91,7 @@ export function useTaskData(task: Task) {
     deliveryStep,
     deliveryConflicts: deliveryStep ? deliveryConflicts(deliveryEvents.data ?? []) : [],
     pullRequestUrl: pullRequestUrl(allDeliveryEvents.flatMap((q) => q.data ?? [])),
+    followUpIssues: followUpIssues(allDeliveryEvents.flatMap((q) => q.data ?? [])),
   };
 }
 

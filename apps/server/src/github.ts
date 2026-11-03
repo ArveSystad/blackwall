@@ -7,6 +7,7 @@ import {
   type CiReadResult,
   type CiTarget,
   type ConnectionService,
+  type FollowUpIssueTarget,
   type OpenPullRequestAction,
   type OriginContextProvider,
   type PullRequestFeedback,
@@ -445,6 +446,21 @@ export function createGitHubOrigin({ connections, fetch: fetchImpl }: GitHubOrig
       if (!origin) throw new Error("The task has no GitHub issue");
       const { url } = await (await prClient(origin)).addComment(origin, signComment(body));
       return { url };
+    },
+
+    /** Resolves when the follow-up target's connection has a token; throws `MissingCredentialError` when not. */
+    async requireIssueCredential({ connectionId }: FollowUpIssueTarget): Promise<void> {
+      await connections.credentialById(connectionId);
+    },
+
+    /** Opens a follow-up as an issue in the target repo, its body signed as blackwall's. */
+    async createIssue(
+      { owner, repo, connectionId }: FollowUpIssueTarget,
+      { title, body }: { title: string; body: string },
+    ): Promise<{ number: number; url: string }> {
+      const { connection, token } = await connections.credentialById(connectionId);
+      const client = createGitHubClient({ baseUrl: connection.baseUrl, token }, fetchImpl);
+      return client.createIssue({ owner, repo, title, body: signComment(body) });
     },
 
     /** Assigns a GitHub issue to the token's user; already assigned is fine. */

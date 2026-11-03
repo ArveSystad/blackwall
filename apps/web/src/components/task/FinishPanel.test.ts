@@ -14,7 +14,7 @@ const plan: DeliveryPlan = {
   completed: [],
 };
 
-function render(task: Task): string {
+function render(task: Task, deliveryPlan: DeliveryPlan = plan): string {
   const action: TaskAction = { pending: false, error: null, run: vi.fn(), clearError: vi.fn() };
   return renderToStaticMarkup(
     createElement(
@@ -22,7 +22,7 @@ function render(task: Task): string {
       { client: new QueryClient() },
       createElement(Outbound, {
         task,
-        plan,
+        plan: deliveryPlan,
         findings: [],
         action,
         loadPicks: () => undefined,
@@ -58,6 +58,57 @@ describe("Outbound", () => {
     expect(confirm).not.toContain('disabled=""');
     expect(confirm).not.toContain("animate-spin");
     expect(confirm).toContain(modKeyLabel("↵"));
+  });
+
+  it("offers a destination only for follow-ups whose repo takes GitHub issues", () => {
+    const item = { description: "d", repoId: "r1", repoName: "app", created: null };
+    const html = render(makeTask({ status: "needs-you", gate: "finish" }), {
+      actions: [
+        {
+          kind: "create-tasks",
+          items: [
+            { ...item, title: "Local only", issueTarget: null },
+            {
+              ...item,
+              title: "On GitHub",
+              issueTarget: { owner: "acme", repo: "app", connectionId: "c1" },
+            },
+          ],
+        },
+      ],
+      squash: null,
+      completed: [],
+    });
+    expect(html).toContain('aria-label="Destination for On GitHub"');
+    expect(html).not.toContain('aria-label="Destination for Local only"');
+    expect(html).toContain("GitHub issue");
+  });
+
+  it("shows a follow-up created earlier with its link and no checkbox", () => {
+    const url = "https://github.com/acme/app/issues/9";
+    const html = render(makeTask({ status: "needs-you", gate: "finish" }), {
+      actions: [
+        {
+          kind: "create-tasks",
+          items: [
+            {
+              title: "Done already",
+              description: "d",
+              repoId: "r1",
+              repoName: "app",
+              issueTarget: { owner: "acme", repo: "app", connectionId: "c1" },
+              created: { destination: "github-issue", url },
+            },
+          ],
+        },
+      ],
+      squash: null,
+      completed: [],
+    });
+    expect(html).toContain(`href="${url}"`);
+    // Only the action's own checkbox, none on the created item.
+    expect(html.match(/<input type="checkbox"/g)).toHaveLength(1);
+    expect(html).not.toContain("Destination for");
   });
 });
 

@@ -6,6 +6,7 @@ import {
   type DeliveryPlan,
   type DeliveryTarget,
   type Finding,
+  type FollowUpDestination,
   type PullRequestRefresh,
   type Task,
   type TaskCi,
@@ -34,6 +35,7 @@ import { CiBadge } from "../CiBadge";
 import { CheckIcon, FailedIcon, SpinnerIcon, WallIcon, WarnIcon } from "../icons";
 import { Markdown } from "../Markdown";
 import { OutboundAction } from "../OutboundAction";
+import { Segmented, type SegmentedOption } from "../Segmented";
 import { SeverityChip } from "../SeverityChip";
 import { Button } from "../ui/button";
 import { ErrorText } from "../ui/field";
@@ -110,6 +112,25 @@ function Summary({ task, data }: { task: Task; data: TaskData }) {
                       {" "}
                       (resolved conflicts in <span className="mono">{resolved.join(", ")}</span>)
                     </span>
+                  )}
+                  {target === "create-tasks" && data.followUpIssues.length > 0 && (
+                    <ul
+                      aria-label="Follow-up issues"
+                      className="m-0 flex flex-col gap-0.5 pl-[18px]"
+                    >
+                      {data.followUpIssues.map((issue) => (
+                        <li key={issue.url}>
+                          <a
+                            href={issue.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline"
+                          >
+                            {issue.title || issue.url}
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
                   )}
                 </li>
               ))}
@@ -205,41 +226,95 @@ function ReviewFindings({
 
 type FollowUpItem = Extract<DeliveryAction, { kind: "create-tasks" }>["items"][number];
 
+const DESTINATION_OPTIONS: readonly SegmentedOption<FollowUpDestination>[] = [
+  { value: "backlog", label: "Backlog" },
+  { value: "github-issue", label: "GitHub issue" },
+];
+
+/**
+ * The follow-ups to create, each with its destination when its repo can take
+ * GitHub issues. Items an earlier attempt created show where they went instead.
+ */
 function FollowUpPicks({
   items,
   selected,
   onChange,
+  destinations,
+  onDestinationChange,
   disabled,
 }: {
   items: readonly FollowUpItem[];
   selected: ReadonlySet<number>;
   onChange: (next: Set<number>) => void;
+  destinations: ReadonlyMap<number, FollowUpDestination>;
+  onDestinationChange: (index: number, destination: FollowUpDestination) => void;
   disabled: boolean;
 }) {
   return (
     <ul className="m-0 flex list-none flex-col gap-1 p-0">
-      {items.map((item, index) => (
-        <li key={index}>
-          <label className="flex min-w-0 cursor-pointer items-start gap-2 text-meta">
-            <input
-              type="checkbox"
-              className="mt-0.5 flex-none"
-              checked={selected.has(index)}
-              disabled={disabled}
-              onChange={(event) => {
-                const next = new Set(selected);
-                if (event.target.checked) next.add(index);
-                else next.delete(index);
-                onChange(next);
-              }}
-            />
-            <span className="flex min-w-0 flex-col">
-              <span className="truncate text-foreground">{item.title}</span>
-              <span className="mono truncate text-muted-foreground">{item.repoName}</span>
-            </span>
-          </label>
-        </li>
-      ))}
+      {items.map((item, index) => {
+        if (item.created) {
+          return (
+            <li key={index} className="flex min-w-0 items-start gap-2 text-meta">
+              <CheckIcon size="sm" className="mt-0.5 flex-none text-done" />
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate text-foreground">{item.title}</span>
+                {item.created.url ? (
+                  <a
+                    href={item.created.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mono truncate text-muted-foreground underline"
+                  >
+                    {item.created.url}
+                  </a>
+                ) : (
+                  <span className="truncate text-muted-foreground">
+                    In backlog of <span className="mono">{item.repoName}</span>
+                  </span>
+                )}
+              </span>
+            </li>
+          );
+        }
+        const destination = destinations.get(index) ?? "backlog";
+        const issueTarget = item.issueTarget;
+        return (
+          <li key={index} className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+            <label className="flex min-w-0 cursor-pointer items-start gap-2 text-meta">
+              <input
+                type="checkbox"
+                className="mt-0.5 flex-none"
+                checked={selected.has(index)}
+                disabled={disabled}
+                onChange={(event) => {
+                  const next = new Set(selected);
+                  if (event.target.checked) next.add(index);
+                  else next.delete(index);
+                  onChange(next);
+                }}
+              />
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate text-foreground">{item.title}</span>
+                <span className="mono truncate text-muted-foreground">
+                  {issueTarget && destination === "github-issue"
+                    ? `${issueTarget.owner}/${issueTarget.repo}`
+                    : item.repoName}
+                </span>
+              </span>
+            </label>
+            {issueTarget && (
+              <Segmented
+                label={`Destination for ${item.title}`}
+                value={destination}
+                options={DESTINATION_OPTIONS}
+                onChange={(next) => onDestinationChange(index, next)}
+                disabled={disabled || !selected.has(index)}
+              />
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -284,9 +359,16 @@ export function Outbound({
   const createTasks = plan.actions.find(
     (a): a is Extract<DeliveryAction, { kind: "create-tasks" }> => a.kind === "create-tasks",
   );
+  // Items an earlier attempt created are not offered again.
   const [followUps, setFollowUps] = useState<ReadonlySet<number>>(
-    () => new Set(createTasks?.items.map((_, index) => index)),
+    () => new Set(createTasks?.items.flatMap((item, index) => (item.created ? [] : [index]))),
   );
+  const [destinations, setDestinations] = useState<ReadonlyMap<number, FollowUpDestination>>(
+    () => new Map(),
+  );
+  const issuePicks = [...followUps]
+    .filter((index) => destinations.get(index) === "github-issue")
+    .sort((a, b) => a - b);
 
   // Creating no follow-ups is not creating them at all.
   const chosen = plan.actions
@@ -310,6 +392,9 @@ export function Outbound({
           followUpIndexes: chosen.includes("create-tasks")
             ? [...followUps].sort((a, b) => a - b)
             : [],
+          followUpDestinations: chosen.includes("create-tasks")
+            ? Object.fromEntries(issuePicks.map((index) => [String(index), "github-issue"]))
+            : {},
           approve: chosen.includes("pr-review") && approve,
         },
       },
@@ -359,6 +444,7 @@ export function Outbound({
             a,
             a.kind === "create-tasks" ? followUps.size : picked.size,
             a.kind === "pr-review" && approve,
+            a.kind === "create-tasks" ? issuePicks.length : 0,
           );
           return (
             <OutboundAction
@@ -405,6 +491,10 @@ export function Outbound({
                   items={a.items}
                   selected={followUps}
                   onChange={setFollowUps}
+                  destinations={destinations}
+                  onDestinationChange={(index, destination) =>
+                    setDestinations((current) => new Map(current).set(index, destination))
+                  }
                   disabled={busy}
                 />
               )}

@@ -863,6 +863,42 @@ describe("GitHub issue origin", () => {
   });
 });
 
+describe("follow-up issues", () => {
+  const target = { owner: "acme", repo: "shop", connectionId: "g1" };
+
+  it("checks the target connection's token, passing on a missing one", async () => {
+    const list = connections([ghe]);
+    const github = createGitHubOrigin({ connections: list, fetch: vi.fn<typeof fetch>() });
+    await expect(github.requireIssueCredential(target)).resolves.toBeUndefined();
+    expect(list.credentialById).toHaveBeenCalledWith("g1");
+    const missing = new MissingCredentialError("github", "acme.ghe.com", "g1");
+    list.credentialById.mockRejectedValueOnce(missing);
+    await expect(github.requireIssueCredential(target)).rejects.toBe(missing);
+  });
+
+  it("opens the issue with a signed body", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({ number: 3, html_url: "https://acme.ghe.com/acme/shop/issues/3" }),
+          { status: 201, headers: { "content-type": "application/json" } },
+        ),
+      ),
+    );
+    const github = createGitHubOrigin({ connections: connections([ghe]), fetch: fetchImpl });
+    expect(await github.createIssue(target, { title: "Add tests", body: "Cover login" })).toEqual({
+      number: 3,
+      url: "https://acme.ghe.com/acme/shop/issues/3",
+    });
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(String(url)).toBe("https://api.acme.ghe.com/repos/acme/shop/issues");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      title: "Add tests",
+      body: "Cover login\n\n---\n_Posted from blackwall_",
+    });
+  });
+});
+
 describe("issueRoutes", () => {
   const routes = issueRoutes({
     connections: {

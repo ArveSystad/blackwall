@@ -7,6 +7,7 @@ import {
   type DeliverySquash,
   type DeliveryTarget,
   type Finding,
+  type FollowUpDestination,
   type Run,
   type Task,
 } from "@blackwall/shared";
@@ -16,7 +17,13 @@ import { prBranchName } from "../git/branches.js";
 import { errorMessage } from "../git/errors.js";
 import type { GitService } from "../git/service.js";
 import { defaultBranchOf } from "../repos/service.js";
-import { createFollowUpTasks, resolveFollowUps } from "./follow-ups.js";
+import {
+  createFollowUpTasks,
+  followUpIssueBody,
+  resolveFollowUps,
+  type FollowUpIssueTarget,
+  type ResolvedFollowUp,
+} from "./follow-ups.js";
 import {
   commitKey,
   commitMessage,
@@ -48,12 +55,27 @@ export const DELIVERY_FAILED_EVENT = "delivery.failed";
 /** Step event logged when the rebase onto main stops on conflicts the implementer resolves. */
 export const DELIVERY_CONFLICT_EVENT = "delivery.conflict";
 
+/** Step event logged for each follow-up `create-tasks` created, as soon as it exists. */
+export const DELIVERY_FOLLOW_UP_EVENT = "delivery.follow-up";
+
 /** Every step event type delivery logs. */
 export const DELIVERY_EVENT_TYPES = [
   DELIVERY_DONE_EVENT,
   DELIVERY_FAILED_EVENT,
   DELIVERY_CONFLICT_EVENT,
+  DELIVERY_FOLLOW_UP_EVENT,
 ] as const;
+
+/**
+ * Payload of a {@link DELIVERY_FOLLOW_UP_EVENT}: which follow-up (its index in
+ * the task's follow-ups) was created where, with the issue's link.
+ */
+export interface FollowUpOutcome {
+  index: number;
+  title: string;
+  destination: FollowUpDestination;
+  url: string | null;
+}
 
 /** Payload of a {@link DELIVERY_CONFLICT_EVENT}: the rebase that stopped and its conflicted files. */
 export interface MergeConflict {
@@ -114,6 +136,15 @@ export interface DeliveryPorts {
     findings: readonly Finding[],
     options: { approve: boolean },
   ): Promise<{ url: string }>;
+  /** The GitHub/GHE connection for a git remote URL; null when none matches. */
+  githubConnectionId(remoteUrl: string): string | null;
+  /** Resolves when the target's connection has a token; throws `MissingCredentialError` when not. */
+  requireIssueCredential(target: FollowUpIssueTarget): Promise<void>;
+  /** Opens an issue in the target repo; the body is signed as blackwall's. */
+  createIssue(
+    target: FollowUpIssueTarget,
+    issue: { title: string; body: string },
+  ): Promise<{ number: number; url: string }>;
 }
 
 /**
@@ -159,6 +190,10 @@ export interface DeliveryContext {
   completed: readonly DeliveryStep[];
   /** Logs one performed action, as soon as it is done. */
   record(outcome: DeliveryOutcome): void;
+  /** Follow-ups an earlier attempt of this delivery already created; they are not created again. */
+  createdFollowUps: readonly FollowUpOutcome[];
+  /** Logs one created follow-up, as soon as it exists. */
+  recordFollowUp(outcome: FollowUpOutcome): void;
   /**
    * Has the task's implementer resolve one stop of the rebase onto main in
    * the worktree. Rejects when it could not.
@@ -178,7 +213,12 @@ export interface DeliveryContext {
 
 /** Plans and performs the finish actions; the engine calls it at the delivery gate. */
 export interface Deliverer {
-  plan(task: Task, completed: readonly DeliveryStep[]): Promise<DeliveryPlan>;
+  /** `created`: follow-ups already created in this delivery, marked on the `create-tasks` items. */
+  plan(
+    task: Task,
+    completed: readonly DeliveryStep[],
+    created?: readonly FollowUpOutcome[],
+  ): Promise<DeliveryPlan>;
   deliver(ctx: DeliveryContext): Promise<void>;
   /**
    * Posts a comment the user confirmed on a GitHub issue task's issue during
@@ -209,6 +249,30 @@ export function postableFindings(findings: readonly Finding[]): Finding[] {
 function prTitle(task: Task): string {
   const key = commitKey(task);
   return key && !task.title.toUpperCase().startsWith(key) ? `${key} ${task.title}` : task.title;
+}
+
+/**
+ * The `create-tasks` detail: the backlog items by repo, then the issues'
+ * links, e.g. `2 tasks: app: A; app: B; 1 issue: https://…`.
+ */
+function followUpsDetail(
+  outcomes: readonly FollowUpOutcome[],
+  items: readonly ResolvedFollowUp[],
+): string {
+  const count = (n: number, one: string) => `${n} ${n === 1 ? one : `${one}s`}`;
+  const backlog = outcomes.filter((o) => o.destination === "backlog");
+  const issues = outcomes.filter((o) => o.destination === "github-issue");
+  const parts: string[] = [];
+  if (backlog.length > 0 || issues.length === 0) {
+    const list = backlog.map((o) => `${items[o.index]?.repoName ?? "?"}: ${o.title}`).join("; ");
+    parts.push(`${count(backlog.length, "task")}: ${list}`);
+  }
+  if (issues.length > 0) {
+    parts.push(
+      `${count(issues.length, "issue")}: ${issues.map((o) => o.url ?? o.title).join(", ")}`,
+    );
+  }
+  return parts.join("; ");
 }
 
 /** Prompt for the implementer resolving a stop of the rebase onto main. */
@@ -245,7 +309,10 @@ export function conflictResolutionPrompt(
  * Review PR task posts the selected findings
  * as a review, approving the PR only when the user opts in. Any task with follow-ups the summarizer proposed also offers
  * `create-tasks`, last, which adds the picked ones to their repos' backlogs
- * as waiting items; it needs no worktree. A branch with no commits of its own
+ * as waiting items or, for an item whose repo's origin is a GitHub/GHE repo
+ * with a connection, opens them as issues there; it needs no worktree. Every
+ * token it needs is checked before anything is created, each created item is
+ * logged at once, and a retry skips the logged ones. A branch with no commits of its own
  * (an analysis-only task) offers no push, PR or merge, and a protected head
  * branch (main, master or the repo's default branch) offers no push or PR. Only the
  * actions the user confirmed are performed, in that order, after an optional
@@ -442,7 +509,57 @@ export function createDeliverer({
     return (await git.commitsSince(worktree, base, taskHead(task))) > 0;
   }
 
-  async function plan(task: Task, completed: readonly DeliveryStep[]): Promise<DeliveryPlan> {
+  /** A registered repo's origin as git reports it now; null without one or when the folder is gone. */
+  async function repoRemote(task: Task, repoId: string): Promise<string | null> {
+    try {
+      if (repoId === task.repoId) return await liveRemote(task);
+      const path = r.repos.get(repoId)?.path;
+      return path ? await git.remoteUrl(path) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Where follow-ups in each repo can become issues: a GitHub/GHE origin with a connection. */
+  async function issueTargets(
+    task: Task,
+    repoIds: Iterable<string>,
+  ): Promise<Map<string, FollowUpIssueTarget>> {
+    const targets = new Map<string, FollowUpIssueTarget>();
+    for (const repoId of new Set(repoIds)) {
+      const remote = await repoRemote(task, repoId);
+      const slug = remote ? ports.parseRemote(remote) : undefined;
+      const connectionId = remote && slug ? ports.githubConnectionId(remote) : null;
+      if (slug && connectionId) {
+        targets.set(repoId, { owner: slug.owner, repo: slug.repo, connectionId });
+      }
+    }
+    return targets;
+  }
+
+  /** The `create-tasks` items, each with its issue target and whether it was created already. */
+  async function followUpItems(
+    task: Task,
+    created: readonly FollowUpOutcome[],
+  ): Promise<ResolvedFollowUp[]> {
+    const repos = r.repos.list();
+    const plain = resolveFollowUps(task, task.followUps, repos);
+    const targets = await issueTargets(
+      task,
+      plain.map((item) => item.repoId),
+    );
+    const byIndex = new Map(created.map((outcome) => [outcome.index, outcome]));
+    return resolveFollowUps(task, task.followUps, repos, targets).map((item, index) => {
+      const done = byIndex.get(index);
+      return done ? { ...item, created: { destination: done.destination, url: done.url } } : item;
+    });
+  }
+
+  async function plan(
+    task: Task,
+    completed: readonly DeliveryStep[],
+    created: readonly FollowUpOutcome[] = [],
+  ): Promise<DeliveryPlan> {
     const review = pipelineKind(task.mode) === "review";
     let offered = await actions(task, completed);
     const codeStarted = CODE_ACTIONS.some((a) => completed.includes(a));
@@ -450,8 +567,7 @@ export function createDeliverer({
       offered = offered.filter((a) => !CODE_ACTIONS.includes(a.kind));
     }
     if (!review && task.followUps.length > 0) {
-      const items = resolveFollowUps(task, task.followUps, r.repos.list());
-      offered = [...offered, { kind: "create-tasks", items }];
+      offered = [...offered, { kind: "create-tasks", items: await followUpItems(task, created) }];
     }
     return {
       actions: offered,
@@ -521,6 +637,19 @@ export function createDeliverer({
         throw new InvalidGateResponseError(`Follow-up ${index} is not offered`);
       }
     }
+    for (const [key, destination] of Object.entries(confirmation.followUpDestinations)) {
+      const index = Number(key);
+      if (!confirmation.followUpIndexes.includes(index)) {
+        throw new InvalidGateResponseError(`Follow-up ${key} has a destination but is not picked`);
+      }
+      // An item created already is skipped, wherever this confirmation sends it.
+      const item = createTasks?.items[index];
+      if (destination === "github-issue" && !item?.created && !item?.issueTarget) {
+        throw new InvalidGateResponseError(
+          `Follow-up ${key} cannot be created as a GitHub issue: its repo has no GitHub origin with a connection`,
+        );
+      }
+    }
     if (
       creating &&
       !completed.includes("create-tasks") &&
@@ -532,7 +661,7 @@ export function createDeliverer({
 
   async function deliver(ctx: DeliveryContext) {
     const { task, confirmation, completed, record } = ctx;
-    const planned = await plan(task, completed);
+    const planned = await plan(task, completed, ctx.createdFollowUps);
     check(planned, confirmation, completed, task);
     const worktree = task.worktreePath;
     const target = <K extends DeliveryAction["kind"]>(kind: K) =>
@@ -564,23 +693,80 @@ export function createDeliverer({
     }
   }
 
-  async function perform(
-    { task, confirmation, resolveConflicts, renameBranch }: DeliveryContext,
-    action: DeliveryTarget,
-    target: <K extends DeliveryAction["kind"]>(kind: K) => Extract<DeliveryAction, { kind: K }>,
+  /**
+   * Creates the picked follow-ups not created yet: first checks every token
+   * the issues need, so a missing one stops it before anything exists, then
+   * the backlog items in one transaction, then the issues one by one. Each
+   * created item is logged at once; issues that fail are reported together
+   * after the rest are done.
+   */
+  async function createTasks(
+    { task, confirmation, createdFollowUps, recordFollowUp }: DeliveryContext,
+    items: readonly ResolvedFollowUp[],
   ): Promise<string> {
-    // Only touches the database, so it needs no worktree.
-    if (action === "create-tasks") {
-      const { items } = target("create-tasks");
-      const picked = confirmation.followUpIndexes.map((i) => items[i]!);
+    const destination = (index: number): FollowUpDestination =>
+      confirmation.followUpDestinations[String(index)] ?? "backlog";
+    const due = confirmation.followUpIndexes.filter((index) => !items[index]!.created);
+    const toBacklog = due.filter((index) => destination(index) === "backlog");
+    const toIssues = due.filter((index) => destination(index) === "github-issue");
+    const connections = new Map(
+      toIssues.map((index) => {
+        const issueTarget = items[index]!.issueTarget!;
+        return [issueTarget.connectionId, issueTarget];
+      }),
+    );
+    for (const issueTarget of connections.values()) await ports.requireIssueCredential(issueTarget);
+
+    const outcomes: FollowUpOutcome[] = [...createdFollowUps];
+    const logged = (outcome: FollowUpOutcome) => {
+      recordFollowUp(outcome);
+      outcomes.push(outcome);
+    };
+    if (toBacklog.length > 0) {
+      const picked = toBacklog.map((index) => items[index]!);
       const created = createFollowUpTasks({ task, items: picked, backlogItems: r.backlogItems });
+      for (const index of toBacklog) {
+        logged({ index, title: items[index]!.title, destination: "backlog", url: null });
+      }
       for (const repoId of new Set(created.map((item) => item.repoId))) {
         onBacklogChanged?.(repoId);
       }
-      const names = new Map(picked.map((item) => [item.repoId, item.repoName]));
-      const list = created.map((item) => `${names.get(item.repoId)}: ${item.title}`).join("; ");
-      return `${created.length} ${created.length === 1 ? "task" : "tasks"}: ${list}`;
     }
+    const failures: string[] = [];
+    for (const index of toIssues) {
+      const item = items[index]!;
+      const issueTarget = item.issueTarget!;
+      try {
+        const { url } = await ports.createIssue(issueTarget, {
+          title: item.title,
+          body: followUpIssueBody(task, item),
+        });
+        logged({ index, title: item.title, destination: "github-issue", url });
+      } catch (error) {
+        // A token removed since the check opens the token modal; the retry skips what was logged.
+        if (error instanceof MissingCredentialError) throw error;
+        failures.push(
+          `"${item.title}" (${issueTarget.owner}/${issueTarget.repo}: ${errorMessage(error)})`,
+        );
+      }
+    }
+    if (failures.length > 0) {
+      const noun = failures.length === 1 ? "issue" : "issues";
+      throw new DeliveryError(
+        `Could not create ${failures.length} follow-up ${noun}: ${failures.join("; ")}. The other follow-ups were created; finish again to retry.`,
+      );
+    }
+    return followUpsDetail(outcomes, items);
+  }
+
+  async function perform(
+    ctx: DeliveryContext,
+    action: DeliveryTarget,
+    target: <K extends DeliveryAction["kind"]>(kind: K) => Extract<DeliveryAction, { kind: K }>,
+  ): Promise<string> {
+    const { task, confirmation, resolveConflicts, renameBranch } = ctx;
+    // Only touches the database and the issue tracker, so it needs no worktree.
+    if (action === "create-tasks") return createTasks(ctx, target("create-tasks").items);
     const worktree = task.worktreePath;
     if (!worktree) throw new DeliveryError("The task has no worktree");
     switch (action) {

@@ -2018,6 +2018,10 @@ export type TaskWorktree = z.infer<typeof taskWorktreeSchema>;
 // Delivery
 // ---------------------------------------------------------------------------
 
+/** Where a confirmed follow-up is created: the repo's blackwall backlog, or a GitHub issue. */
+export const followUpDestinationSchema = z.enum(["backlog", "github-issue"]);
+export type FollowUpDestination = z.infer<typeof followUpDestinationSchema>;
+
 /**
  * One delivery action as offered at finish, with exactly where it goes and
  * what it sends, so the user confirms the real target rather than a label.
@@ -2067,12 +2071,27 @@ export const deliveryActionSchema = z.discriminatedUnion("kind", [
   }),
   /**
    * Create the selected follow-up tasks as waiting free-text backlog items in
-   * each item's repo. Local only; the user picks which ones are created.
+   * each item's repo, or, where the item's repo has a GitHub/GHE origin with
+   * a connection, as issues there. The backlog is local; issues are outbound.
+   * The user picks which ones are created, and where.
    */
   z.object({
     kind: z.literal("create-tasks"),
     items: z.array(
-      z.object({ title: z.string(), description: z.string(), repoId: id, repoName: z.string() }),
+      z.object({
+        title: z.string(),
+        description: z.string(),
+        repoId: id,
+        repoName: z.string(),
+        /** Where the item can be created as a GitHub issue; null when only the backlog is offered. */
+        issueTarget: z
+          .object({ owner: z.string(), repo: z.string(), connectionId: z.string() })
+          .nullable(),
+        /** Set when an earlier attempt of this delivery already created the item. */
+        created: z
+          .object({ destination: followUpDestinationSchema, url: z.string().nullable() })
+          .nullable(),
+      }),
     ),
   }),
 ]);
@@ -2119,6 +2138,12 @@ export const deliveryConfirmationSchema = z.object({
     .array(z.int().nonnegative())
     .refine((a) => new Set(a).size === a.length, "Each follow-up can be picked only once")
     .default([]),
+  /**
+   * Where each picked follow-up goes, by its index; a missing index means the
+   * backlog. Picks of items an earlier attempt already created are ignored, so
+   * the same confirmation can be sent again after a failure.
+   */
+  followUpDestinations: z.record(z.string().regex(/^\d+$/), followUpDestinationSchema).default({}),
   /**
    * Review PR tasks: submit the review as an approval instead of a comment.
    * Only with the `pr-review` action.

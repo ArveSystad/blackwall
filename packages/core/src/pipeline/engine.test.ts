@@ -3785,6 +3785,9 @@ describe("summarize and finish", () => {
           commentOnJiraIssue: unused,
           commentOnGitHubIssue: unused,
           reviewPullRequest: unused,
+          githubConnectionId: () => null,
+          requireIssueCredential: unused,
+          createIssue: unused,
         },
       });
       const h = harness(summarizing([followUp(1), followUp(2)]), {
@@ -4019,6 +4022,7 @@ describe("summarize and finish", () => {
       squash: false,
       findingIds: [],
       followUpIndexes: [],
+      followUpDestinations: {},
       approve: false,
     });
     expect(task(seeded.id)).toMatchObject({
@@ -4078,6 +4082,36 @@ describe("summarize and finish", () => {
       "Could not reach the remote. Check the connection and retry. (fatal: unable to access 'https://github.com/acme/app.git/': Could not resolve host: github.com)";
     expect(task(seeded.id)).toMatchObject({ status: "needs-you", gate: "finish", error: message });
     expect(lastStep(seeded.id)).toMatchObject({ status: "failed", error: message });
+  });
+
+  it("hands a retry the follow-ups a failed attempt created, and counts them as delivered", async () => {
+    let attempt = 0;
+    const h = harness(() => ({}), {
+      deliver: async (ctx) => {
+        attempt += 1;
+        if (attempt === 1) {
+          ctx.recordFollowUp({ index: 0, title: "A", destination: "github-issue", url: "u/1" });
+          throw new DeliveryError("Could not create 1 follow-up issue");
+        }
+      },
+    });
+    const seeded = await atFinish(h);
+    const delivery = { actions: ["create-tasks" as const], followUpIndexes: [0, 1] };
+    await expect(
+      h.engine.respond(seeded.id, { gate: "finish", decision: "approve", delivery }),
+    ).rejects.toThrow("Could not create 1 follow-up issue");
+    expect(h.deliveries[0]!.createdFollowUps).toEqual([]);
+
+    // Nothing is confirmed this time, yet the issue created earlier still counts.
+    await h.engine.respond(seeded.id, {
+      gate: "finish",
+      decision: "approve",
+      delivery: { actions: [] },
+    });
+    expect(h.deliveries[1]!.createdFollowUps).toEqual([
+      { index: 0, title: "A", destination: "github-issue", url: "u/1" },
+    ]);
+    expect(task(seeded.id)).toMatchObject({ status: "done", deliveryTargets: ["create-tasks"] });
   });
 
   it("keeps the task at finish when an action fails, and skips done ones on retry", async () => {
@@ -5631,6 +5665,8 @@ describe("autonomous mode", () => {
       description: `Do ${n}`,
       repoId: "r1",
       repoName: "app",
+      issueTarget: null,
+      created: null,
     })),
   };
   const recording = async (ctx: DeliveryContext) => {
@@ -5804,7 +5840,16 @@ describe("localDelivery", () => {
     const comment: DeliveryAction = { kind: "issue-comment", url: "u", body: "b" };
     const follow: DeliveryAction = {
       kind: "create-tasks",
-      items: [{ title: "t", description: "d", repoId: "r", repoName: "app" }],
+      items: [
+        {
+          title: "t",
+          description: "d",
+          repoId: "r",
+          repoName: "app",
+          issueTarget: null,
+          created: null,
+        },
+      ],
     };
     expect(localDelivery(plan([merge, push, follow]))).toEqual({
       actions: ["merge-main", "create-tasks"],
@@ -5820,6 +5865,35 @@ describe("localDelivery", () => {
     // No commits leave no code route: only the follow-ups; the comment is never posted.
     expect(localDelivery(plan([comment, follow]))).toMatchObject({ actions: ["create-tasks"] });
     expect(localDelivery(plan([push, comment, follow]))).toBeNull();
+  });
+
+  it("sends only the follow-ups not created yet, all to the backlog", () => {
+    const item = { description: "d", repoId: "r", repoName: "app", created: null };
+    const issueTarget = { owner: "acme", repo: "app", connectionId: "c1" };
+    const follow: DeliveryAction = {
+      kind: "create-tasks",
+      items: [
+        { ...item, title: "a", issueTarget, created: { destination: "github-issue", url: "u" } },
+        { ...item, title: "b", issueTarget },
+        { ...item, title: "c", issueTarget: null, created: { destination: "backlog", url: null } },
+      ],
+    };
+    const confirmation = localDelivery({ actions: [follow], squash: null, completed: [] });
+    expect(confirmation).toEqual({
+      actions: ["create-tasks"],
+      squash: false,
+      followUpIndexes: [1],
+    });
+    expect(confirmation).not.toHaveProperty("followUpDestinations");
+    const allCreated: DeliveryAction = {
+      kind: "create-tasks",
+      items: [follow.items[0]!],
+    };
+    expect(localDelivery({ actions: [allCreated], squash: null, completed: [] })).toEqual({
+      actions: [],
+      squash: false,
+      followUpIndexes: [],
+    });
   });
 });
 

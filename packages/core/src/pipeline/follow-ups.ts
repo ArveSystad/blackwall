@@ -1,5 +1,6 @@
 import {
   MAX_FOLLOW_UPS,
+  originRef,
   type BacklogItem,
   type DeliveryAction,
   type FollowUp,
@@ -10,6 +11,9 @@ import type { Repositories } from "../db/repositories.js";
 
 /** A follow-up as offered at finish: its target repo resolved to a registered one. */
 export type ResolvedFollowUp = Extract<DeliveryAction, { kind: "create-tasks" }>["items"][number];
+
+/** Where a follow-up can be created as a GitHub issue. */
+export type FollowUpIssueTarget = NonNullable<ResolvedFollowUp["issueTarget"]>;
 
 /**
  * The prompt section on follow-up tasks: the registered repos by id (names
@@ -36,25 +40,51 @@ export function followUpsPromptSection(repos: readonly Pick<Repo, "id" | "name">
 
 /**
  * The follow-ups with their target repo: null means the task's repo, and an
- * unknown id falls back to it with a note in the description.
+ * unknown id falls back to it with a note in the description. `issueTargets`
+ * maps a repo id to where its items can become GitHub issues.
  */
 export function resolveFollowUps(
   task: Task,
   followUps: readonly FollowUp[],
   repos: readonly Pick<Repo, "id" | "name">[],
+  issueTargets: ReadonlyMap<string, FollowUpIssueTarget> = new Map(),
 ): ResolvedFollowUp[] {
   const byId = new Map(repos.map((repo) => [repo.id, repo]));
   const own = byId.get(task.repoId);
   return followUps.map(({ title, description, repoId }) => {
     const repo = repoId === null ? own : byId.get(repoId);
-    if (repo) return { title, description, repoId: repo.id, repoName: repo.name };
+    const issueTarget = issueTargets.get(repo?.id ?? task.repoId) ?? null;
+    if (repo) {
+      return {
+        title,
+        description,
+        repoId: repo.id,
+        repoName: repo.name,
+        issueTarget,
+        created: null,
+      };
+    }
     return {
       title,
       description: `${description}\n\nProposed for repo \`${repoId}\`, which is not registered.`,
       repoId: task.repoId,
       repoName: own?.name ?? task.repoId,
+      issueTarget,
+      created: null,
     };
   });
+}
+
+/**
+ * The body of a follow-up created as a GitHub issue: its description and a
+ * line naming the task it came from. The server adds the signature.
+ */
+export function followUpIssueBody(task: Task, item: Pick<ResolvedFollowUp, "description">): string {
+  const ref =
+    task.origin.kind === "free-text"
+      ? `the blackwall task "${task.title}"`
+      : `${originRef(task.origin)} "${task.title}"`;
+  return `${item.description.trim()}\n\nFollow-up from ${ref}.`;
 }
 
 export interface CreateFollowUpTasksOptions {

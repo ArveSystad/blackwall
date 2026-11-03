@@ -46,11 +46,13 @@ import {
   DELIVERY_DONE_EVENT,
   DELIVERY_EVENT_TYPES,
   DELIVERY_FAILED_EVENT,
+  DELIVERY_FOLLOW_UP_EVENT,
   ISSUE_COMMENT_EVENT,
   conflictResolutionPrompt,
   type Deliverer,
   type DeliveryOutcome,
   type DeliveryStep,
+  type FollowUpOutcome,
   type IssueCommentOutcome,
   type MergeConflict,
 } from "./delivery.js";
@@ -353,9 +355,10 @@ const NO_ARCHIVER: WorkspaceArchiver = {
 
 /**
  * The finish confirmation autonomous mode gives a delivery plan: the local
- * merge when due, and every offered follow-up, never a push, PR or comment.
- * Null when the plan offers only outbound code routes (no local merge), so
- * the task waits at finish for the user.
+ * merge when due, and every offered follow-up not created yet, to the
+ * backlog, never a push, PR, comment or GitHub issue. Null when the plan
+ * offers only outbound code routes (no local merge), so the task waits at
+ * finish for the user.
  */
 export function localDelivery(plan: DeliveryPlan): DeliveryConfirmationInput | null {
   const offered = new Set(plan.actions.map((a) => a.kind));
@@ -366,8 +369,8 @@ export function localDelivery(plan: DeliveryPlan): DeliveryConfirmationInput | n
   if (offered.has("merge-main") && !done.has("merge-main")) actions.push("merge-main");
   const createTasks = plan.actions.find((a) => a.kind === "create-tasks");
   const followUpIndexes =
-    createTasks && createTasks.items.length > 0 && !done.has("create-tasks")
-      ? createTasks.items.map((_, index) => index)
+    createTasks && !done.has("create-tasks")
+      ? createTasks.items.flatMap((item, index) => (item.created ? [] : [index]))
       : [];
   if (followUpIndexes.length > 0) actions.push("create-tasks");
   return {
@@ -883,6 +886,26 @@ export function createPipelineEngine({
    * during a delivery does not count as such work.
    */
   function completedDeliveries(run: Run | undefined): DeliveryStep[] {
+    const tail = deliveryTail(run);
+    const done = r.stepEvents.listOfTypes(
+      tail.map((s) => s.id),
+      [DELIVERY_DONE_EVENT],
+    );
+    return eventsInStepOrder(tail, done).map((e) => (e.payload as DeliveryOutcome).action);
+  }
+
+  /** Follow-ups `create-tasks` already created since the run's agents last worked. */
+  function createdFollowUps(run: Run | undefined): FollowUpOutcome[] {
+    const tail = deliveryTail(run);
+    const created = r.stepEvents.listOfTypes(
+      tail.map((s) => s.id),
+      [DELIVERY_FOLLOW_UP_EVENT],
+    );
+    return eventsInStepOrder(tail, created).map((e) => e.payload as FollowUpOutcome);
+  }
+
+  /** The run's steps after its agents last worked (see {@link completedDeliveries}). */
+  function deliveryTail(run: Run | undefined): Step[] {
     if (!run) return [];
     const steps = r.steps.listByRun(run.id);
     const byId = new Map(steps.map((s) => [s.id, s]));
@@ -899,12 +922,7 @@ export function createPipelineEngine({
     const worked = steps.findLastIndex(
       (s) => s.agentId !== null && !deliveryVisits.has(`${s.stage}:${s.visit}`),
     );
-    const tail = steps.slice(worked + 1);
-    const done = r.stepEvents.listOfTypes(
-      tail.map((s) => s.id),
-      [DELIVERY_DONE_EVENT],
-    );
-    return eventsInStepOrder(tail, done).map((e) => (e.payload as DeliveryOutcome).action);
+    return steps.slice(worked + 1);
   }
 
   /** `events` regrouped to follow `steps`, each step's in sequence order. */
@@ -988,6 +1006,8 @@ export function createPipelineEngine({
         confirmation,
         completed: completedDeliveries(run),
         record: (outcome) => log(DELIVERY_DONE_EVENT, outcome),
+        createdFollowUps: createdFollowUps(run),
+        recordFollowUp: (outcome) => log(DELIVERY_FOLLOW_UP_EVENT, outcome),
         resolveConflicts,
         ...(rewriteCommitMessage ? { rewriteCommitMessage } : {}),
         saveSquashMessage: (squashMessage) => saveTask(task.id, { squashMessage }),
@@ -1335,7 +1355,9 @@ export function createPipelineEngine({
       }
       saveRun(run.id, "succeeded", new Date());
       const delivered = [...new Set([...completedDeliveries(run), ...confirmation.actions])];
-      const targets = delivered.filter((d) => d !== "squash");
+      // Follow-ups created by an earlier, failed attempt count even when not confirmed again.
+      if (createdFollowUps(run).length > 0) delivered.push("create-tasks");
+      const targets = [...new Set(delivered.filter((d) => d !== "squash"))];
       const done = saveTask(taskId, {
         status: "done",
         gate: null,
@@ -1512,9 +1534,13 @@ export function createPipelineEngine({
             .listByRun(run.id)
             .filter((s) => s.agentId === null)
             .map((s) => s.id),
-          [DELIVERY_DONE_EVENT],
+          [DELIVERY_DONE_EVENT, DELIVERY_FOLLOW_UP_EVENT],
         )
-        .some((e) => (e.payload as DeliveryOutcome).action !== "squash"),
+        .some(
+          (e) =>
+            e.type === DELIVERY_FOLLOW_UP_EVENT ||
+            (e.payload as DeliveryOutcome).action !== "squash",
+        ),
     );
   }
 
@@ -1601,8 +1627,9 @@ export function createPipelineEngine({
         await respond(taskId, { gate, decision: "approve" });
         break;
       case "finish": {
+        const run = latestRun(taskId);
         const confirmation = localDelivery(
-          await delivery.plan(task, completedDeliveries(latestRun(taskId))),
+          await delivery.plan(task, completedDeliveries(run), createdFollowUps(run)),
         );
         if (!confirmation) {
           log(`Task ${taskId}: autonomous finish left for the user (no local merge offered)`);
@@ -1657,7 +1684,8 @@ export function createPipelineEngine({
      */
     async deliveryPlan(taskId: string): Promise<DeliveryPlan> {
       const task = getTask(taskId);
-      return delivery.plan(task, completedDeliveries(latestRun(taskId)));
+      const run = latestRun(taskId);
+      return delivery.plan(task, completedDeliveries(run), createdFollowUps(run));
     },
 
     /**

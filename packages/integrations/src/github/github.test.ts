@@ -464,6 +464,39 @@ describe("GitHub client", () => {
     });
   });
 
+  it("opens an issue and returns its number and link", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(() =>
+      Promise.resolve(
+        json('{"number":9,"html_url":"https://acme.ghe.com/acme/shop/issues/9"}', 201),
+      ),
+    );
+    const created = await createGitHubClient(GHE, fetchImpl).createIssue({
+      owner: "acme",
+      repo: "shop",
+      title: "Add tests",
+      body: "Cover login",
+    });
+    expect(created).toEqual({ number: 9, url: "https://acme.ghe.com/acme/shop/issues/9" });
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(String(url)).toBe("https://api.acme.ghe.com/repos/acme/shop/issues");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({ title: "Add tests", body: "Cover login" });
+  });
+
+  it("reports a refused issue without the token", async () => {
+    for (const status of [403, 404, 410]) {
+      const client = createGitHubClient(GHE, () =>
+        Promise.resolve(json('{"message":"Issues are disabled for this repo"}', status)),
+      );
+      const error = await client
+        .createIssue({ owner: "acme", repo: "shop", title: "T", body: "B" })
+        .catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(GitHubError);
+      expect((error as GitHubError).status).toBe(status);
+      expect((error as GitHubError).message).not.toContain(TOKEN);
+    }
+  });
+
   it("posts a PR comment on the issue endpoint", async () => {
     const fetchImpl = vi.fn<typeof fetch>(() =>
       Promise.resolve(json('{"id":1,"html_url":"https://acme.ghe.com/x"}', 201)),

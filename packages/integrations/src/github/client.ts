@@ -166,6 +166,14 @@ export interface NewPullRequest {
   draft?: boolean;
 }
 
+/** Input for {@link createGitHubClient}'s `createIssue`. */
+export interface NewIssue {
+  owner: string;
+  repo: string;
+  title: string;
+  body: string;
+}
+
 /** Filters for {@link createGitHubClient}'s `listOpenPullRequests`. */
 export interface OpenPullRequestsQuery {
   owner: string;
@@ -566,6 +574,20 @@ export function createGitHubClient(credentials: GitHubCredentials, fetchImpl: Fe
           return { number: res.data.number, url: res.data.html_url };
         },
       );
+    },
+
+    /** Opens an issue; returns its number and link. */
+    createIssue(input: NewIssue) {
+      return call(`Issue ${input.owner}/${input.repo}`, undefined, async () => {
+        const res = await octokit.rest.issues.create({
+          owner: input.owner,
+          repo: input.repo,
+          title: input.title,
+          body: input.body,
+          request: requestOptions(),
+        });
+        return { number: res.data.number, url: res.data.html_url };
+      });
     },
 
     /** Posts a conversation comment on the pull request or issue. */

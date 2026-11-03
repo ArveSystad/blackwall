@@ -303,6 +303,15 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
           commentOnJiraIssue: jira.commentOnIssue,
           commentOnGitHubIssue: github.commentOnIssue,
           reviewPullRequest: github.reviewPullRequest,
+          githubConnectionId: (remote) => {
+            try {
+              return connections.resolve({ kind: "github", remote })?.id ?? null;
+            } catch {
+              return null; // e.g. a local-path remote
+            }
+          },
+          requireIssueCredential: github.requireIssueCredential,
+          createIssue: github.createIssue,
         },
         // The backlog runner picks up the follow-ups `create-tasks` adds.
         onBacklogChanged: (repoId) => publish({ type: "backlog.changed", payload: { repoId } }),

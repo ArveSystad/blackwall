@@ -65,6 +65,7 @@ import {
   parseNewTaskDraft,
   planApprovalComment,
   pullRequestUrl,
+  followUpIssues,
   roleOverrides,
   sortFindings,
   splitHunks,
@@ -1344,6 +1345,26 @@ describe("runs and steps", () => {
     ).toBe("https://x.test/pull/2");
   });
 
+  it("lists the follow-ups a delivery created as GitHub issues", () => {
+    expect(
+      followUpIssues([
+        event(1, "delivery.follow-up", {
+          index: 0,
+          title: "A",
+          destination: "backlog",
+          url: null,
+        }),
+        event(2, "delivery.follow-up", {
+          index: 1,
+          title: "B",
+          destination: "github-issue",
+          url: "https://github.com/acme/app/issues/3",
+        }),
+        event(3, "delivery.done", { action: "create-tasks", detail: "1 task: app: A" }),
+      ]),
+    ).toEqual([{ title: "B", url: "https://github.com/acme/app/issues/3" }]);
+  });
+
   it("has no pull request without a valid link", () => {
     expect(pullRequestUrl([])).toBeUndefined();
     expect(
@@ -1463,6 +1484,8 @@ describe("finish", () => {
       description: "d",
       repoId: repoName,
       repoName,
+      issueTarget: null,
+      created: null,
     });
     const action = {
       kind: "create-tasks" as const,
@@ -1478,6 +1501,23 @@ describe("finish", () => {
     expect(isOutbound({ kind: "issue-comment", url: "https://x/issues/7", body: "Done" })).toBe(
       true,
     );
+  });
+
+  it("names the follow-ups sent as GitHub issues and where they go", () => {
+    const issueTarget = { owner: "acme", repo: "app", connectionId: "c1" };
+    const action = {
+      kind: "create-tasks" as const,
+      items: [
+        { title: "A", description: "d", repoId: "r1", repoName: "app", issueTarget, created: null },
+        { title: "B", description: "d", repoId: "r1", repoName: "app", issueTarget, created: null },
+        { title: "C", description: "d", repoId: "r1", repoName: "app", issueTarget, created: null },
+      ],
+    };
+    expect(deliveryActionCopy(action, 3, false, 1)).toEqual({
+      title: "Create 3 follow-up tasks",
+      target: "2 to the backlog of app, 1 as GitHub issue in acme/app",
+    });
+    expect(deliveryActionCopy(action, 2, false, 2).target).toBe("2 as GitHub issues in acme/app");
   });
 
   it("states how many actions the confirm sends", () => {

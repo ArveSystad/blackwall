@@ -657,6 +657,18 @@ export function buildTranscript(events: readonly StepEvent[]): TranscriptItem[] 
           text: `Commented on the issue: ${typeof payload.url === "string" ? payload.url : ""}`,
         });
         break;
+      case "delivery.follow-up": {
+        const title = typeof payload.title === "string" ? payload.title : "";
+        items.push({
+          kind: "note",
+          key,
+          text:
+            payload.destination === "github-issue"
+              ? `Created follow-up "${title}" as an issue: ${typeof payload.url === "string" ? payload.url : ""}`
+              : `Added follow-up "${title}" to the backlog`,
+        });
+        break;
+      }
     }
   }
   return items;
@@ -886,6 +898,22 @@ export function pullRequestUrl(events: readonly StepEvent[]): string | undefined
       return /^https?:\/\/\S+$/.test(payload.detail) ? [payload.detail] : [];
     })
     .at(-1);
+}
+
+/** A follow-up a delivery created as a GitHub issue. */
+export interface FollowUpIssue {
+  title: string;
+  url: string;
+}
+
+/** The follow-ups a delivery created as GitHub issues, in order. */
+export function followUpIssues(events: readonly StepEvent[]): FollowUpIssue[] {
+  return events.flatMap((event) => {
+    if (event.type !== "delivery.follow-up") return [];
+    const payload = record(event.payload);
+    if (payload.destination !== "github-issue" || typeof payload.url !== "string") return [];
+    return [{ title: typeof payload.title === "string" ? payload.title : "", url: payload.url }];
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1208,12 +1236,14 @@ export function toggleTick(
 /**
  * Names a delivery action exactly: what is sent, and where. `picked` counts
  * the findings (`pr-review`) or follow-ups (`create-tasks`) the user picked;
- * `approve` names a `pr-review` the user submits as an approval.
+ * `approve` names a `pr-review` the user submits as an approval; `issues`
+ * counts the picked follow-ups sent as GitHub issues rather than to the backlog.
  */
 export function deliveryActionCopy(
   action: DeliveryAction,
   picked: number,
   approve = false,
+  issues = 0,
 ): ActionCopy {
   switch (action.kind) {
     case "push-branch":
@@ -1256,9 +1286,21 @@ export function deliveryActionCopy(
     }
     case "create-tasks": {
       const repos = [...new Set(action.items.map((item) => item.repoName))];
+      const title = `Create ${picked} follow-up ${picked === 1 ? "task" : "tasks"}`;
+      if (issues === 0) return { title, target: `waiting in the backlog of ${repos.join(", ")}` };
+      const slugs = [
+        ...new Set(
+          action.items.flatMap((item) =>
+            item.issueTarget ? [`${item.issueTarget.owner}/${item.issueTarget.repo}`] : [],
+          ),
+        ),
+      ];
+      const backlog = picked - issues;
+      const asIssues = `${issues} as GitHub ${issues === 1 ? "issue" : "issues"} in ${slugs.join(", ")}`;
       return {
-        title: `Create ${picked} follow-up ${picked === 1 ? "task" : "tasks"}`,
-        target: `waiting in the backlog of ${repos.join(", ")}`,
+        title,
+        target:
+          backlog > 0 ? `${backlog} to the backlog of ${repos.join(", ")}, ${asIssues}` : asIssues,
       };
     }
   }
@@ -1276,7 +1318,11 @@ export function planApprovalComment(task: Pick<Task, "branch">): string {
   return `The plan is approved. Implementation is starting${branch}.`;
 }
 
-/** `merge-main` and `create-tasks` never leave the machine; every other action does. */
+/**
+ * `merge-main` and `create-tasks` stay on the machine; every other action
+ * leaves it. A `create-tasks` follow-up the user sends as a GitHub issue does
+ * leave it, which its row's destination shows.
+ */
 export const isOutbound = (action: DeliveryAction) =>
   action.kind !== "merge-main" && action.kind !== "create-tasks";
 
