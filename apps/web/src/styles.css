@@ -109,6 +109,11 @@
   /* Noise tile shared by the grid's film and the chat panel's grain: pale speckles, constant
    * colour, alpha thresholded from the noise. */
   --film-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 1.8 0 0 0 -0.5'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  /* Home grid shot crosshair (GridShots): a centre gap and four ticks, outlined so it
+   * reads on any backdrop. The recoil variant has a wider gap and longer ticks, drawn 2px
+   * higher with the same 16 16 hotspot, so the aim never jumps. */
+  --shot-cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Cpath d='M16 3V11M16 21V29M3 16H11M21 16H29' stroke='%230a0918' stroke-width='4' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='16' r='2' fill='%230a0918'/%3E%3Cpath d='M16 3V11M16 21V29M3 16H11M21 16H29' stroke='%232ee6ff' stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='16' r='1' fill='%232ee6ff'/%3E%3C/svg%3E");
+  --shot-cursor-recoil: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Cpath d='M16 1V7M16 21V29M1 14H9M23 14H31' stroke='%230a0918' stroke-width='4' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='14' r='2' fill='%230a0918'/%3E%3Cpath d='M16 1V7M16 21V29M1 14H9M23 14H31' stroke='%232ee6ff' stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='14' r='1' fill='%232ee6ff'/%3E%3C/svg%3E");
   /* Height of the desktop title bar strip: 0 outside the desktop shell, the OS button
    * overlay + 1px for the hairline inside it. */
   --bw-titlebar-h: calc(env(titlebar-area-height, -1px) + 1px);
@@ -203,6 +208,9 @@
   --grid-glow: transparent;
   /* Dark speckles (see dark). */
   --film-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.8 0 0 0 -0.5'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  /* Crosshair (see dark). */
+  --shot-cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Cpath d='M16 3V11M16 21V29M3 16H11M21 16H29' stroke='white' stroke-width='4' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='16' r='2' fill='white'/%3E%3Cpath d='M16 3V11M16 21V29M3 16H11M21 16H29' stroke='%231d6fe0' stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='16' r='1' fill='%231d6fe0'/%3E%3C/svg%3E");
+  --shot-cursor-recoil: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Cpath d='M16 1V7M16 21V29M1 14H9M23 14H31' stroke='white' stroke-width='4' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='14' r='2' fill='white'/%3E%3Cpath d='M16 1V7M16 21V29M1 14H9M23 14H31' stroke='%231d6fe0' stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='14' r='1' fill='%231d6fe0'/%3E%3C/svg%3E");
 
   color-scheme: light;
 }
@@ -715,6 +723,95 @@ html:active-view-transition-type(bw-route) {
   }
 }
 
+/* Grid shot (GridShots.tsx): the star flash pops and spins with --shot-angle. */
+@keyframes bw-shot-flash {
+  0% {
+    transform: rotate(var(--shot-angle)) scale(0.5);
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(var(--shot-angle)) scale(1.35);
+    opacity: 0;
+  }
+}
+
+/* Reach comes from --spark-reach (SPARK_REACH_MIN..MAX in shots.ts). */
+@keyframes bw-shot-spark {
+  0% {
+    transform: rotate(var(--spark-angle)) translateY(-4px) scaleY(0.4);
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(var(--spark-angle)) translateY(calc(-1 * var(--spark-reach))) scaleY(1);
+    opacity: 0;
+  }
+}
+
+/* Holds, then fades; its 1.5s is SHOT_MS (shots.ts). */
+@keyframes bw-shot-mark {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes bw-grid-flare {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* Two identical shakes: GridBackdrop alternates data-kick a/b, so each shot restarts it. */
+@keyframes bw-grid-kick-a {
+  0% {
+    transform: translate(0, 0);
+  }
+  20% {
+    transform: translate(-3px, 2px);
+  }
+  40% {
+    transform: translate(2px, -3px);
+  }
+  60% {
+    transform: translate(-2px, -1px);
+  }
+  80% {
+    transform: translate(1px, 2px);
+  }
+  100% {
+    transform: translate(0, 0);
+  }
+}
+
+@keyframes bw-grid-kick-b {
+  0% {
+    transform: translate(0, 0);
+  }
+  20% {
+    transform: translate(-3px, 2px);
+  }
+  40% {
+    transform: translate(2px, -3px);
+  }
+  60% {
+    transform: translate(-2px, -1px);
+  }
+  80% {
+    transform: translate(1px, 2px);
+  }
+  100% {
+    transform: translate(0, 0);
+  }
+}
+
 @keyframes bw-assigned-flash {
   0% {
     opacity: 1;
@@ -957,6 +1054,27 @@ html:active-view-transition-type(bw-route) {
     opacity: 1;
   }
 
+  /* Grid shot flare: the lines around a hit flash bright once (GridBackdrop
+   * remounts it by key per shot) and rest transparent. 260ms has no JS mirror. */
+  .bw-grid-flare {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    backdrop-filter: brightness(3.2) saturate(1.8);
+    mask-image: radial-gradient(circle 180px at var(--fx) var(--fy), #000, transparent 70%);
+    animation: bw-grid-flare 260ms ease-out forwards;
+  }
+
+  /* Grid shot shake: ≤3px, so the pane edges never show. 120ms has no JS mirror;
+   * it ends untransformed. */
+  .bw-grid[data-kick="a"] {
+    animation: bw-grid-kick-a 120ms linear;
+  }
+
+  .bw-grid[data-kick="b"] {
+    animation: bw-grid-kick-b 120ms linear;
+  }
+
   .bw-grid-glow {
     position: absolute;
     inset: 0;
@@ -1163,6 +1281,10 @@ html:active-view-transition-type(bw-route) {
 
   :root[data-theme="light"] .bw-grid-spot {
     backdrop-filter: brightness(0.55) contrast(1.4);
+  }
+
+  :root[data-theme="light"] .bw-grid-flare {
+    backdrop-filter: brightness(0.45) contrast(1.6);
   }
 
   /* Light film: dark speckles and shallower dips. */
@@ -1473,44 +1595,161 @@ html:active-view-transition-type(bw-route) {
   }
 
   /* ---------- grid shot (GridShots.tsx) ----------
-   * One small cyan boom where the user clicks blank grid on Home: a bright core
-   * flash, a faint bloom and a thin ring, all ending transparent. Reduced motion
-   * and the light theme come through .bw-boom; the flash only needs its own
-   * light-theme rule. useShots drops it after SHOT_MS (shots.ts): 600ms here.
+   * A gun-like cyan hit where the user presses or holds on blank grid on Home:
+   * an 8-ray star muzzle flash spun by --shot-angle (90ms), a big short bloom
+   * (240ms), a fast shock ring (300ms), a spray of sparks (360ms, after
+   * --spark-delay) and an impact mark with hairline cracks that holds and
+   * fades (1.5s). GridBackdrop adds the grid flare and shake. Every part ends
+   * transparent. Reduced motion and the light theme's bloom and ring come
+   * through .bw-boom; the flash, sparks and mark have their own light rules.
+   * useShots drops a shot after SHOT_MS (shots.ts): the mark's 1.5s here.
    * Change them together.
    */
   .bw-shot {
     --boom-color: var(--cyan);
-    --boom-size: 10rem;
-    --boom-strength: 30%;
+    --boom-size: 22rem;
+    --boom-strength: 45%;
   }
 
   .bw-shot::before,
   .bw-shot::after {
-    animation-duration: 600ms;
     animation-iteration-count: 1;
     animation-fill-mode: forwards;
     animation-delay: 0s;
   }
 
-  .bw-shot::after {
-    width: 56px;
-    height: 56px;
-    margin: -28px 0 0 -28px;
+  .bw-shot::before {
+    animation-duration: 240ms;
   }
 
+  .bw-shot::after {
+    width: 120px;
+    height: 120px;
+    margin: -60px 0 0 -60px;
+    border-width: 2px;
+    animation-duration: 300ms;
+  }
+
+  /* The glow sits on the wrapper: clip-path on ::before would clip it. */
   .bw-shot-flash {
     position: absolute;
     left: 0;
     top: 0;
-    width: 10px;
-    height: 10px;
-    margin: -5px 0 0 -5px;
-    border-radius: 50%;
-    background: color-mix(in oklab, var(--cyan) 50%, white);
-    box-shadow: 0 0 10px color-mix(in oklab, var(--cyan) 80%, transparent);
+    width: 72px;
+    height: 72px;
+    margin: -36px 0 0 -36px;
+    filter: drop-shadow(0 0 6px color-mix(in oklab, var(--cyan) 85%, transparent));
     opacity: 0;
-    animation: bw-supernova-core 180ms ease-out forwards;
+    animation: bw-shot-flash 90ms ease-out forwards;
+  }
+
+  /* Four long rays to the edge, four short ones at ~30%, inner vertices at ~7%. */
+  .bw-shot-flash::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    clip-path: polygon(
+      50% 0%,
+      52.68% 43.53%,
+      71.21% 28.79%,
+      56.47% 47.32%,
+      100% 50%,
+      56.47% 52.68%,
+      71.21% 71.21%,
+      52.68% 56.47%,
+      50% 100%,
+      47.32% 56.47%,
+      28.79% 71.21%,
+      43.53% 52.68%,
+      0% 50%,
+      43.53% 47.32%,
+      28.79% 28.79%,
+      47.32% 43.53%
+    );
+    background: radial-gradient(
+      circle,
+      white 0 12%,
+      color-mix(in oklab, var(--cyan) 35%, white) 24%,
+      var(--cyan) 45%,
+      transparent 70%
+    );
+  }
+
+  /* Ranges come from makeSparks (shots.ts) through the inline --spark-* vars. */
+  .bw-shot-spark {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 2px;
+    height: var(--spark-length);
+    margin-left: -1px;
+    transform-origin: 50% 100%;
+    background: linear-gradient(to top, transparent, color-mix(in oklab, var(--cyan) 60%, white));
+    filter: drop-shadow(0 0 2px var(--cyan));
+    opacity: 0;
+    animation: bw-shot-spark 360ms ease-out var(--spark-delay) forwards;
+  }
+
+  .bw-shot-mark {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 14px;
+    height: 14px;
+    margin: -7px 0 0 -7px;
+    border-radius: 50%;
+    background: radial-gradient(
+      circle,
+      color-mix(in oklab, var(--bg-0) 85%, black),
+      transparent 70%
+    );
+    border: 1px solid color-mix(in oklab, var(--cyan) 40%, transparent);
+    box-shadow: 0 0 6px color-mix(in oklab, var(--cyan) 30%, transparent);
+    animation: bw-shot-mark 1.5s ease-in forwards;
+  }
+
+  /* Hairline cracks, spun with the flash. */
+  .bw-shot-mark::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 30px;
+    height: 30px;
+    margin: -15px 0 0 -15px;
+    border-radius: 50%;
+    background: repeating-conic-gradient(
+      from var(--shot-angle),
+      color-mix(in oklab, var(--cyan) 40%, transparent) 0 2deg,
+      transparent 2deg 47deg
+    );
+    mask-image: radial-gradient(circle closest-side, transparent 40%, #000 50%, transparent 100%);
+  }
+
+  /* Crosshair over Home's blank space only (the pane itself is the hit target);
+   * content gets its own cursor. On each shot GridShots sets data-recoil for
+   * RECOIL_MS (shots.ts, 80ms): a cursor can't be animated, so this one
+   * attribute is timer-toggled. data-firing is set while the trigger is held
+   * (pointer-driven) and turns text selection off for the whole drag. */
+  .bw-shoot {
+    cursor:
+      var(--shot-cursor) 16 16,
+      crosshair;
+  }
+
+  .bw-shoot[data-recoil] {
+    cursor:
+      var(--shot-cursor-recoil) 16 16,
+      crosshair;
+  }
+
+  .bw-shoot > * {
+    cursor: auto;
+  }
+
+  .bw-shoot[data-firing] {
+    -webkit-user-select: none;
+    user-select: none;
   }
 
   /* ---------- done supernova (GridAgents.tsx) ----------
@@ -1616,7 +1855,32 @@ html:active-view-transition-type(bw-route) {
 
   /* Glow is dark only. */
   :root[data-theme="light"] .bw-shot-flash {
+    filter: none;
+  }
+
+  /* Light: accent on a light background, no white core. */
+  :root[data-theme="light"] .bw-shot-flash::before {
+    background: radial-gradient(circle, var(--cyan) 0 30%, transparent 70%);
+  }
+
+  :root[data-theme="light"] .bw-shot-spark {
+    background: linear-gradient(to top, transparent, var(--cyan));
+    filter: none;
+  }
+
+  /* Light: a faint blue scorch ring, not a dark smudge. */
+  :root[data-theme="light"] .bw-shot-mark {
+    background: color-mix(in oklab, var(--cyan) 14%, transparent);
+    border-color: color-mix(in oklab, var(--cyan) 55%, transparent);
     box-shadow: none;
+  }
+
+  :root[data-theme="light"] .bw-shot-mark::before {
+    background: repeating-conic-gradient(
+      from var(--shot-angle),
+      color-mix(in oklab, var(--cyan) 30%, transparent) 0 2deg,
+      transparent 2deg 47deg
+    );
   }
 
   /* ---------- assigned boom (CountPill.tsx) ----------
@@ -2419,8 +2683,14 @@ html:active-view-transition-type(bw-route) {
     .bw-crumble-failed,
     .bw-status-sweep,
     .bw-stage-fill,
-    .bw-lock-on {
+    .bw-lock-on,
+    .bw-grid-flare {
       display: none;
+    }
+
+    /* Nothing fires (GridShots skips), so no crosshair. */
+    .bw-shoot {
+      cursor: auto;
     }
 
     /* useDecrypt skips under reduced motion; this keeps a stray frame from showing. */

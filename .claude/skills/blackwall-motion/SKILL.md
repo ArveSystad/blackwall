@@ -27,13 +27,14 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
    `.bw-assigned-flash` for CountPill.tsx, `.bw-running*` for RunningHeadline.tsx, `.bw-chat`/
    `.bw-chat-content` for ChatPanel.tsx, `.bw-shutter` for SettingsShutter.tsx, `.bw-decrypt*` for DecryptText.tsx,
    `.bw-status-sweep` for TaskCard.tsx, `.bw-tab-flash` for TaskView.tsx (the Agent output tab),
-   `.bw-wordmark-flicker` for Wordmark.tsx, `bw-scan-wipe`/`--animate-scan-wipe` for ui/dialog.tsx), and `bw-route-wipe` with the
+   `.bw-wordmark-flicker` for Wordmark.tsx, `.bw-shot*`/`.bw-shoot` for GridShots.tsx,
+   `.bw-grid-flare`/`.bw-grid[data-kick]` for GridBackdrop.tsx's shot flare and shake, `bw-scan-wipe`/`--animate-scan-wipe` for ui/dialog.tsx), and `bw-route-wipe` with the
    `::view-transition-*(bw-route|bw-inbox|root)` rules for the route wipe (router.tsx, Inbox.tsx,
    route-transition.ts). `animate-arrive` also slides in GrillPanel.tsx answer rows that arrive
    while their card is open (tracked during render; loaded answers never animate).
 2. `.claude/skills/blackwall-design/SKILL.md` § Color semantics / Rules: the state-only rule and its
-   five decorative exceptions (GridBackdrop, Stats, the wordmark flicker, the route wipe, the
-   Settings shutter scanline).
+   six decorative exceptions (GridBackdrop, Stats, the wordmark flicker, the route wipe, the
+   Settings shutter scanline, the Home grid shot).
 3. Reference code: `apps/web/src/components/GridBackdrop.tsx`, `apps/web/src/components/GridAgents.tsx`,
    `apps/web/src/components/RunningHeadline.tsx`, `apps/web/src/routes/Stats.tsx`, `apps/web/src/routes/Backlog.tsx`, `apps/web/src/agent-dots.ts`,
    `apps/web/src/components/use-archive-launches.ts`, `apps/web/src/components/use-resume-bursts.ts`,
@@ -43,6 +44,8 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
    `apps/web/src/components/use-chat-stream.ts`, `apps/web/src/settings-shutter.ts`,
    `apps/web/src/components/SettingsShutter.tsx`, `apps/web/src/components/Wordmark.tsx`,
    `apps/web/src/wordmark-flicker.ts`, `apps/web/src/components/use-wordmark-flicker.ts`,
+   `apps/web/src/shots.ts`, `apps/web/src/components/use-shots.ts`,
+   `apps/web/src/components/GridShots.tsx`,
    `apps/web/src/components/use-count-boom.ts` (detects the rise during render and keeps its timer in
    a `[boom]` effect, so StrictMode's effect replay can't strand it).
 
@@ -51,7 +54,7 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
 ## Procedure
 
 1. Confirm the motion marks state, or falls under the GridBackdrop/Stats/wordmark-flicker/route-wipe/
-   shutter scanline exceptions. Otherwise don't animate.
+   shutter scanline/grid shot exceptions. Otherwise don't animate.
 2. Search the existing `bw-*` keyframes and `--animate-*` tokens; reuse one if it fits.
 3. Add `@keyframes bw-<name>` next to the others.
 4. Expose it one of two ways:
@@ -121,7 +124,14 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
     `.bw-chat` 180ms ↔ `CHAT_PANEL_MS` (180) in `chat.ts`, with the JS fallback at
     `CHAT_PANEL_FALLBACK_MS` (it settles the presence, since `transitionend` may not come);
     `.bw-shutter` 200ms ↔ `SHUTTER_MS` (200) in `settings-shutter.ts`, with the JS fallback at
-    `SHUTTER_FALLBACK_MS` (it settles the presence and releases a held open).
+    `SHUTTER_FALLBACK_MS` (it settles the presence and releases a held open);
+    `.bw-shot-mark` 1.5s (the longest part of a grid shot) ↔ `SHOT_MS` (1500) in `shots.ts`.
+  - The recoil cursor (`.bw-shoot[data-recoil]`) ↔ `RECOIL_MS` (80) in `shots.ts`.
+  - Grid shot sparks: `SPARK_*` ranges in `shots.ts` feed `.bw-shot-spark` (360ms) through inline
+    `--spark-*` vars; `AUTO_FIRE_MS` (110) is JS only (an rAF loop).
+  - `.bw-grid-flare` 260ms and the `bw-grid-kick-a`/`-b` 120ms shake have no JS mirror: the flare
+    remounts by `key` and rests transparent; the shake retriggers by alternating `data-kick` between
+    `a` and `b` (two identical keyframes) and ends untransformed. Under reduced motion nothing fires.
   - `.bw-status-sweep` 700ms has no JS mirror: the inbox drops it on `animationend`, and under
     reduced motion it is `display: none`, so it never shows.
   - `.bw-tab-flash` 1.2s has no JS mirror: replay is a `key` remount and it rests at opacity 0
@@ -142,7 +152,11 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
   (``key={`sweep:${sweep}`}``, `use-status-sweeps.ts`), which is dropped on `animationend` or when
   its card is hidden, not on a timer, and the Agent output tab flash
   (``key={`flash:${outputFlash}`}``, `TaskView.tsx`), bumped during render when `tabOnSignal`
-  returns `flash`. Never toggle classes with timers.
+  returns `flash`. Never toggle classes with timers. The one sanctioned exception is the grid
+  shot's recoil cursor: a cursor can't be animated, so GridShots sets `data-recoil` on Home's pane
+  and a `RECOIL_MS` timeout clears it. Its `data-firing` is pointer-driven (set on an accepted
+  press, cleared on release, leave, blur or unmount), not timer-driven, and turns text selection
+  off while the trigger is held.
   A resume booms cyan; if the request fails, `bump` raises `count` and sets tone `failed`, so the new
   key remounts the boom red (`.bw-revive-failed`, `--st-failed`) instead of recolouring one still
   playing. Prefix one-shot keys (`revive:`) when they share a container with keyed looping elements
@@ -194,11 +208,12 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
   - Centred content stays within the ~520px faded column (`calc(50% ± 260px)`, Stats uses
     `max-w-[520px]`) unless `fade={false}`.
   - Never put it behind a task view, Settings or modals.
-  - The only JS is the pointer spotlight's `--mx`/`--my`, and RunningHeadline's own `--mx`/`--my`
-    and `data-hover` for its local hover glow.
+  - The only JS is the pointer spotlight's `--mx`/`--my`, the grid shot's flare (`.bw-grid-flare`,
+    keyed per shot, at `--fx`/`--fy`) and shake (`data-kick`) from GridShots' bubbling `SHOT_EVENT`,
+    and RunningHeadline's own `--mx`/`--my` and `data-hover` for its local hover glow.
 - Neon and motion mark state only (`blackwall-design` § Color semantics / Rules). GridBackdrop, Stats,
-  the wordmark flicker, the route wipe and the Settings shutter scanline are the only sanctioned
-  decorative exceptions.
+  the wordmark flicker, the route wipe, the Settings shutter scanline and the Home grid shot are the
+  only sanctioned decorative exceptions.
 - When a motion pattern, token or pairing changes, update this skill in the same commit.
 
 ## Checks

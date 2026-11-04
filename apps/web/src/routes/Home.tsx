@@ -185,7 +185,7 @@ function Message({
  * cannot load it says so, with Retry. Past first run, two pills at the
  * bottom count the pull requests waiting on the user's review and the issues
  * assigned to them. The grid itself is GridLayout's, behind this pane; Home
- * sets its fade. Clicking empty grid fires a shot (GridShots).
+ * sets its fade. Pressing or holding on empty grid fires shots (GridShots).
  */
 export function Home() {
   const tasks = useQuery(tasksQuery);
@@ -228,7 +228,7 @@ export function Home() {
   const create = () => setCreating(true);
 
   return (
-    <div className="relative z-10 flex h-full items-center justify-center overflow-auto px-6 py-10">
+    <div className="bw-shoot relative z-10 flex h-full items-center justify-center overflow-auto px-6 py-10">
       <GridShots />
       {firstRun ? (
         <FirstRun />

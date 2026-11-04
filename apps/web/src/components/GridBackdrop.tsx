@@ -1,5 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { cn } from "../lib/utils";
+import { SHOT_EVENT, type ShotEventDetail } from "../shots";
 
 /**
  * Decorative resting background of the main pane, in GridLayout behind Home
@@ -13,8 +14,11 @@ import { cn } from "../lib/utils";
  * runs the grid full width (the agents view); switching between the two eases.
  * A pointer spotlight brightens the lines around the cursor (dark) or subtly
  * darkens them (light), driven by `--mx`/`--my` from the parent's pointer
- * events; those moves are the only JS. Everything else is pure CSS (see
- * `.bw-grid*` in styles.css).
+ * events. A grid shot (GridShots' `SHOT_EVENT`, bubbling up from Home) flares
+ * the lines around the hit (`.bw-grid-flare`, remounted by key) and shakes
+ * the grid (`data-kick`, alternating two identical keyframes so each shot
+ * restarts it). The spotlight moves and those shots are the only JS.
+ * Everything else is pure CSS (see `.bw-grid*` in styles.css).
  * A film overlay (`.bw-film`) covers the whole pane above its content (`z-30`):
  * grain evenly over everything, plus a faint flicker at long, irregular
  * intervals (two coprime CSS loops, 23s and 37s, that dim everything toward
@@ -27,6 +31,7 @@ import { cn } from "../lib/utils";
  */
 export function GridBackdrop({ fade = true }: { fade?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [kick, setKick] = useState<{ n: number; x: number; y: number } | null>(null);
 
   useEffect(() => {
     const grid = ref.current;
@@ -55,18 +60,30 @@ export function GridBackdrop({ fade = true }: { fade?: boolean }) {
       frame = 0;
       delete grid.dataset.hover;
     };
+    const shot = (event: Event) => {
+      const { clientX, clientY } = (event as CustomEvent<ShotEventDetail>).detail;
+      const rect = grid.getBoundingClientRect();
+      setKick((prev) => ({ n: (prev?.n ?? 0) + 1, x: clientX - rect.left, y: clientY - rect.top }));
+    };
     parent.addEventListener("pointermove", move, { passive: true });
     parent.addEventListener("pointerleave", leave, { passive: true });
+    parent.addEventListener(SHOT_EVENT, shot);
     return () => {
       parent.removeEventListener("pointermove", move);
       parent.removeEventListener("pointerleave", leave);
+      parent.removeEventListener(SHOT_EVENT, shot);
       if (frame) cancelAnimationFrame(frame);
     };
   }, []);
 
   return (
     <>
-      <div ref={ref} className={cn("bw-grid", !fade && "bw-grid-full")} aria-hidden="true">
+      <div
+        ref={ref}
+        className={cn("bw-grid", !fade && "bw-grid-full")}
+        data-kick={kick ? (kick.n % 2 ? "a" : "b") : undefined}
+        aria-hidden="true"
+      >
         <div className="bw-grid-sky" />
         <div className="bw-grid-glow" />
         <div className="bw-grid-floor">
@@ -75,6 +92,13 @@ export function GridBackdrop({ fade = true }: { fade?: boolean }) {
         <div className="bw-grid-horizon" />
         <div className="bw-grid-scan" />
         <div className="bw-grid-spot" />
+        {kick && (
+          <div
+            key={kick.n}
+            className="bw-grid-flare"
+            style={{ "--fx": `${kick.x}px`, "--fy": `${kick.y}px` } as CSSProperties}
+          />
+        )}
       </div>
       <div className="bw-film" aria-hidden="true">
         <div className="bw-film-grain" />

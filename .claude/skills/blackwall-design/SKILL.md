@@ -121,6 +121,13 @@ Rules:
 - The Settings shutter scanline is the fifth sanctioned exception. The shutter's bottom edge is a
   2px cyan scanline with glow, only during its 200ms slide, never at rest. Dark only; absent under
   reduced motion and on first load. Only the shutter may do this. Details in `blackwall-motion`.
+- The Home grid shot is the sixth sanctioned exception (`GridShots`). Over empty Home space only, the
+  cursor is a cyan crosshair (`.bw-shoot`); over content (dots, the headline, pills, buttons) it is
+  the normal cursor. Pressing there fires a cyan shot: a star-shaped muzzle flash with glow, a bloom,
+  a shock ring, sparks, a fading impact mark, a flare and slight shake of the grid lines and a
+  crosshair recoil; holding auto-fires about nine shots a second. Glow is dark only (light uses the
+  darker accent with no glow, and the mark is a faint blue scorch ring). Skipped entirely under
+  reduced motion (normal cursor, nothing fires). Home only. Details in `blackwall-motion`.
 - Never put glow or neon on diffs, transcripts, long text, or table rows.
 - Glow is dark only. Light replaces it with a 1px border plus a 3px tinted ring (`--glow-*` handles this).
 - Chamfered surfaces (see Density and shape) keep their glow through the `--drop-glow-*` / `--drop-pop`
