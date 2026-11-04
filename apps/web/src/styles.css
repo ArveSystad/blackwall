@@ -1472,6 +1472,47 @@ html:active-view-transition-type(bw-route) {
     --boom-color: var(--st-failed);
   }
 
+  /* ---------- grid shot (GridShots.tsx) ----------
+   * One small cyan boom where the user clicks blank grid on Home: a bright core
+   * flash, a faint bloom and a thin ring, all ending transparent. Reduced motion
+   * and the light theme come through .bw-boom; the flash only needs its own
+   * light-theme rule. useShots drops it after SHOT_MS (shots.ts): 600ms here.
+   * Change them together.
+   */
+  .bw-shot {
+    --boom-color: var(--cyan);
+    --boom-size: 10rem;
+    --boom-strength: 30%;
+  }
+
+  .bw-shot::before,
+  .bw-shot::after {
+    animation-duration: 600ms;
+    animation-iteration-count: 1;
+    animation-fill-mode: forwards;
+    animation-delay: 0s;
+  }
+
+  .bw-shot::after {
+    width: 56px;
+    height: 56px;
+    margin: -28px 0 0 -28px;
+  }
+
+  .bw-shot-flash {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 10px;
+    height: 10px;
+    margin: -5px 0 0 -5px;
+    border-radius: 50%;
+    background: color-mix(in oklab, var(--cyan) 50%, white);
+    box-shadow: 0 0 10px color-mix(in oklab, var(--cyan) 80%, transparent);
+    opacity: 0;
+    animation: bw-supernova-core 180ms ease-out forwards;
+  }
+
   /* ---------- done supernova (GridAgents.tsx) ----------
    * One green burst as a task turns done: a core flash, a wide ring and spark
    * streaks along the grid lines (four orthogonal, four shorter, dimmer
@@ -1570,6 +1611,11 @@ html:active-view-transition-type(bw-route) {
   /* Glow is dark only. */
   :root[data-theme="light"] .bw-supernova::before,
   :root[data-theme="light"] .bw-supernova::after {
+    box-shadow: none;
+  }
+
+  /* Glow is dark only. */
+  :root[data-theme="light"] .bw-shot-flash {
     box-shadow: none;
   }
 
