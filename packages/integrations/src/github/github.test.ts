@@ -822,6 +822,7 @@ describe("authored pull requests search", () => {
       variables: { search: string };
     };
     expect(query).toContain("statusCheckRollup");
+    expect(query).toContain("latestOpinionatedReviews(first: 20, writersOnly: true)");
     expect(variables.search).toContain("author:@me");
     expect(variables.search).toContain("is:open");
     expect(variables.search).not.toContain("draft:false");
@@ -858,6 +859,7 @@ describe("authored pull requests search", () => {
       updatedAt: "2026-10-01T10:00:00Z",
       draft: false,
       reviewDecision: "review-required",
+      reviewers: [],
       checks: "passed",
       activityAt: null,
       headSha: "sha1",
@@ -870,6 +872,37 @@ describe("authored pull requests search", () => {
       [5, false, "review-required", "pending"],
       [6, false, "review-required", null],
       [7, false, "review-required", null],
+    ]);
+  });
+
+  it("lists approvals and change requests, by name or login", async () => {
+    const rows = await createGitHubClient(
+      GHE,
+      searching([
+        node(1, {
+          reviewDecision: "APPROVED",
+          latestOpinionatedReviews: {
+            nodes: [
+              { state: "APPROVED", author: { login: "kari", name: "Kari Nordmann" } },
+              { state: "APPROVED", author: { login: "bot" } },
+              { state: "CHANGES_REQUESTED", author: { login: "ola", name: null } },
+              { state: "DISMISSED", author: { login: "per", name: "Per" } },
+              { state: "COMMENTED", author: { login: "liv", name: "Liv" } },
+              { state: "APPROVED", author: null },
+              null,
+            ],
+          },
+        }),
+        node(2, { latestOpinionatedReviews: null }),
+      ]),
+    ).searchAuthoredPullRequests();
+    expect(rows.map((r) => r.reviewers)).toEqual([
+      [
+        { login: "kari", name: "Kari Nordmann", state: "approved" },
+        { login: "bot", name: null, state: "approved" },
+        { login: "ola", name: null, state: "changes-requested" },
+      ],
+      [],
     ]);
   });
 
@@ -924,19 +957,43 @@ describe("pull request status and merge", () => {
     expect(await read({ reviewDecision: "APPROVED", mergeable: "MERGEABLE" })).toEqual({
       reviewDecision: "approved",
       mergeable: true,
+      reviewers: [],
     });
     expect(await read({ reviewDecision: "CHANGES_REQUESTED", mergeable: "CONFLICTING" })).toEqual({
       reviewDecision: "changes-requested",
       mergeable: false,
+      reviewers: [],
     });
     expect(await read({ reviewDecision: null, mergeable: "UNKNOWN" })).toEqual({
       reviewDecision: null,
       mergeable: null,
+      reviewers: [],
     });
     expect(await read({ reviewDecision: "REVIEW_REQUIRED", mergeable: "UNKNOWN" })).toEqual({
       reviewDecision: "review-required",
       mergeable: null,
+      reviewers: [],
     });
+  });
+
+  it("names who approved or asked for changes", async () => {
+    const github = status({
+      reviewDecision: "CHANGES_REQUESTED",
+      mergeable: "MERGEABLE",
+      latestOpinionatedReviews: {
+        nodes: [
+          { state: "APPROVED", author: { login: "kari", name: "Kari Nordmann" } },
+          { state: "CHANGES_REQUESTED", author: { login: "ola", name: "" } },
+        ],
+      },
+    });
+    const result = await createGitHubClient(GHE, github).getPullRequestStatus(PR);
+    expect(result.reviewers).toEqual([
+      { login: "kari", name: "Kari Nordmann", state: "approved" },
+      { login: "ola", name: null, state: "changes-requested" },
+    ]);
+    const { query } = JSON.parse(String(github.mock.calls[0]![1]?.body)) as { query: string };
+    expect(query).toContain("latestOpinionatedReviews");
   });
 
   it("asks for the PR by owner, name and number", async () => {

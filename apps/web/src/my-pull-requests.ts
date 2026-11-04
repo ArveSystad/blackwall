@@ -1,6 +1,12 @@
-import type { MergeMethod, MyPullRequest, MyPullRequestDetail } from "@blackwall/shared";
+import type {
+  MergeMethod,
+  MyPullRequest,
+  MyPullRequestDetail,
+  PullRequestReviewer,
+} from "@blackwall/shared";
 import { useSyncExternalStore } from "react";
 import { plural } from "./backlog";
+import { type DiffLine, parseDiff } from "./task-view";
 
 type ReviewDecision = MyPullRequest["reviewDecision"];
 type Checks = MyPullRequest["checks"];
@@ -35,6 +41,80 @@ export function reviewDecisionTone(decision: ReviewDecision): string {
     default:
       return "bg-muted-foreground/12 text-muted-foreground";
   }
+}
+
+/** Reviewers by display name, falling back to login: "A", "A and B", "A, B +2". */
+export function reviewerNames(reviewers: readonly PullRequestReviewer[]): string {
+  const names = reviewers.map((r) => r.name ?? r.login);
+  if (names.length <= 2) return names.join(" and ");
+  return `${names.slice(0, 2).join(", ")} +${names.length - 2}`;
+}
+
+/** The review status pill: who approved or asked for changes, in the decision's tone. */
+export interface ReviewStatus {
+  label: string;
+  tone: string;
+  icon: "check" | "failed" | null;
+}
+
+/**
+ * The review status pill for a decision, naming the reviewers behind it. A
+ * repo without required reviews still shows an approval when someone gave one.
+ */
+export function reviewStatus(
+  decision: ReviewDecision,
+  reviewers: readonly PullRequestReviewer[],
+): ReviewStatus {
+  const approvers = reviewerNames(reviewers.filter((r) => r.state === "approved"));
+  const requesters = reviewerNames(reviewers.filter((r) => r.state === "changes-requested"));
+  switch (decision) {
+    case "changes-requested":
+      return {
+        label: requesters ? `Changes requested by ${requesters}` : "Changes requested",
+        tone: reviewDecisionTone(decision),
+        icon: "failed",
+      };
+    case "approved":
+      return {
+        label: approvers ? `Approved by ${approvers}` : "Approved",
+        tone: reviewDecisionTone(decision),
+        icon: "check",
+      };
+    case "review-required":
+      return {
+        label: approvers ? `Review required · approved by ${approvers}` : "Review required",
+        tone: reviewDecisionTone(decision),
+        icon: null,
+      };
+    case null:
+      return approvers
+        ? { label: `Approved by ${approvers}`, tone: reviewDecisionTone("approved"), icon: "check" }
+        : { label: reviewDecisionLabel(null), tone: reviewDecisionTone(null), icon: null };
+  }
+}
+
+/** Fewest and most lines of code a review thread shows above its first comment. */
+const EXCERPT_MIN_LINES = 4;
+const EXCERPT_MAX_LINES = 20;
+
+/**
+ * The code a review thread comments on, from GitHub's `diff_hunk` (which
+ * ends on the commented line): the last few lines, or the whole commented
+ * range when longer, at most {@link EXCERPT_MAX_LINES}. Empty without a hunk.
+ */
+export function hunkExcerpt(
+  path: string,
+  diffHunk: string | null,
+  startLine: number | null,
+  line: number | null,
+): DiffLine[] {
+  if (!diffHunk) return [];
+  const lines = (parseDiff(`diff --git a/${path} b/${path}\n${diffHunk}`)[0]?.lines ?? []).filter(
+    (l) => l.kind !== "hunk",
+  );
+  const range = startLine !== null && line !== null ? line - startLine + 1 : 1;
+  const count = Math.min(EXCERPT_MAX_LINES, Math.max(EXCERPT_MIN_LINES, range));
+  return lines.slice(-count);
 }
 
 /** What the head commit's checks say, for the row's checks icon. */

@@ -3,6 +3,7 @@ import type {
   MyPullRequest,
   MyPullRequestDetail,
   MyPullRequests as MyPullRequestsList,
+  PullRequestReviewer,
 } from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -10,6 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { mergePullRequest } from "../api";
 import { CiChecksList } from "../components/CiChecksList";
 import { listPane, paneBody, paneHeader, paneTitle } from "../components/classes";
+import { DiffView } from "../components/DiffView";
 import { EmptyState } from "../components/EmptyState";
 import {
   CheckIcon,
@@ -47,9 +49,9 @@ import {
   hasUnseenActivity,
   markSeen,
   mergeWarnings,
+  hunkExcerpt,
   pullRequestName,
-  reviewDecisionLabel,
-  reviewDecisionTone,
+  reviewStatus,
   useSeenPullRequests,
 } from "../my-pull-requests";
 import { myPullRequestQuery, myPullRequestsQuery, queryKeys } from "../query";
@@ -78,6 +80,44 @@ function ChecksIcon({ checks }: { checks: MyPullRequest["checks"] }) {
 /** A small tag for a draft pull request. */
 function DraftTag() {
   return <span className={cn(pill, "bg-muted-foreground/12 text-faint")}>Draft</span>;
+}
+
+/**
+ * The review decision and who is behind it. Truncated to fit a row unless
+ * `wrap`; the full label is always in the tooltip.
+ */
+function ReviewStatusPill({
+  decision,
+  reviewers,
+  wrap = false,
+}: {
+  decision: MyPullRequest["reviewDecision"];
+  reviewers: readonly PullRequestReviewer[];
+  wrap?: boolean;
+}) {
+  const status = reviewStatus(decision, reviewers);
+  return (
+    <span
+      title={status.label}
+      className={cn(
+        pill,
+        "min-w-0",
+        wrap ? "h-auto min-h-5 py-0.5 whitespace-normal" : "max-w-[180px]",
+        status.tone,
+      )}
+    >
+      {status.icon === "check" && <CheckIcon size="sm" className="flex-none" />}
+      {status.icon === "failed" && <FailedIcon size="sm" className="flex-none" />}
+      <span className={wrap ? undefined : "truncate"}>{status.label}</span>
+    </span>
+  );
+}
+
+/** The code a review thread comments on, above its first comment; nothing without a hunk. */
+function ThreadExcerpt({ thread }: { thread: MyPullRequestDetail["threads"][number] }) {
+  const lines = hunkExcerpt(thread.path, thread.diffHunk, thread.startLine, thread.line);
+  if (lines.length === 0) return null;
+  return <DiffView lines={lines} className="text-meta" />;
 }
 
 /** One of the user's PRs; opens it beside the list. A yellow dot marks news they haven't seen. */
@@ -129,9 +169,7 @@ function PullRequestRow({
         </span>
         <ChecksIcon checks={pr.checks} />
         {pr.draft && <DraftTag />}
-        <span className={cn(pill, reviewDecisionTone(pr.reviewDecision))}>
-          {reviewDecisionLabel(pr.reviewDecision)}
-        </span>
+        <ReviewStatusPill decision={pr.reviewDecision} reviewers={pr.reviewers} />
       </Link>
     </li>
   );
@@ -161,13 +199,11 @@ const REVIEW_STATE_LABELS: Record<string, string> = {
 /** The PR's review status and checks, its conversation and its inline review threads. */
 function PullRequestBody({ detail, now }: { detail: MyPullRequestDetail; now: Date }) {
   return (
-    <div className="flex min-h-0 min-w-0 flex-[1_1_420px] flex-col gap-4 overflow-auto px-5 py-4">
+    <div className="flex h-full min-h-0 min-w-0 flex-[999_1_420px] flex-col gap-4 overflow-auto px-5 py-4">
       <section aria-label="Status" className="flex flex-col gap-2">
         <span className="flex flex-wrap items-center gap-2">
           <span className="label text-muted-foreground">Status</span>
-          <span className={cn(pill, reviewDecisionTone(detail.reviewDecision))}>
-            {reviewDecisionLabel(detail.reviewDecision)}
-          </span>
+          <ReviewStatusPill decision={detail.reviewDecision} reviewers={detail.reviewers} wrap />
           {detail.draft && <DraftTag />}
           <span className="flex-1" />
           <span className="mono text-meta text-faint">{detail.headSha.slice(0, 7)}</span>
@@ -224,7 +260,10 @@ function PullRequestBody({ detail, now }: { detail: MyPullRequestDetail; now: Da
                 <span className="flex min-w-0 items-center gap-2 text-meta">
                   <span className="mono truncate text-foreground">
                     {thread.path}
-                    {thread.line !== null && `:${thread.line}`}
+                    {thread.line !== null &&
+                      (thread.startLine !== null && thread.startLine !== thread.line
+                        ? `:${thread.startLine}-${thread.line}`
+                        : `:${thread.line}`)}
                   </span>
                   {thread.outdated && (
                     <span className={cn(pill, "bg-muted-foreground/12 text-faint")}>Outdated</span>
@@ -236,8 +275,15 @@ function PullRequestBody({ detail, now }: { detail: MyPullRequestDetail; now: Da
                     </a>
                   )}
                 </span>
-                {thread.comments.map((comment) => (
-                  <div key={comment.id} className="flex flex-col gap-1">
+                <ThreadExcerpt thread={thread} />
+                {thread.comments.map((comment, i) => (
+                  <div
+                    key={comment.id}
+                    className={cn(
+                      "flex min-w-0 flex-col gap-1",
+                      i > 0 && "ml-4 border-l-2 border-border pl-3",
+                    )}
+                  >
                     <Byline author={comment.author} at={comment.createdAt} now={now} />
                     <Markdown className="break-words">{comment.body}</Markdown>
                   </div>

@@ -1170,7 +1170,13 @@ describe("my pull requests routes", () => {
           return json({
             data: {
               repository: {
-                pullRequest: { reviewDecision: "APPROVED", mergeable: "CONFLICTING" },
+                pullRequest: {
+                  reviewDecision: "APPROVED",
+                  mergeable: "CONFLICTING",
+                  latestOpinionatedReviews: {
+                    nodes: [{ state: "APPROVED", author: { login: "kari", name: "Kari N" } }],
+                  },
+                },
               },
             },
           });
@@ -1200,6 +1206,9 @@ describe("my pull requests routes", () => {
                     ],
                   },
                   reviews: { nodes: [] },
+                  latestOpinionatedReviews: {
+                    nodes: [{ state: "APPROVED", author: { login: "kari", name: null } }],
+                  },
                 },
               ],
             },
@@ -1233,6 +1242,7 @@ describe("my pull requests routes", () => {
             user: { login: "kari" },
             created_at: "2026-10-01T09:00:00Z",
             html_url: `${PR}#discussion_r101`,
+            diff_hunk: "@@ -10,3 +10,3 @@\n-a\n+b",
           },
         ]);
       }
@@ -1344,6 +1354,7 @@ describe("my pull requests routes", () => {
         updatedAt: "2026-10-03T10:00:00.000Z",
         draft: true,
         reviewDecision: "approved",
+        reviewers: [{ login: "kari", name: null, state: "approved" }],
         checks: "pending",
         activityAt: "2026-10-02T10:00:00Z",
         headSha: "abc",
@@ -1369,6 +1380,7 @@ describe("my pull requests routes", () => {
       reviewDecision: "approved",
       mergeable: false,
       mergeMethods: ["merge", "squash", "rebase"],
+      reviewers: [{ login: "kari", name: "Kari N", state: "approved" }],
       checks: [expect.objectContaining({ name: "unit", state: "pending" })],
       checksHint: null,
     });
@@ -1381,6 +1393,7 @@ describe("my pull requests routes", () => {
         id: 101,
         path: "src/money.ts",
         outdated: true,
+        diffHunk: "@@ -10,3 +10,3 @@\n-a\n+b",
         comments: [expect.objectContaining({ author: "kari", body: "Round before summing?" })],
       }),
     ]);

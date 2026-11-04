@@ -1,13 +1,16 @@
-import type { MyPullRequestDetail } from "@blackwall/shared";
+import type { MyPullRequestDetail, PullRequestReviewer } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   checksLabel,
   hasUnseenActivity,
+  hunkExcerpt,
   mergeWarnings,
   myPrPillLabel,
   pruneSeen,
   pullRequestName,
   reviewDecisionLabel,
+  reviewerNames,
+  reviewStatus,
   type SeenMap,
 } from "./my-pull-requests";
 
@@ -128,6 +131,100 @@ describe("labels", () => {
     expect(checksLabel(null)).toBe("No checks");
     expect(pullRequestName("https://acme.ghe.com/acme/shop/pull/42")).toBe("acme/shop#42");
     expect(pullRequestName("not a link")).toBe("not a link");
+  });
+});
+
+describe("reviewStatus", () => {
+  const approved = (login: string, name: string | null = null): PullRequestReviewer => ({
+    login,
+    name,
+    state: "approved",
+  });
+  const changes = (login: string, name: string | null = null): PullRequestReviewer => ({
+    login,
+    name,
+    state: "changes-requested",
+  });
+
+  it("names reviewers by display name, falling back to login", () => {
+    expect(reviewerNames([approved("foo", "Foo Bar")])).toBe("Foo Bar");
+    expect(reviewerNames([approved("foo", "Foo Bar"), approved("baz")])).toBe("Foo Bar and baz");
+    expect(reviewerNames([approved("a"), approved("b"), approved("c"), approved("d")])).toBe(
+      "a, b +2",
+    );
+    expect(reviewerNames([])).toBe("");
+  });
+
+  it("says who approved or asked for changes", () => {
+    expect(reviewStatus("approved", [approved("foo", "Foo Bar")])).toEqual({
+      label: "Approved by Foo Bar",
+      tone: "bg-done/12 text-done",
+      icon: "check",
+    });
+    expect(reviewStatus("approved", [])).toMatchObject({ label: "Approved", icon: "check" });
+    expect(reviewStatus("changes-requested", [approved("a"), changes("foo", "Foo Bar")])).toEqual({
+      label: "Changes requested by Foo Bar",
+      tone: "bg-failed/12 text-failed",
+      icon: "failed",
+    });
+    expect(reviewStatus("changes-requested", [])).toMatchObject({
+      label: "Changes requested",
+      icon: "failed",
+    });
+  });
+
+  it("mentions partial approvals while a review is still required", () => {
+    expect(reviewStatus("review-required", [])).toMatchObject({
+      label: "Review required",
+      icon: null,
+    });
+    expect(reviewStatus("review-required", [approved("a")])).toMatchObject({
+      label: "Review required · approved by a",
+      icon: null,
+    });
+  });
+
+  it("shows an approval even when no review is required", () => {
+    expect(reviewStatus(null, [])).toEqual({
+      label: "No review required",
+      tone: "bg-muted-foreground/12 text-muted-foreground",
+      icon: null,
+    });
+    expect(reviewStatus(null, [approved("a")])).toEqual({
+      label: "Approved by a",
+      tone: "bg-done/12 text-done",
+      icon: "check",
+    });
+  });
+});
+
+describe("hunkExcerpt", () => {
+  const hunk = [
+    "@@ -1,8 +1,9 @@",
+    ...Array.from({ length: 8 }, (_, i) => ` line ${i + 1}`),
+    "+added",
+  ].join("\n");
+
+  it("keeps the last few lines, ending on the commented one", () => {
+    const lines = hunkExcerpt("src/a.ts", hunk, null, 9);
+    expect(lines.map((l) => l.text)).toEqual(["line 6", "line 7", "line 8", "added"]);
+    expect(lines.at(-1)).toEqual({ kind: "add", text: "added", line: 9 });
+  });
+
+  it("shows the whole range of a multi-line comment", () => {
+    expect(hunkExcerpt("src/a.ts", hunk, 3, 9)).toHaveLength(7);
+  });
+
+  it("caps long ranges", () => {
+    const long = ["@@ -1,30 +1,30 @@", ...Array.from({ length: 30 }, (_, i) => ` l${i}`)].join(
+      "\n",
+    );
+    expect(hunkExcerpt("a", long, 1, 30)).toHaveLength(20);
+  });
+
+  it("is empty without a hunk", () => {
+    expect(hunkExcerpt("a", null, null, 1)).toEqual([]);
+    expect(hunkExcerpt("a", "", null, 1)).toEqual([]);
   });
 });
 

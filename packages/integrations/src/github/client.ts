@@ -287,6 +287,8 @@ export interface GitHubAuthoredPullRequest {
   updatedAt: string;
   draft: boolean;
   reviewDecision: AuthoredReviewDecision | null;
+  /** Each writer's latest approval or change request. */
+  reviewers: GitHubPullRequestReviewer[];
   /** The head commit's checks; null when it has none GitHub can roll up. */
   checks: ChecksRollup | null;
   /**
@@ -297,10 +299,49 @@ export interface GitHubAuthoredPullRequest {
   headSha: string;
 }
 
+/**
+ * Someone whose latest opinionated review approved the pull request or asked
+ * for changes; `name` is their GitHub display name, null when unset.
+ */
+export interface GitHubPullRequestReviewer {
+  login: string;
+  name: string | null;
+  state: "approved" | "changes-requested";
+}
+
 /** The author of a comment or review; `__typename` tells bots apart. */
 interface ActivityAuthor {
   __typename?: string;
   login: string;
+}
+
+/** `latestOpinionatedReviews` as both pull request queries select it. */
+interface OpinionatedReviews {
+  nodes?: ({ state?: string; author?: { login: string; name?: string | null } | null } | null)[];
+}
+
+/** The selection {@link opinionatedReviewers} reads. */
+const OPINIONATED_REVIEWS_SELECTION =
+  "latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state author { login ... on User { name } } } }";
+
+/**
+ * The reviewers who approved or asked for changes, dropping reviews whose
+ * author is gone and any other state (dismissed, commented).
+ */
+function opinionatedReviewers(
+  reviews: OpinionatedReviews | null | undefined,
+): GitHubPullRequestReviewer[] {
+  return (reviews?.nodes ?? []).flatMap((node): GitHubPullRequestReviewer[] => {
+    if (!node?.author) return [];
+    const state =
+      node.state === "APPROVED"
+        ? "approved"
+        : node.state === "CHANGES_REQUESTED"
+          ? "changes-requested"
+          : null;
+    if (!state) return [];
+    return [{ login: node.author.login, name: node.author.name || null, state }];
+  });
 }
 
 /** A `PullRequest` node of the authored pull requests search. */
@@ -321,6 +362,7 @@ interface AuthoredPullRequestNode {
   reviews?: {
     nodes?: ({ submittedAt?: string | null; author?: ActivityAuthor | null } | null)[];
   } | null;
+  latestOpinionatedReviews?: OpinionatedReviews | null;
 }
 
 /** Open PRs the user wrote outside archived repos, drafts and approved ones included. */
@@ -342,6 +384,7 @@ const AUTHORED_PRS_QUERY = `query AuthoredPullRequests($search: String!) {
         commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
         comments(last: 10) { nodes { createdAt author { __typename login } } }
         reviews(last: 10) { nodes { submittedAt author { __typename login } } }
+        ${OPINIONATED_REVIEWS_SELECTION}
       }
     }
   }
@@ -349,7 +392,11 @@ const AUTHORED_PRS_QUERY = `query AuthoredPullRequests($search: String!) {
 
 const PULL_REQUEST_STATUS_QUERY = `query PullRequestStatus($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
-    pullRequest(number: $number) { reviewDecision mergeable }
+    pullRequest(number: $number) {
+      reviewDecision
+      mergeable
+      ${OPINIONATED_REVIEWS_SELECTION}
+    }
   }
 }`;
 
@@ -783,6 +830,7 @@ export function createGitHubClient(credentials: GitHubCredentials, fetchImpl: Fe
               reviewDecision: node.reviewDecision
                 ? (AUTHORED_REVIEW_DECISIONS[node.reviewDecision] ?? null)
                 : null,
+              reviewers: opinionatedReviewers(node.latestOpinionatedReviews),
               checks: rollup ? (CHECK_ROLLUPS[rollup] ?? null) : null,
               activityAt: latestActivity(author, [
                 ...(node.comments?.nodes ?? []).map((c) => ({ at: c?.createdAt, by: c?.author })),
@@ -806,6 +854,7 @@ export function createGitHubClient(credentials: GitHubCredentials, fetchImpl: Fe
             pullRequest: {
               reviewDecision?: keyof typeof AUTHORED_REVIEW_DECISIONS | null;
               mergeable?: string | null;
+              latestOpinionatedReviews?: OpinionatedReviews | null;
             } | null;
           } | null;
         }>(PULL_REQUEST_STATUS_QUERY, {
@@ -823,6 +872,7 @@ export function createGitHubClient(credentials: GitHubCredentials, fetchImpl: Fe
             : null,
           mergeable:
             node.mergeable === "MERGEABLE" ? true : node.mergeable === "CONFLICTING" ? false : null,
+          reviewers: opinionatedReviewers(node.latestOpinionatedReviews),
         };
       });
     },

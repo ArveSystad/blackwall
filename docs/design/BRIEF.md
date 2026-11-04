@@ -367,12 +367,17 @@ There is **no input bar** in the task view. You steer a task from the chat (see 
 ### My pull requests (`/pulls`)
 
 - "My pull requests", "N open", grouped by host: the open PRs the user wrote, drafts included. A row
-  shows its checks (spinner, check or failed icon), a "Draft" tag, the review status pill
-  ("Approved", "Changes requested", "Review required", "No review required") and a small yellow dot
-  when it has news the user hasn't opened. The empty state is "All clear. No open pull requests.".
+  shows its checks (spinner, check or failed icon), a "Draft" tag, the review status pill and a
+  small yellow dot when it has news the user hasn't opened. The pill names who reviewed, by display
+  name or login: a green check with "Approved by Foo Bar" (two names "A and B", more "A, B +1"), a
+  red mark with "Changes requested by Foo Bar", "Review required" (with "· approved by A" for
+  partial approvals) or "No review required"; truncated in a row, full label in its tooltip. The
+  empty state is "All clear. No open pull requests.".
 - A row opens the PR beside the list (`?pr=`): Status (review pill and checks), Conversation and
-  Review comments ("Outdated" threads labelled), each comment with author and time. Opening it marks
-  its news seen.
+  Review comments ("Outdated" threads labelled), each comment with author and time. A review thread
+  shows a few lines of the commented code (its whole range for a multi-line comment, at most 20)
+  above the first comment, and its replies indented with a line on the left. Only this middle pane
+  scrolls; the list and the Finish aside stay put. Opening it marks its news seen.
 - On the right, a Finish aside like a task's ("Outbound · crosses the wall", "Nothing is merged
   until you confirm."): "Merge pull request" with `{base} ← {head}` and the merge methods the repo
   allows ("Merge commit", "Squash and merge", "Rebase and merge"; all three when blackwall can't

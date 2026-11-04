@@ -748,6 +748,7 @@ export function pullRequestRoutes({
       reviewDecision: status.reviewDecision,
       mergeable: status.mergeable,
       mergeMethods: mergeMethodsOf(repo),
+      reviewers: status.reviewers,
       checks,
       checksHint,
       conversation: conversationOf(issueComments, reviews).map((item) => ({
@@ -767,6 +768,7 @@ export function pullRequestRoutes({
         side: t.side,
         outdated: t.outdated,
         url: t.url,
+        diffHunk: t.diffHunk,
         comments: t.comments.map((comment) => ({
           id: comment.id,
           author: comment.author,

@@ -1841,6 +1841,18 @@ export const myPullRequestReviewDecisionSchema = z
   .enum(["approved", "review-required", "changes-requested"])
   .nullable();
 
+/**
+ * A reviewer with write access whose latest opinionated review approved the
+ * pull request or asked for changes. `name` is their GitHub display name,
+ * null when unset (show `login` then).
+ */
+export const pullRequestReviewerSchema = z.object({
+  login: z.string(),
+  name: z.string().nullable(),
+  state: z.enum(["approved", "changes-requested"]),
+});
+export type PullRequestReviewer = z.infer<typeof pullRequestReviewerSchema>;
+
 /** The head commit's checks rolled up; null when it has none GitHub can roll up. */
 export const myPullRequestChecksSchema = z.enum(["pending", "passed", "failed"]).nullable();
 
@@ -1861,6 +1873,7 @@ export const myPullRequestSchema = z.object({
   updatedAt: timestamp,
   draft: z.boolean(),
   reviewDecision: myPullRequestReviewDecisionSchema,
+  reviewers: pullRequestReviewerSchema.array(),
   checks: myPullRequestChecksSchema,
   /**
    * The newest review or comment by someone other than the user and not a
@@ -2065,8 +2078,10 @@ export const myPullRequestDetailSchema = z.object({
   checks: z.array(ciCheckSchema),
   /** Why the checks can't be read fully; null when they can. */
   checksHint: z.string().nullable(),
+  reviewers: pullRequestReviewerSchema.array(),
   conversation: pullRequestConversationEntrySchema.array(),
-  threads: pullRequestThreadSchema.array(),
+  /** Each thread with GitHub's `diff_hunk`: the diff up to the commented line; null when absent. */
+  threads: pullRequestThreadSchema.extend({ diffHunk: z.string().nullable() }).array(),
 });
 export type MyPullRequestDetail = z.infer<typeof myPullRequestDetailSchema>;
 
