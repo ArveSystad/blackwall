@@ -1004,6 +1004,7 @@ describe("myPullRequestsSchema", () => {
     updatedAt: now,
     draft: true,
     reviewDecision: "approved",
+    reviewers: [{ login: "kari", name: "Kari Nordmann", state: "approved" }],
     checks: "pending",
     activityAt: "2026-10-02T10:00:00Z",
     headSha: "abc123",
@@ -1031,6 +1032,9 @@ describe("myPullRequestsSchema", () => {
   it("rejects an unknown decision or checks state", () => {
     expect(parse({ ...pr, reviewDecision: "APPROVED" }).success).toBe(false);
     expect(parse({ ...pr, checks: "skipped" }).success).toBe(false);
+    expect(
+      parse({ ...pr, reviewers: [{ login: "kari", name: null, state: "dismissed" }] }).success,
+    ).toBe(false);
   });
 });
 
@@ -1043,6 +1047,7 @@ describe("myPullRequestDetailSchema", () => {
     headSha: "abc123",
     draft: false,
     reviewDecision: "review-required",
+    reviewers: [{ login: "ola", name: null, state: "changes-requested" }],
     mergeable: null,
     mergeMethods: ["squash"],
     checks: [
@@ -1067,6 +1072,7 @@ describe("myPullRequestDetailSchema", () => {
     const parsed = myPullRequestDetailSchema.parse(detail);
     expect(parsed.mergeMethods).toEqual(["squash"]);
     expect(parsed.conversation[0]!.createdAt).toEqual(new Date(now));
+    expect(parsed.reviewers).toEqual([{ login: "ola", name: null, state: "changes-requested" }]);
   });
 
   it("rejects no merge methods, an unknown one and an unknown decision", () => {
