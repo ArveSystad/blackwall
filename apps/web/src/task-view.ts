@@ -4,6 +4,7 @@ import {
   agentClisSchema,
   isGatingSeverity,
   JIRA_KEY_PATTERN,
+  MAX_FOLLOW_UPS,
   ORIGIN_KINDS,
   PR_MODES,
   roleAgentsSchema,
@@ -666,6 +667,32 @@ export function buildTranscript(events: readonly StepEvent[]): TranscriptItem[] 
             payload.destination === "github-issue"
               ? `Created follow-up "${title}" as an issue: ${typeof payload.url === "string" ? payload.url : ""}`
               : `Added follow-up "${title}" to the backlog`,
+        });
+        break;
+      }
+      case "summary.follow-ups-dropped": {
+        if (payload.notAList === true) {
+          items.push({
+            kind: "note",
+            key,
+            text: "Dropped the summarizer's follow-ups: they were not a list",
+          });
+          break;
+        }
+        const dropped = Array.isArray(payload.dropped) ? payload.dropped.map(record) : [];
+        const described = dropped.map((entry) => {
+          if (entry.reason === "over-limit") {
+            const index = typeof entry.index === "number" ? entry.index : 0;
+            return `#${index + 1} (over the limit of ${MAX_FOLLOW_UPS})`;
+          }
+          const title = typeof entry.title === "string" ? entry.title : "";
+          const detail = typeof entry.detail === "string" ? entry.detail : "invalid";
+          return `"${title}" (${detail})`;
+        });
+        items.push({
+          kind: "note",
+          key,
+          text: `Dropped ${dropped.length} ${dropped.length === 1 ? "follow-up" : "follow-ups"} the summarizer proposed: ${described.join(", ")}`,
         });
         break;
       }

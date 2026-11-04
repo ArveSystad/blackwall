@@ -42,6 +42,8 @@ import {
   newBacklogItemInputSchema,
   newTaskInputSchema,
   parseFollowUps,
+  parseFollowUpsReport,
+  planListsFollowUps,
   parseMemories,
   MAX_MEMORIES_PER_TASK,
   MAX_MEMORY_CHARS,
@@ -1512,6 +1514,52 @@ describe("parseFollowUps", () => {
     expect(parsed).toHaveLength(MAX_FOLLOW_UPS);
     expect(parsed[0]).toEqual({ title: "Add tests", description: "Cover login", repoId: "r2" });
     expect(parsed.slice(1).map((f) => f.title)).toEqual(["Task 1", "Task 2", "Task 3", "Task 4"]);
+  });
+});
+
+describe("parseFollowUpsReport", () => {
+  const valid = (n: number) => ({ title: `Task ${n}`, description: "Do it", repoId: null });
+
+  it("treats a missing or null value as none, and anything else but an array as not a list", () => {
+    const none = { followUps: [], notAList: false, dropped: [] };
+    expect(parseFollowUpsReport(undefined)).toEqual(none);
+    expect(parseFollowUpsReport(null)).toEqual(none);
+    expect(parseFollowUpsReport("oops")).toEqual({ followUps: [], notAList: true, dropped: [] });
+  });
+
+  it("reports the invalid entries and those over the limit", () => {
+    const report = parseFollowUpsReport([
+      { title: "  Add tests  ", description: " Cover login ", repoId: " r2 ", dependsOn: [0] },
+      { title: "", description: "No title", repoId: null },
+      { title: "No description", description: "  ", repoId: null },
+      { title: "x".repeat(121), description: "Too long", repoId: null },
+      "oops",
+      ...[1, 2, 3, 4, 5].map(valid),
+    ]);
+    expect(report.notAList).toBe(false);
+    expect(report.followUps).toHaveLength(MAX_FOLLOW_UPS);
+    expect(report.dropped.map(({ index, title, reason }) => ({ index, title, reason }))).toEqual([
+      { index: 1, title: "", reason: "invalid" },
+      { index: 2, title: "No description", reason: "invalid" },
+      { index: 3, title: "x".repeat(121), reason: "invalid" },
+      { index: 4, title: null, reason: "invalid" },
+      { index: 9, title: "Task 5", reason: "over-limit" },
+    ]);
+    expect(report.dropped[1]!.detail).toMatch(/^description: /);
+    expect(report.dropped[4]!.detail).toBeNull();
+  });
+});
+
+describe("planListsFollowUps", () => {
+  it("is true for a Follow-up tasks heading with a list item", () => {
+    expect(planListsFollowUps("## Changes\n\n### Follow-up tasks\n\n- Add tests")).toBe(true);
+    expect(planListsFollowUps("## Followup Tasks\n1. Add tests")).toBe(true);
+  });
+
+  it("is false without the heading or without a list under it", () => {
+    expect(planListsFollowUps(null)).toBe(false);
+    expect(planListsFollowUps("## Changes\n\n- Add tests")).toBe(false);
+    expect(planListsFollowUps("### Follow-up tasks\n\n## Risks\n\n- None")).toBe(false);
   });
 });
 

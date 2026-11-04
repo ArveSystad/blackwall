@@ -982,6 +982,38 @@ describe("buildTranscript", () => {
     ]);
   });
 
+  it("notes the follow-ups the summarizer dropped", () => {
+    const items = buildTranscript([
+      event(1, "summary.follow-ups-dropped", {
+        notAList: true,
+        received: null,
+        kept: 0,
+        dropped: [],
+      }),
+      event(2, "summary.follow-ups-dropped", {
+        notAList: false,
+        received: 7,
+        kept: 5,
+        dropped: [
+          { index: 1, title: "", reason: "invalid", detail: "title: Too small" },
+          { index: 6, title: "Task 7", reason: "over-limit", detail: null },
+        ],
+      }),
+    ]);
+    expect(items).toEqual([
+      {
+        kind: "note",
+        key: "s1:1",
+        text: "Dropped the summarizer's follow-ups: they were not a list",
+      },
+      {
+        kind: "note",
+        key: "s1:2",
+        text: 'Dropped 2 follow-ups the summarizer proposed: "" (title: Too small), #7 (over the limit of 5)',
+      },
+    ]);
+  });
+
   it("notes worktree setup and renders its commands as checks", () => {
     const items = buildTranscript([
       event(1, "setup.started", { key: "k1", commands: ["pnpm install --frozen-lockfile"] }),

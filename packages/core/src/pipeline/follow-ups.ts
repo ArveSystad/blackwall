@@ -28,10 +28,11 @@ export function followUpsPromptSection(repos: readonly Pick<Repo, "id" | "name">
   return [
     "## Follow-up tasks",
     "",
-    "Work that belongs outside this task can become follow-up tasks, created in a repo's backlog when the user confirms them at finish. Each names its target repo by id, or null for this task's repo. The registered repos:",
+    "Work that belongs outside this task can become follow-up tasks. At finish the user confirms them and chooses, for each one, whether it becomes a backlog item in its repo or a GitHub issue (an issue only when that repo has a GitHub or GitHub Enterprise origin with a connection). Each names its target repo by id, or null for this task's repo. The registered repos:",
     "",
     ...list,
     "",
+    "- A request to create issues, create tasks or break the work down is delivered as follow-ups: the plan lists them under a `### Follow-up tasks` heading, and the summary returns each one as a `followUps` entry, never only described in prose.",
     "- Each follow-up must be independent: it can start, be implemented and be merged on its own, in any order, alongside the others.",
     "- Do not split a sequence into separate follow-ups. Propose one follow-up for the first step; its description states the later steps and tells that task to propose them as its own follow-ups once it is done.",
     `- Prefer fewer, self-contained follow-ups over many small coupled ones; at most ${MAX_FOLLOW_UPS}.`,

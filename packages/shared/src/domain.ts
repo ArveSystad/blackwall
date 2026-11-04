@@ -309,19 +309,84 @@ export const followUpSchema = z.object({
 });
 export type FollowUp = z.infer<typeof followUpSchema>;
 
+/** A follow-up entry of a summarizer's reply that was not kept, and why. */
+export interface DroppedFollowUp {
+  /** Its position in the reply's list. */
+  index: number;
+  /** Its raw title, or null when that is not a string. */
+  title: string | null;
+  reason: "invalid" | "over-limit";
+  /** The validation issues (`path: message`) for an invalid entry; null when over the limit. */
+  detail: string | null;
+}
+
+/** Payload of the step event Summarize logs when it drops follow-ups. */
+export interface FollowUpsDropped {
+  /** The reply's follow-ups were present but not a list. */
+  notAList: boolean;
+  /** How many entries the list had; null when it was not a list. */
+  received: number | null;
+  kept: number;
+  dropped: DroppedFollowUp[];
+}
+
 /**
- * The valid follow-ups of a summarizer's reply: anything but an array gives
- * none, invalid entries are dropped, unknown keys stripped, and at most
+ * The follow-ups of a summarizer's reply and what was dropped from them: a
+ * missing or null value gives none, any other non-array is `notAList`,
+ * invalid entries are dropped, unknown keys stripped, and at most
  * {@link MAX_FOLLOW_UPS} kept.
  */
-export function parseFollowUps(raw: unknown): FollowUp[] {
-  if (!Array.isArray(raw)) return [];
-  const valid: FollowUp[] = [];
-  for (const entry of raw) {
+export function parseFollowUpsReport(raw: unknown): {
+  followUps: FollowUp[];
+  notAList: boolean;
+  dropped: DroppedFollowUp[];
+} {
+  if (raw === undefined || raw === null) return { followUps: [], notAList: false, dropped: [] };
+  if (!Array.isArray(raw)) return { followUps: [], notAList: true, dropped: [] };
+  const followUps: FollowUp[] = [];
+  const dropped: DroppedFollowUp[] = [];
+  raw.forEach((entry: unknown, index) => {
+    const rawTitle =
+      typeof entry === "object" && entry !== null
+        ? (entry as { title?: unknown }).title
+        : undefined;
+    const title = typeof rawTitle === "string" ? rawTitle : null;
     const parsed = followUpSchema.safeParse(entry);
-    if (parsed.success) valid.push(parsed.data);
+    if (!parsed.success) {
+      const detail = parsed.error.issues
+        .map((issue) => `${issue.path.join(".") || "(entry)"}: ${issue.message}`)
+        .join("; ");
+      dropped.push({ index, title, reason: "invalid", detail });
+    } else if (followUps.length >= MAX_FOLLOW_UPS) {
+      dropped.push({ index, title, reason: "over-limit", detail: null });
+    } else {
+      followUps.push(parsed.data);
+    }
+  });
+  return { followUps, notAList: false, dropped };
+}
+
+/** The valid follow-ups of a summarizer's reply (see {@link parseFollowUpsReport}). */
+export function parseFollowUps(raw: unknown): FollowUp[] {
+  return parseFollowUpsReport(raw).followUps;
+}
+
+/**
+ * Whether a plan lists follow-up tasks: a level 2–4 "Follow-up tasks"
+ * heading with at least one list item before the next heading.
+ */
+export function planListsFollowUps(plan: string | null): boolean {
+  if (!plan) return false;
+  const lines = plan.split(/\r?\n/);
+  let inSection = false;
+  for (const line of lines) {
+    if (/^#{1,6}\s/.test(line)) {
+      inSection = /^#{2,4}\s+follow-?up tasks\s*#*\s*$/i.test(line);
+      continue;
+    }
+    if (inSection && /^\s*(?:[-*+]|\d+[.)])\s+\S/.test(line)) return true;
   }
-  return valid.slice(0, MAX_FOLLOW_UPS);
+  return false;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 import {
   ciNeedsYou,
   isUserComment,
+  planListsFollowUps,
   type DeliveryAction,
   type DeliveryPlan,
   type DeliveryTarget,
@@ -426,6 +427,13 @@ export function Outbound({
         {plan.actions.length === 0 && (
           <p className="m-0 px-1 text-muted-foreground">
             Wall secure. Nothing leaves. Confirming marks it done.
+          </p>
+        )}
+        {/* Review tasks never offer follow-ups: mirrors delivery's rule for create-tasks (core pipeline/delivery.ts). */}
+        {task.mode !== "review" && task.followUps.length === 0 && planListsFollowUps(task.plan) && (
+          <p className="m-0 px-1 text-muted-foreground">
+            The plan proposed follow-ups but none were returned. See the Summarize output for what
+            was dropped.
           </p>
         )}
         {plan.squash && (

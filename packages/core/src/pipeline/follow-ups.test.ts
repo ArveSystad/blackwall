@@ -117,4 +117,13 @@ describe("followUpsPromptSection", () => {
     expect(text).toContain("propose them as its own follow-ups once it is done");
     expect(text).toContain("at most 5");
   });
+
+  it("states the finish-time destinations and that requested follow-ups are delivered as follow-ups", () => {
+    const text = followUpsPromptSection(r.repos.list(), task);
+    expect(text).toContain("GitHub issue");
+    expect(text).toContain("backlog");
+    expect(text).toContain("create issues");
+    expect(text).toContain("`### Follow-up tasks`");
+    expect(text).toContain("never only");
+  });
 });

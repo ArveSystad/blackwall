@@ -3,6 +3,7 @@ import {
   MAX_GRILL_ROUNDS,
   MAX_MEMORIES_PER_TASK,
   MAX_MEMORY_CHARS,
+  MAX_TITLE_CHARS,
   planAnswersOutputJsonSchema,
   planAnswersOutputSchema,
   planReviewOutputJsonSchema,
@@ -10,7 +11,7 @@ import {
   reviewOutputJsonSchema,
   reviewOutputSchema,
   originRef,
-  parseFollowUps,
+  parseFollowUpsReport,
   parseMemories,
   shortSummarySchema,
   summaryCoreSchema,
@@ -19,6 +20,7 @@ import {
   type AgentRole,
   type DiffCommentInput,
   type Finding,
+  type FollowUpsDropped,
   type GrillQuestion,
   type Step,
   type Task,
@@ -386,6 +388,12 @@ export const CHECK_FINISHED_EVENT = "check.finished";
 
 /** Step event a Checks harness step logs when it skips the check commands. */
 export const CHECKS_SKIPPED_EVENT = "checks.skipped";
+
+/**
+ * Step event Summarize logs on the summarizer's step when it drops follow-ups
+ * from the reply; its payload is a {@link FollowUpsDropped}.
+ */
+export const FOLLOW_UPS_DROPPED_EVENT = "summary.follow-ups-dropped";
 
 /** Payload of a {@link CHECKS_SKIPPED_EVENT} event; `files` is empty for `no-changes`. */
 export interface ChecksSkipped {
@@ -1242,7 +1250,9 @@ export function memoryInstructions({
  * open to the full summary only. A reply that misses the output contract
  * still counts: its text becomes the summary. An invalid short summary is
  * stored as null and invalid follow-ups are dropped, without losing the
- * summary; each visit replaces the stored ones. The summarizer also proposes
+ * summary; each visit replaces the stored ones. Dropped follow-ups (or ones
+ * that are not a list) are logged as a {@link FOLLOW_UPS_DROPPED_EVENT} on
+ * the summarizer's step. The summarizer also proposes
  * memories: lasting facts about the repo, saved for later tasks in it. Each
  * visit replaces the task's unedited ones; a pull request task's are held
  * until its pull request merges into the repo's default branch.
@@ -1260,8 +1270,9 @@ async function summarize(ctx: StageContext): Promise<void> {
   // Review PR tasks never reach Summarize today; the check covers them too.
   const fromPr = ctx.pipeline === "review" || task.origin.kind === "github-pr";
   const defaultBranch = ctx.repositories.repos.get(task.repoId)?.defaultBranch ?? "main";
+  const agentId = single(task, "summarizer");
   const result = await ctx.runAgent({
-    agentId: single(task, "summarizer"),
+    agentId,
     prompt: prompt(
       `# Task\n\n${describeOrigin(task)}`,
       section("Details", task.freeText),
@@ -1275,7 +1286,7 @@ async function summarize(ctx: StageContext): Promise<void> {
         "Summarize the changes on this branch for the people reviewing it: what changed, the decisions made and why, and any findings the user chose to ignore.",
         "Read the branch's commits (`git log`, `git diff`) as needed. Do not list the findings left open; the harness appends them.",
         "If the branch has no changes (the task asked for analysis or a task breakdown), summarize the analysis instead and put the work it found into `followUps`.",
-        "Propose follow-up tasks only for work the plan or the analysis calls for, following the rules above; otherwise leave `followUps` empty.",
+        `Return as \`followUps\` every task listed under the plan's \`### Follow-up tasks\` heading, plus any other follow-up work the plan or the analysis calls for, following the rules above, each with a title of at most ${MAX_TITLE_CHARS} characters. Leave \`followUps\` empty only when nothing is listed or called for.`,
         "Also write one commit message for squashing the branch into a single commit, in the Conventional Commits format whatever style the repository's history uses: a summary line `<type>(<optional scope>): <description>` of at most 72 characters, type one of feat, fix, perf, refactor, test, docs, build, ci, style, chore, revert, description in the imperative mood; a blank line; then a short body.",
         key
           ? `Do not mention ${key} in the commit message; the harness adds it after the type prefix.`
@@ -1295,12 +1306,30 @@ async function summarize(ctx: StageContext): Promise<void> {
   const short = shortSummarySchema.safeParse(result.structured);
   const structured = result.structured as
     { followUps?: unknown; memories?: unknown } | null | undefined;
+  const report = parseFollowUpsReport(structured?.followUps);
   ctx.updateTask({
     summary: finalSummary(text, findings),
     shortSummary: short.success ? short.data.shortSummary : null,
     squashMessage: commitMessage(squash, key),
-    followUps: parseFollowUps(structured?.followUps),
+    followUps: report.followUps,
   });
+  if (report.notAList || report.dropped.length > 0) {
+    // The first step, as in runAgent: the one whose stored result this is.
+    // Fresh steps of the same agent (commit-message rewrites) come after it.
+    const step = ctx.repositories.steps
+      .listByRun(ctx.run.id)
+      .find((s) => s.stage === ctx.stage && s.visit === ctx.visit && s.agentId === agentId);
+    // A resumed visit reuses the stored result; log its drops only once.
+    if (step && !ctx.repositories.stepEvents.lastOfType(step.id, FOLLOW_UPS_DROPPED_EVENT)) {
+      const payload: FollowUpsDropped = {
+        notAList: report.notAList,
+        received: Array.isArray(structured?.followUps) ? structured.followUps.length : null,
+        kept: report.followUps.length,
+        dropped: report.dropped,
+      };
+      logEvent(ctx, step.id, FOLLOW_UPS_DROPPED_EVENT, payload);
+    }
+  }
   ctx.repositories.memories.replaceForTask(
     task.id,
     task.repoId,
@@ -1381,6 +1410,7 @@ export function createDefaultStages({
           [
             "Read the repository and write a concrete implementation plan in markdown.",
             "Follow-up tasks are a valid deliverable. When the task asks for analysis or a task breakdown, the plan may call for no code changes; it then lists the tasks to create (title, target repo id, description), following the rules above.",
+            "List every proposed follow-up task as a list item under a `### Follow-up tasks` heading, so the summary carries each one over.",
           ].join("\n"),
         ),
       });

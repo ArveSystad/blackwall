@@ -1,5 +1,5 @@
 // `pnpm --filter @blackwall/core inspect:task <task-id | title-substring>`: prints a task, its
-// runs, steps and `delivery.*` events from the live database. Opens the database read-only and
+// runs, steps and `delivery.*` and `summary.*` events from the live database. Opens the database read-only and
 // never runs migrations, so it is safe to use while the server is running.
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -62,7 +62,7 @@ for (const task of tasks) {
       const events = db
         .prepare(
           `SELECT seq, type, payload, created_at FROM step_events
-            WHERE step_id = ? AND type LIKE 'delivery.%' ORDER BY seq`,
+            WHERE step_id = ? AND (type LIKE 'delivery.%' OR type LIKE 'summary.%') ORDER BY seq`,
         )
         .all(step.id);
       for (const event of events) {

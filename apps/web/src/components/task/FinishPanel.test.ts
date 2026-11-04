@@ -110,6 +110,70 @@ describe("Outbound", () => {
     expect(html.match(/<input type="checkbox"/g)).toHaveLength(1);
     expect(html).not.toContain("Destination for");
   });
+
+  describe("follow-ups the plan proposed", () => {
+    const listed = "## Changes\n\n### Follow-up tasks\n\n- A";
+    const notice = "The plan proposed follow-ups but none were returned.";
+    const followUp = { title: "A", description: "d", repoId: null };
+    const finishing = { status: "needs-you", gate: "finish" } as const;
+    const offered: DeliveryPlan = {
+      actions: [
+        {
+          kind: "create-tasks",
+          items: [
+            {
+              title: "A",
+              description: "d",
+              repoId: "r1",
+              repoName: "app",
+              issueTarget: null,
+              created: null,
+            },
+          ],
+        },
+      ],
+      squash: null,
+      completed: [],
+    };
+
+    it("notes a work task whose summary returned none", () => {
+      expect(render(makeTask({ ...finishing, plan: listed, followUps: [] }))).toContain(notice);
+    });
+
+    it("notes nothing when the summary returned them", () => {
+      // All created already: no create-tasks action, but the summary had them.
+      expect(render(makeTask({ ...finishing, plan: listed, followUps: [followUp] }))).not.toContain(
+        notice,
+      );
+      expect(
+        render(makeTask({ ...finishing, plan: listed, followUps: [followUp] }), offered),
+      ).not.toContain(notice);
+    });
+
+    it("notes nothing for a review task or a plan without the list", () => {
+      expect(
+        render(
+          makeTask({
+            ...finishing,
+            gate: "triage",
+            mode: "review",
+            origin: {
+              kind: "github-pr",
+              url: "https://github.com/acme/app/pull/1",
+              owner: "acme",
+              repo: "app",
+              number: 1,
+              connectionId: null,
+            },
+            plan: listed,
+          }),
+        ),
+      ).not.toContain(notice);
+      expect(
+        render(makeTask({ ...finishing, plan: "## Changes\n\n- A", followUps: [] })),
+      ).not.toContain(notice);
+    });
+  });
 });
 
 describe("Reviewed", () => {

@@ -75,6 +75,7 @@ import {
 import { InvalidGateResponseError } from "./transitions.js";
 import {
   CHECKS_SKIPPED_EVENT,
+  FOLLOW_UPS_DROPPED_EVENT,
   NO_HUMAN_ANSWER,
   commitKey,
   commitMessage,
@@ -3743,11 +3744,18 @@ describe("summarize and finish", () => {
       stage === "summarize"
         ? { structured: { summary: "Analysed it.", commitMessage: "Plan the work", followUps } }
         : {};
+    /** The dropped-follow-ups events on the summarizer's own (first) Summarize step. */
+    const droppedEvents = (taskId: string) => {
+      const agentId = task(taskId).agents.summarizer;
+      const step = stepsOf(taskId).find((s) => s.stage === "summarize" && s.agentId === agentId)!;
+      return r.stepEvents.list(step.id).filter((e) => e.type === FOLLOW_UPS_DROPPED_EVENT);
+    };
 
     it("stores the proposed follow-ups, and lists the repos and rules in the prompts", async () => {
       const h = harness(summarizing([followUp(1)]));
       const seeded = await atFinish(h);
       expect(task(seeded.id).followUps).toEqual([followUp(1)]);
+      expect(droppedEvents(seeded.id)).toEqual([]);
       for (const stage of ["inform", "summarize"] as const) {
         const prompt = h.calls.find((c) => c.stage === stage)!.options.prompt;
         expect(prompt).toContain(`\`${seeded.repoId}\`: app (this task's repo)`);
@@ -3756,6 +3764,12 @@ describe("summarize and finish", () => {
       }
       const inform = h.calls.find((c) => c.stage === "inform")!.options.prompt;
       expect(inform).toContain("Follow-up tasks are a valid deliverable");
+      expect(inform).toContain("under a `### Follow-up tasks` heading, so the summary carries");
+      const summarize = h.calls.find((c) => c.stage === "summarize")!.options.prompt;
+      expect(summarize).toContain(
+        "Return as `followUps` every task listed under the plan's `### Follow-up tasks` heading",
+      );
+      expect(summarize).toContain("a title of at most 120 characters");
       const implement = h.calls.find((c) => c.stage === "implement")!.options.prompt;
       expect(implement).toContain(
         "If the approved plan calls for no code changes, change nothing.",
@@ -3772,12 +3786,33 @@ describe("summarize and finish", () => {
         squashMessage: "chore: Plan the work",
         followUps: [1, 3, 4, 5, 6].map(followUp),
       });
+      const events = droppedEvents(seeded.id);
+      expect(events).toHaveLength(1);
+      expect(events[0]!.payload).toEqual({
+        notAList: false,
+        received: 7,
+        kept: 5,
+        dropped: [
+          { index: 1, title: "", reason: "invalid", detail: expect.stringContaining("title: ") },
+          { index: 6, title: "Task 7", reason: "over-limit", detail: null },
+        ],
+      });
     });
 
     it("stores none when the follow-ups are not a list", async () => {
       const h = harness(summarizing("oops"));
       const seeded = await atFinish(h);
       expect(task(seeded.id)).toMatchObject({ summary: "Analysed it.", followUps: [] });
+      const events = droppedEvents(seeded.id);
+      expect(events).toHaveLength(1);
+      expect(events[0]!.payload).toEqual({ notAList: true, received: null, kept: 0, dropped: [] });
+    });
+
+    it.each([undefined, null])("logs nothing when the follow-ups are %s", async (followUps) => {
+      const h = harness(summarizing(followUps));
+      const seeded = await atFinish(h);
+      expect(task(seeded.id).followUps).toEqual([]);
+      expect(droppedEvents(seeded.id)).toEqual([]);
     });
 
     it("creates the confirmed follow-ups as waiting items, and none when kept local", async () => {
