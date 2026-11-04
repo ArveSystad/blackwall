@@ -290,7 +290,7 @@ export function ciMissingTokenHint(host: string): string {
 // ---------------------------------------------------------------------------
 
 /** Most follow-up tasks kept from one summary. */
-export const MAX_FOLLOW_UPS = 5;
+export const MAX_FOLLOW_UPS = 20;
 
 /** A follow-up as the summarizer sends it; no length caps, so the CLI never rejects the reply for one. */
 export const followUpWireSchema = z.object({

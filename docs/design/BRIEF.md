@@ -58,7 +58,7 @@ The user picks the findings to post ("Review ready to post").
   quotas allow. The top bar shows "N waiting" per repo.
 - Quick add: "Quick add: describe the work, Enter adds it to the queue". "Start working" promotes an
   item by hand and starts its task without leaving the backlog.
-- Summarize may propose up to 5 follow-up tasks. On confirm they land in the backlog.
+- Summarize may propose up to 20 follow-up tasks. On confirm they land in the backlog.
 - Stacked PRs: adding a PR in a stack also queues its sibling PRs as Review PR items, labelled
   "stack #41 · 2/3".
 - When the local default branch is ahead of origin, the Backlog header offers "Push N commits to

@@ -13,6 +13,7 @@ import { join } from "node:path";
 import {
   MAX_CHECK_RETRIES,
   MAX_FIX_ROUNDS,
+  MAX_FOLLOW_UPS,
   MAX_GRILL_ROUNDS,
   TASK_STOPPED_ERROR,
   type AgentCli,
@@ -3776,25 +3777,32 @@ describe("summarize and finish", () => {
       );
     });
 
-    it("drops invalid follow-ups and keeps five, without losing the summary", async () => {
-      const proposed = [1, 2, 3, 4, 5, 6, 7].map(followUp);
+    it("drops invalid follow-ups and keeps the limit, without losing the summary", async () => {
+      const proposed = Array.from({ length: MAX_FOLLOW_UPS + 2 }, (_, i) => followUp(i + 1));
       proposed[1] = { title: "", description: "No title", repoId: null };
       const h = harness(summarizing(proposed));
       const seeded = await atFinish(h);
       expect(task(seeded.id)).toMatchObject({
         summary: "Analysed it.",
         squashMessage: "chore: Plan the work",
-        followUps: [1, 3, 4, 5, 6].map(followUp),
+        followUps: [1, ...Array.from({ length: MAX_FOLLOW_UPS - 1 }, (_, i) => i + 3)].map(
+          followUp,
+        ),
       });
       const events = droppedEvents(seeded.id);
       expect(events).toHaveLength(1);
       expect(events[0]!.payload).toEqual({
         notAList: false,
-        received: 7,
-        kept: 5,
+        received: MAX_FOLLOW_UPS + 2,
+        kept: MAX_FOLLOW_UPS,
         dropped: [
           { index: 1, title: "", reason: "invalid", detail: expect.stringContaining("title: ") },
-          { index: 6, title: "Task 7", reason: "over-limit", detail: null },
+          {
+            index: MAX_FOLLOW_UPS + 1,
+            title: `Task ${MAX_FOLLOW_UPS + 2}`,
+            reason: "over-limit",
+            detail: null,
+          },
         ],
       });
     });

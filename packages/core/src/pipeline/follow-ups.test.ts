@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { backlogItemSchema, type FollowUp, type Task } from "@blackwall/shared";
+import { backlogItemSchema, MAX_FOLLOW_UPS, type FollowUp, type Task } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDatabase, type OpenedDatabase } from "../db/database.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
@@ -115,7 +115,7 @@ describe("followUpsPromptSection", () => {
     expect(text).toContain("Each follow-up must be independent");
     expect(text).toContain("Do not split a sequence into separate follow-ups");
     expect(text).toContain("propose them as its own follow-ups once it is done");
-    expect(text).toContain("at most 5");
+    expect(text).toContain(`at most ${MAX_FOLLOW_UPS}`);
   });
 
   it("states the finish-time destinations and that requested follow-ups are delivered as follow-ups", () => {

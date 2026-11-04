@@ -1,5 +1,6 @@
 import {
   findingSchema,
+  MAX_FOLLOW_UPS,
   type DeliveryAction,
   type DeliveryPlan,
   type Finding,
@@ -1009,7 +1010,7 @@ describe("buildTranscript", () => {
       {
         kind: "note",
         key: "s1:2",
-        text: 'Dropped 2 follow-ups the summarizer proposed: "" (title: Too small), #7 (over the limit of 5)',
+        text: `Dropped 2 follow-ups the summarizer proposed: "" (title: Too small), #7 (over the limit of ${MAX_FOLLOW_UPS})`,
       },
     ]);
   });

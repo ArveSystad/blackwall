@@ -1502,18 +1502,20 @@ describe("parseFollowUps", () => {
     expect(parseFollowUps({ title: "x" })).toEqual([]);
   });
 
-  it("drops invalid entries, trims, strips unknown keys and keeps at most five", () => {
+  it("drops invalid entries, trims, strips unknown keys and keeps at most the limit", () => {
     const parsed = parseFollowUps([
       { title: "  Add tests  ", description: " Cover login ", repoId: " r2 ", dependsOn: [0] },
       { title: "", description: "No title", repoId: null },
       { title: "No description", description: "  ", repoId: null },
       { title: "x".repeat(121), description: "Too long", repoId: null },
       "oops",
-      ...[1, 2, 3, 4, 5].map(valid),
+      ...Array.from({ length: MAX_FOLLOW_UPS }, (_, i) => valid(i + 1)),
     ]);
     expect(parsed).toHaveLength(MAX_FOLLOW_UPS);
     expect(parsed[0]).toEqual({ title: "Add tests", description: "Cover login", repoId: "r2" });
-    expect(parsed.slice(1).map((f) => f.title)).toEqual(["Task 1", "Task 2", "Task 3", "Task 4"]);
+    expect(parsed.slice(1).map((f) => f.title)).toEqual(
+      Array.from({ length: MAX_FOLLOW_UPS - 1 }, (_, i) => `Task ${i + 1}`),
+    );
   });
 });
 
@@ -1534,7 +1536,7 @@ describe("parseFollowUpsReport", () => {
       { title: "No description", description: "  ", repoId: null },
       { title: "x".repeat(121), description: "Too long", repoId: null },
       "oops",
-      ...[1, 2, 3, 4, 5].map(valid),
+      ...Array.from({ length: MAX_FOLLOW_UPS }, (_, i) => valid(i + 1)),
     ]);
     expect(report.notAList).toBe(false);
     expect(report.followUps).toHaveLength(MAX_FOLLOW_UPS);
@@ -1543,7 +1545,7 @@ describe("parseFollowUpsReport", () => {
       { index: 2, title: "No description", reason: "invalid" },
       { index: 3, title: "x".repeat(121), reason: "invalid" },
       { index: 4, title: null, reason: "invalid" },
-      { index: 9, title: "Task 5", reason: "over-limit" },
+      { index: 4 + MAX_FOLLOW_UPS, title: `Task ${MAX_FOLLOW_UPS}`, reason: "over-limit" },
     ]);
     expect(report.dropped[1]!.detail).toMatch(/^description: /);
     expect(report.dropped[4]!.detail).toBeNull();
