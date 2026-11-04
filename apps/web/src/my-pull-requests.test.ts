@@ -206,25 +206,52 @@ describe("hunkExcerpt", () => {
   ].join("\n");
 
   it("keeps the last few lines, ending on the commented one", () => {
-    const lines = hunkExcerpt("src/a.ts", hunk, null, 9);
+    const lines = hunkExcerpt(hunk, null, 9);
     expect(lines.map((l) => l.text)).toEqual(["line 6", "line 7", "line 8", "added"]);
     expect(lines.at(-1)).toEqual({ kind: "add", text: "added", line: 9 });
   });
 
   it("shows the whole range of a multi-line comment", () => {
-    expect(hunkExcerpt("src/a.ts", hunk, 3, 9)).toHaveLength(7);
+    expect(hunkExcerpt(hunk, 3, 9)).toHaveLength(7);
   });
 
   it("caps long ranges", () => {
     const long = ["@@ -1,30 +1,30 @@", ...Array.from({ length: 30 }, (_, i) => ` l${i}`)].join(
       "\n",
     );
-    expect(hunkExcerpt("a", long, 1, 30)).toHaveLength(20);
+    expect(hunkExcerpt(long, 1, 30)).toHaveLength(20);
   });
 
   it("is empty without a hunk", () => {
-    expect(hunkExcerpt("a", null, null, 1)).toEqual([]);
-    expect(hunkExcerpt("a", "", null, 1)).toEqual([]);
+    expect(hunkExcerpt(null, null, 1)).toEqual([]);
+    expect(hunkExcerpt("", null, 1)).toEqual([]);
+  });
+
+  it("keeps changed lines that look like file headers", () => {
+    expect(hunkExcerpt("@@ -1,3 +1,3 @@\n a\n--- foo\n+++ x\n b", null, 3)).toEqual([
+      { kind: "ctx", text: "a", line: 1 },
+      { kind: "del", text: "-- foo", line: 2 },
+      { kind: "add", text: "++ x", line: 2 },
+      { kind: "ctx", text: "b", line: 3 },
+    ]);
+  });
+
+  it("keeps the top of a multi-line range with deletions inside", () => {
+    const lines = hunkExcerpt("@@ -1,5 +1,5 @@\n a\n b\n-x\n c\n d\n+e", 2, 5);
+    expect(lines.map((l) => l.text)).toEqual(["b", "x", "c", "d", "e"]);
+  });
+
+  it("ignores text before the first hunk header and no-newline markers", () => {
+    const lines = hunkExcerpt(
+      "junk\n@@ -1,2 +1,2 @@\n a\n-b\n\\ No newline at end of file\n+c",
+      null,
+      2,
+    );
+    expect(lines).toEqual([
+      { kind: "ctx", text: "a", line: 1 },
+      { kind: "del", text: "b", line: 2 },
+      { kind: "add", text: "c", line: 2 },
+    ]);
   });
 });
 

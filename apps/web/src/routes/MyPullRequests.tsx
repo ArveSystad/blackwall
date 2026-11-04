@@ -115,7 +115,7 @@ function ReviewStatusPill({
 
 /** The code a review thread comments on, above its first comment; nothing without a hunk. */
 function ThreadExcerpt({ thread }: { thread: MyPullRequestDetail["threads"][number] }) {
-  const lines = hunkExcerpt(thread.path, thread.diffHunk, thread.startLine, thread.line);
+  const lines = hunkExcerpt(thread.diffHunk, thread.startLine, thread.line);
   if (lines.length === 0) return null;
   return <DiffView lines={lines} className="text-meta" />;
 }

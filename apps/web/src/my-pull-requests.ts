@@ -6,7 +6,7 @@ import type {
 } from "@blackwall/shared";
 import { useSyncExternalStore } from "react";
 import { plural } from "./backlog";
-import { type DiffLine, parseDiff } from "./task-view";
+import type { DiffLine } from "./task-view";
 
 type ReviewDecision = MyPullRequest["reviewDecision"];
 type Checks = MyPullRequest["checks"];
@@ -98,23 +98,62 @@ const EXCERPT_MIN_LINES = 4;
 const EXCERPT_MAX_LINES = 20;
 
 /**
+ * Numbers the lines of a bare hunk such as GitHub's `diff_hunk`, by their
+ * first character only: a deleted `-- x` or added `++ x` is not a file
+ * header here. Hunk headers set the numbering and are not emitted.
+ */
+function parseHunk(diffHunk: string): DiffLine[] {
+  const lines: DiffLine[] = [];
+  let inHunk = false;
+  let oldLine = 0;
+  let newLine = 0;
+  for (const raw of diffHunk.split("\n")) {
+    const header = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
+    if (header) {
+      inHunk = true;
+      oldLine = Number(header[1]);
+      newLine = Number(header[2]);
+    } else if (!inHunk) {
+      continue;
+    } else if (raw.startsWith("+")) {
+      lines.push({ kind: "add", text: raw.slice(1), line: newLine++ });
+    } else if (raw.startsWith("-")) {
+      lines.push({ kind: "del", text: raw.slice(1), line: oldLine++ });
+    } else if (raw.startsWith(" ") || raw === "") {
+      lines.push({ kind: "ctx", text: raw.slice(1), line: newLine++ });
+      oldLine++;
+    }
+  }
+  // A trailing empty line from the split is not context.
+  const last = lines.at(-1);
+  if (last?.kind === "ctx" && last.text === "") lines.pop();
+  return lines;
+}
+
+/**
  * The code a review thread comments on, from GitHub's `diff_hunk` (which
  * ends on the commented line): the last few lines, or the whole commented
- * range when longer, at most {@link EXCERPT_MAX_LINES}. Empty without a hunk.
+ * range when longer, at most {@link EXCERPT_MAX_LINES}. The range is measured
+ * in new-file lines; deleted lines inside it are kept. Empty without a hunk.
  */
 export function hunkExcerpt(
-  path: string,
   diffHunk: string | null,
   startLine: number | null,
   line: number | null,
 ): DiffLine[] {
   if (!diffHunk) return [];
-  const lines = (parseDiff(`diff --git a/${path} b/${path}\n${diffHunk}`)[0]?.lines ?? []).filter(
-    (l) => l.kind !== "hunk",
-  );
-  const range = startLine !== null && line !== null ? line - startLine + 1 : 1;
-  const count = Math.min(EXCERPT_MAX_LINES, Math.max(EXCERPT_MIN_LINES, range));
-  return lines.slice(-count);
+  const lines = parseHunk(diffHunk);
+  const top = startLine !== null && line !== null ? startLine : null;
+  let start = lines.length;
+  let covered = top === null;
+  while (start > 0 && lines.length - start < EXCERPT_MAX_LINES) {
+    if (covered && lines.length - start >= EXCERPT_MIN_LINES) break;
+    const prev = lines[--start];
+    if (top !== null && prev && prev.kind !== "del" && prev.line !== null && prev.line <= top) {
+      covered = true;
+    }
+  }
+  return lines.slice(start);
 }
 
 /** What the head commit's checks say, for the row's checks icon. */
