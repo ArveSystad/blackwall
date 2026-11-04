@@ -54,6 +54,15 @@
   --needs-wash: rgba(255, 61, 207, 0.07);
   --running-wash: rgba(46, 230, 255, 0.06);
   --code-bg: #0c0b1c;
+  /* Code view syntax colours: text only, never glow. Not the state colours. */
+  --syntax-keyword: #ff8ad8;
+  --syntax-string: #ffe08a;
+  --syntax-number: #c3a6ff;
+  --syntax-function: #5ce8f0;
+  --syntax-type: #7df0d0;
+  --syntax-attr: #b8b0ff;
+  --syntax-comment: #7a7599;
+  --syntax-meta: var(--fg-muted);
   --code-inline-bg: var(--bg-3); /* inline code chip in prose */
   --claude: #f0956b;
   --copilot: #8fb3ff;
@@ -148,6 +157,14 @@
   --needs-wash: #fdf0f7;
   --running-wash: #f0f6ff;
   --code-bg: #f6f7f9;
+  --syntax-keyword: #b0127a;
+  --syntax-string: #8a6200;
+  --syntax-number: #6b46c1;
+  --syntax-function: #0a7685;
+  --syntax-type: #08735f;
+  --syntax-attr: #4b3fc0;
+  --syntax-comment: #8a8a99;
+  --syntax-meta: var(--fg-muted);
   --code-inline-bg: var(--bg-3);
   --claude: #b4522b;
   --copilot: #2f5fc4;
@@ -1047,6 +1064,73 @@ html:active-view-transition-type(bw-route) {
 
   .bw-film-flicker-b {
     animation: bw-film-flicker-b 37s steps(1, end) infinite;
+  }
+
+  /* ---------- syntax colours (DiffView in the Code view) ----------
+   * highlight.js classes from syntax.ts tokens, under `.bw-syntax`. Text colour
+   * only: no glow on code. Later rules win where a token carries nested classes
+   * (a doc tag inside a comment stays a comment, `${}` inside a string is plain).
+   */
+  .bw-syntax .hljs-keyword,
+  .bw-syntax .hljs-built_in,
+  .bw-syntax .hljs-tag,
+  .bw-syntax .hljs-selector-tag {
+    color: var(--syntax-keyword);
+  }
+  .bw-syntax .hljs-string,
+  .bw-syntax .hljs-regexp,
+  .bw-syntax .hljs-char,
+  .bw-syntax .hljs-code {
+    color: var(--syntax-string);
+  }
+  .bw-syntax .hljs-number,
+  .bw-syntax .hljs-literal,
+  .bw-syntax .hljs-symbol,
+  .bw-syntax .hljs-bullet {
+    color: var(--syntax-number);
+  }
+  .bw-syntax .hljs-title.function_,
+  .bw-syntax .hljs-section,
+  .bw-syntax .hljs-selector-id,
+  .bw-syntax .hljs-selector-class {
+    color: var(--syntax-function);
+  }
+  .bw-syntax .hljs-type,
+  .bw-syntax .hljs-title.class_,
+  .bw-syntax .hljs-title {
+    color: var(--syntax-type);
+  }
+  .bw-syntax .hljs-attr,
+  .bw-syntax .hljs-attribute,
+  .bw-syntax .hljs-property,
+  .bw-syntax .hljs-variable,
+  .bw-syntax .hljs-template-variable,
+  .bw-syntax .hljs-params,
+  .bw-syntax .hljs-name,
+  .bw-syntax .hljs-link,
+  .bw-syntax .hljs-selector-attr,
+  .bw-syntax .hljs-selector-pseudo {
+    color: var(--syntax-attr);
+  }
+  .bw-syntax .hljs-meta,
+  .bw-syntax .hljs-punctuation,
+  .bw-syntax .hljs-operator {
+    color: var(--syntax-meta);
+  }
+  .bw-syntax .hljs-subst {
+    color: var(--fg);
+  }
+  .bw-syntax .hljs-comment,
+  .bw-syntax .hljs-quote,
+  .bw-syntax .hljs-doctag {
+    color: var(--syntax-comment);
+    font-style: italic;
+  }
+  .bw-syntax .hljs-emphasis {
+    font-style: italic;
+  }
+  .bw-syntax .hljs-strong {
+    font-weight: 600;
   }
 
   /* ---------- wordmark flicker (Wordmark.tsx) ----------

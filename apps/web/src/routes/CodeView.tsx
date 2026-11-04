@@ -25,6 +25,7 @@ import {
 } from "../code-view";
 import { cn } from "../lib/utils";
 import { repoCodeFileQuery, repoCodeTreeQuery, reposQuery } from "../query";
+import { highlightLines } from "../syntax";
 
 type Filter = "all" | "changed";
 
@@ -347,6 +348,7 @@ function changeTone(change: RepoFile["change"]): string {
 function FilePane({ repoId, path }: { repoId: string; path: string }) {
   const file = useQuery(repoCodeFileQuery(repoId, path));
   const lines = useMemo(() => (file.data ? fileLines(file.data) : []), [file.data]);
+  const tokens = useMemo(() => highlightLines(lines, path), [lines, path]);
   const stat = useMemo(
     () => ({
       additions: lines.filter((line) => line.kind === "add").length,
@@ -389,7 +391,7 @@ function FilePane({ repoId, path }: { repoId: string; path: string }) {
         ) : lines.length === 0 ? (
           <EmptyState title="Empty file" />
         ) : (
-          <DiffView lines={lines} className="text-[12.5px]" />
+          <DiffView lines={lines} tokens={tokens ?? undefined} className="text-[12.5px]" />
         )}
       </div>
     </>

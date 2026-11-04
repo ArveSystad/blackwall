@@ -59,6 +59,7 @@ conflict instead of silently picking one.
 | New work just assigned (one-shot pill boom only) | `--st-assigned` | #ffe14d | #a37a00 |
 | Severity Critical / High / Medium / Low | `--sev-*` | #ff4d5e / #ff8b3d / #f2c14e / #8e9dbc | #cf2236 / #c2530a / #9a6d00 / #5a6880 |
 | Diff add / del | `--diff-add-*` / `--diff-del-*` | plain GitHub-style green/red | same |
+| Syntax colours (Code view only): keyword / string / number / function / type / attr / comment / meta | `--syntax-*` | #ff8ad8 / #ffe08a / #c3a6ff / #5ce8f0 / #7df0d0 / #b8b0ff / #7a7599 / `--fg-muted` | #b0127a / #8a6200 / #6b46c1 / #0a7685 / #08735f / #4b3fc0 / #8a8a99 / `--fg-muted` |
 | Empty-pane and Stats backdrop lines / glow (decoration only) | `--grid-line` / `--grid-glow` | primary 44% / cyan 24% (`color-mix`) | border-strong 80% / none |
 | Stats headline number and chart bars (`shadow-glow-done`, `text-shadow-glow-done`) | `--glow-done` / `--glow-text-done` | `--st-done` ring + 14px glow / 10px text glow | 1px #1a7f37 border + 3px tinted ring / none |
 
@@ -71,6 +72,9 @@ Rules:
 - Neon and glow mark **state**, never decoration. Allowed on focus rings, the needs-you rail, banner
   and CTA, running dots, the grid's running headline, the active tab underline, and the current
   stepper node.
+- Syntax colours (`--syntax-*`, `.bw-syntax .hljs-*`) are text colour only, never glow, and are used
+  only in the Code view through `DiffView`'s `tokens`. They never reuse the state tokens (`--cyan`,
+  `--magenta`, `--st-*`). Add/del rows keep their diff tint under them; comments are italic.
 - One deliberate exception: the empty-pane backdrop (`GridBackdrop`, an animated perspective grid) is
   the only decorative use of glow. It is the main pane's resting background whenever no task is
   selected (first-run setup or the active agents). It stays low-opacity, uses primary/cyan only (via
