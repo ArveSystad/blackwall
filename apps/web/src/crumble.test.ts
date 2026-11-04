@@ -1,16 +1,24 @@
 import type { Task } from "@blackwall/shared";
 import { describe, expect, it } from "vitest";
+import { backlogSections } from "./backlog";
 import {
   CRUMBLE_STAGGER_MS,
   backlogTasks,
   crumbleDelays,
   inboxRows,
+  withDeleting,
+  withDeletingLinks,
   type Crumble,
 } from "./crumble";
-import { makeTask } from "./test-fixtures";
+import { makeBacklogItem, makeTask } from "./test-fixtures";
 
-function crumble(task: Task, phase: Crumble["phase"]): Crumble {
-  return { task, delayMs: 0, phase, archived: false, failures: 0 };
+function crumble(
+  task: Task,
+  phase: Crumble["phase"],
+  kind: Crumble["kind"] = "archive",
+  itemId?: string,
+): Crumble {
+  return { task, kind, itemId, delayMs: 0, phase, archived: false, failures: 0 };
 }
 
 describe("crumbleDelays", () => {
@@ -73,6 +81,103 @@ describe("inboxRows", () => {
   it("leaves tasks with no crumble untouched", () => {
     const tasks = [makeTask(), makeTask({ status: "done" })];
     expect(inboxRows(tasks, new Map())).toEqual(tasks);
+  });
+
+  it("keeps a crumbling deleted task's snapshot once it left the list", () => {
+    const deleted = makeTask({ status: "running" });
+    const other = makeTask();
+    expect(
+      inboxRows([other], new Map([[deleted.id, crumble(deleted, "crumbling", "delete")]])),
+    ).toEqual([other, deleted]);
+  });
+
+  it("does not bring back a missing task whose crumble is an archive, or gone", () => {
+    const archived = makeTask({ status: "done" });
+    const deleted = makeTask();
+    const crumbles = new Map([
+      [archived.id, crumble(archived, "crumbling")],
+      [deleted.id, crumble(deleted, "gone", "delete")],
+    ]);
+    expect(inboxRows([], crumbles)).toEqual([]);
+  });
+});
+
+describe("withDeleting", () => {
+  it("does not duplicate a deleted task still in the list", () => {
+    const task = makeTask();
+    expect(
+      withDeleting([task], new Map([[task.id, crumble(task, "crumbling", "delete")]])),
+    ).toEqual([task]);
+  });
+
+  it("feeds the Backlog the deleted snapshot while it crumbles", () => {
+    const deleted = makeTask({ status: "done" });
+    const crumbles = new Map([[deleted.id, crumble(deleted, "crumbling", "delete")]]);
+    expect(
+      backlogTasks(withDeleting([], crumbles), crumbles, new Date("2026-10-09T12:00:00.000Z")),
+    ).toEqual([deleted]);
+  });
+});
+
+describe("withDeletingLinks", () => {
+  it("restores the link of the item that promoted a crumbling deleted task", () => {
+    const task = makeTask({ status: "done" });
+    const item = makeBacklogItem({ status: "promoted", taskId: null });
+    const other = makeBacklogItem({ status: "promoted", taskId: null });
+    const links = withDeletingLinks(
+      [item, other],
+      new Map([[task.id, crumble(task, "crumbling", "delete", item.id)]]),
+    );
+    expect(links).toEqual([{ ...item, taskId: task.id }, other]);
+  });
+
+  it("does nothing for a gone delete, an archive, or another item's crumble", () => {
+    const item = makeBacklogItem({ status: "promoted", taskId: null });
+    const gone = makeTask();
+    const archived = makeTask({ status: "done" });
+    const elsewhere = makeTask();
+    const crumbles = new Map([
+      [gone.id, crumble(gone, "gone", "delete", item.id)],
+      [archived.id, crumble(archived, "crumbling", "archive", item.id)],
+      [elsewhere.id, crumble(elsewhere, "crumbling", "delete", "b-other")],
+    ]);
+    expect(withDeletingLinks([item], crumbles)).toEqual([item]);
+  });
+});
+
+describe("deleted tasks in backlogSections", () => {
+  const now = new Date("2026-10-09T12:00:00.000Z");
+
+  function sectionsAfterDelete(task: Task) {
+    const item = makeBacklogItem({ status: "promoted", taskId: null });
+    const crumbles = new Map([[task.id, crumble(task, "crumbling", "delete", item.id)]]);
+    const sections = backlogSections(
+      withDeletingLinks([item], crumbles),
+      backlogTasks(withDeleting([], crumbles), crumbles, now),
+    );
+    return { item, sections };
+  }
+
+  it("keeps a done promoted task as its queue item, not under other tasks", () => {
+    const task = makeTask({ status: "done" });
+    const { item, sections } = sectionsAfterDelete(task);
+    expect(sections.items).toEqual([{ ...item, taskId: task.id }]);
+    expect(sections.earlier).toEqual([]);
+  });
+
+  it("keeps a running promoted task in progress", () => {
+    const task = makeTask({ status: "running" });
+    const { sections } = sectionsAfterDelete(task);
+    expect(sections.active).toEqual([task]);
+    expect(sections.items).toEqual([]);
+  });
+
+  it("keeps an archived promoted task in the archive", () => {
+    const task = makeTask({ status: "done", archivedAt: new Date("2026-10-08T12:00:00.000Z") });
+    const { sections } = sectionsAfterDelete(task);
+    expect(sections.archived).toEqual([task]);
+    expect(sections.items).toEqual([]);
+    expect(sections.earlier).toEqual([]);
   });
 });
 

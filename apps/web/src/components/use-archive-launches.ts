@@ -46,6 +46,11 @@ export interface ArchiveLaunches {
    * Resolves the same.
    */
   crumble: (task: Task, run: () => Promise<boolean>, delayMs?: number) => Promise<boolean>;
+  /**
+   * Crumbles a deleted task's rows red; call after the delete succeeded.
+   * `itemId` is the backlog item that promoted it, so its row stays in place.
+   */
+  remove: (task: Task, itemId?: string) => void;
 }
 
 export const ArchiveLaunchesContext = createContext<ArchiveLaunches | null>(null);
@@ -69,6 +74,9 @@ export function useArchive(): ArchiveLaunches {
  * but is only dropped once its request succeeded and the tasks refetched, so
  * it never pops back. A failed request brings the row back with a red flash
  * for `CRUMBLE_FAILED_MS`.
+ *
+ * A deleted task's rows crumble the same way, red (`remove`); the delete has
+ * already succeeded, so they are dropped after `CRUMBLE_MS`.
  */
 export function useArchiveLaunches(): ArchiveLaunches {
   const queryClient = useQueryClient();
@@ -112,36 +120,41 @@ export function useArchiveLaunches(): ArchiveLaunches {
     });
   }, []);
 
-  const startCrumble = useCallback((task: Task, delayMs: number) => {
-    const key = `crumble:${task.id}`;
-    window.clearTimeout(timers.current.get(key));
-    timers.current.delete(key);
-    const reduced = prefersReducedMotion();
-    setCrumbles((prev) =>
-      new Map(prev).set(task.id, {
-        task,
-        delayMs,
-        phase: reduced ? "gone" : "crumbling",
-        archived: false,
-        failures: prev.get(task.id)?.failures ?? 0,
-      }),
-    );
-    if (reduced) return;
-    timers.current.set(
-      key,
-      window.setTimeout(() => {
-        timers.current.delete(key);
-        setCrumbles((prev) => {
-          const crumble = prev.get(task.id);
-          if (!crumble) return prev;
-          const next = new Map(prev);
-          if (crumble.archived) next.delete(task.id);
-          else next.set(task.id, { ...crumble, phase: "gone" });
-          return next;
-        });
-      }, delayMs + CRUMBLE_MS),
-    );
-  }, []);
+  const startCrumble = useCallback(
+    (task: Task, delayMs: number, kind: Crumble["kind"] = "archive", itemId?: string) => {
+      const key = `crumble:${task.id}`;
+      window.clearTimeout(timers.current.get(key));
+      timers.current.delete(key);
+      const reduced = prefersReducedMotion();
+      setCrumbles((prev) =>
+        new Map(prev).set(task.id, {
+          task,
+          kind,
+          itemId,
+          delayMs,
+          phase: reduced ? "gone" : "crumbling",
+          archived: false,
+          failures: prev.get(task.id)?.failures ?? 0,
+        }),
+      );
+      if (reduced) return;
+      timers.current.set(
+        key,
+        window.setTimeout(() => {
+          timers.current.delete(key);
+          setCrumbles((prev) => {
+            const crumble = prev.get(task.id);
+            if (!crumble) return prev;
+            const next = new Map(prev);
+            if (crumble.archived) next.delete(task.id);
+            else next.set(task.id, { ...crumble, phase: "gone" });
+            return next;
+          });
+        }, delayMs + CRUMBLE_MS),
+      );
+    },
+    [],
+  );
 
   const settleCrumble = useCallback(
     (taskId: string, ok: boolean) => {
@@ -266,8 +279,26 @@ export function useArchiveLaunches(): ArchiveLaunches {
     [queryClient, settleCrumble, startCrumble],
   );
 
+  const remove = useCallback(
+    (task: Task, itemId?: string) => {
+      startCrumble(task, 0, "delete", itemId);
+      settleCrumble(task.id, true);
+    },
+    [settleCrumble, startCrumble],
+  );
+
   return useMemo(
-    () => ({ launches, crumbles, error, clearError, archive, setLocate, archiveAll, crumble }),
-    [launches, crumbles, error, clearError, archive, setLocate, archiveAll, crumble],
+    () => ({
+      launches,
+      crumbles,
+      error,
+      clearError,
+      archive,
+      setLocate,
+      archiveAll,
+      crumble,
+      remove,
+    }),
+    [launches, crumbles, error, clearError, archive, setLocate, archiveAll, crumble, remove],
   );
 }

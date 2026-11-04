@@ -26,6 +26,7 @@ import { useDecrypt, useEncrypt } from "./use-decrypt";
  * in place of the time, and done or archivable tasks an archive button next
  * to it. An archived row crumbles out (`.bw-crumble`): its title scrambles
  * into glyphs, then the row flickers and falls; a failed archive flashes it red.
+ * A deleted row crumbles the same way, in red (`.bw-crumble-delete`).
  * A card whose task just changed status sweeps the new status colour once (`.bw-status-sweep`).
  * A card whose task just appeared slides in from the left (`animate-arrive`)
  * while its title decrypts.
@@ -50,7 +51,7 @@ export function TaskCard({
   /** The trust the task's agents run under; nothing shows for a simply Locked repo. */
   trust?: AgentTrust;
   now: Date;
-  /** The row's archive crumble, while it plays or its failure flashes. */
+  /** The row's archive or delete crumble, while it plays or its failure flashes. */
   crumble?: Crumble | undefined;
   /** The status sweep's counter while it plays; a new one replays the sweep. */
   sweep?: number | undefined;
@@ -76,6 +77,7 @@ export function TaskCard({
       className={cn(
         "group relative isolate",
         crumbling && "bw-crumble",
+        crumbling && crumble.kind === "delete" && "bw-crumble-delete",
         // The utility would override .bw-crumble's animation.
         arriving && !crumbling && "animate-arrive",
       )}

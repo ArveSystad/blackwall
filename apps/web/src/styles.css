@@ -1646,6 +1646,8 @@ html:active-view-transition-type(bw-route) {
    * (.bw-decrypt-clamp). A failed archive brings the row back and flashes it red over
    * 1.2s (CRUMBLE_FAILED_MS). Change them together. Reduced motion drops the
    * row at once in JS; the reduced-motion block below is a fallback.
+   * A deleted row crumbles the same way once the delete succeeded, with its
+   * title and glyphs red (.bw-crumble-delete).
    */
   .bw-crumble {
     animation: bw-crumble 360ms ease-in calc(var(--crumble-delay, 0ms) + 220ms) both;
@@ -1655,6 +1657,14 @@ html:active-view-transition-type(bw-route) {
     text-shadow: 0 0 6px color-mix(in oklab, var(--st-done) 60%, transparent);
   }
 
+  .bw-crumble-delete .bw-decrypt {
+    color: var(--st-failed);
+  }
+
+  .bw-crumble-delete .bw-decrypt-glyphs {
+    text-shadow: 0 0 6px color-mix(in oklab, var(--st-failed) 60%, transparent);
+  }
+
   .bw-crumble-failed {
     background: color-mix(in oklab, var(--st-failed) 22%, transparent);
     box-shadow: 0 0 12px color-mix(in oklab, var(--st-failed) 50%, transparent);
@@ -1662,7 +1672,8 @@ html:active-view-transition-type(bw-route) {
   }
 
   /* Glow is dark only. */
-  :root[data-theme="light"] .bw-crumble .bw-decrypt-glyphs {
+  :root[data-theme="light"] .bw-crumble .bw-decrypt-glyphs,
+  :root[data-theme="light"] .bw-crumble-delete .bw-decrypt-glyphs {
     text-shadow: none;
   }
 

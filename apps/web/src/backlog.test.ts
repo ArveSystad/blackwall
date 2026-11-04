@@ -161,7 +161,17 @@ describe("backlogSections", () => {
     const item = makeBacklogItem({ status: "promoted", taskId: task.id });
     const now = at(30);
     const crumbles = new Map([
-      [task.id, { task, delayMs: 0, phase: "gone" as const, archived: false, failures: 0 }],
+      [
+        task.id,
+        {
+          task,
+          kind: "archive" as const,
+          delayMs: 0,
+          phase: "gone" as const,
+          archived: false,
+          failures: 0,
+        },
+      ],
     ]);
     const { items, archived, archivable } = backlogSections(
       [item],

@@ -81,7 +81,7 @@ import { Kbd } from "../components/ui/kbd";
 import { useArchive } from "../components/use-archive-launches";
 import { useEncrypt } from "../components/use-decrypt";
 import { useWithCredential } from "../credentials";
-import { backlogTasks, type Crumble } from "../crumble";
+import { backlogTasks, withDeleting, withDeletingLinks, type Crumble } from "../crumble";
 import { useNow } from "../hooks";
 import { matchesFilter, originKey, stackLabel, statusLabel } from "../inbox";
 import { cn } from "../lib/utils";
@@ -426,7 +426,7 @@ function StateChip({ state }: { state: BacklogItemState }) {
 
 /**
  * A crumbling row's props, as on `TaskCard`: it flickers and falls
- * (`.bw-crumble`) after its stagger, and takes no input meanwhile.
+ * (`.bw-crumble`) after its stagger, red for a delete, and takes no input meanwhile.
  */
 function crumbleRowProps(crumble: Crumble | undefined): {
   className: string | undefined;
@@ -435,7 +435,11 @@ function crumbleRowProps(crumble: Crumble | undefined): {
 } {
   const crumbling = crumble?.phase === "crumbling";
   return {
-    className: crumbling ? "bw-crumble" : undefined,
+    className: crumbling
+      ? crumble.kind === "delete"
+        ? "bw-crumble bw-crumble-delete"
+        : "bw-crumble"
+      : undefined,
     style: crumbling ? ({ "--crumble-delay": `${crumble.delayMs}ms` } as CSSProperties) : undefined,
     inert: crumbling,
   };
@@ -505,7 +509,7 @@ function BacklogRow({
   onDelete: () => void;
   /** Archives the item's done task. */
   onArchive?: () => void;
-  /** The archive crumble of the item's task, while it plays or its failure flashes. */
+  /** The archive or delete crumble of the item's task, while it plays or its failure flashes. */
   crumble?: Crumble | undefined;
 }) {
   const OriginIcon = ORIGIN_ICONS[item.origin.kind];
@@ -675,7 +679,7 @@ function TaskRow({
   task: Task;
   fromBacklog: boolean;
   action?: ReactNode;
-  /** The row's archive crumble, while it plays or its failure flashes. */
+  /** The row's archive or delete crumble, while it plays or its failure flashes. */
   crumble?: Crumble | undefined;
 }) {
   const OriginIcon = ORIGIN_ICONS[task.origin.kind];
@@ -930,17 +934,26 @@ export function Backlog({
     [tasks.data, repoId],
   );
   // Rows crumbling out stay put, then join the archive; see `backlogTasks`.
+  // Deleted rows are kept as snapshots, with their item link, while they
+  // crumble (`withDeleting`, `withDeletingLinks`); `repoTasks` and `items`
+  // stay live for the runner status and reorder.
   const shownTasks = useMemo(
-    () => backlogTasks(repoTasks, launch.crumbles, new Date()),
-    [repoTasks, launch.crumbles],
+    () =>
+      backlogTasks(
+        withDeleting(repoTasks, launch.crumbles).filter((t) => t.repoId === repoId),
+        launch.crumbles,
+        new Date(),
+      ),
+    [repoTasks, launch.crumbles, repoId],
   );
   const taskById = useMemo(
     () => new Map<string, Task>(shownTasks.map((t) => [t.id, t])),
     [shownTasks],
   );
   const sections = useMemo(
-    () => backlogSections(items, tasks.isError ? [] : shownTasks),
-    [items, shownTasks, tasks.isError],
+    () =>
+      backlogSections(withDeletingLinks(items, launch.crumbles), tasks.isError ? [] : shownTasks),
+    [items, launch.crumbles, shownTasks, tasks.isError],
   );
   const crumbleDelays = useMemo(() => backlogCrumbleDelays(sections), [sections]);
   const shown = useMemo(() => new Set(sections.items.map((i) => i.id)), [sections]);
@@ -1195,7 +1208,12 @@ export function Backlog({
             {sections.active.length > 0 && (
               <Section label="In progress" ariaLabel="In progress" count={sections.active.length}>
                 {sections.active.map((task) => (
-                  <TaskRow key={task.id} task={task} fromBacklog={linked.has(task.id)} />
+                  <TaskRow
+                    key={task.id}
+                    task={task}
+                    fromBacklog={linked.has(task.id)}
+                    crumble={launch.crumbles.get(task.id)}
+                  />
                 ))}
               </Section>
             )}
@@ -1372,6 +1390,7 @@ export function Backlog({
                           key={task.id}
                           task={task}
                           fromBacklog={linked.has(task.id)}
+                          crumble={launch.crumbles.get(task.id)}
                           action={
                             <Button
                               size="sm"
