@@ -1451,7 +1451,8 @@ describe("follow-up tasks", () => {
       // No remote at all.
       run(repoPath, "remote", "remove", "origin");
       expect((await createTasksOf(d, withGitHub.task))[0]!.issueTarget).toBeNull();
-    });
+      // Five full plans against a real repo: ~8s alone on Windows, over 20s under a full test run.
+    }, 45_000);
 
     it("refuses an issue destination it cannot take, before creating anything", async () => {
       const { task, run: runRow } = await seed(
