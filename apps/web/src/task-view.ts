@@ -923,7 +923,10 @@ export function followUpIssues(events: readonly StepEvent[]): FollowUpIssue[] {
 export interface DiffLine {
   kind: "hunk" | "add" | "del" | "ctx";
   text: string;
-  /** Line number in the new file (old file for deletions); null for hunk headers. */
+  /**
+   * Line number in the new file (old file for deletions); null for hunk
+   * headers and for lines under an unnumbered hunk header.
+   */
   line: number | null;
 }
 
@@ -981,6 +984,54 @@ export function parseDiff(text: string): DiffFile[] {
     if (last?.kind === "ctx" && last.text === "") f.lines.pop();
   }
   return files;
+}
+
+/**
+ * Numbers the lines of bare hunks, such as GitHub's `diff_hunk` or a
+ * reviewer's suggested fix, by their first character only: a deleted `-- x`
+ * or added `++ x` is not a file header here. Every `@@` line starts a hunk
+ * and is emitted; one without line numbers (`@@ ... @@`) leaves its lines
+ * unnumbered. A `diff ` line ends the hunk, so file headers up to the next
+ * `@@` are ignored, as is text before the first one. Other stray lines inside
+ * a hunk are skipped without moving the numbering.
+ */
+export function parseHunk(text: string): DiffLine[] {
+  const lines: DiffLine[] = [];
+  let inHunk = false;
+  let numbered = false;
+  let oldLine = 0;
+  let newLine = 0;
+  const at = (n: number) => (numbered ? n : null);
+  for (const raw of text.split("\n")) {
+    if (raw.startsWith("@@")) {
+      const header = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
+      inHunk = true;
+      numbered = header !== null;
+      oldLine = Number(header?.[1] ?? 0);
+      newLine = Number(header?.[2] ?? 0);
+      lines.push({ kind: "hunk", text: raw, line: null });
+    } else if (raw.startsWith("diff ")) {
+      inHunk = false;
+    } else if (!inHunk) {
+      continue;
+    } else if (raw.startsWith("+")) {
+      lines.push({ kind: "add", text: raw.slice(1), line: at(newLine) });
+      if (numbered) newLine++;
+    } else if (raw.startsWith("-")) {
+      lines.push({ kind: "del", text: raw.slice(1), line: at(oldLine) });
+      if (numbered) oldLine++;
+    } else if (raw.startsWith(" ") || raw === "") {
+      lines.push({ kind: "ctx", text: raw.slice(1), line: at(newLine) });
+      if (numbered) {
+        newLine++;
+        oldLine++;
+      }
+    }
+  }
+  // A trailing empty line from the split is not context.
+  const last = lines.at(-1);
+  if (last?.kind === "ctx" && last.text === "") lines.pop();
+  return lines;
 }
 
 export function diffStat(files: readonly DiffFile[]): { additions: number; deletions: number } {

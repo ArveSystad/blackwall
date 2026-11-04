@@ -60,6 +60,7 @@ import {
   modelTitle,
   openQuestionCount,
   parseDiff,
+  parseHunk,
   originUrl,
   parseJiraInput,
   parseNewTaskDraft,
@@ -155,6 +156,72 @@ describe("parseDiff", () => {
   it("tells a diff from prose", () => {
     expect(looksLikeDiff("@@ -1 +1 @@\n-a\n+b")).toBe(true);
     expect(looksLikeDiff("Use a mutex around the refresh.")).toBe(false);
+  });
+});
+
+describe("parseHunk", () => {
+  const rows = (text: string) => parseHunk(text).map((l) => [l.kind, l.line, l.text]);
+
+  it("reads header-like lines inside a hunk as changes", () => {
+    expect(parseHunk("@@ -1,3 +1,3 @@\n a\n--- foo\n+++ x\n b")).toEqual([
+      { kind: "hunk", text: "@@ -1,3 +1,3 @@", line: null },
+      { kind: "ctx", text: "a", line: 1 },
+      { kind: "del", text: "-- foo", line: 2 },
+      { kind: "add", text: "++ x", line: 2 },
+      { kind: "ctx", text: "b", line: 3 },
+    ]);
+  });
+
+  it("skips file headers after a diff line and numbers each file from its own hunk", () => {
+    const fix = [
+      "diff --git a/f.ts b/f.ts",
+      "index 111..222 100644",
+      "--- a/f.ts",
+      "+++ b/f.ts",
+      "@@ -10,2 +10,2 @@",
+      "-old",
+      "+new",
+      " end",
+      "diff --git a/g.ts b/g.ts",
+      "index 333..444 100644",
+      "--- a/g.ts",
+      "+++ b/g.ts",
+      "@@ -1 +1 @@",
+      "-x",
+      "+y",
+      "",
+    ].join("\n");
+    expect(rows(fix)).toEqual([
+      ["hunk", null, "@@ -10,2 +10,2 @@"],
+      ["del", 10, "old"],
+      ["add", 10, "new"],
+      ["ctx", 11, "end"],
+      ["hunk", null, "@@ -1 +1 @@"],
+      ["del", 1, "x"],
+      ["add", 1, "y"],
+    ]);
+  });
+
+  it("leaves lines under an unnumbered header without numbers", () => {
+    expect(parseHunk("@@ ... @@\n-old\n+new\n ctx")).toEqual([
+      { kind: "hunk", text: "@@ ... @@", line: null },
+      { kind: "del", text: "old", line: null },
+      { kind: "add", text: "new", line: null },
+      { kind: "ctx", text: "ctx", line: null },
+    ]);
+  });
+
+  it("skips stray lines inside a hunk and keeps reading it", () => {
+    expect(rows("@@ -1,3 +1,3 @@\n-a\n...\nnot indented\n+b\n c")).toEqual([
+      ["hunk", null, "@@ -1,3 +1,3 @@"],
+      ["del", 1, "a"],
+      ["add", 1, "b"],
+      ["ctx", 2, "c"],
+    ]);
+  });
+
+  it("is empty without a hunk header", () => {
+    expect(parseHunk("--- a/x\n+++ b/x\n-foo")).toEqual([]);
   });
 });
 

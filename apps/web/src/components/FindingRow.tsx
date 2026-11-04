@@ -7,7 +7,7 @@ import {
   type FindingOverride,
 } from "@blackwall/shared";
 import { cn } from "../lib/utils";
-import { findingLocation, looksLikeDiff, parseDiff } from "../task-view";
+import { findingLocation, looksLikeDiff, parseHunk } from "../task-view";
 import { AgentTile } from "./AgentTile";
 import { DiffView } from "./DiffView";
 import { codeBlock } from "./classes";
@@ -114,6 +114,8 @@ export function FindingRow({
   const settled = finding.status === "force-ignore" || finding.status === "fixed";
   const location = findingLocation(finding);
   const fix = finding.suggestedFix?.trim();
+  // A diff-like fix without any `@@` hunk shows as plain text.
+  const fixLines = fix && looksLikeDiff(fix) ? parseHunk(fix) : [];
   return (
     <div role="rowgroup">
       <div
@@ -229,8 +231,8 @@ export function FindingRow({
             <span className="label text-muted-foreground">Suggested fix</span>
             {!fix ? (
               <p className="m-0 text-muted-foreground">The reviewer suggested no fix.</p>
-            ) : looksLikeDiff(fix) ? (
-              <DiffView lines={parseDiffLines(fix)} />
+            ) : fixLines.length > 0 ? (
+              <DiffView lines={fixLines} />
             ) : (
               <pre className={cn(codeBlock, "whitespace-pre-wrap")}>{fix}</pre>
             )}
@@ -239,10 +241,4 @@ export function FindingRow({
       )}
     </div>
   );
-}
-
-/** A suggested fix may be a bare hunk without a `diff --git` header. */
-function parseDiffLines(text: string) {
-  const withHeader = text.startsWith("diff --git ") ? text : `diff --git a/x b/x\n${text}`;
-  return parseDiff(withHeader).flatMap((f) => f.lines);
 }

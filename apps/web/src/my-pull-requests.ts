@@ -6,7 +6,7 @@ import type {
 } from "@blackwall/shared";
 import { useSyncExternalStore } from "react";
 import { plural } from "./backlog";
-import type { DiffLine } from "./task-view";
+import { parseHunk, type DiffLine } from "./task-view";
 
 type ReviewDecision = MyPullRequest["reviewDecision"];
 type Checks = MyPullRequest["checks"];
@@ -98,39 +98,6 @@ const EXCERPT_MIN_LINES = 4;
 const EXCERPT_MAX_LINES = 20;
 
 /**
- * Numbers the lines of a bare hunk such as GitHub's `diff_hunk`, by their
- * first character only: a deleted `-- x` or added `++ x` is not a file
- * header here. Hunk headers set the numbering and are not emitted.
- */
-function parseHunk(diffHunk: string): DiffLine[] {
-  const lines: DiffLine[] = [];
-  let inHunk = false;
-  let oldLine = 0;
-  let newLine = 0;
-  for (const raw of diffHunk.split("\n")) {
-    const header = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
-    if (header) {
-      inHunk = true;
-      oldLine = Number(header[1]);
-      newLine = Number(header[2]);
-    } else if (!inHunk) {
-      continue;
-    } else if (raw.startsWith("+")) {
-      lines.push({ kind: "add", text: raw.slice(1), line: newLine++ });
-    } else if (raw.startsWith("-")) {
-      lines.push({ kind: "del", text: raw.slice(1), line: oldLine++ });
-    } else if (raw.startsWith(" ") || raw === "") {
-      lines.push({ kind: "ctx", text: raw.slice(1), line: newLine++ });
-      oldLine++;
-    }
-  }
-  // A trailing empty line from the split is not context.
-  const last = lines.at(-1);
-  if (last?.kind === "ctx" && last.text === "") lines.pop();
-  return lines;
-}
-
-/**
  * The code a review thread comments on, from GitHub's `diff_hunk` (which
  * ends on the commented line): the last few lines, or the whole commented
  * range when longer, at most {@link EXCERPT_MAX_LINES}. The range is measured
@@ -142,7 +109,7 @@ export function hunkExcerpt(
   line: number | null,
 ): DiffLine[] {
   if (!diffHunk) return [];
-  const lines = parseHunk(diffHunk);
+  const lines = parseHunk(diffHunk).filter((l) => l.kind !== "hunk");
   const top = startLine !== null && line !== null ? startLine : null;
   let start = lines.length;
   let covered = top === null;
