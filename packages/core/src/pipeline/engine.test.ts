@@ -5616,7 +5616,9 @@ describe("agent trust", () => {
   });
 });
 
-describe("read-only backstop under Trusted", () => {
+// Full runs against a real repo with worktree snapshots: ~7s each alone on Windows,
+// over 20s under a full test run.
+describe("read-only backstop under Trusted", { timeout: 45_000 }, () => {
   let repo: string;
   const git = (...args: string[]) =>
     execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
