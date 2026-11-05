@@ -1,6 +1,7 @@
 import { searchResultsSchema } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { openDatabase, type OpenedDatabase } from "../db/database.js";
+import type { OpenedDatabase } from "../db/database.js";
+import { openTestDatabase } from "../testing/index.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
 import { SEARCH_LIMIT, createSearch, escapeLike, snippetAround, type Search } from "./service.js";
 
@@ -13,7 +14,7 @@ let api: string;
 const freeText = { kind: "free-text" } as const;
 
 beforeEach(() => {
-  opened = openDatabase(":memory:");
+  opened = openTestDatabase(":memory:");
   r = createRepositories(opened.db);
   search = createSearch(opened.db);
   app = r.repos.create({ path: "/code/app", name: "app" }).id;

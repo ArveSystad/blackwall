@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { copySeedRepo } from "../testing/index.js";
 import { createGitService } from "../git/service.js";
 import { createWorktreeSetup, type WorktreeSetup } from "./setup.js";
 
@@ -26,17 +27,13 @@ function write(file: string, content: string, at = repo): void {
 beforeEach(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), "blackwall-setup-")));
   repo = join(root, "app");
-  mkdirSync(join(repo, "src", "App"), { recursive: true });
-  git(repo, "init", "--quiet", "-b", "main");
-  git(repo, "config", "user.name", "Test");
-  git(repo, "config", "user.email", "test@example.com");
-  git(repo, "config", "commit.gpgsign", "false");
-  git(repo, "config", "core.autocrlf", "false");
-  write("pnpm-lock.yaml", "lockfileVersion: 9\n");
-  write("src/App/App.csproj", "<Project />\n");
-  write("README.md", "hello\n");
-  git(repo, "add", "-A");
-  git(repo, "commit", "--quiet", "-m", "initial");
+  copySeedRepo(repo, {
+    files: {
+      "pnpm-lock.yaml": "lockfileVersion: 9\n",
+      "src/App/App.csproj": "<Project />\n",
+      "README.md": "hello\n",
+    },
+  });
   setup = createWorktreeSetup({ git: createGitService() });
 });
 

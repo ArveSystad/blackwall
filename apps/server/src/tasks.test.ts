@@ -8,11 +8,11 @@ import {
   TaskNotFoundError,
   TaskStateError,
   createRepositories,
-  openDatabase,
   resolveClis,
   type OpenedDatabase,
   type Repositories,
 } from "@blackwall/core";
+import { openTestDatabase } from "@blackwall/core/testing";
 import {
   activeAgentStepSchema,
   branchDiffSchema,
@@ -52,7 +52,7 @@ let repositories: Repositories;
 let app: ReturnType<typeof createApp>["app"];
 
 beforeEach(() => {
-  opened = openDatabase(":memory:");
+  opened = openTestDatabase(":memory:");
   repositories = createRepositories(opened.db);
   app = createApp({ token: launchToken, getPort: () => port, tasks: stores() }).app;
 });

@@ -4,7 +4,8 @@ import { join } from "node:path";
 import type { Task } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAgentService, type AgentService } from "../agents/service.js";
-import { openDatabase, type OpenedDatabase } from "../db/database.js";
+import type { OpenedDatabase } from "../db/database.js";
+import { openTestDatabase } from "../testing/index.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
 import { RepoRenamingError, createRepoRenameLocks } from "../repos/rename-lock.js";
 import { memoryBackfillKey } from "../settings/service.js";
@@ -26,7 +27,7 @@ let repoId: string;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "blackwall-memory-backfill-"));
-  opened = openDatabase(dir);
+  opened = openTestDatabase(dir);
   r = createRepositories(opened.db);
   agents = createAgentService({
     agents: r.agents,

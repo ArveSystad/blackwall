@@ -1,6 +1,7 @@
 import { connectionViewSchema } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { openDatabase, type OpenedDatabase } from "../db/database.js";
+import type { OpenedDatabase } from "../db/database.js";
+import { openTestDatabase } from "../testing/index.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
 import { createMemorySecretStore, SecretStoreError, type SecretStore } from "./secret-store.js";
 import { createConnectionTokens, tokenEnvVar } from "./tokens.js";
@@ -12,7 +13,7 @@ let r: Repositories;
 let store: SecretStore;
 
 beforeEach(() => {
-  opened = openDatabase(":memory:");
+  opened = openTestDatabase(":memory:");
   r = createRepositories(opened.db);
   store = createMemorySecretStore();
 });

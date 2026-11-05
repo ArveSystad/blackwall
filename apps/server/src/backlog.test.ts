@@ -4,11 +4,11 @@ import {
   createQuotaTracker,
   createRepositories,
   createSettingsService,
-  openDatabase,
   resolveClis,
   type OpenedDatabase,
   type Repositories,
 } from "@blackwall/core";
+import { openTestDatabase } from "@blackwall/core/testing";
 import {
   backlogItemSchema,
   backlogItemViewSchema,
@@ -48,7 +48,7 @@ let settings: ReturnType<typeof createSettingsService>;
 let newTask: NewTaskServices;
 
 beforeEach(() => {
-  opened = openDatabase(":memory:");
+  opened = openTestDatabase(":memory:");
   repositories = createRepositories(opened.db);
   repoId = repositories.repos.create({ path: "/code/app", name: "app" }).id;
   events = [];

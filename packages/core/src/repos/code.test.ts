@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAX_CODE_FILE_BYTES } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { copySeedRepo } from "../testing/index.js";
 import { isSafeCodePath, parseStatus, readRepoFile, readRepoTree } from "./code.js";
 
 let root: string;
@@ -27,17 +28,7 @@ function git(cwd: string, ...args: string[]): string {
 /** A repo on `main` with the given files committed and nothing changed since. */
 function committedRepo(files: Record<string, string>): string {
   const path = join(root, "app");
-  mkdirSync(path);
-  git(path, "init", "--quiet", "-b", "main");
-  git(path, "config", "user.name", "Test");
-  git(path, "config", "user.email", "test@example.com");
-  git(path, "config", "commit.gpgsign", "false");
-  git(path, "config", "core.autocrlf", "false");
-  for (const [file, content] of Object.entries(files)) {
-    writeFileSync(join(path, file), content);
-  }
-  git(path, "add", "-A");
-  git(path, "commit", "--quiet", "-m", "initial");
+  copySeedRepo(path, { files });
   return path;
 }
 

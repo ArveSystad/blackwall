@@ -1,9 +1,5 @@
-import {
-  createAgentService,
-  createRepositories,
-  openDatabase,
-  type OpenedDatabase,
-} from "@blackwall/core";
+import { createAgentService, createRepositories, type OpenedDatabase } from "@blackwall/core";
+import { openTestDatabase } from "@blackwall/core/testing";
 import { agentSchema, roleAgentsSchema, type Agent } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "./app.js";
@@ -18,7 +14,7 @@ let opened: OpenedDatabase;
 let app: ReturnType<typeof createApp>["app"];
 
 beforeEach(() => {
-  opened = openDatabase(":memory:");
+  opened = openTestDatabase(":memory:");
   const repositories = createRepositories(opened.db);
   const agents = createAgentService({
     agents: repositories.agents,

@@ -1,10 +1,10 @@
 import {
   createRepositories,
   createSearch,
-  openDatabase,
   type OpenedDatabase,
   type Repositories,
 } from "@blackwall/core";
+import { openTestDatabase } from "@blackwall/core/testing";
 import { searchResultsSchema } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "./app.js";
@@ -21,7 +21,7 @@ let app: ReturnType<typeof createApp>["app"];
 let appId: string;
 
 beforeEach(() => {
-  opened = openDatabase(":memory:");
+  opened = openTestDatabase(":memory:");
   repositories = createRepositories(opened.db);
   appId = repositories.repos.create({ path: "/code/app", name: "app" }).id;
   const apiId = repositories.repos.create({ path: "/code/api", name: "api" }).id;

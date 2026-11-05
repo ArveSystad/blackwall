@@ -3,12 +3,12 @@ import {
   createRepositories,
   createSettingsService,
   createVoiceCommandService,
-  openDatabase,
   type FakeAdapter,
   type OpenedDatabase,
   type Repositories,
   type VoiceCommandService,
 } from "@blackwall/core";
+import { openTestDatabase } from "@blackwall/core/testing";
 import type { BacklogItem, NewBacklogItemInput, ServerEvent } from "@blackwall/shared";
 import type { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -28,7 +28,7 @@ let commands: VoiceCommandService;
 let app: Hono;
 
 beforeEach(() => {
-  opened = openDatabase(":memory:");
+  opened = openTestDatabase(":memory:");
   r = createRepositories(opened.db);
   repoId = r.repos.create({ path: "/code/app", name: "app" }).id;
   events = [];

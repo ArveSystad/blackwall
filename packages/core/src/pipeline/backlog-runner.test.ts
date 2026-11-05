@@ -11,7 +11,8 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQuotaTracker, type QuotaTracker } from "../agents/quota.js";
 import { createAgentService, type AgentService } from "../agents/service.js";
-import { openDatabase, type OpenedDatabase } from "../db/database.js";
+import type { OpenedDatabase } from "../db/database.js";
+import { openTestDatabase } from "../testing/index.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
 import { createSettingsService, type SettingsService } from "../settings/service.js";
 import { createBacklogRunner, type BacklogRunnerOptions } from "./backlog-runner.js";
@@ -35,7 +36,7 @@ const advance = (ms: number) => {
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "blackwall-runner-"));
-  opened = openDatabase(dir);
+  opened = openTestDatabase(dir);
   r = createRepositories(opened.db);
   settings = createSettingsService({ settings: r.settings, tags: r.tags });
   agents = createAgentService({

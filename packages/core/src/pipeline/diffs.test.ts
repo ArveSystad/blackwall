@@ -1,9 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { openDatabase, type OpenedDatabase } from "../db/database.js";
+import type { OpenedDatabase } from "../db/database.js";
+import { copySeedRepo, openTestDatabase } from "../testing/index.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
 import { worktreePathFor } from "../git/branches.js";
 import { createGitService } from "../git/service.js";
@@ -15,7 +16,7 @@ let opened: OpenedDatabase;
 let r: Repositories;
 
 beforeEach(() => {
-  opened = openDatabase(":memory:");
+  opened = openTestDatabase(":memory:");
   r = createRepositories(opened.db);
 });
 
@@ -254,12 +255,7 @@ describe("in-repo task diffs", () => {
 
   beforeEach(() => {
     root = realpathSync(mkdtempSync(join(tmpdir(), "blackwall-diffs-")));
-    git(root, "init", "--quiet", "-b", "main");
-    git(root, "config", "user.name", "Test");
-    git(root, "config", "user.email", "test@example.com");
-    git(root, "config", "commit.gpgsign", "false");
-    git(root, "config", "core.autocrlf", "false");
-    commit(root, "README.md", "hello\n");
+    copySeedRepo(root, { message: "edit README.md" });
   });
 
   afterEach(() => rmSync(root, { recursive: true, force: true }));
@@ -319,13 +315,7 @@ describe("archived task diffs", () => {
   beforeEach(() => {
     root = realpathSync(mkdtempSync(join(tmpdir(), "blackwall-diffs-")));
     repoPath = join(root, "app");
-    mkdirSync(repoPath);
-    git(repoPath, "init", "--quiet", "-b", "main");
-    git(repoPath, "config", "user.name", "Test");
-    git(repoPath, "config", "user.email", "test@example.com");
-    git(repoPath, "config", "commit.gpgsign", "false");
-    git(repoPath, "config", "core.autocrlf", "false");
-    commit(repoPath, "README.md", "hello\n");
+    copySeedRepo(repoPath, { message: "edit README.md" });
   });
 
   afterEach(() => rmSync(root, { recursive: true, force: true }));

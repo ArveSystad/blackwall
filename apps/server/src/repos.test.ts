@@ -9,9 +9,9 @@ import {
   createRepoRenameLocks,
   createRepoService,
   createRepositories,
-  openDatabase,
   type OpenedDatabase,
 } from "@blackwall/core";
+import { copySeedRepo, copySeedRepoWithOrigin, openTestDatabase } from "@blackwall/core/testing";
 import {
   STALE_REPO_STATUS,
   repoRenameResultSchema,
@@ -42,7 +42,7 @@ let app: ReturnType<typeof createApp>["app"];
 let stopped: string[];
 
 beforeEach(() => {
-  opened = openDatabase(":memory:");
+  opened = openTestDatabase(":memory:");
   const repositories = createRepositories(opened.db);
   const tokens = createConnectionTokens({
     store: createMemorySecretStore(),
@@ -103,19 +103,14 @@ function commit(dir: string, file: string): string {
   return git(dir, "rev-parse", "HEAD");
 }
 
+/** The initial commit {@link commit} would make of `README.md`. */
+const seedReadme = { files: { "README.md": "README.md\n" }, message: "edit README.md" };
+
 /** A git repo with a bare `origin` and one pushed commit on main. */
 function clonedRepo(name: string): { path: string; origin: string } {
   const origin = join(root, `${name}-origin.git`);
   const path = join(root, name);
-  git(root, "init", "--quiet", "--bare", "-b", "main", origin);
-  mkdirSync(path);
-  git(path, "init", "--quiet", "-b", "main");
-  git(path, "config", "user.name", "Test");
-  git(path, "config", "user.email", "test@example.com");
-  git(path, "config", "commit.gpgsign", "false");
-  git(path, "remote", "add", "origin", origin);
-  commit(path, "README.md");
-  git(path, "push", "--quiet", "origin", "main");
+  copySeedRepoWithOrigin(path, origin, seedReadme);
   return { path, origin };
 }
 
@@ -466,13 +461,7 @@ describe("code view routes", () => {
   /** A git repo on `main` with one commit, under the temp root. */
   function committedRepo(name: string): string {
     const path = join(root, name);
-    mkdirSync(path);
-    git(path, "init", "--quiet", "-b", "main");
-    git(path, "config", "user.name", "Test");
-    git(path, "config", "user.email", "test@example.com");
-    git(path, "config", "commit.gpgsign", "false");
-    git(path, "config", "core.autocrlf", "false");
-    commit(path, "README.md");
+    copySeedRepo(path, seedReadme);
     return path;
   }
 

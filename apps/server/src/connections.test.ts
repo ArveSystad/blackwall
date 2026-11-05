@@ -4,10 +4,10 @@ import {
   createConnectionTokens,
   createMemorySecretStore,
   createRepositories,
-  openDatabase,
   type OpenedDatabase,
   type SecretStore,
 } from "@blackwall/core";
+import { openTestDatabase } from "@blackwall/core/testing";
 import {
   MISSING_CREDENTIAL_STATUS,
   connectionTestResultSchema,
@@ -32,7 +32,7 @@ let app: ReturnType<typeof createApp>["app"];
 let tested: { connection: Connection; token: string }[];
 
 beforeEach(() => {
-  opened = openDatabase(":memory:");
+  opened = openTestDatabase(":memory:");
   const repositories = createRepositories(opened.db);
   connectionId = repositories.connections.create({
     name: "acme.ghe.com",

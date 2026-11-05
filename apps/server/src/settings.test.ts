@@ -1,9 +1,5 @@
-import {
-  createRepositories,
-  createSettingsService,
-  openDatabase,
-  type OpenedDatabase,
-} from "@blackwall/core";
+import { createRepositories, createSettingsService, type OpenedDatabase } from "@blackwall/core";
+import { openTestDatabase } from "@blackwall/core/testing";
 import { DEFAULT_TAGS, generalSettingsSchema } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "./app.js";
@@ -18,7 +14,7 @@ let opened: OpenedDatabase;
 let app: ReturnType<typeof createApp>["app"];
 
 beforeEach(() => {
-  opened = openDatabase(":memory:");
+  opened = openTestDatabase(":memory:");
   const repositories = createRepositories(opened.db);
   repositories.tags.replace(DEFAULT_TAGS);
   const settings = createSettingsService({

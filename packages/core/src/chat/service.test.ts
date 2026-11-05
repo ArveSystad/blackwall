@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ChatState, ServerEvent } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { openDatabase, type OpenedDatabase } from "../db/database.js";
+import type { OpenedDatabase } from "../db/database.js";
+import { openTestDatabase } from "../testing/index.js";
 import type {
   AgentAdapter,
   AgentEvent,
@@ -35,7 +36,7 @@ let script: (call: number) => FakeScript;
 let worktree: string;
 
 beforeEach(() => {
-  opened = openDatabase(":memory:");
+  opened = openTestDatabase(":memory:");
   r = createRepositories(opened.db);
   repoId = r.repos.create({ path: "/code/app", name: "app" }).id;
   otherRepoId = r.repos.create({ path: "/code/other", name: "other" }).id;

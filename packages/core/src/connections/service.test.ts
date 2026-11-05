@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { openDatabase, type OpenedDatabase } from "../db/database.js";
+import type { OpenedDatabase } from "../db/database.js";
+import { openTestDatabase } from "../testing/index.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
 import { createMemorySecretStore, type SecretStore } from "../secrets/secret-store.js";
 import { createConnectionTokens } from "../secrets/tokens.js";
@@ -23,7 +24,7 @@ function build(env: Record<string, string> = {}) {
 }
 
 beforeEach(() => {
-  opened = openDatabase(":memory:");
+  opened = openTestDatabase(":memory:");
   r = createRepositories(opened.db);
   store = createMemorySecretStore();
   service = build();

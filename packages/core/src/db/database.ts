@@ -42,9 +42,7 @@ export function openDatabase(dataDir: string): OpenedDatabase {
 
   const sqlite = new Database(path);
   try {
-    sqlite.pragma("journal_mode = WAL");
-    sqlite.pragma("synchronous = NORMAL");
-    sqlite.pragma("busy_timeout = 5000");
+    applyConnectionPragmas(sqlite);
 
     const db = drizzle(sqlite, { schema });
     // Foreign keys stay off while migrating: SQLite ignores the pragma inside the
@@ -62,6 +60,13 @@ export function openDatabase(dataDir: string): OpenedDatabase {
     sqlite.close();
     throw error;
   }
+}
+
+/** WAL, relaxed sync and a busy timeout: the settings every connection uses. */
+export function applyConnectionPragmas(sqlite: Database.Database): void {
+  sqlite.pragma("journal_mode = WAL");
+  sqlite.pragma("synchronous = NORMAL");
+  sqlite.pragma("busy_timeout = 5000");
 }
 
 /**

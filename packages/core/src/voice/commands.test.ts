@@ -8,7 +8,8 @@ import type {
   VoiceState,
 } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { openDatabase, type OpenedDatabase } from "../db/database.js";
+import type { OpenedDatabase } from "../db/database.js";
+import { openTestDatabase } from "../testing/index.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
 import { createFakeAdapter, type FakeAdapter, type FakeScript } from "../pipeline/fake-adapter.js";
 import { RepoNotFoundError } from "../repos/service.js";
@@ -44,7 +45,7 @@ let sendChat: ReturnType<
 let voice: VoiceCommandService;
 
 beforeEach(() => {
-  opened = openDatabase(":memory:");
+  opened = openTestDatabase(":memory:");
   r = createRepositories(opened.db);
   settings = createSettingsService({ settings: r.settings, tags: r.tags });
   repoId = r.repos.create({ path: "/code/app", name: "app" }).id;

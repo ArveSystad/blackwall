@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { copySeedRepoWithOrigin } from "../testing/index.js";
 import { listWorktreePaths, readBranchSync, repairWorktrees, setOriginRemote } from "./git.js";
 
 let root: string;
@@ -35,13 +36,7 @@ beforeEach(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), "blackwall-repo-git-")));
   origin = join(root, "origin.git");
   repo = join(root, "app");
-  git(root, "init", "--quiet", "--bare", "-b", "main", origin);
-  mkdirSync(repo);
-  git(repo, "init", "--quiet", "-b", "main");
-  configure(repo);
-  git(repo, "remote", "add", "origin", origin);
-  commit(repo, "README.md", "hello\n");
-  git(repo, "push", "--quiet", "origin", "main");
+  copySeedRepoWithOrigin(repo, origin, { message: "edit README.md" });
 });
 
 afterEach(() => rmSync(root, { recursive: true, force: true }));

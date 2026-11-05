@@ -1,6 +1,7 @@
 import type { QuotaState } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { openDatabase, type OpenedDatabase } from "../db/database.js";
+import type { OpenedDatabase } from "../db/database.js";
+import { openTestDatabase } from "../testing/index.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
 import { QUOTA_BACKOFF_MAX_MS, QUOTA_BACKOFF_MS, createQuotaTracker } from "./quota.js";
 
@@ -17,7 +18,7 @@ const tracker = () =>
   createQuotaTracker({ settings: r.settings, clock, onChange: (state) => changes.push(state) });
 
 beforeEach(() => {
-  opened = openDatabase(":memory:");
+  opened = openTestDatabase(":memory:");
   r = createRepositories(opened.db);
   now = new Date("2026-10-09T12:00:00Z");
   changes = [];

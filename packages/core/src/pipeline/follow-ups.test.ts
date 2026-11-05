@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { backlogItemSchema, MAX_FOLLOW_UPS, type FollowUp, type Task } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { openDatabase, type OpenedDatabase } from "../db/database.js";
+import type { OpenedDatabase } from "../db/database.js";
+import { openTestDatabase } from "../testing/index.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
 import { nextBacklogItem } from "./backlog.js";
 import { createFollowUpTasks, followUpsPromptSection, resolveFollowUps } from "./follow-ups.js";
@@ -16,7 +17,7 @@ let otherId: string;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "blackwall-follow-ups-"));
-  opened = openDatabase(dir);
+  opened = openTestDatabase(dir);
   r = createRepositories(opened.db);
   const repo = r.repos.create({ path: "/code/app", name: "app" });
   otherId = r.repos.create({ path: "/code/api", name: "api" }).id;

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -10,7 +10,8 @@ import {
 } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MissingCredentialError } from "../connections/service.js";
-import { openDatabase, type OpenedDatabase } from "../db/database.js";
+import type { OpenedDatabase } from "../db/database.js";
+import { copySeedRepoWithOrigin, openTestDatabase } from "../testing/index.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
 import { worktreePathFor } from "../git/branches.js";
 import { GitError, createGitService } from "../git/service.js";
@@ -55,21 +56,8 @@ beforeEach(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), "blackwall-delivery-")));
   originPath = join(root, "origin.git");
   repoPath = join(root, "app");
-  run(root, "init", "--quiet", "--bare", "-b", "main", originPath);
-  mkdirSync(repoPath);
-  run(repoPath, "init", "--quiet", "-b", "main");
-  for (const [key, value] of [
-    ["user.name", "Test"],
-    ["user.email", "test@example.com"],
-    ["commit.gpgsign", "false"],
-    ["core.autocrlf", "false"],
-  ] as const) {
-    run(repoPath, "config", key, value);
-  }
-  run(repoPath, "remote", "add", "origin", originPath);
-  commit(repoPath, "README.md", "hello\n", "initial");
-  run(repoPath, "push", "--quiet", "origin", "main");
-  opened = openDatabase(join(root, "data"));
+  copySeedRepoWithOrigin(repoPath, originPath);
+  opened = openTestDatabase(join(root, "data"));
   r = createRepositories(opened.db);
 });
 

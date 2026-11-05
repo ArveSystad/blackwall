@@ -17,7 +17,8 @@ import {
   type TaskCi,
 } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { openDatabase, type OpenedDatabase } from "./database.js";
+import type { OpenedDatabase } from "./database.js";
+import { openTestDatabase } from "../testing/index.js";
 import { createRepositories, type Repositories } from "./repositories.js";
 
 let dir: string;
@@ -26,7 +27,7 @@ let r: Repositories;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "blackwall-repo-"));
-  opened = openDatabase(dir);
+  opened = openTestDatabase(dir);
   r = createRepositories(opened.db);
 });
 

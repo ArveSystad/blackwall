@@ -1,10 +1,10 @@
 import {
   createRepositories,
   MemoryBackfillBusyError,
-  openDatabase,
   type OpenedDatabase,
   type Repositories,
 } from "@blackwall/core";
+import { openTestDatabase } from "@blackwall/core/testing";
 import {
   MAX_MEMORY_CHARS,
   memoryBackfillStatusSchema,
@@ -26,7 +26,7 @@ let events: ServerEvent[];
 
 beforeEach(() => {
   events = [];
-  opened = openDatabase(":memory:");
+  opened = openTestDatabase(":memory:");
   repositories = createRepositories(opened.db);
   repoId = repositories.repos.create({ path: "/code/app", name: "app" }).id;
   app = new Hono()

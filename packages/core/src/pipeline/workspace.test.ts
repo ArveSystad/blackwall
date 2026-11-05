@@ -1,9 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Repo, Task } from "@blackwall/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { copySeedRepo } from "../testing/index.js";
 import {
   GitError,
   createGitService,
@@ -603,15 +604,7 @@ describe("createWorkspaceArchiver", () => {
   beforeEach(() => {
     root = realpathSync(mkdtempSync(join(tmpdir(), "blackwall-archive-")));
     repoPath = join(root, "app");
-    mkdirSync(repoPath);
-    sh(repoPath, "init", "--quiet", "-b", "main");
-    sh(repoPath, "config", "user.name", "Test");
-    sh(repoPath, "config", "user.email", "test@example.com");
-    sh(repoPath, "config", "commit.gpgsign", "false");
-    sh(repoPath, "config", "core.autocrlf", "false");
-    writeFileSync(join(repoPath, "README.md"), "hello\n");
-    sh(repoPath, "add", "-A");
-    sh(repoPath, "commit", "--quiet", "-m", "initial");
+    copySeedRepo(repoPath);
     gitRepo = { ...repo, path: repoPath };
   });
 

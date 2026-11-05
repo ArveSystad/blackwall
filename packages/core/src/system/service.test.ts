@@ -2,7 +2,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DB_FILENAME, MIGRATIONS_DIR, openDatabase, type OpenedDatabase } from "../db/database.js";
+import { DB_FILENAME, MIGRATIONS_DIR, type OpenedDatabase } from "../db/database.js";
+import { openTestDatabase } from "../testing/index.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
 import { ARTIFACTS_DIR } from "../pipeline/artifacts.js";
 import { DatabaseBusyError, createSystemService } from "./service.js";
@@ -13,7 +14,7 @@ let r: Repositories;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "blackwall-system-"));
-  opened = openDatabase(join(dir, "data"));
+  opened = openTestDatabase(join(dir, "data"));
   r = createRepositories(opened.db);
 });
 

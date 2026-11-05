@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { copySeedRepoWithOrigin } from "../testing/index.js";
 import { branchForTask, worktreePathFor } from "./branches.js";
 import { hookOutput } from "./errors.js";
 import {
@@ -55,16 +56,7 @@ beforeEach(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), "blackwall-git-")));
   origin = join(root, "origin.git");
   repo = join(root, "app");
-  git(root, "init", "--quiet", "--bare", "-b", "main", origin);
-  mkdirSync(repo);
-  git(repo, "init", "--quiet", "-b", "main");
-  git(repo, "config", "user.name", "Test");
-  git(repo, "config", "user.email", "test@example.com");
-  git(repo, "config", "commit.gpgsign", "false");
-  git(repo, "config", "core.autocrlf", "false");
-  git(repo, "remote", "add", "origin", origin);
-  commit(repo, "README.md", "hello\n", "initial");
-  git(repo, "push", "--quiet", "origin", "main");
+  copySeedRepoWithOrigin(repo, origin);
   service = createGitService();
 });
 

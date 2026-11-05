@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MissingCredentialError, createConnectionService } from "../connections/service.js";
-import { openDatabase, type OpenedDatabase } from "../db/database.js";
+import type { OpenedDatabase } from "../db/database.js";
+import { copySeedRepo, copySeedRepoWithOrigin, openTestDatabase } from "../testing/index.js";
 import { createRepositories, type Repositories } from "../db/repositories.js";
 import { worktreePathFor } from "../git/branches.js";
 import { createInRepoClaims } from "../pipeline/workspace.js";
@@ -34,7 +35,7 @@ let service: RepoService;
 let root: string;
 
 beforeEach(() => {
-  opened = openDatabase(":memory:");
+  opened = openTestDatabase(":memory:");
   r = createRepositories(opened.db);
   const tokens = createConnectionTokens({
     store: createMemorySecretStore(),
@@ -461,6 +462,13 @@ describe("pushing main", () => {
   function cloneWithOrigin(branch = "main"): void {
     origin = join(root, "origin.git");
     path = join(root, "app");
+    if (branch === "main") {
+      copySeedRepoWithOrigin(path, origin, {
+        files: { "README.md": "README.md\n" },
+        message: "edit README.md",
+      });
+      return;
+    }
     git(root, "init", "--quiet", "--bare", "-b", branch, origin);
     mkdirSync(path);
     git(path, "init", "--quiet", "-b", branch);
@@ -818,15 +826,8 @@ describe("rename", () => {
 describe("committing from the Code view", () => {
   /** A repo on `main` with one commit, registered with the service. */
   async function committedRepo(): Promise<{ path: string; id: string }> {
-    const path = gitRepo(["app"]);
-    git(path, "symbolic-ref", "HEAD", "refs/heads/main");
-    git(path, "config", "user.name", "Test");
-    git(path, "config", "user.email", "test@example.com");
-    git(path, "config", "commit.gpgsign", "false");
-    git(path, "config", "core.autocrlf", "false");
-    writeFileSync(join(path, "README.md"), "hello\n");
-    git(path, "add", "-A");
-    git(path, "commit", "--quiet", "-m", "initial");
+    const path = join(root, "app");
+    copySeedRepo(path);
     const repo = await service.add({ path });
     return { path, id: repo.id };
   }
