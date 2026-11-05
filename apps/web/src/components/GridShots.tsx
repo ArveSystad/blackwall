@@ -9,6 +9,8 @@ import {
   type ShotEventDetail,
   type Trigger,
 } from "../shots";
+import { Spaceship } from "./Spaceship";
+import { useShips } from "./use-ships";
 import { useShots } from "./use-shots";
 
 /**
@@ -19,6 +21,10 @@ import { useShots } from "./use-shots";
  * until release, leaving the parent or the window losing focus. Each shot
  * also dispatches `SHOT_EVENT` so GridBackdrop flares and shakes the grid, and
  * kicks the crosshair cursor back (`data-recoil` on the parent for `RECOIL_MS`).
+ * Every 15–45s a ship crosses the sky above the horizon at a random depth
+ * (farther is smaller, dimmer, slower and lower; `useShips`, `.bw-ship*`);
+ * a shot on one downs it in a big yellow explosion (`.bw-ship-boom`), and a
+ * held trigger keeps firing through it.
  * Purely visual; skipped under reduced motion.
  * Blank space means the parent itself was hit: content that should not shoot
  * must be the event target (pointer events on), and overlays that should let
@@ -35,6 +41,7 @@ import { useShots } from "./use-shots";
 export function GridShots() {
   const ref = useRef<HTMLDivElement>(null);
   const { shots, fire } = useShots();
+  const { ships, booms, registerBody, strike } = useShips();
 
   useEffect(() => {
     const layer = ref.current;
@@ -45,8 +52,9 @@ export function GridShots() {
     let recoil = 0;
 
     const shoot = (x: number, y: number) => {
-      fire(x, y);
       const rect = layer.getBoundingClientRect();
+      fire(x, y);
+      strike(x, y, rect);
       const detail: ShotEventDetail = { clientX: x + rect.left, clientY: y + rect.top };
       layer.dispatchEvent(new CustomEvent(SHOT_EVENT, { bubbles: true, detail }));
       parent.dataset.recoil = "";
@@ -102,7 +110,7 @@ export function GridShots() {
       window.clearTimeout(recoil);
       delete parent.dataset.recoil;
     };
-  }, [fire]);
+  }, [fire, strike]);
 
   return (
     <div
@@ -110,6 +118,54 @@ export function GridShots() {
       className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
       aria-hidden="true"
     >
+      {ships.map((ship) => (
+        <div
+          key={ship.id}
+          className={ship.direction === "rtl" ? "bw-ship bw-ship-rtl" : "bw-ship"}
+          style={
+            {
+              "--ship-y": `${ship.y}%`,
+              "--ship-duration": `${ship.durationMs}ms`,
+              "--ship-drift": `${ship.drift}px`,
+              "--ship-scale": ship.scale,
+              "--ship-color": ship.hue,
+              opacity: ship.opacity,
+            } as CSSProperties
+          }
+        >
+          <div
+            ref={registerBody}
+            className="bw-ship-body"
+            data-ship-id={ship.id}
+            data-ship-scale={ship.scale}
+          >
+            <Spaceship lights={ship.lights} />
+          </div>
+        </div>
+      ))}
+      {booms.map((boom) => (
+        <span
+          key={boom.id}
+          className="bw-boom bw-ship-boom"
+          style={{ left: boom.x, top: boom.y, "--boom-scale": boom.scale } as CSSProperties}
+        >
+          <span className="bw-ship-boom-core" />
+          {boom.sparks.map((spark, i) => (
+            <span
+              key={i}
+              className="bw-shot-spark"
+              style={
+                {
+                  "--spark-angle": `${spark.angle}deg`,
+                  "--spark-reach": `${spark.reach}px`,
+                  "--spark-length": `${spark.length}px`,
+                  "--spark-delay": `${spark.delay}ms`,
+                } as CSSProperties
+              }
+            />
+          ))}
+        </span>
+      ))}
       {shots.map((shot) => (
         <span
           key={shot.id}

@@ -27,7 +27,7 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
    `.bw-assigned-flash` for CountPill.tsx, `.bw-running*` for RunningHeadline.tsx, `.bw-chat`/
    `.bw-chat-content` for ChatPanel.tsx, `.bw-shutter` for SettingsShutter.tsx, `.bw-decrypt*` for DecryptText.tsx,
    `.bw-status-sweep` for TaskCard.tsx, `.bw-tab-flash` for TaskView.tsx (the Agent output tab),
-   `.bw-wordmark-flicker` for Wordmark.tsx, `.bw-shot*`/`.bw-shoot` for GridShots.tsx,
+   `.bw-wordmark-flicker` for Wordmark.tsx, `.bw-shot*`/`.bw-shoot` and the passing ships' `.bw-ship*` for GridShots.tsx,
    `.bw-grid-flare`/`.bw-grid[data-kick]` for GridBackdrop.tsx's shot flare and shake, `bw-scan-wipe`/`--animate-scan-wipe` for ui/dialog.tsx), and `bw-route-wipe` with the
    `::view-transition-*(bw-route|bw-inbox|root)` rules for the route wipe (router.tsx, Inbox.tsx,
    route-transition.ts). `animate-arrive` also slides in GrillPanel.tsx answer rows that arrive
@@ -45,7 +45,8 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
    `apps/web/src/components/SettingsShutter.tsx`, `apps/web/src/components/Wordmark.tsx`,
    `apps/web/src/wordmark-flicker.ts`, `apps/web/src/components/use-wordmark-flicker.ts`,
    `apps/web/src/shots.ts`, `apps/web/src/components/use-shots.ts`,
-   `apps/web/src/components/GridShots.tsx`,
+   `apps/web/src/components/GridShots.tsx`, `apps/web/src/ships.ts`,
+   `apps/web/src/components/use-ships.ts`, `apps/web/src/components/Spaceship.tsx`,
    `apps/web/src/components/use-count-boom.ts` (detects the rise during render and keeps its timer in
    a `[boom]` effect, so StrictMode's effect replay can't strand it).
 
@@ -69,8 +70,8 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
 6. Handle reduced motion. Loops are stopped by the base rule (`animation: none !important;
    transition: none !important`). An effect whose resting state is transparent, or that would freeze
    mid-flight, goes into the components-layer `@media (prefers-reduced-motion: reduce)`
-   `display: none` list next to `.bw-laser`, `.bw-boom`, `.bw-assigned-flash`, `.bw-tab-flash`, `.bw-launch` and
-   `.bw-status-sweep`
+   `display: none` list next to `.bw-laser`, `.bw-boom`, `.bw-assigned-flash`, `.bw-tab-flash`, `.bw-launch`,
+   `.bw-status-sweep`, `.bw-ship` and `.bw-ship-boom-core`
    (modifiers of `.bw-boom`, e.g. `.bw-revive` and `.bw-assigned`, inherit it and need no entry).
    `.bw-supernova` is the exception: it keeps a static core (`::before` at `opacity: 1`) and hides
    only its ring and sparks, and JS shortens its lifetime to a brief flash. ChatPanel needs no entry:
@@ -128,7 +129,14 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
     `.bw-shot-mark` 1.5s (the longest part of a grid shot) ↔ `SHOT_MS` (1500) in `shots.ts`.
   - The recoil cursor (`.bw-shoot[data-recoil]`) ↔ `RECOIL_MS` (80) in `shots.ts`.
   - Grid shot sparks: `SPARK_*` ranges in `shots.ts` feed `.bw-shot-spark` (360ms) through inline
-    `--spark-*` vars; `AUTO_FIRE_MS` (110) is JS only (an rAF loop).
+    `--spark-*` vars; `AUTO_FIRE_MS` (110) is JS only (an rAF loop). `makeSparks` takes optional
+    `SparkRanges` (default `SHOT_SPARKS`); `.bw-shot-spark`'s colour is `--spark-color` (cyan by default).
+  - Grid ships (`ships.ts`): `.bw-ship-boom::before` 1.1s (the longest part of a ship explosion) ↔
+    `SHIP_BOOM_MS` (1100); `SHIP_DEBRIS` (count, reach, length, up to 80ms delay) ↔ the 700ms
+    `.bw-ship-boom .bw-shot-spark` override; each ship's `durationMs` ↔ its inline `--ship-duration`
+    (`bw-ship-fly`), after which `useShips` drops it off-screen; the spawn gap (`SHIP_GAP_MIN_MS`..
+    `SHIP_GAP_MAX_MS`) is JS only. `useShips`' `strike` and `registerBody` must stay stable (`[]` deps,
+    refs only): GridShots' listener effect depends on them and its cleanup ends a held trigger.
   - `.bw-grid-flare` 260ms and the `bw-grid-kick-a`/`-b` 120ms shake have no JS mirror: the flare
     remounts by `key` and rests transparent; the shake retriggers by alternating `data-kick` between
     `a` and `b` (two identical keyframes) and ends untransformed. Under reduced motion nothing fires.

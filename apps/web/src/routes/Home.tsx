@@ -185,7 +185,8 @@ function Message({
  * cannot load it says so, with Retry. Past first run, two pills at the
  * bottom count the pull requests waiting on the user's review and the issues
  * assigned to them. The grid itself is GridLayout's, behind this pane; Home
- * sets its fade. Pressing or holding on empty grid fires shots (GridShots).
+ * sets its fade. Pressing or holding on empty grid fires shots and can down
+ * passing ships (GridShots).
  */
 export function Home() {
   const tasks = useQuery(tasksQuery);

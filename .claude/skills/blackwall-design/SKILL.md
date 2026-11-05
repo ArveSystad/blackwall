@@ -126,8 +126,14 @@ Rules:
   the normal cursor. Pressing there fires a cyan shot: a star-shaped muzzle flash with glow, a bloom,
   a shock ring, sparks, a fading impact mark, a flare and slight shake of the grid lines and a
   crosshair recoil; holding auto-fires about nine shots a second. Glow is dark only (light uses the
-  darker accent with no glow, and the mark is a faint blue scorch ring). Skipped entirely under
-  reduced motion (normal cursor, nothing fires). Home only. Details in `blackwall-motion`.
+  darker accent with no glow, and the mark is a faint blue scorch ring). Every 15–45s a small
+  spaceship crosses the sky above the grid horizon at a random depth (farther is smaller, dimmer,
+  slower and lower), its hull in a palette token (`--cyan`, `--magenta`, `--st-done`, `--st-failed`,
+  `--sev-high`, `--st-interrupted`) with steady or blinking lights. A shot on it downs it in a big
+  yellow (`--st-assigned`) explosion: a core flash, a bloom, a shock ring and a heavy debris spray,
+  smaller for farther ships. Ships and explosions glow in dark only and never block clicks. Skipped
+  entirely under reduced motion (normal cursor, nothing fires, no ships). Home only. Details in
+  `blackwall-motion`.
 - Never put glow or neon on diffs, transcripts, long text, or table rows.
 - Glow is dark only. Light replaces it with a 1px border plus a 3px tinted ring (`--glow-*` handles this).
 - Chamfered surfaces (see Density and shape) keep their glow through the `--drop-glow-*` / `--drop-pop`

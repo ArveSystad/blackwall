@@ -760,6 +760,39 @@ html:active-view-transition-type(bw-route) {
   }
 }
 
+/* Grid ship (GridShots.tsx): wrapper-width plus one unscaled body, so it
+ * starts and ends fully off-screen; --ship-duration is the ship's durationMs (ships.ts). */
+@keyframes bw-ship-fly {
+  from {
+    transform: translate(0, 0);
+  }
+  to {
+    transform: translate(calc(100% + var(--ship-w)), var(--ship-drift));
+  }
+}
+
+@keyframes bw-ship-blink {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0.15;
+  }
+}
+
+@keyframes bw-ship-boom-core {
+  0% {
+    transform: scale(0.3);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+}
+
 @keyframes bw-grid-flare {
   from {
     opacity: 1;
@@ -1684,8 +1717,12 @@ html:active-view-transition-type(bw-route) {
     height: var(--spark-length);
     margin-left: -1px;
     transform-origin: 50% 100%;
-    background: linear-gradient(to top, transparent, color-mix(in oklab, var(--cyan) 60%, white));
-    filter: drop-shadow(0 0 2px var(--cyan));
+    background: linear-gradient(
+      to top,
+      transparent,
+      color-mix(in oklab, var(--spark-color, var(--cyan)) 60%, white)
+    );
+    filter: drop-shadow(0 0 2px var(--spark-color, var(--cyan)));
     opacity: 0;
     animation: bw-shot-spark 360ms ease-out var(--spark-delay) forwards;
   }
@@ -1750,6 +1787,158 @@ html:active-view-transition-type(bw-route) {
   .bw-shoot[data-firing] {
     -webkit-user-select: none;
     user-select: none;
+  }
+
+  /* ---------- grid ship (GridShots.tsx) ----------
+   * Every 15–45s (SHIP_GAP_* in ships.ts, JS only) a ship crosses the sky above
+   * the Home grid: .bw-ship is a full-width, zero-height row at --ship-y that
+   * slides one layer width plus one unscaled body (--ship-w, the SVG's width)
+   * over --ship-duration, so the body starts fully off one edge and ends fully
+   * off the other. The body scales about its centre (--ship-scale), so it stays
+   * inside its unscaled box; rtl reverses the flight and mirrors the body.
+   * useShips drops the ship after its durationMs (ships.ts), the inline
+   * --ship-duration, when it rests off-screen. Change them together.
+   */
+  .bw-ship {
+    --ship-w: 64px;
+    position: absolute;
+    left: 0;
+    top: var(--ship-y);
+    width: 100%;
+    height: 0;
+    animation: bw-ship-fly var(--ship-duration) linear forwards;
+  }
+
+  .bw-ship-rtl {
+    animation-direction: reverse;
+  }
+
+  .bw-ship-body {
+    position: absolute;
+    right: 100%;
+    top: -12px;
+    width: var(--ship-w);
+    height: 24px;
+    transform: scale(var(--ship-scale));
+    transform-origin: 50% 50%;
+    filter: drop-shadow(0 0 3px color-mix(in oklab, var(--ship-color) 55%, transparent));
+  }
+
+  .bw-ship-rtl .bw-ship-body {
+    transform: scale(calc(-1 * var(--ship-scale)), var(--ship-scale));
+  }
+
+  .bw-ship-body svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+
+  .bw-ship-hull,
+  .bw-ship-fin {
+    fill: color-mix(in oklab, var(--ship-color) 25%, var(--bg-0));
+    stroke: var(--ship-color);
+    stroke-width: 1;
+    stroke-linejoin: round;
+  }
+
+  .bw-ship-cockpit {
+    fill: color-mix(in oklab, var(--ship-color) 55%, var(--bg-0));
+    stroke: var(--ship-color);
+    stroke-width: 0.75;
+  }
+
+  .bw-ship-engine {
+    fill: color-mix(in oklab, var(--ship-color) 45%, white);
+    filter: drop-shadow(0 0 3px var(--ship-color));
+  }
+
+  .bw-ship-light {
+    fill: color-mix(in oklab, var(--ship-color) 30%, white);
+    filter: drop-shadow(0 0 2px var(--ship-color));
+  }
+
+  .bw-ship-light-blink {
+    animation: bw-ship-blink 1.2s linear var(--blink-delay, 0s) infinite;
+  }
+
+  /* A downed ship: a big yellow bloom (1.1s), a shock ring (800ms), a white-hot
+   * core flash (220ms) and a heavy spray of debris (.bw-shot-spark, 700ms after
+   * up to 80ms delay), all sized by --boom-scale (the ship's scale) and all
+   * ending transparent. Reduced motion and the light theme's bloom and ring
+   * come through .bw-boom. useShips drops it after SHIP_BOOM_MS (ships.ts): the
+   * bloom's 1.1s here. SHIP_DEBRIS (ships.ts) pairs with the 700ms sparks.
+   * Change them together.
+   */
+  .bw-ship-boom {
+    --boom-color: var(--st-assigned);
+    --boom-size: calc(36rem * var(--boom-scale, 1));
+    --boom-strength: 60%;
+    --spark-color: var(--st-assigned);
+  }
+
+  .bw-ship-boom::before,
+  .bw-ship-boom::after {
+    animation-iteration-count: 1;
+    animation-fill-mode: forwards;
+    animation-delay: 0s;
+  }
+
+  .bw-ship-boom::before {
+    animation-duration: 1.1s;
+  }
+
+  .bw-ship-boom::after {
+    width: calc(200px * var(--boom-scale, 1));
+    height: calc(200px * var(--boom-scale, 1));
+    margin: calc(-100px * var(--boom-scale, 1)) 0 0 calc(-100px * var(--boom-scale, 1));
+    border-width: 2px;
+    animation-duration: 800ms;
+  }
+
+  .bw-ship-boom-core {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: calc(120px * var(--boom-scale, 1));
+    height: calc(120px * var(--boom-scale, 1));
+    margin: calc(-60px * var(--boom-scale, 1)) 0 0 calc(-60px * var(--boom-scale, 1));
+    border-radius: 50%;
+    background: radial-gradient(
+      circle,
+      white 0 18%,
+      color-mix(in oklab, var(--st-assigned) 60%, white) 35%,
+      var(--st-assigned) 55%,
+      transparent 72%
+    );
+    filter: drop-shadow(0 0 12px color-mix(in oklab, var(--st-assigned) 80%, transparent));
+    opacity: 0;
+    animation: bw-ship-boom-core 220ms ease-out forwards;
+  }
+
+  .bw-ship-boom .bw-shot-spark {
+    width: 3px;
+    margin-left: -1.5px;
+    animation-duration: 700ms;
+  }
+
+  /* Glow is dark only. */
+  :root[data-theme="light"] .bw-ship-body,
+  :root[data-theme="light"] .bw-ship-engine,
+  :root[data-theme="light"] .bw-ship-light,
+  :root[data-theme="light"] .bw-ship-boom-core {
+    filter: none;
+  }
+
+  /* Light: the ship's colour on a light background, no white glints or core. */
+  :root[data-theme="light"] .bw-ship-engine,
+  :root[data-theme="light"] .bw-ship-light {
+    fill: var(--ship-color);
+  }
+
+  :root[data-theme="light"] .bw-ship-boom-core {
+    background: radial-gradient(circle, var(--st-assigned) 0 30%, transparent 70%);
   }
 
   /* ---------- done supernova (GridAgents.tsx) ----------
@@ -1864,7 +2053,7 @@ html:active-view-transition-type(bw-route) {
   }
 
   :root[data-theme="light"] .bw-shot-spark {
-    background: linear-gradient(to top, transparent, var(--cyan));
+    background: linear-gradient(to top, transparent, var(--spark-color, var(--cyan)));
     filter: none;
   }
 
@@ -2684,7 +2873,9 @@ html:active-view-transition-type(bw-route) {
     .bw-status-sweep,
     .bw-stage-fill,
     .bw-lock-on,
-    .bw-grid-flare {
+    .bw-grid-flare,
+    .bw-ship,
+    .bw-ship-boom-core {
       display: none;
     }
 

@@ -78,6 +78,27 @@ describe("makeSparks", () => {
     const values = [0.4, 0.2, 0.8, 0.6, 0.1, 0.3];
     expect(makeSparks(sequence(...values))).toEqual(makeSparks(sequence(...values)));
   });
+
+  it("honours custom ranges", () => {
+    const ranges = {
+      countMin: 3,
+      countMax: 4,
+      reachMin: 100,
+      reachMax: 200,
+      lengthMin: 1,
+      lengthMax: 2,
+      delayMax: 5,
+    };
+    expect(makeSparks(() => 0, ranges)).toHaveLength(3);
+    expect(makeSparks(() => 0.999, ranges)).toHaveLength(4);
+    for (const spark of makeSparks(sequence(0.1, 0.7, 0.35, 0.9, 0.05), ranges)) {
+      expect(spark.reach).toBeGreaterThanOrEqual(100);
+      expect(spark.reach).toBeLessThanOrEqual(200);
+      expect(spark.length).toBeGreaterThanOrEqual(1);
+      expect(spark.length).toBeLessThanOrEqual(2);
+      expect(spark.delay).toBeLessThanOrEqual(5);
+    }
+  });
 });
 
 describe("makeShot", () => {

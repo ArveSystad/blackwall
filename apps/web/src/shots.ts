@@ -61,16 +61,41 @@ export interface Shot {
   sparks: Spark[];
 }
 
+/** The count, reach, length and delay ranges of a spark spray. */
+export interface SparkRanges {
+  countMin: number;
+  countMax: number;
+  reachMin: number;
+  reachMax: number;
+  lengthMin: number;
+  lengthMax: number;
+  delayMax: number;
+}
+
+/** A grid shot's spark spray. */
+export const SHOT_SPARKS: SparkRanges = {
+  countMin: SPARKS_MIN,
+  countMax: SPARKS_MAX,
+  reachMin: SPARK_REACH_MIN,
+  reachMax: SPARK_REACH_MAX,
+  lengthMin: SPARK_LENGTH_MIN,
+  lengthMax: SPARK_LENGTH_MAX,
+  delayMax: SPARK_DELAY_MAX,
+};
+
 const between = (random: () => number, min: number, max: number) => min + random() * (max - min);
 
-/** A random spray of `SPARKS_MIN`..`SPARKS_MAX` sparks. */
-export function makeSparks(random: () => number = Math.random): Spark[] {
-  const count = SPARKS_MIN + Math.floor(random() * (SPARKS_MAX - SPARKS_MIN + 1));
+/** A random spray of sparks within `ranges` (a grid shot's by default). */
+export function makeSparks(
+  random: () => number = Math.random,
+  ranges: SparkRanges = SHOT_SPARKS,
+): Spark[] {
+  const count = ranges.countMin + Math.floor(random() * (ranges.countMax - ranges.countMin + 1));
   return Array.from({ length: count }, () => ({
     angle: random() * 360,
-    reach: between(random, SPARK_REACH_MIN, SPARK_REACH_MAX),
-    length: between(random, SPARK_LENGTH_MIN, SPARK_LENGTH_MAX),
-    delay: random() * SPARK_DELAY_MAX,
+    reach: between(random, ranges.reachMin, ranges.reachMax),
+    length: between(random, ranges.lengthMin, ranges.lengthMax),
+    delay: random() * ranges.delayMax,
   }));
 }
 
