@@ -429,7 +429,8 @@ repos" / "This repo", and results grouped Tasks, Backlog, Repos. Its states are 
 - **MissingTokenModal**: "Token needed for github.com". It says the token is "Stored on this machine
   only. It is never shown again", with "Save and continue". If the user cancels, the action reports
   "Cancelled: no token saved". Tokens are never displayed.
-- Every dialog opens with a 150ms left-to-right **scan-wipe**. Closing reverses it: a 120ms wipe, right to left.
+- Every dialog opens with a 150ms left-to-right **scan-wipe**, except the New task dialog, which
+  flickers in like the grid window. Closing reverses it: a 120ms wipe, right to left.
 
 ## 4. Chat
 
@@ -589,12 +590,12 @@ and JS skips the decrypt, the wordmark flicker and the chat open/close.
 | Film grain | `.bw-film-grain` | always | 0.9s `steps(1, end)` loop | dark speckles, 11% | static |
 | Film flicker | `.bw-film-flicker-a/-b` | always | 23s and 37s `steps(1, end)` loops | shallower (veil 0.2) | hidden |
 | Wordmark flicker | `.bw-wordmark-flicker` | every 30–100s | 700ms `steps(1, end)` | same | never scheduled |
-| Window flicker | `.bw-window` | task/Backlog window opens over the grid | 360ms `steps(1, end)`, opacity | same | instant |
+| Window flicker | `.bw-window` | task/Backlog window opens over the grid; New task dialog opens | 360ms `steps(1, end)`, opacity | same | instant |
 | Decrypt | `.bw-decrypt` | wordmark at load, headline number, task title | 220ms (`DECRYPT_MS`, rAF) | same | skipped |
 | Headline hover | `.bw-running-hot` | pointer near headline | 300ms opacity | darkens, no glow | instant |
 | Chat panel | `.bw-chat` | open / close | 180ms width, ease-out / ease-in; content 12px slide | same | instant |
 | Chat message | `animate-fade-in` | message appended | 150ms ease-out | same | instant |
-| Dialog open | `animate-scan-wipe` | any dialog | 150ms ease-out, left to right | same | instant |
+| Dialog open | `animate-scan-wipe` | any dialog except New task (flickers instead) | 150ms ease-out, left to right | same | instant |
 | Dialog close | `animate-scan-unwipe` | any dialog closing | 120ms ease-in, right to left | same | instant |
 | Stats bars | `animate-bar-grow` | Stats mount | 480ms `cubic-bezier(0.2, 0.8, 0.2, 1)` | ring instead of glow | instant |
 | Pushed note | `animate-pushed-glow` | Backlog push done | 1.6s ease-out glow fade | no glow | static |
@@ -610,10 +611,10 @@ A suggested 60–90 second explainer, in nine scenes. Every line of copy is real
      reads "Nothing on deck. Awaiting orders."
    - Motion: grid drift 28s, scan 12s, film grain, a 220ms decrypt.
 2. **Give an order.**
-   - Shot: press `N`; the "New task" modal scan-wipes open.
+   - Shot: press `N`; the "New task" modal flickers open.
    - On screen: Origin "Jira issue", "ABC-123", Repository, the Agents chips, then "Create task".
      The new inbox card shows its agent tiles (CC / CP / OC).
-   - Motion: the 150ms scan-wipe. When the modal closes, a cyan dot appears on the floor and the
+   - Motion: the 360ms window flicker. When the modal closes, a cyan dot appears on the floor and the
      headline decrypts "1 TASK RUNNING".
 3. **The agents have questions.**
    - Shot: the dot turns magenta and grows, and a magenta boom ripples out. Cut to the task:
