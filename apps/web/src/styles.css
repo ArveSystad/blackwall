@@ -1651,7 +1651,7 @@ html:active-view-transition-type(bw-route) {
     left: calc(50% - 1.5px);
     width: 3px;
     height: 3px;
-    border-radius: 9999px;
+    border-radius: 50%;
     background: var(--sat-color);
     box-shadow: 0 0 4px 1px color-mix(in oklab, var(--sat-color) 70%, transparent);
     opacity: 1;
@@ -1682,7 +1682,7 @@ html:active-view-transition-type(bw-route) {
     position: absolute;
     inset: -4.5px;
     border: 1px solid var(--sat-color);
-    border-radius: 9999px;
+    border-radius: 50%;
     box-shadow: 0 0 6px color-mix(in oklab, var(--sat-color) 70%, transparent);
     opacity: 0;
     animation: bw-satellite-flash 600ms ease-out forwards;
