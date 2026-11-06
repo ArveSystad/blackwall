@@ -262,8 +262,8 @@ function AgentDot({
  * task a bloom (`.bw-boom`), drawn under the dots and sharing
  * each task's pulse delay. A running sub-agent is a smaller cyan dot beside
  * its task's, with no bloom. Done tasks wait as calm green dots; Ctrl+click
- * (⌘+click on macOS) archives one through `launch`, and its dot flies off
- * toward the horizon (`.bw-launch`); the inbox's Archive all done launches
+ * (⌘+click on macOS) archives one through `launch`, and its dot dissolves
+ * in place and flickers away (`.bw-launch`); the inbox's Archive all done launches
  * every done dot at once through the same `launch`. Interrupted and failed tasks wait as
  * still gray and red dots; Ctrl+click resumes or retries one through
  * `useResumeBursts`, which booms it cyan once (`.bw-revive`, red when the
@@ -435,20 +435,13 @@ export function GridAgents({
               />
             );
           })}
-          {/* Archived done dots, flying to the horizon's centre (58%, as .bw-grid-horizon). */}
+          {/* Archived done dots, dissolving where they stood. */}
           {[...launch.launches].map(([taskId, from]) => (
             <span
               key={taskId}
               aria-hidden="true"
               className="bw-launch"
-              style={
-                {
-                  left: from.x,
-                  top: from.y,
-                  "--dx": `${size.width / 2 - from.x}px`,
-                  "--dy": `${0.58 * size.height - from.y}px`,
-                } as CSSProperties
-              }
+              style={{ left: from.x, top: from.y }}
             />
           ))}
         </>

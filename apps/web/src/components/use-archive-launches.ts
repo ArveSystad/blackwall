@@ -16,7 +16,7 @@ import { prefersReducedMotion } from "../reduced-motion";
 import { errorMessage } from "../settings-forms";
 
 /**
- * How long an archived done dot flies to the horizon; mirrors `.bw-launch` in
+ * How long an archived done dot dissolves and flickers away; mirrors `.bw-launch` in
  * styles.css. The inbox row's crumble pairs with `.bw-crumble` in crumble.ts.
  */
 export const LAUNCH_MS = 900;

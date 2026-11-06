@@ -554,8 +554,8 @@ grows and fades under it.
 - **Supernova**: as a task turns done, its dot bursts green: a 16px core flash, a 240px ring, and
   eight sparks along the grid lines (four long, four shorter diagonals). Several bursts stagger by
   80ms.
-- **Launch**: Ctrl+click on a done dot archives it. The dot flies to the centre of the horizon and
-  shrinks to nothing, speeding up into the distance. "Archive N done" in the inbox launches every
+- **Launch**: Ctrl+click on a done dot archives it. The dot swells into a fading green haze where it
+  stands, then flickers out like an archived row. "Archive N done" in the inbox dissolves every
   done dot at once.
 - **Assigned boom**: when a bottom pill's count rises from zero, a big yellow boom (44rem bloom,
   160px ring) and a yellow flash over the pill play once, then the pill settles to magenta.
@@ -581,7 +581,7 @@ and JS skips the decrypt, the wordmark flicker and the chat open/close.
 | Boom | `.bw-boom` | running / needs dot | 3.2s running, 2.8s needs, ease-out loop; 26rem bloom + 84px ring | ring only | hidden |
 | Revive | `.bw-revive` | Ctrl+click retry/resume | 1.2s once; red on failure | ring only | hidden |
 | Supernova | `.bw-supernova` | task turns done | core 150ms, ring 1.2s, sparks 700ms, 80ms stagger | no glow | static core for 300ms |
-| Launch | `.bw-launch` | archive a done dot | 900ms `cubic-bezier(0.5, 0, 0.9, 0.4)` | no glow | hidden |
+| Launch | `.bw-launch` | archive a done dot | 900ms `ease-out`, haze then opacity flicker | no glow, no haze | hidden |
 | Assigned boom | `.bw-assigned` | pill count rises from 0 | 2.4s once, yellow; 44rem bloom, 160px ring | ring only, no flash glow | hidden |
 | Grid drift | `.bw-grid-plane` | always | 28s linear loop | same | still |
 | Grid scan | `.bw-grid-scan` | always | 12s ease-in-out loop | hidden | still |
@@ -653,7 +653,7 @@ A suggested 60–90 second explainer, in nine scenes. Every line of copy is real
      pulse.
 9. **Clear the deck.**
    - Shot: Ctrl+click the green dot ("Done · Ctrl+click to archive").
-   - On screen: the dot launches toward the horizon and vanishes. The pane returns to "Nothing on
+   - On screen: the dot dissolves and flickers away. The pane returns to "Nothing on
      deck. Awaiting orders."
    - Motion: the 900ms launch.
    - End card: the wordmark on the grid, with "Agents work inside. Nothing crosses the wall without

@@ -544,13 +544,43 @@ html:active-view-transition-type(bw-route) {
   }
 }
 
-@keyframes bw-launch {
+/* An archived done dot swelling softly, then flickering out like bw-crumble. */
+@keyframes bw-dissolve {
   0% {
-    transform: translate(0, 0) scale(1);
+    transform: scale(1);
     opacity: 1;
   }
+  50% {
+    transform: scale(1.5);
+    opacity: 0.55;
+  }
+  58% {
+    opacity: 0.1;
+  }
+  66% {
+    opacity: 0.6;
+  }
+  76% {
+    opacity: 0.05;
+  }
+  86% {
+    opacity: 0.35;
+  }
   100% {
-    transform: translate(var(--dx, 0), var(--dy, 0)) scale(0.08);
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+/* Its haze (::after) spreading out and fading by halfway. */
+@keyframes bw-dissolve-haze {
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  50%,
+  100% {
+    transform: scale(3);
     opacity: 0;
   }
 }
@@ -2223,9 +2253,10 @@ html:active-view-transition-type(bw-route) {
   }
 
   /* ---------- done launch (GridAgents.tsx) ----------
-   * An archived done dot flies to the horizon's centre (--dx/--dy, set inline)
-   * and shrinks, speeding up into the distance. It ends transparent, and
-   * GridAgents drops it after LAUNCH_MS: 900ms here. Change them together.
+   * An archived done dot dissolves in place: it swells as a green haze
+   * (::after) spreads out and fades, then it flickers away like .bw-crumble.
+   * It ends transparent, and GridAgents drops it after LAUNCH_MS: 900ms here.
+   * Change them together.
    */
   .bw-launch {
     position: absolute;
@@ -2236,12 +2267,29 @@ html:active-view-transition-type(bw-route) {
     background: var(--st-done);
     filter: drop-shadow(0 0 6px var(--st-done));
     pointer-events: none;
-    animation: bw-launch 900ms cubic-bezier(0.5, 0, 0.9, 0.4) forwards;
+    animation: bw-dissolve 900ms ease-out forwards;
   }
 
-  /* Glow is dark only. */
+  .bw-launch::after {
+    content: "";
+    position: absolute;
+    inset: -8px;
+    border-radius: 50%;
+    background: radial-gradient(
+      circle,
+      color-mix(in oklab, var(--st-done) 55%, transparent),
+      transparent 70%
+    );
+    animation: bw-dissolve-haze 900ms ease-out forwards;
+  }
+
+  /* Glow and haze are dark only. */
   :root[data-theme="light"] .bw-launch {
     filter: none;
+  }
+
+  :root[data-theme="light"] .bw-launch::after {
+    display: none;
   }
 
   /* ---------- inbox and Backlog crumble (TaskCard.tsx, routes/Backlog.tsx) ----------
