@@ -5,6 +5,7 @@ import type { BacklogItemView, RepoView } from "@blackwall/shared";
 import { gridDots, runningTaskCount } from "../agent-dots";
 import { pendingCount } from "../backlog";
 import { GridAgents } from "../components/GridAgents";
+import { ReactorOutput } from "../components/GridReactors";
 import { GridShots } from "../components/GridShots";
 import { GridStars } from "../components/GridStars";
 import { IssuePill } from "../components/IssuePill";
@@ -202,7 +203,9 @@ function backlogTotals(results: UseQueryResult<BacklogItemView[]>[]): (number | 
  * Pressing or holding on empty grid fires shots and can down passing ships
  * (GridShots). With the agents up, every registered repo stands on the
  * horizon as a tower sized by its backlog (the repo skyline in GridAgents);
- * the backlogs share TopBar's queries.
+ * the backlogs share TopBar's queries. A repo whose project is running gets a
+ * reactor pylon at its tower; the output window a pylon opens lives here, so
+ * it outlives the pylon and the agents view.
  */
 export function Home() {
   const tasks = useQuery(tasksQuery);
@@ -259,6 +262,11 @@ export function Home() {
     (dots.length > 0 || launch.launches.size > 0);
   useGridFade(!showAgents);
   const create = () => setCreating(true);
+  // The Run project output a reactor pylon opened; cleared once its repo is gone.
+  const [outputRepoId, setOutputRepoId] = useState<string | null>(null);
+  if (outputRepoId && repos.data && !repos.data.some((r) => r.id === outputRepoId)) {
+    setOutputRepoId(null);
+  }
 
   return (
     <div className="bw-shoot relative z-10 flex h-full items-center justify-center overflow-auto px-6 py-10">
@@ -322,6 +330,7 @@ export function Home() {
           launch={launch}
           repos={repos.data ?? NO_REPOS}
           backlogCounts={backlogCounts}
+          onOpenOutput={setOutputRepoId}
         />
       )}
       {!firstRun && (
@@ -335,6 +344,13 @@ export function Home() {
         </div>
       )}
       <NewTaskModal open={creating} onClose={() => setCreating(false)} />
+      {outputRepoId && (
+        <ReactorOutput
+          repoId={outputRepoId}
+          repos={repos.data ?? NO_REPOS}
+          onClose={() => setOutputRepoId(null)}
+        />
+      )}
     </div>
   );
 }

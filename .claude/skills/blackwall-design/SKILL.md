@@ -108,7 +108,14 @@ Rules:
   tether up to its tower (sub-agent dots none); hovering a dot or tower brightens both, and a
   tower's card shows the repo, "N waiting", "M running" and "K need you", and clicking opens its
   backlog. The towers sit in their own `Repos` nav landmark, separate from `Active agents`; only the
-  tower boxes take pointer events, so blank sky still fires shots. "Nothing on deck. Awaiting orders." and Create task show only when nothing is
+  tower boxes take pointer events, so blank sky still fires shots. A repo whose project is running
+  (Run project) gets a small reactor pylon at its tower's foot (`GridReactors`, `reactor.ts`), in
+  the run output chip's tones: a cyan flicker while starting, a green hum with a breathing halo
+  while running, a dim fade while stopping, and a one-shot red sputter when the run fails (a clean
+  exit just vanishes). Pylons are dimmer than the dots and sit under them, in the `Repos` nav; only
+  the pylon takes pointer events. Hover or focus lights its tower and shows a card with the repo,
+  the status and the uptime; clicking opens the run's output, which Home owns, so the window
+  outlives the pylon and the agents view. "Nothing on deck. Awaiting orders." and Create task show only when nothing is
   active, with View backlog for the selected repo beside it, or "Backlog clear. Nothing queued." when nothing waits there; if the
   tasks or agents cannot load, the pane says so with Retry instead. The home grid also has a
   review-requests pill at the bottom, under the floor: magenta (count and blinking dot) while pull

@@ -19,13 +19,15 @@ import { SATELLITE_ORBIT_S, ciSatellite } from "../ci-satellite";
 import { originKey } from "../inbox";
 import { isMac } from "../keyboard";
 import { cn } from "../lib/utils";
-import { stepEventsQuery } from "../query";
+import { projectRunsQuery, stepEventsQuery } from "../query";
 import { hotRepo, layoutSkyline, repoActivity, type GridHot, type Tower } from "../skyline";
 import { GATE_REASONS, STAGE_LABELS, currentActivity, isStoppedByUser } from "../task-view";
 import { AgentTile } from "./AgentTile";
+import { GridReactors } from "./GridReactors";
 import { GridSkyline, GridTethers } from "./GridSkyline";
 import type { ArchiveLaunches } from "./use-archive-launches";
 import { useCiFlashes } from "./use-ci-flashes";
+import { useReactorSputters } from "./use-reactor-sputters";
 import { useResumeBursts } from "./use-resume-bursts";
 import { useSkyline } from "./use-skyline";
 import { useSupernovas } from "./use-supernovas";
@@ -335,6 +337,8 @@ function AgentDot({
  * main dot sends one faint tether up to its repo's tower; hovering a dot or a
  * tower lights both. The towers sit in their own `Repos` nav, a sibling of
  * this one in the same pane, and register `locateTower` through `useSkyline`.
+ * A repo whose project is running gets a reactor pylon at its tower's foot
+ * (`GridReactors`); clicking one calls `onOpenOutput`, so Home opens the output.
  * Lay it over `GridBackdrop` in a `relative` parent.
  */
 export function GridAgents({
@@ -344,6 +348,7 @@ export function GridAgents({
   launch,
   repos,
   backlogCounts,
+  onOpenOutput,
 }: {
   dots: readonly GridDot[];
   tasks: ReadonlyMap<string, Task>;
@@ -353,6 +358,8 @@ export function GridAgents({
   repos: readonly RepoView[];
   /** Open backlog items per repo id; a repo missing here counts 0. */
   backlogCounts: ReadonlyMap<string, number>;
+  /** Opens a repo's Run project output; Home owns the window, so it outlives the pylon. */
+  onOpenOutput: (repoId: string) => void;
 }) {
   const ref = useRef<HTMLElement>(null);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
@@ -396,6 +403,15 @@ export function GridAgents({
     });
     return () => setLocateTower(null);
   }, [towersById, setLocateTower]);
+
+  // Shares TopBar's cached, live runs, so the pylons make no new requests.
+  const runs = useQuery(projectRunsQuery);
+  const runsByRepo = useMemo(
+    () => new Map((runs.data ?? []).map((run) => [run.repoId, run])),
+    [runs.data],
+  );
+  const reposById = useMemo(() => new Map(repos.map((r) => [r.id, r])), [repos]);
+  const sputters = useReactorSputters(runs.data);
 
   // The dot (by its task) or tower the pointer or focus is on; leaving clears only its own.
   const [hot, setHot] = useState<GridHot>(null);
@@ -580,6 +596,16 @@ export function GridAgents({
             overlayWidth={size.width}
             hotRepoId={hotRepo(hot, tasks)}
             onHot={setRepoHot}
+          />
+          {/* After the towers, so a pylon wins clicks on a tower's foot. */}
+          <GridReactors
+            towers={towers}
+            runsByRepo={runsByRepo}
+            reposById={reposById}
+            sputters={sputters}
+            overlayWidth={size.width}
+            onHot={setRepoHot}
+            onOpenOutput={onOpenOutput}
           />
         </nav>
       )}

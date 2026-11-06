@@ -24,7 +24,8 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
    rules after it, and the commented `.bw-*` blocks in `@layer components` (`bw-grid*` for
    GridBackdrop.tsx, `.bw-stream` for TaskHeader.tsx, `.bw-laser`, `.bw-boom`,
    `.bw-revive`/`.bw-revive-failed`, `.bw-supernova` and `.bw-launch` for GridAgents.tsx, the repo
-   skyline's `.bw-tower*`, `.bw-tether` and `animate-beacon-blink` for GridSkyline.tsx, `.bw-assigned`/
+   skyline's `.bw-tower*`, `.bw-tether` and `animate-beacon-blink` for GridSkyline.tsx, the reactor pylons' `.bw-reactor*` for
+   GridReactors.tsx, `.bw-assigned`/
    `.bw-assigned-flash` for CountPill.tsx, `.bw-sign*`/`.bw-running*` for RunningSign.tsx, `.bw-chat`/
    `.bw-chat-content` for ChatPanel.tsx, `.bw-shutter` for SettingsShutter.tsx, `.bw-decrypt*` for DecryptText.tsx,
    `.bw-status-sweep` for TaskCard.tsx, `.bw-tab-flash` for TaskView.tsx (the Agent output tab),
@@ -42,6 +43,8 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
 3. Reference code: `apps/web/src/components/GridBackdrop.tsx`, `apps/web/src/components/GridAgents.tsx`,
    `apps/web/src/components/RunningSign.tsx`, `apps/web/src/routes/Stats.tsx`, `apps/web/src/routes/Backlog.tsx`, `apps/web/src/agent-dots.ts`,
    `apps/web/src/skyline.ts`, `apps/web/src/components/GridSkyline.tsx`,
+   `apps/web/src/reactor.ts`, `apps/web/src/components/GridReactors.tsx`,
+   `apps/web/src/components/use-reactor-sputters.ts`,
    `apps/web/src/components/use-archive-launches.ts`, `apps/web/src/components/use-resume-bursts.ts`,
    `apps/web/src/components/use-supernovas.ts`, `apps/web/src/components/use-status-sweeps.ts`,
    `apps/web/src/decrypt.ts`,
@@ -88,7 +91,11 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
    (`useWordmarkFlicker` never schedules one), and the base rule covers it: it is opacity only and
    rests at opacity 1, so it needs no `display: none` entry. The skyline's favourite beacon
    (`animate-beacon-blink`) is the same: opacity only, resting lit, so it stays lit under reduced
-   motion with no entry.
+   motion with no entry. The reactor pylons (`.bw-reactor`) mark run state and need no entry
+   either: each look rests at its static glow (power-up lit cyan, hum with a steady halo at scale 1,
+   power-down dim). Their crash sputter (`.bw-reactor-sputter`) rests transparent, so the
+   reduced-motion block sets it to `opacity: 1`, a static red pip that `useReactorSputters` drops
+   after `REACTOR_SPUTTER_MS`.
 7. If a duration or delay is mirrored elsewhere (another CSS rule or a TS constant), state the
    pairing in the CSS comment and next to the constant.
 8. Run the Checks.
@@ -140,7 +147,11 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
     `CHAT_PANEL_FALLBACK_MS` (it settles the presence, since `transitionend` may not come);
     `.bw-shutter` 200ms ↔ `SHUTTER_MS` (200) in `settings-shutter.ts`, with the JS fallback at
     `SHUTTER_FALLBACK_MS` (it settles the presence and releases a held open);
-    `.bw-shot-mark` 1.5s (the longest part of a grid shot) ↔ `SHOT_MS` (1500) in `shots.ts`.
+    `.bw-shot-mark` 1.5s (the longest part of a grid shot) ↔ `SHOT_MS` (1500) in `shots.ts`;
+    `.bw-reactor-sputter` 900ms ↔ `REACTOR_SPUTTER_MS` (900) in `reactor.ts`.
+  - The reactor hum halo (`.bw-reactor[data-visual="hum"]::after`, `bw-reactor-hum`) 2.4s ↔
+    `REACTOR_HUM_S` in `reactor.ts`. The hum is a static `box-shadow` on the core plus a halo that
+    animates only opacity and scale, so it needs no `box-shadow` exception.
   - The recoil cursor (`.bw-shoot[data-recoil]`) ↔ `RECOIL_MS` (80) in `shots.ts`.
   - `.bw-star-arrive` 1.2s delay ↔ `STAR_ARRIVE_DELAY_MS` (= `SUPERNOVA_MS`) in `grid-stars.ts`, so
     a new star fades in (600ms) once the done supernova ends. No drop timeout: fill `both`, ends at 1.
@@ -195,7 +206,9 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
   supernovas, status sweeps) treat the first tasks snapshot as a seed only, so a reload never fires them.
   Today's stars (`GridStars.tsx`, `nextArrivals`) follow the same rule, but seed from the first
   snapshot where the done-times query has data, not the first render, so stars that load late
-  never count as new.
+  never count as new. The reactor sputter (``key={`sputter:${repoId}:${count}`}``,
+  `use-reactor-sputters.ts`) seeds from the first loaded project runs snapshot the same way, so a
+  run that failed before the page loaded never sputters; a new run on that repo drops it at once.
 - Decrypt text (`DecryptText.tsx`, `use-decrypt.ts`, `decrypt.ts`): a one-shot glyph scramble that
   settles left to right in `DECRYPT_MS`. `useDecrypt(text, trigger)` plays on mount when the trigger
   is non-null and again on each change to a non-null value. Pass a stable trigger (an id, or a

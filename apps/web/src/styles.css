@@ -951,6 +951,86 @@ html:active-view-transition-type(bw-route) {
   }
 }
 
+/* Reactor pylons (GridReactors.tsx): each rests at its steady look under reduced motion. */
+@keyframes bw-reactor-flicker {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  8% {
+    opacity: 0.2;
+  }
+  14% {
+    opacity: 1;
+  }
+  38% {
+    opacity: 0.35;
+  }
+  44% {
+    opacity: 1;
+  }
+  52% {
+    opacity: 0.1;
+  }
+  58% {
+    opacity: 0.8;
+  }
+  80% {
+    opacity: 0.3;
+  }
+  86% {
+    opacity: 1;
+  }
+}
+
+@keyframes bw-reactor-hum {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.35);
+  }
+}
+
+@keyframes bw-reactor-fade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.25;
+  }
+}
+
+@keyframes bw-reactor-sputter {
+  0% {
+    opacity: 1;
+  }
+  12% {
+    opacity: 0.15;
+  }
+  24% {
+    opacity: 0.9;
+  }
+  38% {
+    opacity: 0.1;
+  }
+  52% {
+    opacity: 0.7;
+  }
+  66% {
+    opacity: 0.05;
+  }
+  80% {
+    opacity: 0.4;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 @keyframes bw-sign-float {
   0%,
   100% {
@@ -2543,6 +2623,96 @@ html:active-view-transition-type(bw-route) {
     opacity: 1;
   }
 
+  /* ---------- reactor pylons (GridReactors.tsx, reactor.ts) ----------
+   * A 6×9px pylon at the foot of a repo's tower while its project runs: a
+   * 1px grid-line frame round a narrow core, at 0.6 opacity so it reads
+   * dimmer than the dots (0.9 when hot). data-visual picks the look:
+   * power-up (starting) flickers the core cyan; hum (running) is a green core
+   * with a static glow and a halo (::after) breathing in opacity and scale
+   * over 2.4s = REACTOR_HUM_S; power-down (stopping) fades the core to 0.25
+   * and holds there. A crash replaces the pylon with .bw-reactor-sputter, a
+   * red pip that sputters out over 900ms = REACTOR_SPUTTER_MS, after which
+   * useReactorSputters drops it. Change them together. Only opacity and
+   * transform animate. Light drops the glow and the halo. Reduced motion
+   * rests each look at its static glow (lit cyan, steady green halo, dim)
+   * and the sputter as a static red pip until JS drops it.
+   */
+  .bw-reactor {
+    --reactor-color: var(--cyan);
+    position: relative;
+    display: block;
+    width: 6px;
+    height: 9px;
+    border: 1px solid var(--grid-line);
+    border-bottom: none;
+    opacity: 0.6;
+    transition: opacity 150ms ease-out;
+  }
+
+  .bw-reactor[data-hot] {
+    opacity: 0.9;
+  }
+
+  .bw-reactor::before {
+    content: "";
+    position: absolute;
+    inset: 1px 1px 0;
+    background: var(--reactor-color);
+  }
+
+  .bw-reactor[data-visual="power-up"]::before {
+    animation: bw-reactor-flicker 1.4s steps(1, end) infinite;
+  }
+
+  .bw-reactor[data-visual="hum"],
+  .bw-reactor[data-visual="power-down"] {
+    --reactor-color: var(--st-done);
+  }
+
+  .bw-reactor[data-visual="hum"]::before {
+    box-shadow: 0 0 4px var(--reactor-color);
+  }
+
+  /* The halo: behind the core (z-index -1 inside the pylon's own stacking context). */
+  .bw-reactor[data-visual="hum"]::after {
+    content: "";
+    position: absolute;
+    inset: -5px -6px;
+    z-index: -1;
+    border-radius: 50%;
+    background: radial-gradient(
+      closest-side,
+      color-mix(in oklab, var(--st-done) 55%, transparent),
+      transparent
+    );
+    opacity: 0.5;
+    animation: bw-reactor-hum 2.4s ease-in-out infinite;
+  }
+
+  .bw-reactor[data-visual="power-down"]::before {
+    opacity: 0.25;
+    animation: bw-reactor-fade 1.2s ease-out forwards;
+  }
+
+  .bw-reactor-sputter {
+    position: absolute;
+    pointer-events: none;
+    background: var(--st-failed);
+    box-shadow: 0 0 5px var(--st-failed);
+    opacity: 0;
+    animation: bw-reactor-sputter 900ms steps(1, end) both;
+  }
+
+  /* Glow is dark only. */
+  :root[data-theme="light"] .bw-reactor::before,
+  :root[data-theme="light"] .bw-reactor-sputter {
+    box-shadow: none;
+  }
+
+  :root[data-theme="light"] .bw-reactor::after {
+    display: none;
+  }
+
   /* ---------- inbox and Backlog crumble (TaskCard.tsx, routes/Backlog.tsx) ----------
    * An archived inbox row crumbles out: its title scrambles into glyphs left
    * to right (useEncrypt, DECRYPT_MS = 220ms), then the row flickers and falls
@@ -3271,6 +3441,11 @@ html:active-view-transition-type(bw-route) {
     }
 
     .bw-supernova::before {
+      opacity: 1;
+    }
+
+    /* A static red pip; useReactorSputters drops it after REACTOR_SPUTTER_MS. */
+    .bw-reactor-sputter {
       opacity: 1;
     }
   }
