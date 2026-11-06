@@ -15,21 +15,29 @@ export const DialogClose = DialogPrimitive.Close;
  *
  * `motion="flicker"` opens it with the `.bw-window` flicker of the grid windows instead of the
  * scan wipe (the close still unwipes); `panelClassName` restyles the panel, such as a translucent
- * `bg-modal/92` for window-like dialogs.
+ * `bg-modal/80` for window-like dialogs, and `overlayClassName` the dimming, such as a lighter
+ * `bg-overlay/60` so the shell shows through that panel.
  */
 export function DialogContent({
   className,
   panelClassName,
+  overlayClassName,
   motion = "wipe",
   children,
   ...props
 }: ComponentProps<typeof DialogPrimitive.Content> & {
   panelClassName?: string;
+  overlayClassName?: string;
   motion?: "wipe" | "flicker";
 }) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="bw-no-drag fixed inset-0 z-50 bg-overlay backdrop-blur-[2px] data-[state=closed]:animate-scan-hold" />
+      <DialogPrimitive.Overlay
+        className={cn(
+          "bw-no-drag fixed inset-0 z-50 bg-overlay backdrop-blur-[2px] data-[state=closed]:animate-scan-hold",
+          overlayClassName,
+        )}
+      />
       <DialogPrimitive.Content
         className={cn(
           "group fixed top-[calc(50%_+_var(--bw-titlebar-h)/2)] left-1/2 z-50 w-[calc(100%-32px)] max-w-[480px] -translate-x-1/2 -translate-y-1/2 drop-shadow-pop focus:outline-none data-[state=closed]:animate-scan-hold",

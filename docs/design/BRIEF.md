@@ -431,6 +431,8 @@ repos" / "This repo", and results grouped Tasks, Backlog, Repos. Its states are 
   "Cancelled: no token saved". Tokens are never displayed.
 - Every dialog opens with a 150ms left-to-right **scan-wipe**, except the New task dialog, which
   flickers in like the grid window. Closing reverses it: a 120ms wipe, right to left.
+- The New task dialog uses a lighter overlay and a slightly translucent panel, so the grid shows
+  faintly through it, and offers only the origins whose connector has a token (Blackwall always).
 
 ## 4. Chat
 

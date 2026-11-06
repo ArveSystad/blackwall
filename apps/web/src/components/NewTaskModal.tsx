@@ -77,7 +77,7 @@ import {
 } from "../task-view";
 import { AgentTile } from "./AgentTile";
 import { CheckIcon, CloseIcon, SpinnerIcon, StarIcon, WarnIcon } from "./icons";
-import { ORIGINS, PR_MODE_LABELS } from "./origins";
+import { PR_MODE_LABELS, availableOrigins } from "./origins";
 import { RepoMenuItems } from "./RepoMenuItems";
 import { Segmented } from "./Segmented";
 import { Button } from "./ui/button";
@@ -627,7 +627,10 @@ function NewTaskForm({
         r.id ===
         (chosenRepo ?? selectedRepo ?? (usableRepos.length === 1 ? usableRepos[0]!.id : null)),
     )?.defaultOrigin ?? "jira-issue";
-  const kind = item?.origin.kind ?? kindChoice ?? defaultKind;
+  const origins = availableOrigins(connections.data);
+  const wanted = item?.origin.kind ?? kindChoice ?? defaultKind;
+  // A new task falls back to free text when its default or restored origin has no connector.
+  const kind = item || origins.some((o) => o.value === wanted) ? wanted : ("free-text" as const);
   const prLookup = useOriginLookup<PullRequestLookup>(
     kind === "github-pr" ? prUrl : "",
     lookupPullRequest,
@@ -798,14 +801,14 @@ function NewTaskForm({
     }
   }
 
-  // 1 / 2 / 3 / 4 pick the origin while no text field has focus.
+  // 1 / 2 / 3 / 4 pick a shown origin while no text field has focus.
   const editing = item !== undefined;
   useWindowKeydown((event) => {
     if (!isPlainKey(event) || isTypingTarget(event.target)) return;
     const index = ["1", "2", "3", "4"].indexOf(event.key);
-    if (index === -1) return;
+    if (index === -1 || index >= origins.length) return;
     event.preventDefault();
-    setKindChoice(ORIGINS[index]!.value);
+    setKindChoice(origins[index]!.value);
   }, !editing && !stackDialog);
 
   const heading = item ? "Edit backlog item" : "New task";
@@ -858,7 +861,7 @@ function NewTaskForm({
               setKindChoice(value);
               setError(null);
             }}
-            options={ORIGINS.map(({ value, label, icon: Icon }, i) => ({
+            options={origins.map(({ value, label, icon: Icon }, i) => ({
               value,
               label: (
                 <>
@@ -882,6 +885,7 @@ function NewTaskForm({
           <Field label="Description">
             <Textarea
               rows={4}
+              className="min-h-40"
               value={freeText}
               onChange={(event) => setFreeText(event.target.value)}
             />
@@ -1002,6 +1006,7 @@ function NewTaskForm({
                 <Textarea
                   autoFocus
                   rows={4}
+                  className="min-h-40"
                   placeholder="What should the agents do? The first line becomes the title."
                   value={freeText}
                   onChange={(event) => {
@@ -1295,6 +1300,8 @@ export function NewTaskModal({
   const defaults = useQuery({ ...roleDefaultsQuery, enabled: open });
   // The form opens on the repo's default origin, so it waits for the repos too.
   const repos = useQuery({ ...reposQuery, enabled: open });
+  // And for the connections, so the origins it offers don't pop in and out.
+  const connections = useQuery({ ...connectionsQuery, enabled: open });
 
   const hosting = open && !item && !voiceDraft;
   useEffect(() => (hosting ? claimVoiceDraftHost() : undefined), [hosting]);
@@ -1327,8 +1334,13 @@ export function NewTaskModal({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && close()}>
-      <DialogContent className="max-w-[760px]" motion="flicker" panelClassName="bg-modal/92">
-        {defaults.data && repos.data ? (
+      <DialogContent
+        className="max-w-[760px]"
+        motion="flicker"
+        panelClassName="bg-modal/80"
+        overlayClassName="bg-overlay/60"
+      >
+        {defaults.data && repos.data && (connections.data || connections.isError) ? (
           <NewTaskForm
             defaults={defaults.data}
             item={item}
