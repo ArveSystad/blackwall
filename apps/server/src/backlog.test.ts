@@ -669,6 +669,31 @@ describe("stacked pull requests", () => {
     expect(events.at(-1)).toEqual({ type: "backlog.changed", payload: { repoId } });
   });
 
+  it("links the item to its stack but adds no other items with stackSiblings false", async () => {
+    const item = await create({
+      title: "Middle",
+      origin: pr(42),
+      mode: "review",
+      stackSiblings: false,
+    });
+    expect(item.origin).toEqual({ ...pr(42), stack: { prs: [41, 42, 43] } });
+    expect(item).not.toHaveProperty("stackSiblings");
+    expect(await others(item.id)).toEqual([]);
+    expect(events).toEqual([{ type: "backlog.changed", payload: { repoId } }]);
+  });
+
+  it("adds the other PRs with stackSiblings true", async () => {
+    const item = await create({
+      title: "Middle",
+      origin: pr(42),
+      mode: "review",
+      stackSiblings: true,
+    });
+    expect(
+      (await others(item.id)).map((i) => i.origin.kind === "github-pr" && i.origin.number),
+    ).toEqual([41, 43]);
+  });
+
   it("skips PRs an unarchived task or a waiting item already works on", async () => {
     repositories.tasks.create({
       title: "Bottom",

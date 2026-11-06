@@ -9,6 +9,7 @@ import type {
   MyPullRequestDetail,
   MyPullRequests,
   PullRequestLookup,
+  PullRequestStackLookup,
   RepoIssues,
   ReviewRequests,
   Task,
@@ -996,6 +997,63 @@ describe("pullRequestRoutes", () => {
   it("rejects links that are not pull requests", async () => {
     expect((await lookup("https://github.com/acme/shop/issues/1")).status).toBe(400);
     expect((await lookup(42)).status).toBe(400);
+  });
+});
+
+describe("pull request stack route", () => {
+  const setup = (fetchImpl: typeof fetch) =>
+    pullRequestRoutes({
+      connections: {
+        ...connections([ghe]),
+        resolve: () => ghe,
+      } as unknown as PullRequestRoutesOptions["connections"],
+      repos: { list: () => [] },
+      fetch: fetchImpl,
+    });
+  const stack = (routes: ReturnType<typeof setup>, url: string) =>
+    routes.request("/stack", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+  const PR = "https://acme.ghe.com/acme/shop/pull/42";
+
+  it("lists a stacked PR's stack, bottom first", async () => {
+    const res = await stack(setup(fakeStack()), PR);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual<PullRequestStackLookup>({
+      prs: [41, 42, 43].map((number) => ({
+        number,
+        title: `PR ${number}`,
+        url: `https://acme.ghe.com/acme/shop/pull/${number}`,
+      })),
+    });
+  });
+
+  it("lists nothing for a PR that is not stacked", async () => {
+    const res = await stack(setup(fakeGitHub()), PR);
+    expect(await res.json()).toEqual({ prs: [] });
+  });
+
+  it("lists nothing when GitHub fails, so adding the PR goes on", async () => {
+    const failing = vi.fn<typeof fetch>(async () =>
+      Object.defineProperty(
+        new Response(JSON.stringify({ message: "Server Error" }), {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        }),
+        "url",
+        { value: PR },
+      ),
+    );
+    const res = await stack(setup(failing), PR);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ prs: [] });
+  });
+
+  it("rejects links that are not pull requests", async () => {
+    const routes = setup(fakeStack());
+    expect((await stack(routes, "https://acme.ghe.com/acme/shop/issues/1")).status).toBe(400);
   });
 });
 

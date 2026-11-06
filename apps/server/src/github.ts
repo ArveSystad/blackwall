@@ -51,6 +51,7 @@ import {
   issueLookupInputSchema,
   mergePullRequestInputSchema,
   pullRequestLookupInputSchema,
+  pullRequestStackLookupInputSchema,
   type AssignedIssues,
   type CiCheck,
   type Finding,
@@ -61,6 +62,7 @@ import {
   type MyPullRequests,
   type PullRequestComments,
   type PullRequestLookup,
+  type PullRequestStackLookup,
   type Repo,
   type RepoIssues,
   type ReviewRequests,
@@ -665,8 +667,14 @@ export function mergeMethodsOf(
  *
  * `POST /merge`: merges the PR with the user's method, only if its head is
  * still the `sha` they saw, then finishes the blackwall tasks behind it.
- * GitHub's refusal comes back as a 409 with its message. `/detail` and
- * `/merge` answer a missing token with the token modal's error.
+ * GitHub's refusal comes back as a 409 with its message.
+ *
+ * `POST /stack`: the open PRs of a PR's stack, bottom first, so the new task
+ * form can ask whether to review the whole stack. Empty when the PR is not
+ * stacked or GitHub fails, so a failed lookup never blocks adding the item.
+ *
+ * `/detail`, `/merge` and `/stack` answer a missing token with the token
+ * modal's error.
  */
 export function pullRequestRoutes({
   connections,
@@ -711,6 +719,26 @@ export function pullRequestRoutes({
       return c.json<MyPullRequestDetail>(await readDetail(target.ref, target.client));
     } catch (error) {
       if (error instanceof GitHubError) return c.json({ error: error.message }, 502);
+      throw error;
+    }
+  });
+
+  routes.post("/stack", async (c) => {
+    const input = pullRequestStackLookupInputSchema.safeParse(await readJson(c));
+    if (!input.success) {
+      return badRequest(c, input.error.issues);
+    }
+    const target = await pullRequestClient(input.data.url);
+    if (!target) return c.json({ error: notPullRequest }, 400);
+    try {
+      const members = await findPullRequestStack(target.client, target.ref);
+      const prs =
+        members.length >= 2
+          ? members.map(({ number, title, url }) => ({ number, title, url }))
+          : [];
+      return c.json<PullRequestStackLookup>({ prs });
+    } catch (error) {
+      if (error instanceof GitHubError) return c.json<PullRequestStackLookup>({ prs: [] });
       throw error;
     }
   });

@@ -504,6 +504,24 @@ describe("in-repo tasks", () => {
 });
 
 describe("backlog item inputs", () => {
+  it("leave stackSiblings out unless given", () => {
+    const base = {
+      origin: {
+        kind: "github-pr",
+        url: "https://github.com/acme/web/pull/7",
+        owner: "acme",
+        repo: "web",
+        number: 7,
+        connectionId: null,
+      },
+      mode: "review",
+    };
+    expect(newBacklogItemInputSchema.parse(base).stackSiblings).toBeUndefined();
+    expect(newBacklogItemInputSchema.parse({ ...base, stackSiblings: false }).stackSiblings).toBe(
+      false,
+    );
+  });
+
   it("follow the repo's reference repos unless given, each once", () => {
     const base = { origin: { kind: "free-text" }, freeText: "x" };
     expect(newBacklogItemInputSchema.parse(base).referenceRepoIds).toBeNull();

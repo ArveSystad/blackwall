@@ -90,6 +90,7 @@ import { MultiSelectMenu } from "./ui/multi-select-menu";
 import { Select } from "./ui/select";
 import { SelectMenu, SelectMenuContent, SelectMenuTrigger } from "./ui/select-menu";
 import { Textarea } from "./ui/textarea";
+import { useStackChoice } from "./use-stack-choice";
 
 type Lookup<T> =
   | { state: "idle" }
@@ -463,6 +464,7 @@ function NewTaskForm({
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const withCredential = useWithCredential();
+  const { askStack, dialog: stackDialog } = useStackChoice();
   const repos = useQuery(reposQuery);
   const agents = useQuery(agentsQuery);
   const connections = useQuery(connectionsQuery);
@@ -751,10 +753,20 @@ function NewTaskForm({
       };
       const created = await withCredential(
         { label: "New task", target: originKey({ origin: resolved }) },
-        // A voice draft is created through its claim on the server, so only once.
-        () =>
-          voiceDraft ? submitVoiceDraft(voiceDraft.id, input) : createBacklogItem(repoId, input),
+        async () => {
+          const stackSiblings = await askStack(resolved);
+          if (stackSiblings === "cancel") return null;
+          const withStack = stackSiblings === undefined ? input : { ...input, stackSiblings };
+          // A voice draft is created through its claim on the server, so only once.
+          return voiceDraft
+            ? submitVoiceDraft(voiceDraft.id, withStack)
+            : createBacklogItem(repoId, withStack);
+        },
       );
+      if (!created) {
+        setSubmitting(false);
+        return;
+      }
       if (persistDraft) removeDraft(NEW_TASK_DRAFT_KEY);
       void queryClient.invalidateQueries({ queryKey: queryKeys.backlog(repoId) });
       const { taskId } = created;
@@ -789,7 +801,7 @@ function NewTaskForm({
     if (index === -1) return;
     event.preventDefault();
     setKindChoice(ORIGINS[index]!.value);
-  }, !editing);
+  }, !editing && !stackDialog);
 
   const heading = item ? "Edit backlog item" : "New task";
   const itemRepo = item && (repos.data ?? []).find((r) => r.id === item.repoId);
@@ -1245,6 +1257,7 @@ function NewTaskForm({
           </Kbd>
         </Button>
       </DialogFooter>
+      {stackDialog}
     </form>
   );
 }

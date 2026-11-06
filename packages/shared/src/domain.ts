@@ -1762,6 +1762,11 @@ export const newBacklogItemInputSchema = z
      * posted on the issue only when the item is promoted at once (`start`).
      */
     startComment: issueCommentInputSchema.optional(),
+    /**
+     * Not stored, PR items only: false links the PR to its stack but adds no
+     * Review PR items for the other PRs; omitted adds them.
+     */
+    stackSiblings: z.boolean().optional(),
   })
   .superRefine((value, ctx) => {
     checkMode(value, ctx);
@@ -1855,6 +1860,16 @@ export const pullRequestLookupSchema = z.object({
   repoId: id.nullable(),
 });
 export type PullRequestLookup = z.infer<typeof pullRequestLookupSchema>;
+
+/** Body for looking up the stack of a pull request before adding it. */
+export const pullRequestStackLookupInputSchema = z.object({ url: z.string().trim().min(1) });
+export type PullRequestStackLookupInput = z.infer<typeof pullRequestStackLookupInputSchema>;
+
+/** The open PRs of a pull request's stack, bottom first; empty when it is not stacked. */
+export const pullRequestStackLookupSchema = z.object({
+  prs: z.array(z.object({ number: z.number().int(), title: z.string(), url: z.string() })),
+});
+export type PullRequestStackLookup = z.infer<typeof pullRequestStackLookupSchema>;
 
 /** Body for looking up a pasted GitHub issue link on the new task form. */
 export const issueLookupInputSchema = z.object({ url: z.string().trim().min(1) });

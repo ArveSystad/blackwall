@@ -9,10 +9,12 @@ import { errorMessage } from "../settings-forms";
 import { SpinnerIcon } from "./icons";
 import { Button } from "./ui/button";
 import { ErrorText } from "./ui/field";
+import { useStackChoice } from "./use-stack-choice";
 
 /**
  * Adds the item with defaults to its repo's backlog; the server starts it at
- * once when that backlog runs. The row then links to what was created.
+ * once when that backlog runs. The row then links to what was created. A PR
+ * of a stack first asks whether to review the whole stack.
  */
 export function WorkOnTask({
   origin,
@@ -29,6 +31,7 @@ export function WorkOnTask({
   const withCredential = useWithCredential();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { askStack, dialog } = useStackChoice();
 
   async function work() {
     if (pending) return;
@@ -37,8 +40,18 @@ export function WorkOnTask({
     try {
       const created = await withCredential(
         { label: "Work on task", target: originKey({ origin }) },
-        () => createBacklogItem(repoId, { origin, mode, start: true }),
+        async () => {
+          const stackSiblings = await askStack(origin);
+          if (stackSiblings === "cancel") return null;
+          return createBacklogItem(repoId, {
+            origin,
+            mode,
+            start: true,
+            ...(stackSiblings === undefined ? {} : { stackSiblings }),
+          });
+        },
       );
+      if (!created) return;
       await queryClient.invalidateQueries({ queryKey: queryKeys.backlog(repoId) });
       if (created.taskId) {
         const task = await queryClient.fetchQuery(taskQuery(created.taskId));
@@ -75,6 +88,7 @@ export function WorkOnTask({
         Work on task
       </Button>
       {error && <ErrorText className="max-w-60 text-right">{error}</ErrorText>}
+      {dialog}
     </span>
   );
 }

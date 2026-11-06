@@ -32,6 +32,7 @@ import {
   pullRequestCommentsSchema,
   pullRequestRefreshSchema,
   pullRequestLookupSchema,
+  pullRequestStackLookupSchema,
   quotaStateSchema,
   repoBacklogRunnerSchema,
   repoIssuesSchema,
@@ -115,6 +116,7 @@ import {
   type NewTaskInput,
   type IssueLookup,
   type PullRequestLookup,
+  type PullRequestStackLookup,
   type QuotaState,
   type RepoBacklogRunner,
   type RepoBacklogRunnerUpdate,
@@ -273,6 +275,14 @@ export function createTask(input: NewTaskInput): Promise<Task> {
 /** Resolves a pasted PR link to a task origin and the registered repo it belongs to. */
 export function lookupPullRequest(url: string): Promise<PullRequestLookup> {
   return request("/api/pull-requests/lookup", pullRequestLookupSchema, {
+    method: "POST",
+    body: { url },
+  });
+}
+
+/** The open PRs of a PR's stack, bottom first; empty when it is not stacked or GitHub fails. */
+export function lookupPullRequestStack(url: string): Promise<PullRequestStackLookup> {
+  return request("/api/pull-requests/stack", pullRequestStackLookupSchema, {
     method: "POST",
     body: { url },
   });

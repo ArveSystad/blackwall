@@ -380,8 +380,8 @@ export type NewBacklogItemParsed = ReturnType<typeof newBacklogItemInputSchema.p
  * Adds an item to a repo's backlog, for `POST /api/repos/:repoId/backlog` and
  * voice commands. With `start` it is promoted at once when the runner would
  * start it; a failed promotion removes it again. A PR that belongs to a stack
- * is linked to it and its other open PRs get waiting Review PR items (see
- * {@link addStackSiblings}). Throws {@link BacklogInputError} for
+ * is linked to it and, unless `stackSiblings` is false, its other open PRs get
+ * waiting Review PR items (see {@link addStackSiblings}). Throws {@link BacklogInputError} for
  * dependencies that are not the repo's items.
  */
 export async function addBacklogItem(
@@ -399,7 +399,7 @@ export async function addBacklogItem(
   if (input.referenceRepoIds) {
     checkReferenceRepoIds(repos, repoId, input.referenceRepoIds);
   }
-  const { start, startComment, ...parsed } = input;
+  const { start, startComment, stackSiblings, ...parsed } = input;
   // Only the server links a PR to its stack.
   const values = { ...parsed, origin: withoutStack(parsed.origin) };
   // Everything that can fail runs before the insert, so retries add no duplicates.
@@ -431,7 +431,8 @@ export async function addBacklogItem(
   } else {
     changed();
   }
-  if (stack) {
+  // `stackSiblings: false` keeps the stack link but queues only this PR.
+  if (stack && stackSiblings !== false) {
     try {
       const added = addStackSiblings(backlogItems, tasks, { repoId, main: item, members: stack });
       // The backlog runner picks them up when the repo's runner is on.
@@ -448,8 +449,8 @@ export async function addBacklogItem(
  * promoted; `run` promotes one now through the same path as the new task
  * form, and a new item sent with `start` is promoted at once when the runner
  * would start it. A new PR item that belongs to a stack is linked to it
- * (`origin.stack`), and the stack's other open PRs get waiting Review PR
- * items (see {@link addStackSiblings}). Every change is announced as
+ * (`origin.stack`), and unless `stackSiblings` is false the stack's other
+ * open PRs get waiting Review PR items (see {@link addStackSiblings}). Every change is announced as
  * `backlog.changed` so clients refetch.
  */
 export function backlogRoutes(
