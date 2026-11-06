@@ -339,7 +339,11 @@ function DependsOnField({
   const choices = dependencyChoices(items, tasks, selfId, value);
   return (
     <div className="flex flex-col gap-1.5">
-      <span className={fieldLabel} id="backlog-depends-label">
+      <span
+        className={cn(fieldLabel, "cursor-help")}
+        id="backlog-depends-label"
+        title={DEPENDS_ON_HINT}
+      >
         Depends on <span className="font-normal text-faint">optional</span>
       </span>
       {choices.length === 0 ? (
@@ -357,9 +361,6 @@ function DependsOnField({
           filterPlaceholder="Filter items…"
         />
       )}
-      <span className="text-[11.5px] text-muted-foreground">
-        The runner starts this item only once these are done, including tasks already running.
-      </span>
     </div>
   );
 }
@@ -413,6 +414,10 @@ function ReferenceReposField({
 const IN_REPO_HINT =
   "Agents edit and commit on a task branch in your own checkout, with no worktree. If you change files while the agents are working, things may behave oddly, and your edits get committed with the task. Needs a clean folder; one such task per repo at a time.";
 
+/** Tooltip of "Depends on": what a dependency means to the runner. */
+const DEPENDS_ON_HINT =
+  "The runner starts this item only once these are done, including tasks already running.";
+
 function InRepoToggle({
   checked,
   onChange,
@@ -422,7 +427,7 @@ function InRepoToggle({
 }) {
   return (
     <label
-      className="flex cursor-pointer items-center gap-2 text-foreground-strong"
+      className="flex shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap text-foreground-strong"
       title={IN_REPO_HINT}
     >
       <input
@@ -805,6 +810,8 @@ function NewTaskForm({
 
   const heading = item ? "Edit backlog item" : "New task";
   const itemRepo = item && (repos.data ?? []).find((r) => r.id === item.repoId);
+  // A new PR task picks its mode beside the repo; otherwise the repo row spans the form.
+  const showMode = kind === "github-pr" && !item;
 
   const repoHint =
     kind === "github-pr" && prLookup.state === "ok"
@@ -831,13 +838,38 @@ function NewTaskForm({
         }
       }}
     >
-      <div className="flex items-center gap-2.5 border-b border-border px-[18px] py-3.5">
+      <div className="flex flex-wrap items-center gap-2.5 gap-y-2 border-b border-border px-[18px] py-3.5">
         <DialogTitle>{heading}</DialogTitle>
         <DialogDescription className="sr-only">
           {item
             ? "Edit a backlog item; the backlog runner starts it when the repo is idle."
             : "Create a task from a Jira issue, a pull request, a GitHub issue or a description. It starts now when the repo's backlog runs; otherwise it waits in the backlog."}
         </DialogDescription>
+        {item ? (
+          <span className="mono text-[12.5px] text-muted-foreground">
+            {originKey(item)}
+            {item.mode && ` · ${PR_MODE_LABELS[item.mode]}`}
+          </span>
+        ) : (
+          <Segmented
+            label="Origin"
+            value={kind}
+            onChange={(value) => {
+              setKindChoice(value);
+              setError(null);
+            }}
+            options={ORIGINS.map(({ value, label, icon: Icon }, i) => ({
+              value,
+              label: (
+                <>
+                  <Icon size="sm" />
+                  {label}
+                  <Kbd aria-hidden="true">{i + 1}</Kbd>
+                </>
+              ),
+            }))}
+          />
+        )}
         <span className="flex-1" />
         <Kbd aria-hidden="true">Esc</Kbd>
         <Button size="icon-sm" variant="ghost" aria-label="Close" onClick={onClose}>
@@ -846,14 +878,6 @@ function NewTaskForm({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto px-[18px] py-4">
-        {item && (
-          <Field label="Origin" group>
-            <span className="mono text-[12.5px] text-muted-foreground">
-              {originKey(item)}
-              {item.mode && ` · ${PR_MODE_LABELS[item.mode]}`}
-            </span>
-          </Field>
-        )}
         {item && kind === "free-text" && (
           <Field label="Description">
             <Textarea
@@ -865,25 +889,6 @@ function NewTaskForm({
         )}
         {!item && (
           <div className="flex flex-col gap-2">
-            <span className={fieldLabel}>Origin</span>
-            <Segmented
-              label="Origin"
-              value={kind}
-              onChange={(value) => {
-                setKindChoice(value);
-                setError(null);
-              }}
-              options={ORIGINS.map(({ value, label, icon: Icon }, i) => ({
-                value,
-                label: (
-                  <>
-                    <Icon size="sm" />
-                    {label}
-                    <Kbd aria-hidden="true">{i + 1}</Kbd>
-                  </>
-                ),
-              }))}
-            />
             {kind === "jira-issue" && (
               <>
                 <label className="flex flex-col gap-1.5">
@@ -1010,7 +1015,7 @@ function NewTaskForm({
         )}
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {kind === "github-pr" && !item && (
+          {showMode && (
             <Field label="Mode" group>
               <Segmented
                 label="Mode"
@@ -1029,39 +1034,43 @@ function NewTaskForm({
             </Field>
           )}
           {item ? (
-            <Field label="Repository" group>
-              <span className="mono text-[12.5px] text-muted-foreground">
-                {itemRepo?.name ?? item.repoId}
-              </span>
-              {inRepoOffered && <InRepoToggle checked={inRepo} onChange={setInRepoChoice} />}
+            <Field label="Repository" group className="sm:col-span-2">
+              <div className="flex items-center gap-3">
+                <span className="mono min-w-0 flex-1 truncate text-[12.5px] text-muted-foreground">
+                  {itemRepo?.name ?? item.repoId}
+                </span>
+                {inRepoOffered && <InRepoToggle checked={inRepo} onChange={setInRepoChoice} />}
+              </div>
             </Field>
           ) : (
-            <div className="flex flex-col gap-1.5">
+            <div className={cn("flex flex-col gap-1.5", !showMode && "sm:col-span-2")}>
               <label htmlFor="new-task-repo" className={fieldLabel}>
                 Repository
               </label>
-              {/* A voice draft belongs to its repo: the server creates it there. */}
-              <SelectMenu
-                value={repoId ?? ""}
-                onValueChange={setChosenRepo}
-                disabled={voiceDraft !== undefined}
-              >
-                <SelectMenuTrigger
-                  id="new-task-repo"
-                  placeholder="Choose a repo"
-                  className="mono text-[12.5px]"
-                />
-                <SelectMenuContent>
-                  <RepoMenuItems
-                    repos={usableRepos}
-                    trailing={(r) => (
-                      <span className="mono block max-w-64 truncate text-faint">{r.path}</span>
-                    )}
+              <div className="flex items-center gap-3">
+                {/* A voice draft belongs to its repo: the server creates it there. */}
+                <SelectMenu
+                  value={repoId ?? ""}
+                  onValueChange={setChosenRepo}
+                  disabled={voiceDraft !== undefined}
+                >
+                  <SelectMenuTrigger
+                    id="new-task-repo"
+                    placeholder="Choose a repo"
+                    className="mono min-w-0 flex-1 text-[12.5px]"
                   />
-                </SelectMenuContent>
-              </SelectMenu>
+                  <SelectMenuContent>
+                    <RepoMenuItems
+                      repos={usableRepos}
+                      trailing={(r) => (
+                        <span className="mono block max-w-64 truncate text-faint">{r.path}</span>
+                      )}
+                    />
+                  </SelectMenuContent>
+                </SelectMenu>
+                {inRepoOffered && <InRepoToggle checked={inRepo} onChange={setInRepoChoice} />}
+              </div>
               {repoHint && <span className="text-[11.5px] text-muted-foreground">{repoHint}</span>}
-              {inRepoOffered && <InRepoToggle checked={inRepo} onChange={setInRepoChoice} />}
               {repos.data && usableRepos.length === 0 && (
                 <span className="text-[11.5px] text-muted-foreground">
                   No repos registered.{" "}
@@ -1107,7 +1116,7 @@ function NewTaskForm({
           />
         ) : (
           <div className="flex flex-col gap-1.5">
-            <span className={fieldLabel}>
+            <span className={cn(fieldLabel, "cursor-help")} title={DEPENDS_ON_HINT}>
               Depends on <span className="font-normal text-faint">optional</span>
             </span>
             <span className="text-meta text-faint">Pick a repository first.</span>
@@ -1227,7 +1236,7 @@ function NewTaskForm({
         )}
       </div>
 
-      <DialogFooter className="justify-start px-[18px]">
+      <DialogFooter className="justify-start bg-card/40 px-[18px]">
         {error ? (
           <ErrorText>{error}</ErrorText>
         ) : (
@@ -1318,7 +1327,7 @@ export function NewTaskModal({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && close()}>
-      <DialogContent className="max-w-[680px]">
+      <DialogContent className="max-w-[760px]" motion="flicker" panelClassName="bg-modal/92">
         {defaults.data && repos.data ? (
           <NewTaskForm
             defaults={defaults.data}

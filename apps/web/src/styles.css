@@ -579,7 +579,8 @@ html:active-view-transition-type(bw-route) {
   }
 }
 
-/* The task and Backlog window flickering in: bw-crumble's opacity stutter in reverse. */
+/* The task and Backlog window, and the New task dialog, flickering in: bw-crumble's opacity
+ * stutter in reverse. */
 @keyframes bw-window-flicker {
   0% {
     opacity: 0;
@@ -1320,7 +1321,8 @@ html:active-view-transition-type(bw-route) {
 
   /* ---------- grid window (GridLayout.tsx) ----------
    * The task and Backlog window flickers into view over the grid, like an
-   * archived dot crumbling in reverse, then rests at full opacity. Plays on
+   * archived dot crumbling in reverse, then rests at full opacity. The New
+   * task dialog opens with it too (DialogContent motion="flicker"). Plays on
    * mount only; the window stays mounted between task and Backlog pages, so
    * it never replays there. 360ms has no JS mirror. Opacity only, so no light
    * override. Reduced motion: the base rule drops it, and it rests at opacity 1.

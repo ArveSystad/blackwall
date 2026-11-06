@@ -12,23 +12,39 @@ export const DialogClose = DialogPrimitive.Close;
  * in 150ms and scans closed in reverse over 120ms; the panel is clipped, so its drop shadow lives
  * on the unclipped `Content`. Radix Presence keeps `Content` and `Overlay` mounted through the
  * close via their hold animation. Under reduced motion the close is instant.
+ *
+ * `motion="flicker"` opens it with the `.bw-window` flicker of the grid windows instead of the
+ * scan wipe (the close still unwipes); `panelClassName` restyles the panel, such as a translucent
+ * `bg-modal/92` for window-like dialogs.
  */
 export function DialogContent({
   className,
+  panelClassName,
+  motion = "wipe",
   children,
   ...props
-}: ComponentProps<typeof DialogPrimitive.Content>) {
+}: ComponentProps<typeof DialogPrimitive.Content> & {
+  panelClassName?: string;
+  motion?: "wipe" | "flicker";
+}) {
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="bw-no-drag fixed inset-0 z-50 bg-overlay backdrop-blur-[2px] data-[state=closed]:animate-scan-hold" />
       <DialogPrimitive.Content
         className={cn(
           "group fixed top-[calc(50%_+_var(--bw-titlebar-h)/2)] left-1/2 z-50 w-[calc(100%-32px)] max-w-[480px] -translate-x-1/2 -translate-y-1/2 drop-shadow-pop focus:outline-none data-[state=closed]:animate-scan-hold",
+          motion === "flicker" && "bw-window",
           className,
         )}
         {...props}
       >
-        <div className="bw-chamfer animate-scan-wipe overflow-hidden group-data-[state=closed]:animate-scan-unwipe bg-modal text-foreground">
+        <div
+          className={cn(
+            "bw-chamfer overflow-hidden group-data-[state=closed]:animate-scan-unwipe bg-modal text-foreground",
+            motion === "wipe" && "animate-scan-wipe",
+            panelClassName,
+          )}
+        >
           {children}
         </div>
       </DialogPrimitive.Content>
