@@ -18,6 +18,7 @@ import { ciSummary } from "../ci";
 import { SATELLITE_ORBIT_S, ciSatellite } from "../ci-satellite";
 import { originKey } from "../inbox";
 import { isMac } from "../keyboard";
+import { packetPath } from "../data-packets";
 import { cn } from "../lib/utils";
 import { projectRunsQuery, stepEventsQuery } from "../query";
 import { hotRepo, layoutSkyline, repoActivity, type GridHot, type Tower } from "../skyline";
@@ -27,6 +28,7 @@ import { GridReactors } from "./GridReactors";
 import { GridSkyline, GridTethers } from "./GridSkyline";
 import type { ArchiveLaunches } from "./use-archive-launches";
 import { useCiFlashes } from "./use-ci-flashes";
+import { useDataPackets } from "./use-data-packets";
 import { useReactorSputters } from "./use-reactor-sputters";
 import { useResumeBursts } from "./use-resume-bursts";
 import { useSkyline } from "./use-skyline";
@@ -339,6 +341,9 @@ function AgentDot({
  * this one in the same pane, and register `locateTower` through `useSkyline`.
  * A repo whose project is running gets a reactor pylon at its tower's foot
  * (`GridReactors`); clicking one calls `onOpenOutput`, so Home opens the output.
+ * Real events in a task (a step finishing, a commit, a check, a new finding)
+ * send a data packet from its dot along the grid to its tower
+ * (`useDataPackets`, `.bw-packet`), under the dots.
  * Lay it over `GridBackdrop` in a `relative` parent.
  */
 export function GridAgents({
@@ -379,6 +384,7 @@ export function GridAgents({
   const revive = useResumeBursts(tasks);
   const supernovas = useSupernovas(tasks);
   const ciFlashes = useCiFlashes(tasks);
+  const packets = useDataPackets(tasks);
   // Lets the inbox's Archive all done launch each done dot (one per task) from its spot.
   const { setLocate } = launch;
   useEffect(() => {
@@ -458,6 +464,35 @@ export function GridAgents({
                 hot={hot}
                 launching={launch.launches}
               />
+              {/* Data packets; prefixed keys, so they never collide with the looping booms. */}
+              {[...packets].map(([id, { taskId, kind }]) => {
+                const spot = layout.get(`${taskId}:0`);
+                const task = tasks.get(taskId);
+                const tower = task && towersById.get(task.repoId);
+                if (!spot || !tower || launch.launches.has(taskId)) return null;
+                const path = packetPath(spot, tower);
+                return (
+                  <span
+                    key={id}
+                    className="bw-packet"
+                    data-kind={kind}
+                    style={
+                      {
+                        left: spot.x,
+                        top: spot.y,
+                        "--packet-dx": `${path.dx}px`,
+                        "--packet-dy": `${path.dy}px`,
+                        "--packet-x-ms": `${path.xMs}ms`,
+                        "--packet-y-ms": `${path.yMs}ms`,
+                      } as CSSProperties
+                    }
+                  >
+                    <span className="bw-packet-leg">
+                      <span className="bw-packet-core" />
+                    </span>
+                  </span>
+                );
+              })}
               {dots.map((dot) => {
                 const spot = layout.get(dot.key);
                 if (

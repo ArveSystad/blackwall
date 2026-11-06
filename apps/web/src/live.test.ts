@@ -3,6 +3,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyServerEvent,
+  createLiveEvents,
   openLiveSocket,
   reconnectDelay,
   type LiveStatus,
@@ -677,5 +678,43 @@ describe("applyServerEvent", () => {
     client.setQueryData<StepEvent[]>(queryKeys.stepEvents("s1"), []);
     applyServerEvent(client, { type: "step.event", payload: { event: entry } });
     expect(client.getQueryData(queryKeys.stepEvents("s1"))).toEqual([entry]);
+  });
+});
+
+describe("createLiveEvents", () => {
+  const event: ServerEvent = { type: "pong", payload: { id: "p1", serverTime: 0 } };
+
+  it("reaches every subscriber", () => {
+    const bus = createLiveEvents();
+    const a = vi.fn();
+    const b = vi.fn();
+    bus.subscribe(a);
+    bus.subscribe(b);
+    bus.emit(event);
+    expect(a).toHaveBeenCalledWith(event);
+    expect(b).toHaveBeenCalledWith(event);
+  });
+
+  it("stops reaching a listener once it unsubscribes", () => {
+    const bus = createLiveEvents();
+    const listener = vi.fn();
+    const unsubscribe = bus.subscribe(listener);
+    unsubscribe();
+    bus.emit(event);
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("keeps calling later listeners when one throws", () => {
+    const bus = createLiveEvents();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const later = vi.fn();
+    bus.subscribe(() => {
+      throw new Error("boom");
+    });
+    bus.subscribe(later);
+    bus.emit(event);
+    expect(later).toHaveBeenCalledWith(event);
+    expect(error).toHaveBeenCalled();
+    error.mockRestore();
   });
 });

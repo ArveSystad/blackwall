@@ -112,6 +112,39 @@ export function openLiveSocket({
   };
 }
 
+/** Hears every server event, after it is applied to the Query cache. */
+export type LiveListener = (event: ServerEvent) => void;
+
+/** An in-app feed of server events, for effects that react to events rather than data. */
+export interface LiveEvents {
+  emit(event: ServerEvent): void;
+  /** Returns the unsubscribe. */
+  subscribe(listener: LiveListener): () => void;
+}
+
+/**
+ * A listener bus for live events. Each listener runs in its own try/catch, so
+ * one that throws can't stop the others or the cache update before them.
+ */
+export function createLiveEvents(): LiveEvents {
+  const listeners = new Set<LiveListener>();
+  return {
+    emit(event) {
+      for (const listener of listeners) {
+        try {
+          listener(event);
+        } catch (error) {
+          console.error("Live event listener failed", error);
+        }
+      }
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+}
+
 function upsertTask(tasks: Task[] | undefined, task: Task): Task[] | undefined {
   if (!tasks) return tasks;
   const index = tasks.findIndex((t) => t.id === task.id);

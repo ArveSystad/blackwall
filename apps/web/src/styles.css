@@ -789,6 +789,34 @@ html:active-view-transition-type(bw-route) {
   }
 }
 
+/* Data packets (GridAgents.tsx): the sideways leg, the upward leg and the fade at the tower. */
+@keyframes bw-packet-x {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(var(--packet-dx));
+  }
+}
+
+@keyframes bw-packet-y {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(var(--packet-dy));
+  }
+}
+
+@keyframes bw-packet-fade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
 /* Grid shot (GridShots.tsx): the star flash pops and spins with --shot-angle. */
 @keyframes bw-shot-flash {
   0% {
@@ -2311,6 +2339,61 @@ html:active-view-transition-type(bw-route) {
     box-shadow: none;
   }
 
+  /* ---------- Data packets (GridAgents.tsx) ---------- */
+
+  /*
+   * A packet runs from a task's dot sideways, then up to its repo's tower
+   * (useDataPackets, packetPath in data-packets.ts). Two nested transforms make
+   * the L: the outer span moves on x over --packet-x-ms, the leg on y over
+   * --packet-y-ms after it. Both durations are set inline and add up to
+   * PACKET_TRAVEL_MS (1100ms); the core then fades over PACKET_FADE_MS
+   * (300ms), and the hook drops it after PACKET_MS. Change them together.
+   */
+  .bw-packet {
+    position: absolute;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+    --packet-color: var(--cyan);
+    animation: bw-packet-x var(--packet-x-ms) linear both;
+  }
+
+  .bw-packet[data-kind="finding"] {
+    --packet-color: var(--magenta);
+  }
+
+  .bw-packet[data-kind="check-pass"] {
+    --packet-color: var(--st-done);
+  }
+
+  .bw-packet[data-kind="check-fail"] {
+    --packet-color: var(--st-failed);
+  }
+
+  .bw-packet-leg {
+    position: absolute;
+    width: 0;
+    height: 0;
+    animation: bw-packet-y var(--packet-y-ms) linear var(--packet-x-ms) both;
+  }
+
+  /* 1100ms delay / 300ms fade = PACKET_TRAVEL_MS / PACKET_FADE_MS (data-packets.ts). */
+  .bw-packet-core {
+    position: absolute;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--packet-color);
+    transform: translate(-50%, -50%);
+    filter: drop-shadow(0 0 4px var(--packet-color));
+    animation: bw-packet-fade 300ms ease-out 1100ms both;
+  }
+
+  /* Glow is dark only. */
+  :root[data-theme="light"] .bw-packet-core {
+    filter: none;
+  }
+
   /* Glow is dark only. */
   :root[data-theme="light"] .bw-shot-flash {
     filter: none;
@@ -3416,7 +3499,8 @@ html:active-view-transition-type(bw-route) {
     .bw-lock-on,
     .bw-grid-flare,
     .bw-ship,
-    .bw-ship-boom-core {
+    .bw-ship-boom-core,
+    .bw-packet {
       display: none;
     }
 

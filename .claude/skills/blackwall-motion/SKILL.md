@@ -23,7 +23,7 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
 1. `apps/web/src/styles.css`: the `--animate-*` tokens in `@theme inline`, the `@keyframes bw-*`
    rules after it, and the commented `.bw-*` blocks in `@layer components` (`bw-grid*` for
    GridBackdrop.tsx, `.bw-stream` for TaskHeader.tsx, `.bw-laser`, `.bw-boom`,
-   `.bw-revive`/`.bw-revive-failed`, `.bw-supernova` and `.bw-launch` for GridAgents.tsx, the repo
+   `.bw-revive`/`.bw-revive-failed`, `.bw-supernova`, `.bw-packet*` and `.bw-launch` for GridAgents.tsx, the repo
    skyline's `.bw-tower*`, `.bw-tether` and `animate-beacon-blink` for GridSkyline.tsx, the reactor pylons' `.bw-reactor*` for
    GridReactors.tsx, `.bw-assigned`/
    `.bw-assigned-flash` for CountPill.tsx, `.bw-sign*`/`.bw-running*` for RunningSign.tsx, `.bw-chat`/
@@ -47,6 +47,7 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
    `apps/web/src/components/use-reactor-sputters.ts`,
    `apps/web/src/components/use-archive-launches.ts`, `apps/web/src/components/use-resume-bursts.ts`,
    `apps/web/src/components/use-supernovas.ts`, `apps/web/src/components/use-status-sweeps.ts`,
+   `apps/web/src/data-packets.ts`, `apps/web/src/components/use-data-packets.ts`,
    `apps/web/src/decrypt.ts`,
    `apps/web/src/components/use-decrypt.ts`, `apps/web/src/chat-stream.ts`,
    `apps/web/src/components/use-chat-stream.ts`, `apps/web/src/settings-shutter.ts`,
@@ -80,7 +81,8 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
    transition: none !important`). An effect whose resting state is transparent, or that would freeze
    mid-flight, goes into the components-layer `@media (prefers-reduced-motion: reduce)`
    `display: none` list next to `.bw-laser`, `.bw-boom`, `.bw-assigned-flash`, `.bw-tab-flash`, `.bw-launch`,
-   `.bw-status-sweep`, `.bw-ship` and `.bw-ship-boom-core`
+   `.bw-status-sweep`, `.bw-ship`, `.bw-ship-boom-core` and `.bw-packet` (a backstop: `useDataPackets`
+   never subscribes under reduced motion)
    (modifiers of `.bw-boom`, e.g. `.bw-revive` and `.bw-assigned`, inherit it and need no entry).
    `.bw-supernova` is the exception: it keeps a static core (`::before` at `opacity: 1`) and hides
    only its ring and sparks, and JS shortens its lifetime to a brief flash. ChatPanel needs no entry:
@@ -148,7 +150,10 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
     `.bw-shutter` 200ms ↔ `SHUTTER_MS` (200) in `settings-shutter.ts`, with the JS fallback at
     `SHUTTER_FALLBACK_MS` (it settles the presence and releases a held open);
     `.bw-shot-mark` 1.5s (the longest part of a grid shot) ↔ `SHOT_MS` (1500) in `shots.ts`;
-    `.bw-reactor-sputter` 900ms ↔ `REACTOR_SPUTTER_MS` (900) in `reactor.ts`.
+    `.bw-reactor-sputter` 900ms ↔ `REACTOR_SPUTTER_MS` (900) in `reactor.ts`;
+    `.bw-packet-core` fade delay 1100ms / fade 300ms ↔ `PACKET_TRAVEL_MS` / `PACKET_FADE_MS` in
+    `data-packets.ts`, dropped after `PACKET_MS`; the two legs' durations come in through inline
+    `--packet-x-ms`/`--packet-y-ms` (`packetPath`) and add up to `PACKET_TRAVEL_MS`.
   - The reactor hum halo (`.bw-reactor[data-visual="hum"]::after`, `bw-reactor-hum`) 2.4s ↔
     `REACTOR_HUM_S` in `reactor.ts`. The hum is a static `box-shadow` on the core plus a halo that
     animates only opacity and scale, so it needs no `box-shadow` exception.
@@ -185,7 +190,8 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
   `pointer-events-none absolute inset-0 overflow-hidden` layer, never directly in a scroll container,
   or it adds scrollable overflow (GridAgents' boom layer, Home's pill row). The skyline's tether
   svg (`GridTethers`) must stay the first child of GridAgents' boom layer, which keeps no z-index,
-  so tethers paint under every boom and dot.
+  so tethers paint under every boom and dot. Data packets (`.bw-packet`) render in the same layer
+  right after the tether svg, so they pass under the dots.
 - Retrigger a one-shot by changing its React `key` (a counter or timestamp) so it remounts, as in
   `GridAgents.tsx` (`<span key={lasers} className="bw-laser" />`), `Backlog.tsx`
   (`<span key={note.at} className="animate-pushed-glow">`) and the `GridAgents.tsx` revive booms
@@ -209,6 +215,10 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
   never count as new. The reactor sputter (``key={`sputter:${repoId}:${count}`}``,
   `use-reactor-sputters.ts`) seeds from the first loaded project runs snapshot the same way, so a
   run that failed before the page loaded never sputters; a new run on that repo drops it at once.
+- Data packets (`use-data-packets.ts`, `data-packets.ts`): fired only by live server events from the
+  `LiveEventsContext` bus (`useLiveEvent`): a step succeeding, the round's commit, a finished check, a
+  new finding; never by tool calls. Throttled to 1 per task per 2s and 6 in flight (dropped, not
+  queued), keyed `packet:<n>`. A reload never replays one, since nothing is read from history.
 - Decrypt text (`DecryptText.tsx`, `use-decrypt.ts`, `decrypt.ts`): a one-shot glyph scramble that
   settles left to right in `DECRYPT_MS`. `useDecrypt(text, trigger)` plays on mount when the trigger
   is non-null and again on each change to a non-null value. Pass a stable trigger (an id, or a
