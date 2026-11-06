@@ -23,7 +23,8 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
 1. `apps/web/src/styles.css`: the `--animate-*` tokens in `@theme inline`, the `@keyframes bw-*`
    rules after it, and the commented `.bw-*` blocks in `@layer components` (`bw-grid*` for
    GridBackdrop.tsx, `.bw-stream` for TaskHeader.tsx, `.bw-laser`, `.bw-boom`,
-   `.bw-revive`/`.bw-revive-failed`, `.bw-supernova` and `.bw-launch` for GridAgents.tsx, `.bw-assigned`/
+   `.bw-revive`/`.bw-revive-failed`, `.bw-supernova` and `.bw-launch` for GridAgents.tsx, the repo
+   skyline's `.bw-tower*`, `.bw-tether` and `animate-beacon-blink` for GridSkyline.tsx, `.bw-assigned`/
    `.bw-assigned-flash` for CountPill.tsx, `.bw-sign*`/`.bw-running*` for RunningSign.tsx, `.bw-chat`/
    `.bw-chat-content` for ChatPanel.tsx, `.bw-shutter` for SettingsShutter.tsx, `.bw-decrypt*` for DecryptText.tsx,
    `.bw-status-sweep` for TaskCard.tsx, `.bw-tab-flash` for TaskView.tsx (the Agent output tab),
@@ -39,6 +40,7 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
    Settings shutter scanline, the Home grid shot).
 3. Reference code: `apps/web/src/components/GridBackdrop.tsx`, `apps/web/src/components/GridAgents.tsx`,
    `apps/web/src/components/RunningSign.tsx`, `apps/web/src/routes/Stats.tsx`, `apps/web/src/routes/Backlog.tsx`, `apps/web/src/agent-dots.ts`,
+   `apps/web/src/skyline.ts`, `apps/web/src/components/GridSkyline.tsx`,
    `apps/web/src/components/use-archive-launches.ts`, `apps/web/src/components/use-resume-bursts.ts`,
    `apps/web/src/components/use-supernovas.ts`, `apps/web/src/components/use-status-sweeps.ts`,
    `apps/web/src/decrypt.ts`,
@@ -82,7 +84,9 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
    also skips in JS (`useDecrypt` never plays); its reduced-motion entry hides `.bw-decrypt-glyphs`
    and shows the real text as a fallback. The wordmark flicker skips in JS too
    (`useWordmarkFlicker` never schedules one), and the base rule covers it: it is opacity only and
-   rests at opacity 1, so it needs no `display: none` entry.
+   rests at opacity 1, so it needs no `display: none` entry. The skyline's favourite beacon
+   (`animate-beacon-blink`) is the same: opacity only, resting lit, so it stays lit under reduced
+   motion with no entry.
 7. If a duration or delay is mirrored elsewhere (another CSS rule or a TS constant), state the
    pairing in the CSS comment and next to the constant.
 8. Run the Checks.
@@ -156,13 +160,17 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
   - `STREAM_*` in `chat-stream.ts` are JS only (an rAF loop); no CSS mirrors them.
   - `.bw-wordmark-flicker` 700ms ↔ `WORDMARK_FLICKER_MS` (700) in `wordmark-flicker.ts`. No drop
     timeout: replay is a `key` remount, and `steps(1, end) both` ends at opacity 1.
+  - Paired positions: `HORIZON_Y` (0.58) in `agent-dots.ts` ↔ the 58% in `.bw-grid-horizon`,
+    `.bw-grid-glow` and `.bw-grid-floor`. The skyline's towers stand on it (`skyline.ts`).
   - `--animate-scan-hold` 120ms ↔ `--animate-scan-unwipe` 120ms (both in `styles.css`): the hold
     keeps the dialog's `Content` and `Overlay` mounted while the panel unwipes, so the two must
     change together.
 - Booms: `.bw-boom` modifiers set `--boom-color`, `--boom-size` and `--boom-strength` (bloom
   opacity, 22% by default; `.bw-assigned` uses 55%). A large boom must sit inside a
   `pointer-events-none absolute inset-0 overflow-hidden` layer, never directly in a scroll container,
-  or it adds scrollable overflow (GridAgents' boom layer, Home's pill row).
+  or it adds scrollable overflow (GridAgents' boom layer, Home's pill row). The skyline's tether
+  svg (`GridTethers`) must stay the first child of GridAgents' boom layer, which keeps no z-index,
+  so tethers paint under every boom and dot.
 - Retrigger a one-shot by changing its React `key` (a counter or timestamp) so it remounts, as in
   `GridAgents.tsx` (`<span key={lasers} className="bw-laser" />`), `Backlog.tsx`
   (`<span key={note.at} className="animate-pushed-glow">`) and the `GridAgents.tsx` revive booms

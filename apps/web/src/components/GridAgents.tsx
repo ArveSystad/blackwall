@@ -1,12 +1,14 @@
-import { ciNeedsYou, type Agent, type Stage, type Task } from "@blackwall/shared";
+import { ciNeedsYou, type Agent, type RepoView, type Stage, type Task } from "@blackwall/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
+  CARD_MARGIN,
   DOT_SPACING,
   PULSE_DONE_S,
   PULSE_NEEDS_S,
   PULSE_RUNNING_S,
+  cardLeft,
   layoutDots,
   pulseDelay,
   stageChanges,
@@ -18,11 +20,14 @@ import { originKey } from "../inbox";
 import { isMac } from "../keyboard";
 import { cn } from "../lib/utils";
 import { stepEventsQuery } from "../query";
+import { hotRepo, layoutSkyline, repoActivity, type GridHot, type Tower } from "../skyline";
 import { GATE_REASONS, STAGE_LABELS, currentActivity, isStoppedByUser } from "../task-view";
 import { AgentTile } from "./AgentTile";
+import { GridSkyline, GridTethers } from "./GridSkyline";
 import type { ArchiveLaunches } from "./use-archive-launches";
 import { useCiFlashes } from "./use-ci-flashes";
 import { useResumeBursts } from "./use-resume-bursts";
+import { useSkyline } from "./use-skyline";
 import { useSupernovas } from "./use-supernovas";
 
 const STATE_LABELS: Record<GridDot["state"], string> = {
@@ -34,20 +39,11 @@ const STATE_LABELS: Record<GridDot["state"], string> = {
   failed: "failed",
 };
 
-/** Card width and the margin it keeps from the overlay's edges and the dot. */
+/** Card width; it keeps `CARD_MARGIN` from the overlay's edges and the dot. */
 const CARD_WIDTH = 288;
-const CARD_MARGIN = 8;
 
 /** A supernova's spark streaks; styles.css angles each by its position. */
 const SPARKS = [0, 1, 2, 3, 4, 5, 6, 7];
-
-/** Left edge of a card of `width` above a dot at `x`: right of it if it fits, else left, else the roomier side, kept inside. */
-function cardLeft(x: number, width: number, overlayWidth: number): number {
-  const fitsRight = x + width + CARD_MARGIN <= overlayWidth;
-  const fitsLeft = x - width - CARD_MARGIN >= 0;
-  const left = fitsRight || (!fitsLeft && overlayWidth - x >= x) ? x : x - width;
-  return Math.max(CARD_MARGIN, Math.min(left, overlayWidth - CARD_MARGIN - width));
-}
 
 function stageMap(tasks: ReadonlyMap<string, Task>): Map<string, Stage | null> {
   return new Map([...tasks.values()].map((task) => [task.id, task.stage]));
@@ -66,6 +62,7 @@ function AgentDot({
   onModClick,
   waiting = false,
   ciFlash = 0,
+  onHotChange,
 }: {
   dot: GridDot;
   task: Task;
@@ -82,6 +79,8 @@ function AgentDot({
   waiting?: boolean;
   /** Bumped each time the task's CI result changes; above 0, its satellite flashes once. */
   ciFlash?: number;
+  /** Whether the pointer or focus is on the dot, so its task's tether and tower light. */
+  onHotChange: (hot: boolean) => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -140,15 +139,22 @@ function AgentDot({
             : undefined
         }
         onPointerEnter={(event) => {
-          if (event.pointerType !== "touch") setHovered(true);
+          if (event.pointerType === "touch") return;
+          setHovered(true);
+          onHotChange(true);
         }}
         onPointerLeave={() => {
           setHovered(false);
+          onHotChange(focused);
           if (!focused) setDismissed(false);
         }}
-        onFocus={() => setFocused(true)}
+        onFocus={() => {
+          setFocused(true);
+          onHotChange(true);
+        }}
         onBlur={() => {
           setFocused(false);
+          onHotChange(hovered);
           if (!hovered) setDismissed(false);
         }}
         onKeyDown={(event) => {
@@ -320,19 +326,33 @@ function AgentDot({
  * dot. A done task with CI gets a satellite circling its dot (`.bw-satellite`,
  * see `ci-satellite.ts`): cyan and blinking while CI runs, green when it
  * passed, red and blinking fast when it failed; `useCiFlashes` flashes it once
- * when the result changes. Lay it over
- * `GridBackdrop` in a `relative` parent.
+ * when the result changes.
+ *
+ * Above the horizon stands the repo skyline (`GridSkyline`, laid out by
+ * `skyline.ts`): one see-through tower per repo in `repos` order, as tall as
+ * its backlog on a log scale, with lit windows for its running (cyan) and
+ * needs-you (magenta) tasks and a beacon on a favourite's roof. Each task's
+ * main dot sends one faint tether up to its repo's tower; hovering a dot or a
+ * tower lights both. The towers sit in their own `Repos` nav, a sibling of
+ * this one in the same pane, and register `locateTower` through `useSkyline`.
+ * Lay it over `GridBackdrop` in a `relative` parent.
  */
 export function GridAgents({
   dots,
   tasks,
   agents,
   launch,
+  repos,
+  backlogCounts,
 }: {
   dots: readonly GridDot[];
   tasks: ReadonlyMap<string, Task>;
   agents: ReadonlyMap<string, Agent>;
   launch: ArchiveLaunches;
+  /** The registered repos, in the repo list's order: one tower each. */
+  repos: readonly RepoView[];
+  /** Open backlog items per repo id; a repo missing here counts 0. */
+  backlogCounts: ReadonlyMap<string, number>;
 }) {
   const ref = useRef<HTMLElement>(null);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
@@ -359,6 +379,35 @@ export function GridAgents({
     return () => setLocate(null);
   }, [layout, setLocate]);
 
+  const activity = useMemo(() => repoActivity(tasks.values()), [tasks]);
+  const towers = useMemo<Tower[]>(
+    () => (size ? layoutSkyline(repos, backlogCounts, activity, size.width, size.height) : []),
+    [repos, backlogCounts, activity, size],
+  );
+  const towersById = useMemo(() => new Map(towers.map((t) => [t.repoId, t])), [towers]);
+  // Lets effects outside the grid aim at a repo's tower.
+  const { setLocate: setLocateTower } = useSkyline();
+  useEffect(() => {
+    setLocateTower((repoId) => {
+      const tower = towersById.get(repoId);
+      return tower
+        ? { x: tower.x, top: tower.top, base: tower.base, width: tower.width }
+        : undefined;
+    });
+    return () => setLocateTower(null);
+  }, [towersById, setLocateTower]);
+
+  // The dot (by its task) or tower the pointer or focus is on; leaving clears only its own.
+  const [hot, setHot] = useState<GridHot>(null);
+  const setTaskHot = (taskId: string, on: boolean) =>
+    setHot((prev) =>
+      on ? { taskId } : prev && "taskId" in prev && prev.taskId === taskId ? null : prev,
+    );
+  const setRepoHot = (repoId: string, on: boolean) =>
+    setHot((prev) =>
+      on ? { repoId } : prev && "repoId" in prev && prev.repoId === repoId ? null : prev,
+    );
+
   // Stages seen so far, compared on each tasks update; a change fires that task's lasers.
   const [seenTasks, setSeenTasks] = useState(tasks);
   const [stages, setStages] = useState(() => stageMap(tasks));
@@ -375,140 +424,165 @@ export function GridAgents({
   }
 
   return (
-    <nav
-      ref={ref}
-      aria-label="Active agents"
-      className="pointer-events-none absolute inset-0 z-10 overflow-hidden"
-    >
-      {size && layout && (
-        <>
-          {/* Booms: keep this layer first and without a z-index, so it paints under every dot. */}
-          <div aria-hidden="true" className="absolute inset-0">
-            {dots.map((dot) => {
-              const spot = layout.get(dot.key);
-              if (
-                dot.state === "queued" ||
-                dot.state === "done" ||
-                dot.state === "interrupted" ||
-                dot.state === "failed" ||
-                dot.subagent ||
-                launch.launches.has(dot.taskId) ||
-                !tasks.has(dot.taskId) ||
-                !spot
-              )
-                return null;
-              const needs = dot.state === "needs-you";
-              const delay = pulseDelay(dot.taskId, needs ? PULSE_NEEDS_S : PULSE_RUNNING_S);
-              return (
-                <span
-                  key={dot.key}
-                  className={cn(
-                    "bw-boom",
-                    needs && "bw-boom-needs",
-                    dot.slot > 0 && "bw-boom-ring",
-                  )}
-                  style={
-                    { left: spot.x, top: spot.y, "--pulse-delay": `${delay}s` } as CSSProperties
-                  }
-                />
-              );
-            })}
-            {/* Resume and retry booms; prefixed keys, so they never collide with the looping booms. */}
-            {[...revive.bursts].map(([taskId, { count, tone }]) => {
-              const spot = layout.get(`${taskId}:0`);
-              if (!spot) return null;
-              return (
-                <span
-                  key={`revive:${taskId}:${count}`}
-                  className={cn("bw-boom bw-revive", tone === "failed" && "bw-revive-failed")}
-                  style={{ left: spot.x, top: spot.y }}
-                />
-              );
-            })}
-            {/* Done supernovas; prefixed keys, so they never collide with the looping booms. */}
-            {[...supernovas].map(([taskId, { batch, delayMs }]) => {
-              const spot = layout.get(`${taskId}:0`);
-              if (!spot || launch.launches.has(taskId)) return null;
-              return (
-                <span
-                  key={`supernova:${taskId}:${batch}`}
-                  className="bw-supernova"
-                  style={
-                    {
-                      left: spot.x,
-                      top: spot.y,
-                      "--supernova-delay": `${delayMs}ms`,
-                    } as CSSProperties
-                  }
-                >
-                  {SPARKS.map((spark) => (
-                    <span key={spark} className="bw-supernova-spark" />
-                  ))}
-                </span>
-              );
-            })}
-          </div>
-          {dots.map((dot) => {
-            const task = tasks.get(dot.taskId);
-            const spot = layout.get(dot.key);
-            if (!task || !spot || launch.launches.has(dot.taskId)) return null;
-            const period =
-              dot.state === "done"
-                ? PULSE_DONE_S
-                : dot.state === "needs-you"
-                  ? PULSE_NEEDS_S
-                  : PULSE_RUNNING_S;
-            return (
-              <AgentDot
-                key={dot.key}
-                dot={dot}
-                task={task}
-                agent={dot.agentId ? agents.get(dot.agentId) : undefined}
-                x={spot.x}
-                y={spot.y}
-                overlayWidth={size.width}
-                lasers={lasers.get(dot.taskId) ?? 0}
-                delay={pulseDelay(dot.taskId, period)}
-                onModClick={
-                  dot.state === "done"
-                    ? () => {
-                        revive.clearError();
-                        launch.archive(task, spot.x, spot.y);
-                      }
-                    : dot.state === "interrupted" || dot.state === "failed"
-                      ? () => {
-                          launch.clearError();
-                          revive.resume(task);
-                        }
-                      : undefined
-                }
-                waiting={revive.waiting.has(dot.taskId)}
-                ciFlash={ciFlashes.get(dot.taskId) ?? 0}
+    <>
+      <nav
+        ref={ref}
+        aria-label="Active agents"
+        className="pointer-events-none absolute inset-0 z-10 overflow-hidden"
+      >
+        {size && layout && (
+          <>
+            {/* Booms: keep this layer first and without a z-index, so it paints under every dot. */}
+            <div aria-hidden="true" className="absolute inset-0">
+              {/* Tethers: keep them first in this layer, so they paint under every boom and dot. */}
+              <GridTethers
+                tasks={tasks}
+                layout={layout}
+                towersById={towersById}
+                hot={hot}
+                launching={launch.launches}
               />
-            );
-          })}
-          {/* Archived done dots, dissolving where they stood. */}
-          {[...launch.launches].map(([taskId, from]) => (
-            <span
-              key={taskId}
-              aria-hidden="true"
-              className="bw-launch"
-              style={{ left: from.x, top: from.y }}
-            />
-          ))}
-        </>
-      )}
-      {(launch.error ?? revive.error) && (
-        <p
-          role="alert"
-          className="pointer-events-auto absolute inset-x-0 bottom-16 m-0 text-center text-meta text-destructive"
-        >
-          {launch.error ?? revive.error}
+              {dots.map((dot) => {
+                const spot = layout.get(dot.key);
+                if (
+                  dot.state === "queued" ||
+                  dot.state === "done" ||
+                  dot.state === "interrupted" ||
+                  dot.state === "failed" ||
+                  dot.subagent ||
+                  launch.launches.has(dot.taskId) ||
+                  !tasks.has(dot.taskId) ||
+                  !spot
+                )
+                  return null;
+                const needs = dot.state === "needs-you";
+                const delay = pulseDelay(dot.taskId, needs ? PULSE_NEEDS_S : PULSE_RUNNING_S);
+                return (
+                  <span
+                    key={dot.key}
+                    className={cn(
+                      "bw-boom",
+                      needs && "bw-boom-needs",
+                      dot.slot > 0 && "bw-boom-ring",
+                    )}
+                    style={
+                      { left: spot.x, top: spot.y, "--pulse-delay": `${delay}s` } as CSSProperties
+                    }
+                  />
+                );
+              })}
+              {/* Resume and retry booms; prefixed keys, so they never collide with the looping booms. */}
+              {[...revive.bursts].map(([taskId, { count, tone }]) => {
+                const spot = layout.get(`${taskId}:0`);
+                if (!spot) return null;
+                return (
+                  <span
+                    key={`revive:${taskId}:${count}`}
+                    className={cn("bw-boom bw-revive", tone === "failed" && "bw-revive-failed")}
+                    style={{ left: spot.x, top: spot.y }}
+                  />
+                );
+              })}
+              {/* Done supernovas; prefixed keys, so they never collide with the looping booms. */}
+              {[...supernovas].map(([taskId, { batch, delayMs }]) => {
+                const spot = layout.get(`${taskId}:0`);
+                if (!spot || launch.launches.has(taskId)) return null;
+                return (
+                  <span
+                    key={`supernova:${taskId}:${batch}`}
+                    className="bw-supernova"
+                    style={
+                      {
+                        left: spot.x,
+                        top: spot.y,
+                        "--supernova-delay": `${delayMs}ms`,
+                      } as CSSProperties
+                    }
+                  >
+                    {SPARKS.map((spark) => (
+                      <span key={spark} className="bw-supernova-spark" />
+                    ))}
+                  </span>
+                );
+              })}
+            </div>
+            {dots.map((dot) => {
+              const task = tasks.get(dot.taskId);
+              const spot = layout.get(dot.key);
+              if (!task || !spot || launch.launches.has(dot.taskId)) return null;
+              const period =
+                dot.state === "done"
+                  ? PULSE_DONE_S
+                  : dot.state === "needs-you"
+                    ? PULSE_NEEDS_S
+                    : PULSE_RUNNING_S;
+              return (
+                <AgentDot
+                  key={dot.key}
+                  dot={dot}
+                  task={task}
+                  agent={dot.agentId ? agents.get(dot.agentId) : undefined}
+                  x={spot.x}
+                  y={spot.y}
+                  overlayWidth={size.width}
+                  lasers={lasers.get(dot.taskId) ?? 0}
+                  delay={pulseDelay(dot.taskId, period)}
+                  onModClick={
+                    dot.state === "done"
+                      ? () => {
+                          revive.clearError();
+                          launch.archive(task, spot.x, spot.y);
+                        }
+                      : dot.state === "interrupted" || dot.state === "failed"
+                        ? () => {
+                            launch.clearError();
+                            revive.resume(task);
+                          }
+                        : undefined
+                  }
+                  waiting={revive.waiting.has(dot.taskId)}
+                  ciFlash={ciFlashes.get(dot.taskId) ?? 0}
+                  onHotChange={(on) => setTaskHot(dot.taskId, on)}
+                />
+              );
+            })}
+            {/* Archived done dots, dissolving where they stood. */}
+            {[...launch.launches].map(([taskId, from]) => (
+              <span
+                key={taskId}
+                aria-hidden="true"
+                className="bw-launch"
+                style={{ left: from.x, top: from.y }}
+              />
+            ))}
+          </>
+        )}
+        {(launch.error ?? revive.error) && (
+          <p
+            role="alert"
+            className="pointer-events-auto absolute inset-x-0 bottom-16 m-0 text-center text-meta text-destructive"
+          >
+            {launch.error ?? revive.error}
+          </p>
+        )}
+        <p role="status" className="sr-only">
+          {revive.announcement}
         </p>
+      </nav>
+      {size && layout && towers.length > 0 && (
+        // Under the agents nav (z-[9]), so a dot's card that reaches the sky covers the towers.
+        <nav
+          aria-label="Repos"
+          className="pointer-events-none absolute inset-0 z-[9] overflow-hidden"
+        >
+          <GridSkyline
+            towers={towers}
+            overlayWidth={size.width}
+            hotRepoId={hotRepo(hot, tasks)}
+            onHot={setRepoHot}
+          />
+        </nav>
       )}
-      <p role="status" className="sr-only">
-        {revive.announcement}
-      </p>
-    </nav>
+    </>
   );
 }

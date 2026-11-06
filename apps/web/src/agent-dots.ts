@@ -26,9 +26,30 @@ export interface GridDot {
 /** Minimum distance between dot centres: the 32px hit target plus a 4px gap. */
 export const DOT_SPACING = 36;
 
+/**
+ * The grid's horizon, as a fraction of the pane's height. Mirrors the 58% in
+ * `.bw-grid-horizon`, `.bw-grid-glow` and `.bw-grid-floor` in styles.css;
+ * change them together.
+ */
+export const HORIZON_Y = 0.58;
+
 /** The floor under the horizon (58%) that home spots fall in, as fractions of the pane. */
-const HOME_X = { min: 0.08, max: 0.92 };
+export const HOME_X = { min: 0.08, max: 0.92 };
 const HOME_Y = { min: 0.64, max: 0.9 };
+/** The margin a hover card keeps from the overlay's edges and from what it points at. */
+export const CARD_MARGIN = 8;
+
+/**
+ * Left edge of a card of `width` above something at `x`: right of it if it
+ * fits, else left, else the roomier side, kept inside the overlay.
+ */
+export function cardLeft(x: number, width: number, overlayWidth: number): number {
+  const fitsRight = x + width + CARD_MARGIN <= overlayWidth;
+  const fitsLeft = x - width - CARD_MARGIN >= 0;
+  const left = fitsRight || (!fitsLeft && overlayWidth - x >= x) ? x : x - width;
+  return Math.max(CARD_MARGIN, Math.min(left, overlayWidth - CARD_MARGIN - width));
+}
+
 /** Dot centres keep this far from the pane's left and right edges. */
 const EDGE = 16;
 

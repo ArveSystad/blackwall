@@ -351,6 +351,8 @@
   /* The home grid's running sign hovers a few pixels over the floor; rests at 0 under reduced
      motion, no JS mirror. */
   --animate-sign-float: bw-sign-float 7s ease-in-out infinite;
+  /* A favourite repo's tower beacon blinks; it rests lit under reduced motion, no JS mirror. */
+  --animate-beacon-blink: bw-beacon-blink 2.4s steps(1, end) infinite;
 }
 
 @keyframes bw-fade-in {
@@ -936,6 +938,19 @@ html:active-view-transition-type(bw-route) {
   }
 }
 
+@keyframes bw-beacon-blink {
+  0%,
+  70% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 0.15;
+  }
+  90% {
+    opacity: 1;
+  }
+}
+
 @keyframes bw-sign-float {
   0%,
   100% {
@@ -1237,6 +1252,7 @@ html:active-view-transition-type(bw-route) {
     mask-image: radial-gradient(ellipse 70% 90% at 50% 100%, #000, transparent 75%);
   }
 
+  /* The 58% here, in .bw-grid-glow and in .bw-grid-floor is HORIZON_Y in agent-dots.ts. */
   .bw-grid-horizon {
     position: absolute;
     left: 0;
@@ -2387,6 +2403,77 @@ html:active-view-transition-type(bw-route) {
 
   :root[data-theme="light"] .bw-launch::after {
     display: none;
+  }
+
+  /* ---------- repo skyline (GridSkyline.tsx) ----------
+   * One dim, see-through tower per repo on the horizon (skyline.ts lays them
+   * out), lit when its dot or tower is hot ([data-hot]). Windows are 3×4px on
+   * a 7px row pitch (ROW_PITCH in skyline.ts): faint when off, cyan for a
+   * running task, magenta for one that needs you. A favourite's roof carries
+   * a beacon that blinks (animate-beacon-blink) and rests lit under reduced
+   * motion. Tethers are 1px lines from each task's main dot to its tower.
+   */
+  .bw-tower {
+    position: relative;
+    display: block;
+    height: 100%;
+    border: 1px solid var(--grid-line);
+    border-bottom: none;
+    background: color-mix(in oklab, var(--grid-line) 18%, transparent);
+    opacity: 0.5;
+    transition: opacity 150ms ease-out;
+  }
+
+  .bw-tower[data-hot] {
+    opacity: 0.9;
+  }
+
+  .bw-tower-window {
+    position: absolute;
+    width: 3px;
+    height: 4px;
+    background: color-mix(in oklab, var(--grid-line) 60%, transparent);
+  }
+
+  .bw-tower-window[data-state="running"] {
+    background: var(--st-running);
+    box-shadow: 0 0 4px var(--st-running);
+  }
+
+  .bw-tower-window[data-state="needs-you"] {
+    background: var(--st-needs);
+    box-shadow: 0 0 4px var(--st-needs);
+  }
+
+  .bw-tower-beacon {
+    position: absolute;
+    left: 50%;
+    top: -6px;
+    width: 3px;
+    height: 3px;
+    margin-left: -1.5px;
+    border-radius: 50%;
+    background: var(--primary);
+    box-shadow: 0 0 4px var(--primary);
+  }
+
+  /* Glow is dark only. */
+  :root[data-theme="light"] .bw-tower-window,
+  :root[data-theme="light"] .bw-tower-beacon {
+    box-shadow: none;
+  }
+
+  /* 40% cyan at a quarter opacity: 10% at rest, 40% when hot. */
+  .bw-tether {
+    stroke: color-mix(in oklab, var(--cyan) 40%, transparent);
+    stroke-width: 1px;
+    vector-effect: non-scaling-stroke;
+    opacity: 0.25;
+    transition: opacity 150ms ease-out;
+  }
+
+  .bw-tether[data-hot] {
+    opacity: 1;
   }
 
   /* ---------- inbox and Backlog crumble (TaskCard.tsx, routes/Backlog.tsx) ----------

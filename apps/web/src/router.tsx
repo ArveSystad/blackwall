@@ -13,6 +13,7 @@ import { GridLayout, GridWindow } from "./components/GridLayout";
 import { Inbox } from "./components/Inbox";
 import { NotFound } from "./components/NotFound";
 import { SearchPalette } from "./components/SearchPalette";
+import { SkylineProvider } from "./components/SkylineProvider";
 import { SettingsShutter } from "./components/SettingsShutter";
 import { TopBar } from "./components/TopBar";
 import { useVoiceActions } from "./components/use-voice-actions";
@@ -73,14 +74,16 @@ const shellRoute = createRoute({
   id: "shell",
   component: () => (
     <ArchiveLaunchesProvider>
-      <div className="flex h-full min-w-0">
-        <Inbox />
-        <main className="flex h-full min-w-0 flex-1 flex-col bg-background">
-          <div className="min-h-0 flex-1">
-            <Outlet />
-          </div>
-        </main>
-      </div>
+      <SkylineProvider>
+        <div className="flex h-full min-w-0">
+          <Inbox />
+          <main className="flex h-full min-w-0 flex-1 flex-col bg-background">
+            <div className="min-h-0 flex-1">
+              <Outlet />
+            </div>
+          </main>
+        </div>
+      </SkylineProvider>
     </ArchiveLaunchesProvider>
   ),
 });

@@ -1,6 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState, type ReactNode } from "react";
+import type { BacklogItemView, RepoView } from "@blackwall/shared";
 import { gridDots, runningTaskCount } from "../agent-dots";
 import { pendingCount } from "../backlog";
 import { GridAgents } from "../components/GridAgents";
@@ -26,6 +27,9 @@ import {
   tasksQuery,
 } from "../query";
 import { resolveSelectedRepo, useSelectedRepoId } from "../selected-repo";
+
+/** No repos yet: one shared empty list, so the skyline's layout stays memoized. */
+const NO_REPOS: readonly RepoView[] = [];
 
 function SetupStep({
   number,
@@ -176,6 +180,11 @@ function Message({
   );
 }
 
+/** Each repo's open backlog count, or undefined until it loads; stable, so useQueries memoizes it. */
+function backlogTotals(results: UseQueryResult<BacklogItemView[]>[]): (number | undefined)[] {
+  return results.map((result) => (result.data ? pendingCount(result.data) : undefined));
+}
+
 /**
  * Main pane with no task selected: first-run setup, or the active agents, the
  * done tasks waiting to be archived and the interrupted and failed tasks
@@ -188,7 +197,9 @@ function Message({
  * sets its fade. Once the counts load, a neon sign left of centre shows the
  * running tasks and active agents (RunningSign), dimmed with the fade.
  * Pressing or holding on empty grid fires shots and can down passing ships
- * (GridShots).
+ * (GridShots). With the agents up, every registered repo stands on the
+ * horizon as a tower sized by its backlog (the repo skyline in GridAgents);
+ * the backlogs share TopBar's queries.
  */
 export function Home() {
   const tasks = useQuery(tasksQuery);
@@ -197,6 +208,20 @@ export function Home() {
   const repos = useQuery(reposQuery);
   const repo = resolveSelectedRepo(useSelectedRepoId(), repos.data);
   const backlog = useQuery({ ...backlogQuery(repo?.id ?? ""), enabled: !!repo });
+  // The same queries as TopBar's picker counts, so the skyline makes no new requests.
+  const usable = useMemo(() => (repos.data ?? []).filter((r) => r.exists), [repos.data]);
+  const totals = useQueries({
+    queries: usable.map((r) => backlogQuery(r.id)),
+    combine: backlogTotals,
+  });
+  const backlogCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    usable.forEach((r, index) => {
+      const total = totals[index];
+      if (total !== undefined) counts.set(r.id, total);
+    });
+    return counts;
+  }, [usable, totals]);
   const firstRun = tasks.data?.length === 0;
   const [creating, setCreating] = useState(false);
   const launch = useArchive();
@@ -284,7 +309,14 @@ export function Home() {
           }
         />
       ) : (
-        <GridAgents dots={dots} tasks={taskById} agents={library} launch={launch} />
+        <GridAgents
+          dots={dots}
+          tasks={taskById}
+          agents={library}
+          launch={launch}
+          repos={repos.data ?? NO_REPOS}
+          backlogCounts={backlogCounts}
+        />
       )}
       {!firstRun && (
         // Clips the pills' assigned boom to the pane, so it never scrolls it (like GridAgents).

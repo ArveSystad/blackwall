@@ -2,6 +2,8 @@ import type { ActiveAgentStep, Stage } from "@blackwall/shared";
 import { describe, expect, it } from "vitest";
 import {
   activeAgentsSuffix,
+  CARD_MARGIN,
+  cardLeft,
   DOT_SPACING,
   doneTransitions,
   dotPosition,
@@ -425,5 +427,20 @@ describe("pulseDelay", () => {
 
   it("is shared by a task's dots", () => {
     expect(pulseDelay("task-a", PULSE_NEEDS_S)).toBe(pulseDelay("task-a", PULSE_NEEDS_S));
+  });
+});
+
+describe("cardLeft", () => {
+  it("puts the card right of the point when it fits", () => {
+    expect(cardLeft(100, 200, 1000)).toBe(100);
+  });
+
+  it("flips the card left of the point near the right edge", () => {
+    expect(cardLeft(900, 200, 1000)).toBe(700);
+  });
+
+  it("keeps the card inside a narrow overlay", () => {
+    expect(cardLeft(150, 200, 300)).toBe(300 - CARD_MARGIN - 200);
+    expect(cardLeft(250, 280, 300)).toBe(CARD_MARGIN);
   });
 });
