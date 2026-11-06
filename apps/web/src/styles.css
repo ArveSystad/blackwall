@@ -718,6 +718,36 @@ html:active-view-transition-type(bw-route) {
   }
 }
 
+@keyframes bw-satellite-orbit {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes bw-satellite-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.2;
+  }
+}
+
+@keyframes bw-satellite-flash {
+  0% {
+    transform: scale(0.3);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
 /* Fills by ~250ms of 600ms, then fades back to the faint track. */
 @keyframes bw-stage-fill {
   0% {
@@ -1595,6 +1625,73 @@ html:active-view-transition-type(bw-route) {
   /* Glow is dark only. */
   :root[data-theme="light"] .bw-hex {
     filter: none;
+  }
+
+  /* ---------- CI satellite (GridAgents.tsx, ci-satellite.ts) ----------
+   * A 3px pip circling a done dot with CI, 13px from its centre: inside the
+   * Link's 32px hit circle, outside the hex outline. pointer-events: none, so
+   * the Link stays the only hit target. The orbit rotates the wrapper; the
+   * pip blinks. Orbit periods 6s/12s/6s = SATELLITE_ORBIT_S, phased by
+   * --satellite-delay (pulseDelay, set inline); .bw-satellite-flash 600ms =
+   * SATELLITE_FLASH_MS, dropped by useCiFlashes' timeout. Change them together.
+   * Light drops the glow; reduced motion keeps a still pip at the top.
+   */
+  .bw-satellite {
+    --sat-color: var(--st-running);
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    animation: bw-satellite-orbit 6s linear infinite;
+    animation-delay: var(--satellite-delay, 0s);
+  }
+
+  .bw-satellite-pip {
+    position: absolute;
+    top: calc(50% - 13px - 1.5px);
+    left: calc(50% - 1.5px);
+    width: 3px;
+    height: 3px;
+    border-radius: 9999px;
+    background: var(--sat-color);
+    box-shadow: 0 0 4px 1px color-mix(in oklab, var(--sat-color) 70%, transparent);
+    opacity: 1;
+    animation: bw-satellite-blink 1.6s ease-in-out infinite;
+  }
+
+  .bw-satellite-passed {
+    --sat-color: var(--st-done);
+    animation-duration: 12s;
+  }
+
+  /* A few blinks on arrival, then a steady pip. */
+  .bw-satellite-passed .bw-satellite-pip {
+    animation-duration: 0.4s;
+    animation-iteration-count: 3;
+  }
+
+  .bw-satellite-failed {
+    --sat-color: var(--st-failed);
+  }
+
+  .bw-satellite-failed .bw-satellite-pip {
+    animation-duration: 0.6s;
+  }
+
+  /* One ring off the pip when the CI result changes. */
+  .bw-satellite-flash {
+    position: absolute;
+    inset: -4.5px;
+    border: 1px solid var(--sat-color);
+    border-radius: 9999px;
+    box-shadow: 0 0 6px color-mix(in oklab, var(--sat-color) 70%, transparent);
+    opacity: 0;
+    animation: bw-satellite-flash 600ms ease-out forwards;
+  }
+
+  /* Glow is dark only. */
+  :root[data-theme="light"] .bw-satellite-pip,
+  :root[data-theme="light"] .bw-satellite-flash {
+    box-shadow: none;
   }
 
   /* ---------- agent boom (GridAgents.tsx) ----------
@@ -2984,6 +3081,7 @@ html:active-view-transition-type(bw-route) {
     .bw-laser,
     .bw-boom,
     .bw-hex-pulse,
+    .bw-satellite-flash,
     .bw-assigned-flash,
     .bw-tab-flash,
     .bw-launch,

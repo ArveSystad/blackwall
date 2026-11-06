@@ -1,4 +1,4 @@
-import type { Agent, Stage, Task } from "@blackwall/shared";
+import { ciNeedsYou, type Agent, type Stage, type Task } from "@blackwall/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from "react";
@@ -12,6 +12,8 @@ import {
   stageChanges,
   type GridDot,
 } from "../agent-dots";
+import { ciSummary } from "../ci";
+import { SATELLITE_ORBIT_S, ciSatellite } from "../ci-satellite";
 import { originKey } from "../inbox";
 import { isMac } from "../keyboard";
 import { cn } from "../lib/utils";
@@ -19,6 +21,7 @@ import { stepEventsQuery } from "../query";
 import { GATE_REASONS, STAGE_LABELS, currentActivity, isStoppedByUser } from "../task-view";
 import { AgentTile } from "./AgentTile";
 import type { ArchiveLaunches } from "./use-archive-launches";
+import { useCiFlashes } from "./use-ci-flashes";
 import { useResumeBursts } from "./use-resume-bursts";
 import { useSupernovas } from "./use-supernovas";
 
@@ -62,6 +65,7 @@ function AgentDot({
   delay,
   onModClick,
   waiting = false,
+  ciFlash = 0,
 }: {
   dot: GridDot;
   task: Task;
@@ -76,6 +80,8 @@ function AgentDot({
   onModClick?: (() => void) | undefined;
   /** The task's resume was asked for and it has not run yet: a faint cyan ring. */
   waiting?: boolean;
+  /** Bumped each time the task's CI result changes; above 0, its satellite flashes once. */
+  ciFlash?: number;
 }) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -96,10 +102,13 @@ function AgentDot({
   const failed = dot.state === "failed";
   const stopped = interrupted && isStoppedByUser(task);
   const stateWord = stopped ? "stopped" : STATE_LABELS[dot.state];
+  // Done tasks only have their slot-0 dot, so a satellite never lands on a sub-agent's.
+  const satellite = subagent ? null : ciSatellite(task);
+  const ci = satellite && task.ci ? ciSummary(task.ci) : null;
   const label = subagent
     ? `${task.title}: sub-agent, ${subagent.description ?? subagent.agentType}`
     : done
-      ? `${task.title}: ${STATE_LABELS.done}`
+      ? `${task.title}: ${STATE_LABELS.done}${ci ? `, ${ci.label}` : ""}`
       : `${task.title}: ${stage ? `${stage}, ` : ""}${stateWord}`;
   const width = Math.min(CARD_WIDTH, overlayWidth - 2 * CARD_MARGIN);
   const needs = dot.state === "needs-you";
@@ -149,6 +158,22 @@ function AgentDot({
           }
         }}
       >
+        {satellite && (
+          // Inside the Link with no pointer events: the Link stays the only hit target.
+          <span
+            aria-hidden="true"
+            className={cn("bw-satellite", `bw-satellite-${satellite}`)}
+            style={
+              {
+                "--satellite-delay": `${pulseDelay(task.id, SATELLITE_ORBIT_S[satellite])}s`,
+              } as CSSProperties
+            }
+          >
+            <span className="bw-satellite-pip">
+              {ciFlash > 0 && <span key={`flash:${ciFlash}`} className="bw-satellite-flash" />}
+            </span>
+          </span>
+        )}
         <span
           aria-hidden="true"
           style={still ? undefined : ({ "--pulse-delay": `${delay}s` } as CSSProperties)}
@@ -188,6 +213,28 @@ function AgentDot({
             {done ? (
               <>
                 <span className="label text-done">Done</span>
+                {ci && (
+                  <span
+                    className={cn(
+                      "text-meta",
+                      satellite === "running"
+                        ? "text-cyan"
+                        : satellite === "passed"
+                          ? "text-done"
+                          : "text-failed",
+                    )}
+                  >
+                    {ci.label}
+                  </span>
+                )}
+                {ci && satellite === "failed" && ci.failing.length > 0 && (
+                  <span className="mono truncate text-meta text-muted-foreground">
+                    {ci.failing.map((c) => c.name).join(", ")}
+                  </span>
+                )}
+                {ciNeedsYou(task) && (
+                  <span className="text-meta text-foreground">Open the task to run Fix CI</span>
+                )}
                 <span className="text-meta text-muted-foreground">{modClick} to archive</span>
               </>
             ) : interrupted || failed ? (
@@ -270,7 +317,10 @@ function AgentDot({
  * request fails) and rings it faintly until it runs. A task turning done
  * bursts green once through `useSupernovas` (`.bw-supernova`: a core flash, a
  * wide ring and sparks along the grid lines) before it settles into its calm
- * dot. Lay it over
+ * dot. A done task with CI gets a satellite circling its dot (`.bw-satellite`,
+ * see `ci-satellite.ts`): cyan and blinking while CI runs, green when it
+ * passed, red and blinking fast when it failed; `useCiFlashes` flashes it once
+ * when the result changes. Lay it over
  * `GridBackdrop` in a `relative` parent.
  */
 export function GridAgents({
@@ -301,6 +351,7 @@ export function GridAgents({
   );
   const revive = useResumeBursts(tasks);
   const supernovas = useSupernovas(tasks);
+  const ciFlashes = useCiFlashes(tasks);
   // Lets the inbox's Archive all done launch each done dot (one per task) from its spot.
   const { setLocate } = launch;
   useEffect(() => {
@@ -432,6 +483,7 @@ export function GridAgents({
                       : undefined
                 }
                 waiting={revive.waiting.has(dot.taskId)}
+                ciFlash={ciFlashes.get(dot.taskId) ?? 0}
               />
             );
           })}
