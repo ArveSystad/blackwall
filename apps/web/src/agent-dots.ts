@@ -142,7 +142,7 @@ export function activeAgentsSuffix(count: number): string {
 }
 
 /** FNV-1a hash of a string, as an unsigned 32-bit integer. */
-function fnv1a(text: string): number {
+export function fnv1a(text: string): number {
   let hash = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) {
     hash ^= text.charCodeAt(i);

@@ -6,6 +6,7 @@ import { gridDots, runningTaskCount } from "../agent-dots";
 import { pendingCount } from "../backlog";
 import { GridAgents } from "../components/GridAgents";
 import { GridShots } from "../components/GridShots";
+import { GridStars } from "../components/GridStars";
 import { IssuePill } from "../components/IssuePill";
 import { MyPullRequestsPill } from "../components/MyPullRequestsPill";
 import { BacklogIcon, CheckIcon, PlusIcon, WallIcon } from "../components/icons";
@@ -196,6 +197,8 @@ function backlogTotals(results: UseQueryResult<BacklogItemView[]>[]): (number | 
  * assigned to them. The grid itself is GridLayout's, behind this pane; Home
  * sets its fade. Once the counts load, a neon sign left of centre shows the
  * running tasks and active agents (RunningSign), dimmed with the fade.
+ * Each task finished today, archived ones included, is a small star in the
+ * sky above the horizon that links to its task (GridStars).
  * Pressing or holding on empty grid fires shots and can down passing ships
  * (GridShots). With the agents up, every registered repo stands on the
  * horizon as a tower sized by its backlog (the repo skyline in GridAgents);
@@ -261,7 +264,10 @@ export function Home() {
     <div className="bw-shoot relative z-10 flex h-full items-center justify-center overflow-auto px-6 py-10">
       <GridShots />
       {!firstRun && loaded && !tasksFailed && !activeFailed && (
-        <RunningSign tasks={running} agents={agentsActive} faded={!showAgents} />
+        <>
+          <RunningSign tasks={running} agents={agentsActive} faded={!showAgents} />
+          <GridStars tasks={taskById} faded={!showAgents} />
+        </>
       )}
       {firstRun ? (
         <FirstRun />

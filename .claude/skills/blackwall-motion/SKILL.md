@@ -29,6 +29,7 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
    `.bw-chat-content` for ChatPanel.tsx, `.bw-shutter` for SettingsShutter.tsx, `.bw-decrypt*` for DecryptText.tsx,
    `.bw-status-sweep` for TaskCard.tsx, `.bw-tab-flash` for TaskView.tsx (the Agent output tab),
    `.bw-wordmark-flicker` for Wordmark.tsx, `.bw-shot*`/`.bw-shoot` and the passing ships' `.bw-ship*` for GridShots.tsx,
+   `.bw-star*` (`.bw-star-layer`, `.bw-star-slot`, `.bw-star`, `.bw-star-arrive`) for GridStars.tsx,
    `.bw-grid-flare`/`.bw-grid[data-kick]` for GridBackdrop.tsx's shot flare and shake, `bw-scan-wipe`/`bw-scan-unwipe`/`bw-scan-hold` (`--animate-scan-wipe`/`-unwipe`/`-hold`) for ui/dialog.tsx,
    `.bw-window` for GridLayout.tsx's task/Backlog window and the New task dialog (NewTaskModal.tsx via
    `DialogContent motion="flicker"`)), and `bw-route-wipe` with the
@@ -36,8 +37,8 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
    route-transition.ts). `animate-arrive` also slides in GrillPanel.tsx answer rows that arrive
    while their card is open (tracked during render; loaded answers never animate).
 2. `.claude/skills/blackwall-design/SKILL.md` § Color semantics / Rules: the state-only rule and its
-   six decorative exceptions (GridBackdrop, Stats, the wordmark flicker, the route wipe, the
-   Settings shutter scanline, the Home grid shot).
+   seven decorative exceptions (GridBackdrop, Stats, the wordmark flicker, the route wipe, the
+   Settings shutter scanline, the Home grid shot, today's stars).
 3. Reference code: `apps/web/src/components/GridBackdrop.tsx`, `apps/web/src/components/GridAgents.tsx`,
    `apps/web/src/components/RunningSign.tsx`, `apps/web/src/routes/Stats.tsx`, `apps/web/src/routes/Backlog.tsx`, `apps/web/src/agent-dots.ts`,
    `apps/web/src/skyline.ts`, `apps/web/src/components/GridSkyline.tsx`,
@@ -50,6 +51,7 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
    `apps/web/src/wordmark-flicker.ts`, `apps/web/src/components/use-wordmark-flicker.ts`,
    `apps/web/src/shots.ts`, `apps/web/src/components/use-shots.ts`,
    `apps/web/src/components/GridShots.tsx`, `apps/web/src/ships.ts`,
+   `apps/web/src/components/GridStars.tsx`, `apps/web/src/grid-stars.ts`,
    `apps/web/src/components/use-ships.ts`, `apps/web/src/components/Spaceship.tsx`,
    `apps/web/src/components/use-count-boom.ts` (detects the rise during render and keeps its timer in
    a `[boom]` effect, so StrictMode's effect replay can't strand it).
@@ -59,7 +61,7 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
 ## Procedure
 
 1. Confirm the motion marks state, or falls under the GridBackdrop/Stats/wordmark-flicker/route-wipe/
-   shutter scanline/grid shot exceptions. Otherwise don't animate.
+   shutter scanline/grid shot/today's stars exceptions. Otherwise don't animate.
 2. Search the existing `bw-*` keyframes and `--animate-*` tokens; reuse one if it fits.
 3. Add `@keyframes bw-<name>` next to the others.
 4. Expose it one of two ways:
@@ -140,6 +142,8 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
     `SHUTTER_FALLBACK_MS` (it settles the presence and releases a held open);
     `.bw-shot-mark` 1.5s (the longest part of a grid shot) ↔ `SHOT_MS` (1500) in `shots.ts`.
   - The recoil cursor (`.bw-shoot[data-recoil]`) ↔ `RECOIL_MS` (80) in `shots.ts`.
+  - `.bw-star-arrive` 1.2s delay ↔ `STAR_ARRIVE_DELAY_MS` (= `SUPERNOVA_MS`) in `grid-stars.ts`, so
+    a new star fades in (600ms) once the done supernova ends. No drop timeout: fill `both`, ends at 1.
   - Grid shot sparks: `SPARK_*` ranges in `shots.ts` feed `.bw-shot-spark` (360ms) through inline
     `--spark-*` vars; `AUTO_FIRE_MS` (110) is JS only (an rAF loop). `makeSparks` takes optional
     `SparkRanges` (default `SHOT_SPARKS`); `.bw-shot-spark`'s colour is `--spark-color` (cyan by default).
@@ -189,6 +193,9 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
   playing. Prefix one-shot keys (`revive:`) when they share a container with keyed looping elements
   (`.bw-boom`, keyed by `dot.key`), so the keys never collide. Effects fired by a tasks change (lasers,
   supernovas, status sweeps) treat the first tasks snapshot as a seed only, so a reload never fires them.
+  Today's stars (`GridStars.tsx`, `nextArrivals`) follow the same rule, but seed from the first
+  snapshot where the done-times query has data, not the first render, so stars that load late
+  never count as new.
 - Decrypt text (`DecryptText.tsx`, `use-decrypt.ts`, `decrypt.ts`): a one-shot glyph scramble that
   settles left to right in `DECRYPT_MS`. `useDecrypt(text, trigger)` plays on mount when the trigger
   is non-null and again on each change to a non-null value. Pass a stable trigger (an id, or a
@@ -242,12 +249,19 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
     `pointer-events: none` (local, transform-inverted space), not `clientX - getBoundingClientRect()`
     (the projected box drifts).
   - `--grid-fade` can also drive a uniform `opacity` for a layer that straddles the fade ramp
-    (`.bw-sign-layer`, with `[data-full]` setting it to 1), so it dims evenly with the same ease.
+    (`.bw-sign-layer` and `.bw-star-layer`, with `[data-full]` setting it to 1), so it dims evenly
+    with the same ease.
 - The running sign floats with `animate-sign-float` (`--animate-sign-float`, 7s, 0 → −4px); it rests
   at 0 under reduced motion, so it needs no `display: none` entry.
+- Today's stars (`GridStars.tsx`): three nested opacities multiply, so none overrides another. The
+  slot's `.bw-star-arrive` fades a new star in, `.bw-star` holds its static base `--star-opacity`,
+  and the twinkle (`bw-star-twinkle`, opacity only, 1 → 0.45 → 1 over `--twinkle-duration`) runs on
+  `.bw-star::before`. The base reduced-motion rule stops both the twinkle and the fade-in, so stars
+  rest still at their own brightness and need no `display: none` entry. Glow (the core's
+  `drop-shadow`) is dark only.
 - Neon and motion mark state only (`blackwall-design` § Color semantics / Rules). GridBackdrop, Stats,
-  the wordmark flicker, the route wipe, the Settings shutter scanline and the Home grid shot are the
-  only sanctioned decorative exceptions.
+  the wordmark flicker, the route wipe, the Settings shutter scanline, the Home grid shot and today's
+  stars are the only sanctioned decorative exceptions.
 - When a motion pattern, token or pairing changes, update this skill in the same commit.
 
 ## Checks

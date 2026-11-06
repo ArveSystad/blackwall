@@ -145,6 +145,14 @@ Rules:
   smaller for farther ships. Ships and explosions glow in dark only and never block clicks. Skipped
   entirely under reduced motion (normal cursor, nothing fires, no ships). Home only. Details in
   `blackwall-motion`.
+- Today's stars are the seventh sanctioned exception (`GridStars`). The Home grid's sky above the
+  horizon shows one small star per task done today, archived ones included and uncapped; they clear
+  at local midnight. Stars are dim and done-tinted, vary a little in size and brightness and twinkle
+  slowly; the done tint marks state, the twinkle is decoration. They glow in dark only and keep out
+  of the running sign's zone. Each is a 12px link to its task with a tiny card (title and finish
+  time); a press elsewhere on the sky still fires shots. A star finished while Home is open fades in
+  after the green supernova. Static under reduced motion (no twinkle, no fade-in). Details in
+  `blackwall-motion`.
 - Never put glow or neon on diffs, transcripts, long text, or table rows.
 - Glow is dark only. Light replaces it with a 1px border plus a 3px tinted ring (`--glow-*` handles this).
 - Chamfered surfaces (see Density and shape) keep their glow through the `--drop-glow-*` / `--drop-pop`

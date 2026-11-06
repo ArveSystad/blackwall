@@ -961,6 +961,25 @@ html:active-view-transition-type(bw-route) {
   }
 }
 
+@keyframes bw-star-twinkle {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@keyframes bw-star-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 @keyframes bw-pushed-glow {
   from {
     text-shadow: var(--glow-text-pushed);
@@ -1157,13 +1176,15 @@ html:active-view-transition-type(bw-route) {
     --grid-fade: 1;
   }
 
-  /* Running sign dims evenly with the grid fade; a mask would half-dim it across the ramp. */
-  .bw-sign-layer {
+  /* Running sign and today's stars dim evenly with the grid fade; a mask would half-dim them across the ramp. */
+  .bw-sign-layer,
+  .bw-star-layer {
     opacity: var(--grid-fade);
     transition: --grid-fade 600ms ease-out;
   }
 
-  .bw-sign-layer[data-full] {
+  .bw-sign-layer[data-full],
+  .bw-star-layer[data-full] {
     --grid-fade: 1;
   }
 
@@ -2238,6 +2259,52 @@ html:active-view-transition-type(bw-route) {
       color-mix(in oklab, var(--cyan) 30%, transparent) 0 2deg,
       transparent 2deg 47deg
     );
+  }
+
+  /* ---------- today's stars (GridStars.tsx) ----------
+   * One small, dim star per task done today, in the sky above the horizon.
+   * Three nested opacities multiply, so none overrides another: the slot
+   * fades a new star in (.bw-star-arrive), .bw-star holds its base brightness
+   * (--star-opacity, set inline) and its ::before twinkles. The fade waits
+   * 1.2s, STAR_ARRIVE_DELAY_MS (= SUPERNOVA_MS) in grid-stars.ts, so the star
+   * shows once the done supernova ends; change them together. Fill `both`
+   * holds it hidden through the delay, and it ends at 1, so no timer drops
+   * the class. Under reduced motion the base rule stops both animations and
+   * the stars rest at their own brightness.
+   */
+  .bw-star-slot {
+    display: block;
+    width: var(--star-size, 2px);
+    height: var(--star-size, 2px);
+  }
+
+  .bw-star {
+    display: block;
+    width: 100%;
+    height: 100%;
+    opacity: var(--star-opacity, 0.5);
+  }
+
+  .bw-star::before {
+    content: "";
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: color-mix(in oklab, var(--st-done) 35%, var(--fg-strong));
+    filter: drop-shadow(0 0 2px color-mix(in oklab, var(--st-done) 70%, transparent));
+    animation: bw-star-twinkle var(--twinkle-duration, 10s) ease-in-out var(--twinkle-delay, 0s)
+      infinite;
+  }
+
+  .bw-star-arrive {
+    animation: bw-star-in 600ms ease-out 1.2s both;
+  }
+
+  /* Glow is dark only; a done-green core on a light sky. */
+  :root[data-theme="light"] .bw-star::before {
+    background: var(--st-done);
+    filter: none;
   }
 
   /* ---------- assigned boom (CountPill.tsx) ----------

@@ -40,7 +40,7 @@ export interface TaskStats {
 }
 
 /** Local midnight of the given time's calendar day. */
-function startOfDay(date: Date): Date {
+export function startOfDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
