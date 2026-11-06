@@ -28,7 +28,9 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
    `.bw-chat-content` for ChatPanel.tsx, `.bw-shutter` for SettingsShutter.tsx, `.bw-decrypt*` for DecryptText.tsx,
    `.bw-status-sweep` for TaskCard.tsx, `.bw-tab-flash` for TaskView.tsx (the Agent output tab),
    `.bw-wordmark-flicker` for Wordmark.tsx, `.bw-shot*`/`.bw-shoot` and the passing ships' `.bw-ship*` for GridShots.tsx,
-   `.bw-grid-flare`/`.bw-grid[data-kick]` for GridBackdrop.tsx's shot flare and shake, `bw-scan-wipe`/`--animate-scan-wipe` for ui/dialog.tsx), and `bw-route-wipe` with the
+   `.bw-grid-flare`/`.bw-grid[data-kick]` for GridBackdrop.tsx's shot flare and shake, `bw-scan-wipe`/`bw-scan-unwipe`/`bw-scan-hold` (`--animate-scan-wipe`/`-unwipe`/`-hold`) for ui/dialog.tsx,
+   `.bw-window` for GridLayout.tsx's task/Backlog window and the New task dialog (NewTaskModal.tsx via
+   `DialogContent motion="flicker"`)), and `bw-route-wipe` with the
    `::view-transition-*(bw-route|bw-inbox|root)` rules for the route wipe (router.tsx, Inbox.tsx,
    route-transition.ts). `animate-arrive` also slides in GrillPanel.tsx answer rows that arrive
    while their card is open (tracked during render; loaded answers never animate).
@@ -94,9 +96,15 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
   exception: `.bw-chat` transitions `width` on open/close only (the panel is part of the layout and
   never overlays); content inside is clipped and fixed-width, animating only `transform`/`opacity`;
   no transition while resizing.
-- Another exception: the dialog open wipe (`animate-scan-wipe`) animates the inner panel's
-  `clip-path`, polygon to polygon with the same 6 points, for 150ms on mount. Closing is instant
-  (Radix unmounts), and the base rule covers reduced motion (the resting state is the full chamfer).
+- Another exception: the dialog scan wipe animates the inner panel's `clip-path`, polygon to
+  polygon with the same 6 points. Opening, `animate-scan-wipe` runs on the panel for 150ms. Closing,
+  `animate-scan-unwipe` runs on the panel for 120ms while `animate-scan-hold` (120ms, must match) on
+  `Content` and the `Overlay` keeps Radix Presence mounted until the unwipe ends. With
+  `motion="flicker"`, `.bw-window` goes on `Content` (not the panel) and the panel's wipe is dropped,
+  so the dialog opens with the 360ms `.bw-window` opacity flicker; its close still unwipes, because
+  the utility `data-[state=closed]:animate-scan-hold` overrides the components-layer `.bw-window`.
+  The base reduced-motion rule covers all of these: the resting state is the full chamfer at opacity
+  1, and the close is instant.
 - Route wipe (`router.tsx`, `route-transition.ts`, `Inbox.tsx`): a View Transition that animates
   `clip-path` (`bw-route-wipe`, `inset`, 150ms) on `::view-transition-new(bw-route)` only; the old
   page stays underneath. The `root` and `bw-inbox` pseudos snap (old hidden), so the TopBar, chat
@@ -148,6 +156,9 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
   - `STREAM_*` in `chat-stream.ts` are JS only (an rAF loop); no CSS mirrors them.
   - `.bw-wordmark-flicker` 700ms ↔ `WORDMARK_FLICKER_MS` (700) in `wordmark-flicker.ts`. No drop
     timeout: replay is a `key` remount, and `steps(1, end) both` ends at opacity 1.
+  - `--animate-scan-hold` 120ms ↔ `--animate-scan-unwipe` 120ms (both in `styles.css`): the hold
+    keeps the dialog's `Content` and `Overlay` mounted while the panel unwipes, so the two must
+    change together.
 - Booms: `.bw-boom` modifiers set `--boom-color`, `--boom-size` and `--boom-strength` (bloom
   opacity, 22% by default; `.bw-assigned` uses 55%). A large boom must sit inside a
   `pointer-events-none absolute inset-0 overflow-hidden` layer, never directly in a scroll container,

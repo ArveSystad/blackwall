@@ -65,7 +65,11 @@ accessibility; add `sr-only` if it isn't visible.
 ### Layout
 
 - Confirm dialogs: `DialogContent className="max-w-[420px]"`, body `flex flex-col gap-2 px-5 pt-[18px] pb-4`.
-- Default content max width is 480. `NewTaskModal` uses 680; wider forms are fine.
+- Default content max width is 480. `NewTaskModal` uses 760 (`max-w-[760px]`); wider forms are fine.
+- Window-like dialogs pass `motion="flicker"` (the grid windows' `.bw-window` flicker instead of the
+  scan wipe; the close still unwipes) and `panelClassName` (e.g. `bg-modal/92`, translucent like
+  the grid windows), as `NewTaskModal` does. Plain dialogs keep the defaults: the wipe and an
+  opaque `bg-modal`.
 - `DialogFooter` is right-aligned: Cancel (`variant="ghost"`) first, then the primary
   (`variant="primary"`) or destructive button last.
 - Key hints: `<Kbd aria-hidden="true">↵</Kbd>` on the confirm button;
