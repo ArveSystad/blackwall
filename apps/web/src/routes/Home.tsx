@@ -201,11 +201,11 @@ function backlogTotals(results: UseQueryResult<BacklogItemView[]>[]): (number | 
  * Each task finished today, archived ones included, is a small star in the
  * sky above the horizon that links to its task (GridStars).
  * Pressing or holding on empty grid fires shots and can down passing ships
- * (GridShots). With the agents up, every registered repo stands on the
- * horizon as a tower sized by its backlog (the repo skyline in GridAgents);
- * the backlogs share TopBar's queries. A repo whose project is running gets a
- * reactor pylon at its tower; the output window a pylon opens lives here, so
- * it outlives the pylon and the agents view.
+ * (GridShots). Once the tasks and agents load, every registered repo stands on
+ * the horizon as a tower sized by its backlog (the repo skyline in GridAgents),
+ * at full strength and behind "Nothing on deck" too; the backlogs share
+ * TopBar's queries. A repo whose project is running gets a reactor pylon at its
+ * tower; the output window a pylon opens lives here, so it outlives the pylon.
  */
 export function Home() {
   const tasks = useQuery(tasksQuery);
@@ -275,6 +275,16 @@ export function Home() {
         <>
           <RunningSign tasks={running} agents={agentsActive} faded={!showAgents} />
           <GridStars tasks={taskById} faded={!showAgents} />
+          {/* Before the message, so "Nothing on deck" paints above the skyline. */}
+          <GridAgents
+            dots={dots}
+            tasks={taskById}
+            agents={library}
+            launch={launch}
+            repos={repos.data ?? NO_REPOS}
+            backlogCounts={backlogCounts}
+            onOpenOutput={setOutputRepoId}
+          />
         </>
       )}
       {firstRun ? (
@@ -322,17 +332,7 @@ export function Home() {
             ) : null
           }
         />
-      ) : (
-        <GridAgents
-          dots={dots}
-          tasks={taskById}
-          agents={library}
-          launch={launch}
-          repos={repos.data ?? NO_REPOS}
-          backlogCounts={backlogCounts}
-          onOpenOutput={setOutputRepoId}
-        />
-      )}
+      ) : null}
       {!firstRun && (
         // Clips the pills' assigned boom to the pane, so it never scrolls it (like GridAgents).
         <div className="pointer-events-none absolute inset-0 z-20 overflow-hidden">

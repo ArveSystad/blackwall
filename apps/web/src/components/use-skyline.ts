@@ -16,7 +16,7 @@ export type LocateTower = (repoId: string) => TowerSpot | undefined;
 
 /** The home grid's repo skyline, for effects that aim at a tower; see `useSkylineLocator`. */
 export interface Skyline {
-  /** Where the repo's tower stands; undefined when Home is not showing the agents. */
+  /** Where the repo's tower stands; undefined off Home, on first run, or while tasks or agents cannot load. */
   locateTower: LocateTower;
   /** Sets the tower locator; `GridAgents` sets it while mounted. */
   setLocate: (locate: LocateTower | null) => void;

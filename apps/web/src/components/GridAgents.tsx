@@ -344,6 +344,9 @@ function AgentDot({
  * Real events in a task (a step finishing, a commit, a check, a new finding)
  * send a data packet from its dot along the grid to its tower
  * (`useDataPackets`, `.bw-packet`), under the dots.
+ * Home keeps it mounted with no dots too, so the skyline and pylons stand on
+ * an idle grid behind "Nothing on deck"; this nav is then empty and
+ * `locateTower` stays registered.
  * Lay it over `GridBackdrop` in a `relative` parent.
  */
 export function GridAgents({
