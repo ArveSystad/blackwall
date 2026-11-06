@@ -105,14 +105,19 @@ export function runningTaskCount(dots: readonly GridDot[]): number {
   return new Set(dots.filter((d) => d.state === "running").map((d) => d.taskId)).size;
 }
 
-/** The grid's running headline: "1 task running", "2 tasks running". */
+/** The grid's running sign: "1 task running", "2 tasks running". */
 export function runningLabel(count: number): string {
   return `${count}${runningLabelSuffix(count)}`;
 }
 
-/** The running headline after its number: " task running" or " tasks running". */
+/** The running sign after its number: " task running" or " tasks running". */
 export function runningLabelSuffix(count: number): string {
   return count === 1 ? " task running" : " tasks running";
+}
+
+/** The running sign's second line after its number: " agent active" or " agents active". */
+export function activeAgentsSuffix(count: number): string {
+  return count === 1 ? " agent active" : " agents active";
 }
 
 /** FNV-1a hash of a string, as an unsigned 32-bit integer. */

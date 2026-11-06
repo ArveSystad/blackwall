@@ -11,7 +11,7 @@ import { BacklogIcon, CheckIcon, PlusIcon, WallIcon } from "../components/icons"
 import { NewTaskModal } from "../components/NewTaskModal";
 import { PendingPushDot } from "../components/PendingPushDot";
 import { ReviewPill } from "../components/ReviewPill";
-import { RunningHeadline } from "../components/RunningHeadline";
+import { RunningSign } from "../components/RunningSign";
 import { useArchive } from "../components/use-archive-launches";
 import { Button } from "../components/ui/button";
 import { Kbd } from "../components/ui/kbd";
@@ -185,8 +185,10 @@ function Message({
  * cannot load it says so, with Retry. Past first run, two pills at the
  * bottom count the pull requests waiting on the user's review and the issues
  * assigned to them. The grid itself is GridLayout's, behind this pane; Home
- * sets its fade. Pressing or holding on empty grid fires shots and can down
- * passing ships (GridShots).
+ * sets its fade. Once the counts load, a neon sign left of centre shows the
+ * running tasks and active agents (RunningSign), dimmed with the fade.
+ * Pressing or holding on empty grid fires shots and can down passing ships
+ * (GridShots).
  */
 export function Home() {
   const tasks = useQuery(tasksQuery);
@@ -203,6 +205,8 @@ export function Home() {
     [tasks.data, active.data],
   );
   const running = useMemo(() => runningTaskCount(dots), [dots]);
+  // Running agents without their sub-agents, as the sidebar's LiveIndicator counts them.
+  const agentsActive = active.data?.length ?? 0;
   const taskById = useMemo(
     () => new Map((tasks.data ?? []).map((task) => [task.id, task])),
     [tasks.data],
@@ -216,7 +220,7 @@ export function Home() {
   const activeFailed = active.isError && !active.data;
   const loaded = !!tasks.data && !!active.data;
   // The agents view (active and done tasks, and interrupted and failed tasks
-  // waiting to be resumed) has only the short running headline centred, so the
+  // waiting to be resumed) has only the off-centre running sign, so the
   // grid runs full width behind it. It stays up until an archived dot's launch lands, even
   // when that was the last dot.
   const showAgents =
@@ -231,6 +235,9 @@ export function Home() {
   return (
     <div className="bw-shoot relative z-10 flex h-full items-center justify-center overflow-auto px-6 py-10">
       <GridShots />
+      {!firstRun && loaded && !tasksFailed && !activeFailed && (
+        <RunningSign tasks={running} agents={agentsActive} faded={!showAgents} />
+      )}
       {firstRun ? (
         <FirstRun />
       ) : tasksFailed || activeFailed ? (
@@ -277,10 +284,7 @@ export function Home() {
           }
         />
       ) : (
-        <>
-          <RunningHeadline count={running} />
-          <GridAgents dots={dots} tasks={taskById} agents={library} launch={launch} />
-        </>
+        <GridAgents dots={dots} tasks={taskById} agents={library} launch={launch} />
       )}
       {!firstRun && (
         // Clips the pills' assigned boom to the pane, so it never scrolls it (like GridAgents).

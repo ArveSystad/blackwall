@@ -1,6 +1,7 @@
 import type { ActiveAgentStep, Stage } from "@blackwall/shared";
 import { describe, expect, it } from "vitest";
 import {
+  activeAgentsSuffix,
   DOT_SPACING,
   doneTransitions,
   dotPosition,
@@ -255,6 +256,14 @@ describe("runningLabelSuffix", () => {
   it("is the label after its number", () => {
     expect(runningLabelSuffix(1)).toBe(" task running");
     expect(runningLabelSuffix(3)).toBe(" tasks running");
+  });
+});
+
+describe("activeAgentsSuffix", () => {
+  it("is singular for one agent and plural otherwise, 0 included", () => {
+    expect(activeAgentsSuffix(0)).toBe(" agents active");
+    expect(activeAgentsSuffix(1)).toBe(" agent active");
+    expect(activeAgentsSuffix(3)).toBe(" agents active");
   });
 });
 

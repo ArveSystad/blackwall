@@ -93,9 +93,12 @@ Rules:
   state, so they follow the state rule: cyan with `animate-pulse-running` while an agent runs (one dot
   per running step), magenta with `animate-pulse-needs` when the task needs you, faint and static
   when queued. A dot fires a short cyan laser upward when its task changes stage (`.bw-laser`, hidden
-  under reduced motion). While any task runs, a centred "N tasks running" headline (`RunningHeadline`,
-  Geist semibold uppercase, not Chakra Petch) in running cyan with `--glow-text-cyan` sits above the
-  horizon, and the pointer brightens it locally. Each dot is a 24px link to its task, centres are at least 28px apart, and
+  under reduced motion). A neon sign (`RunningSign`, Geist semibold uppercase, not Chakra Petch) reads "N tasks
+  running / M agents active" (M as the sidebar's active agents, no sub-agents). It hangs just left of
+  centre above the horizon, tilted in perspective and floating a few pixels; lit in running cyan with
+  `--glow-text-cyan` and a glowing frame while tasks run (the pointer brightens it locally), unlit and
+  faint at 0. When the centre column fades it dims evenly to `--grid-fade` behind the message, and
+  passing ships fly behind it. Each dot is a 24px link to its task, centres are at least 28px apart, and
   needs-you dots stack above running and queued ones; hover or focus shows a card with the task,
   stage and current work. "Nothing on deck. Awaiting orders." and Create task show only when nothing is
   active, with View backlog for the selected repo beside it, or "Backlog clear. Nothing queued." when nothing waits there; if the

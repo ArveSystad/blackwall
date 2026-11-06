@@ -348,6 +348,9 @@
   /* The Run project output button slides out from behind Run/Stop once, when a run first appears;
      no JS mirror. */
   --animate-slide-out: bw-slide-out 180ms ease-out both;
+  /* The home grid's running sign hovers a few pixels over the floor; rests at 0 under reduced
+     motion, no JS mirror. */
+  --animate-sign-float: bw-sign-float 7s ease-in-out infinite;
 }
 
 @keyframes bw-fade-in {
@@ -872,6 +875,16 @@ html:active-view-transition-type(bw-route) {
   }
 }
 
+@keyframes bw-sign-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
 @keyframes bw-pushed-glow {
   from {
     text-shadow: var(--glow-text-pushed);
@@ -1065,6 +1078,16 @@ html:active-view-transition-type(bw-route) {
   /* Full width (agents view). Keep the mask: it makes `.bw-grid` the backdrop
    * root, so the spotlight filters only the grid, never the pane behind it. */
   .bw-grid-full {
+    --grid-fade: 1;
+  }
+
+  /* Running sign dims evenly with the grid fade; a mask would half-dim it across the ramp. */
+  .bw-sign-layer {
+    opacity: var(--grid-fade);
+    transition: --grid-fade 600ms ease-out;
+  }
+
+  .bw-sign-layer[data-full] {
     --grid-fade: 1;
   }
 
@@ -2322,32 +2345,78 @@ html:active-view-transition-type(bw-route) {
     box-shadow: none;
   }
 
-  /* ---------- running headline (RunningHeadline.tsx) ----------
-   * The agents view's centred "N tasks running". Its glow marks the running
-   * state. A brighter, wider-glowing copy stacked on top shows only in a circle
-   * around the pointer (--mx/--my and data-hover, set from JS). Only opacity
-   * transitions; the shadows are static. Glow is dark only: in light the copy
-   * darkens the text locally instead. Reduced motion drops the transitions via
-   * the base rule; nothing runs once, so nothing can freeze.
+  /* ---------- running sign (RunningSign.tsx) ----------
+   * The home grid's tilted "N tasks running / M agents active" panel. Lit
+   * (`data-lit`) while tasks run: running cyan frame and text with neon glow.
+   * Unlit at 0: faint, no glow, click-through. Colour, frame and shadow ease
+   * over 600ms with the grid fade. A brighter, wider-glowing copy stacked on
+   * top shows only in a circle around the pointer (--mx/--my and data-hover,
+   * set from JS), lit only. The shadows are static. Glow is dark only: in
+   * light the copy darkens the text locally instead. Reduced motion drops the
+   * transitions and the float via the base rule; nothing runs once, so
+   * nothing can freeze.
    */
+  .bw-sign {
+    padding: 10px 18px;
+    border: 1px solid var(--border-strong);
+    background: color-mix(in oklab, var(--bg-0) 70%, transparent);
+    pointer-events: none;
+    transform: rotateY(20deg) rotateX(6deg);
+    transform-origin: right center;
+    transition:
+      border-color 600ms ease-out,
+      box-shadow 600ms ease-out;
+  }
+
+  .bw-sign[data-lit] {
+    border-color: var(--st-running);
+    box-shadow:
+      0 0 14px color-mix(in oklab, var(--st-running) 35%, transparent),
+      inset 0 0 12px color-mix(in oklab, var(--st-running) 22%, transparent);
+    pointer-events: auto;
+  }
+
+  /* Glow is dark only. */
+  :root[data-theme="light"] .bw-sign {
+    box-shadow: none;
+  }
+
   .bw-running {
     display: grid;
+  }
+
+  /* Keeps the grid the event target, so offsetX/offsetY are in the tilted panel's own space. */
+  .bw-sign .bw-running * {
+    pointer-events: none;
   }
 
   .bw-running-base,
   .bw-running-hot {
     grid-area: 1 / 1;
+    display: flex;
+    flex-direction: column;
   }
 
   .bw-running-base {
+    color: var(--fg-faint);
+    opacity: 0.85;
+    transition:
+      opacity 300ms ease-out,
+      color 600ms ease-out,
+      text-shadow 600ms ease-out;
+  }
+
+  .bw-sign[data-lit] .bw-running-base {
     color: var(--st-running);
     text-shadow: var(--glow-text-cyan);
-    opacity: 0.85;
-    transition: opacity 300ms ease-out;
   }
 
   .bw-running[data-hover] .bw-running-base {
     opacity: 1;
+  }
+
+  .bw-sign:not([data-lit]) .bw-running-hot {
+    display: none;
   }
 
   .bw-running-hot {

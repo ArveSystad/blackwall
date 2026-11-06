@@ -529,9 +529,13 @@ grows and fades under it.
 | Interrupted | 12px grey hexagon | still |
 | Failed | 12px red hexagon | still |
 
-- **RunningHeadline**: centred "3 TASKS RUNNING" ("1 task running"). Geist semibold, 28–40px,
-  0.18em tracking, uppercase, cyan with text glow. The number decrypts when it changes. A brighter
-  copy glows in a 120px circle around the pointer.
+- **RunningSign**: a neon sign reading "3 TASKS RUNNING / 2 AGENTS ACTIVE" ("1 task running",
+  "1 agent active"). Geist semibold, 16–26px, 0.18em tracking, uppercase, on a ~70% `bg-0` panel
+  with a 1px frame. It hangs just left of centre above the horizon, tilted in perspective
+  (rotateY 20°, rotateX 6°) and floating 4px over 7s. Lit while tasks run: cyan text glow and a
+  glowing cyan frame. Unlit at 0: faint text, `border-strong` frame, no glow. Behind "Nothing on
+  deck" it dims evenly to the grid fade (18%). Each number decrypts when it changes. A brighter copy
+  glows in a 120px circle around the pointer. Passing ships fly behind it.
 - **Hover card** (288px chamfered popover above the dot):
   - Running: the task title, the stage in cyan, the agent and its activity or "Starting…".
   - Needs you: the stage in magenta and the gate reason, e.g. "Plan ready for approval".

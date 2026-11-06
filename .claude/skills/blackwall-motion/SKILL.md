@@ -24,7 +24,7 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
    rules after it, and the commented `.bw-*` blocks in `@layer components` (`bw-grid*` for
    GridBackdrop.tsx, `.bw-stream` for TaskHeader.tsx, `.bw-laser`, `.bw-boom`,
    `.bw-revive`/`.bw-revive-failed`, `.bw-supernova` and `.bw-launch` for GridAgents.tsx, `.bw-assigned`/
-   `.bw-assigned-flash` for CountPill.tsx, `.bw-running*` for RunningHeadline.tsx, `.bw-chat`/
+   `.bw-assigned-flash` for CountPill.tsx, `.bw-sign*`/`.bw-running*` for RunningSign.tsx, `.bw-chat`/
    `.bw-chat-content` for ChatPanel.tsx, `.bw-shutter` for SettingsShutter.tsx, `.bw-decrypt*` for DecryptText.tsx,
    `.bw-status-sweep` for TaskCard.tsx, `.bw-tab-flash` for TaskView.tsx (the Agent output tab),
    `.bw-wordmark-flicker` for Wordmark.tsx, `.bw-shot*`/`.bw-shoot` and the passing ships' `.bw-ship*` for GridShots.tsx,
@@ -36,7 +36,7 @@ Follow the `caveman` skill for narration and status updates. Code, UI copy and c
    six decorative exceptions (GridBackdrop, Stats, the wordmark flicker, the route wipe, the
    Settings shutter scanline, the Home grid shot).
 3. Reference code: `apps/web/src/components/GridBackdrop.tsx`, `apps/web/src/components/GridAgents.tsx`,
-   `apps/web/src/components/RunningHeadline.tsx`, `apps/web/src/routes/Stats.tsx`, `apps/web/src/routes/Backlog.tsx`, `apps/web/src/agent-dots.ts`,
+   `apps/web/src/components/RunningSign.tsx`, `apps/web/src/routes/Stats.tsx`, `apps/web/src/routes/Backlog.tsx`, `apps/web/src/agent-dots.ts`,
    `apps/web/src/components/use-archive-launches.ts`, `apps/web/src/components/use-resume-bursts.ts`,
    `apps/web/src/components/use-supernovas.ts`, `apps/web/src/components/use-status-sweeps.ts`,
    `apps/web/src/decrypt.ts`,
@@ -178,8 +178,8 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
   inherits typography, including `text-transform`, colour and glow. No `aria-label`: it is not
   allowed on a generic `<span>`, and the real text node already serves screen readers. Share one
   hook's frame across stacked copies or split spans via `DecryptGlyphs`. Uses: the wordmark (once
-  per app load, one frame split across `black`/`wall`), the RunningHeadline number on count change
-  (one frame in both `.bw-running-base` and `.bw-running-hot`) and the TaskHeader title
+  per app load, one frame split across `black`/`wall`), the RunningSign numbers on count change
+  (one hook per number, each frame in both `.bw-running-base` and `.bw-running-hot`) and the TaskHeader title
   (`trigger={task.id}`).
 - Chat stream (`ChatPanel.tsx`, `use-chat-stream.ts`, `chat-stream.ts`): a streamed chat reply
   reveals word by word, its newest `STREAM_TAIL_CHARS` letters and digits showing glyphs. It is a
@@ -218,7 +218,14 @@ Code wins over this skill. Flag any conflict instead of silently picking one.
   - Never put it behind a task view, Settings or modals.
   - The only JS is the pointer spotlight's `--mx`/`--my`, the grid shot's flare (`.bw-grid-flare`,
     keyed per shot, at `--fx`/`--fy`) and shake (`data-kick`) from GridShots' bubbling `SHOT_EVENT`,
-    and RunningHeadline's own `--mx`/`--my` and `data-hover` for its local hover glow.
+    and RunningSign's own `--mx`/`--my` and `data-hover` for its local hover glow. Under 3D
+    transforms, take pointer coordinates from `offsetX`/`offsetY` on a target whose children are
+    `pointer-events: none` (local, transform-inverted space), not `clientX - getBoundingClientRect()`
+    (the projected box drifts).
+  - `--grid-fade` can also drive a uniform `opacity` for a layer that straddles the fade ramp
+    (`.bw-sign-layer`, with `[data-full]` setting it to 1), so it dims evenly with the same ease.
+- The running sign floats with `animate-sign-float` (`--animate-sign-float`, 7s, 0 → −4px); it rests
+  at 0 under reduced motion, so it needs no `display: none` entry.
 - Neon and motion mark state only (`blackwall-design` § Color semantics / Rules). GridBackdrop, Stats,
   the wordmark flicker, the route wipe, the Settings shutter scanline and the Home grid shot are the
   only sanctioned decorative exceptions.
