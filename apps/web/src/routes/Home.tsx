@@ -198,7 +198,8 @@ function Message({
  * sky above the horizon that links to its task (GridStars).
  * Pressing or holding on empty grid fires shots and can down passing ships
  * (GridShots). Once the tasks and agents load, every registered repo stands on
- * the horizon as a tower sized by its done tasks, archived included (the repo
+ * the horizon as a tower sized by its done tasks, archived included, in a
+ * scattered city cluster right of centre, opposite the RunningSign (the repo
  * skyline in GridAgents), at full strength and behind "Nothing on deck" too,
  * counted from the tasks query. A repo whose project is running gets a reactor pylon at its
  * tower; the output window a pylon opens lives here, so it outlives the pylon.

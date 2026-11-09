@@ -2,12 +2,18 @@ import type { Task } from "@blackwall/shared";
 import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { CARD_MARGIN, cardLeft } from "../agent-dots";
-import { ROW_PITCH, WINDOW_BOTTOM, windowColumns, type GridHot, type Tower } from "../skyline";
+import {
+  ROW_PITCH,
+  WINDOW_BOTTOM,
+  WINDOW_W,
+  windowColumns,
+  windowSpan,
+  type GridHot,
+  type Tower,
+} from "../skyline";
 
 /** The tower card's width. */
 const CARD_WIDTH = 200;
-/** A tower's hit target is at least this wide, however thin the tower. */
-const MIN_HIT_W = 12;
 
 /**
  * One faint line per task from its main dot (`${taskId}:0`) up to its repo's
@@ -58,11 +64,17 @@ function TowerLink({
   tower,
   overlayWidth,
   lit,
+  frontZ,
+  cardZ,
   onHot,
 }: {
   tower: Tower;
   overlayWidth: number;
   lit: boolean;
+  /** Above every tower: the focused tower's z, so its focus ring shows. */
+  frontZ: number;
+  /** Above every tower, for the card. */
+  cardZ: number;
   onHot: (repoId: string, on: boolean) => void;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -70,8 +82,8 @@ function TowerLink({
   const [dismissed, setDismissed] = useState(false);
   const open = (hovered || focused) && !dismissed;
   const cardId = useId();
-  const hitWidth = Math.max(tower.width, MIN_HIT_W);
   const columns = windowColumns(tower.width);
+  const span = windowSpan(columns);
   const width = Math.min(CARD_WIDTH, overlayWidth - 2 * CARD_MARGIN);
 
   return (
@@ -82,10 +94,12 @@ function TowerLink({
         aria-label={`${tower.name}: ${tower.doneCount} done, ${tower.running} running`}
         aria-describedby={open ? cardId : undefined}
         style={{
-          left: tower.x - hitWidth / 2,
+          // Exactly the tower, so the browser's hit test picks the front-most visible one.
+          left: tower.x - tower.width / 2,
           top: tower.top,
-          width: hitWidth,
+          width: tower.width,
           height: tower.height,
+          zIndex: focused ? frontZ : tower.z,
         }}
         className="pointer-events-auto absolute flex justify-center focus-visible:shadow-ring"
         onPointerEnter={(event) => {
@@ -131,11 +145,9 @@ function TowerLink({
                 style={{
                   bottom: WINDOW_BOTTOM + row * ROW_PITCH,
                   left:
-                    columns === 1
-                      ? "calc(50% - 1.5px)"
-                      : column === 0
-                        ? "calc(50% - 5px)"
-                        : "calc(50% + 2px)",
+                    column === 0
+                      ? `calc(50% - ${span / 2}px)`
+                      : `calc(50% + ${span / 2 - WINDOW_W}px)`,
                 }}
               />
             );
@@ -147,8 +159,13 @@ function TowerLink({
         <div
           id={cardId}
           role="tooltip"
-          style={{ left: cardLeft(tower.x, width, overlayWidth), top: tower.top - 8, width }}
-          className="absolute z-30 -translate-y-full drop-shadow-pop"
+          style={{
+            left: cardLeft(tower.x, width, overlayWidth),
+            top: tower.top - 8,
+            width,
+            zIndex: cardZ,
+          }}
+          className="absolute -translate-y-full drop-shadow-pop"
         >
           {/* The pop sits on the unclipped tooltip: clip-path drops the panel's own shadow. */}
           <div className="bw-chamfer flex flex-col gap-1 bg-popover p-3 text-left">
@@ -167,11 +184,14 @@ function TowerLink({
 }
 
 /**
- * The registered repos as dim, see-through towers on the grid's horizon (see
- * `skyline.ts`): height from its done tasks, cyan windows for running tasks,
- * magenta for those that need you, and a blinking beacon on a favourite's
- * roof. Each tower links to its repo's backlog. Render inside the `Repos` nav,
- * which shares `GridAgents`' coordinates.
+ * The registered repos as dim towers on the grid's horizon (see `skyline.ts`):
+ * a seeded, overlapping city cluster right of centre, opposite the running
+ * sign, with shorter towers in front. Height from its done tasks, cyan windows
+ * for running tasks, magenta for those that need you, and a blinking beacon on
+ * a favourite's roof. Each tower links to its repo's backlog; its hit box is
+ * exactly the tower, so the front-most visible one takes the pointer. The
+ * towers stack in their own context (`isolate`), painted before the pylons.
+ * Render inside the `Repos` nav, which shares `GridAgents`' coordinates.
  */
 export function GridSkyline({
   towers,
@@ -186,16 +206,18 @@ export function GridSkyline({
   onHot: (repoId: string, on: boolean) => void;
 }) {
   return (
-    <>
+    <div className="pointer-events-none absolute inset-0 isolate">
       {towers.map((tower) => (
         <TowerLink
           key={tower.repoId}
           tower={tower}
           overlayWidth={overlayWidth}
           lit={tower.repoId === hotRepoId}
+          frontZ={towers.length + 1}
+          cardZ={towers.length + 2}
           onHot={onHot}
         />
       ))}
-    </>
+    </div>
   );
 }

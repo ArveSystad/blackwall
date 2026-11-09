@@ -2636,8 +2636,12 @@ html:active-view-transition-type(bw-route) {
   }
 
   /* ---------- repo skyline (GridSkyline.tsx) ----------
-   * One dim, see-through tower per repo on the horizon (skyline.ts lays them
-   * out), lit when its dot or tower is hot ([data-hot]). Windows are 3×4px on
+   * One dim tower per repo on the horizon (skyline.ts lays them out as an
+   * overlapping cluster, shorter towers in front), lit when its dot or tower
+   * is hot ([data-hot]). The fill is mostly solid (the pane's --bg-0 tinted
+   * with the grid line), so a tower in front hides the outline of the one
+   * behind it; the dimming sits on the border, the windows and the beacon
+   * instead of on the whole tower. Windows are 3×4px on
    * a 7px row pitch (ROW_PITCH in skyline.ts): faint when off, cyan for a
    * running task, magenta for one that needs you. A favourite's roof carries
    * a beacon that blinks (animate-beacon-blink) and rests lit under reduced
@@ -2647,22 +2651,39 @@ html:active-view-transition-type(bw-route) {
     position: relative;
     display: block;
     height: 100%;
-    border: 1px solid var(--grid-line);
+    border: 1px solid color-mix(in oklab, var(--grid-line) 50%, transparent);
     border-bottom: none;
-    background: color-mix(in oklab, var(--grid-line) 18%, transparent);
-    opacity: 0.5;
-    transition: opacity 150ms ease-out;
+    background: color-mix(
+      in oklab,
+      color-mix(in oklab, var(--grid-line) 9%, var(--bg-0)) 80%,
+      transparent
+    );
+    transition:
+      border-color 150ms ease-out,
+      background-color 150ms ease-out;
   }
 
   .bw-tower[data-hot] {
-    opacity: 0.9;
+    border-color: color-mix(in oklab, var(--grid-line) 90%, transparent);
+    background: color-mix(
+      in oklab,
+      color-mix(in oklab, var(--grid-line) 16%, var(--bg-0)) 80%,
+      transparent
+    );
   }
 
   .bw-tower-window {
     position: absolute;
+    /* Matches WINDOW_W in skyline.ts, which lays out the window columns. */
     width: 3px;
     height: 4px;
     background: color-mix(in oklab, var(--grid-line) 60%, transparent);
+    opacity: 0.5;
+    transition: opacity 150ms ease-out;
+  }
+
+  .bw-tower[data-hot] .bw-tower-window {
+    opacity: 0.9;
   }
 
   .bw-tower-window[data-state="running"] {
@@ -2685,6 +2706,13 @@ html:active-view-transition-type(bw-route) {
     border-radius: 50%;
     background: var(--primary);
     box-shadow: 0 0 4px var(--primary);
+    /* A filter, not opacity: the blink animates opacity, and the two multiply. */
+    filter: opacity(0.5);
+    transition: filter 150ms ease-out;
+  }
+
+  .bw-tower[data-hot] .bw-tower-beacon {
+    filter: opacity(0.9);
   }
 
   /* Glow is dark only. */

@@ -333,8 +333,9 @@ function AgentDot({
  * when the result changes.
  *
  * Above the horizon stands the repo skyline (`GridSkyline`, laid out by
- * `skyline.ts`): one see-through tower per repo in `repos` order, as tall as
- * its done tasks on a log scale, with lit windows for its running (cyan) and
+ * `skyline.ts`): one tower per repo in a seeded, overlapping cluster of varied
+ * widths right of centre, opposite the running sign, shorter towers in front;
+ * each as tall as its done tasks on a log scale, with lit windows for its running (cyan) and
  * needs-you (magenta) tasks and a beacon on a favourite's roof. Each task's
  * main dot sends one faint tether up to its repo's tower; hovering a dot or a
  * tower lights both. The towers sit in their own `Repos` nav, a sibling of

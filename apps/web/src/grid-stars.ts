@@ -1,5 +1,5 @@
 import type { Task, TaskDoneTime } from "@blackwall/shared";
-import { SUPERNOVA_MS, fnv1a } from "./agent-dots";
+import { SUPERNOVA_MS, mixHash } from "./agent-dots";
 import { startOfDay } from "./stats";
 
 /** Minimum distance between star centres when the sky has room. */
@@ -24,18 +24,6 @@ const HORIZON = 0.58;
 export const STAR_SIZE = { min: 2, max: 3.5 };
 export const STAR_OPACITY = { min: 0.35, max: 0.7 };
 export const TWINKLE_S = { min: 6, max: 14 };
-
-/**
- * `fnv1a` with murmur3's finalizer on top. Plain FNV-1a barely moves for
- * strings that differ only in their last character (`id:1`, `id:2`…), which
- * would bunch a star's candidate spots together.
- */
-function hash(text: string): number {
-  let h = fnv1a(text);
-  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
-  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
-  return (h ^ (h >>> 16)) >>> 0;
-}
 
 /** One task done today, with when it was done. */
 export interface TodayStar {
@@ -117,7 +105,7 @@ export function layoutStars(
   for (const { task } of stars) {
     const id = task.id;
     const candidates = Array.from({ length: CANDIDATES }, (_, k) => {
-      const h = hash(k === 0 ? id : `${id}:${k}`);
+      const h = mixHash(k === 0 ? id : `${id}:${k}`);
       return {
         x: xMin + ((h & 0xffff) / 0xffff) * (xMax - xMin),
         y: yMin + ((h >>> 16) / 0xffff) * (yMax - yMin),
@@ -129,7 +117,7 @@ export function layoutStars(
       candidates[0]!;
     placed.push(spot);
 
-    const look = hash(`${id}:star`);
+    const look = mixHash(`${id}:star`);
     const unit = (shift: number) => ((look >>> shift) & 0xff) / 0xff;
     const twinkleS = TWINKLE_S.min + unit(16) * (TWINKLE_S.max - TWINKLE_S.min);
     layout.set(id, {

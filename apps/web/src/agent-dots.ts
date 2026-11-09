@@ -151,6 +151,18 @@ export function fnv1a(text: string): number {
   return hash;
 }
 
+/**
+ * `fnv1a` with murmur3's finalizer on top. Plain FNV-1a barely moves for
+ * strings that differ only in their last character (`id:1`, `id:2`…), which
+ * would bunch a star's candidate spots together.
+ */
+export function mixHash(text: string): number {
+  let h = fnv1a(text);
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
 /** A task's stable home spot on the floor, as fractions (0–1) of the pane's width and height. */
 export function dotPosition(taskId: string): { x: number; y: number } {
   const hash = fnv1a(taskId);
