@@ -17,8 +17,8 @@ export interface Tower {
   top: number;
   /** The horizon the tower stands on: `HORIZON_Y · paneHeight`. */
   base: number;
-  /** Open backlog items. */
-  backlog: number;
+  /** Done tasks, archived ones included. */
+  doneCount: number;
   /** Unarchived running tasks; exact, though the lit windows are capped. */
   running: number;
   /** Unarchived needs-you tasks; exact, though the lit windows are capped. */
@@ -40,10 +40,10 @@ export function hotRepo(
   return tasks.get(hot.taskId)?.repoId ?? null;
 }
 
-/** The shortest tower, for an empty backlog. */
+/** The shortest tower, for a repo with no done tasks. */
 export const MIN_H = 12;
-/** Backlogs this long or longer reach the tallest tower. */
-export const BACKLOG_CAP = 64;
+/** Repos with this many done tasks or more reach the tallest tower. */
+export const DONE_CAP = 64;
 /** The tallest a tower gets on a tall pane. */
 const MAX_H = 120;
 /** A tower's width bounds; at this width or wider it gets two window columns. */
@@ -76,15 +76,27 @@ export function repoActivity(
   return activity;
 }
 
+/** Per repo id, how many of its tasks are done, archived ones included. */
+export function repoDoneCounts(
+  tasks: Iterable<Pick<Task, "repoId" | "status">>,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const task of tasks) {
+    if (task.status !== "done" || !task.repoId) continue;
+    counts.set(task.repoId, (counts.get(task.repoId) ?? 0) + 1);
+  }
+  return counts;
+}
+
 /**
- * A tower's height for `backlog` open items in a pane `paneHeight` tall: on a
- * log scale from `MIN_H` (empty) to the cap at `BACKLOG_CAP` items, where the
+ * A tower's height for `doneCount` done tasks in a pane `paneHeight` tall: on a
+ * log scale from `MIN_H` (none) to the cap at `DONE_CAP` tasks, where the
  * cap is 18% of the pane, at least `MIN_H` and at most 120px.
  */
-export function towerHeight(backlog: number, paneHeight: number): number {
+export function towerHeight(doneCount: number, paneHeight: number): number {
   const maxH = clamp(0.18 * paneHeight, MIN_H, MAX_H);
-  const n = Math.max(0, backlog);
-  const t = Math.min(1, Math.log2(1 + n) / Math.log2(1 + BACKLOG_CAP));
+  const n = Math.max(0, doneCount);
+  const t = Math.min(1, Math.log2(1 + n) / Math.log2(1 + DONE_CAP));
   return MIN_H + (maxH - MIN_H) * t;
 }
 
@@ -92,12 +104,12 @@ export function towerHeight(backlog: number, paneHeight: number): number {
  * The towers for `repos` in a `width` × `height` pane, in the order given
  * (the repo list's: favourites, then position, then name). Each stands on the
  * horizon in an equal slot across the band dots use (`HOME_X`), with its
- * height from its backlog and lit windows for its live tasks, needs-you first,
+ * height from its done tasks and lit windows for its live tasks, needs-you first,
  * from the bottom.
  */
 export function layoutSkyline(
   repos: readonly Pick<Repo, "id" | "name" | "favorite">[],
-  backlogCounts: ReadonlyMap<string, number>,
+  doneCounts: ReadonlyMap<string, number>,
   activity: ReadonlyMap<string, { running: number; needs: number }>,
   width: number,
   height: number,
@@ -109,9 +121,9 @@ export function layoutSkyline(
   const base = HORIZON_Y * height;
   const columns = windowColumns(towerW);
   return repos.map((repo, index) => {
-    const backlog = backlogCounts.get(repo.id) ?? 0;
+    const doneCount = doneCounts.get(repo.id) ?? 0;
     const { running, needs } = activity.get(repo.id) ?? { running: 0, needs: 0 };
-    const h = towerHeight(backlog, height);
+    const h = towerHeight(doneCount, height);
     const rows = Math.max(1, Math.floor((h - WINDOW_PAD) / ROW_PITCH));
     const total = rows * columns;
     const lit = Math.min(needs, total);
@@ -127,7 +139,7 @@ export function layoutSkyline(
       height: h,
       top: base - h,
       base,
-      backlog,
+      doneCount,
       running,
       needs,
       windows,

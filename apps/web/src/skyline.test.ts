@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { HOME_X, HORIZON_Y } from "./agent-dots";
 import {
-  BACKLOG_CAP,
+  DONE_CAP,
   hotRepo,
   layoutSkyline,
   MIN_H,
   repoActivity,
+  repoDoneCounts,
   towerHeight,
   windowColumns,
 } from "./skyline";
@@ -72,13 +73,13 @@ describe("layoutSkyline", () => {
   it("caps the lit windows at the window count but keeps the exact counts", () => {
     const activity = new Map([["a", { running: 50, needs: 50 }]]);
     const [tower] = layoutSkyline([repo("a")], none, activity, 1000, 800);
-    // An empty backlog: MIN_H tall, one row of two windows.
+    // No done tasks: MIN_H tall, one row of two windows.
     expect(tower?.windows).toEqual(["needs-you", "needs-you"]);
     expect(tower?.running).toBe(50);
     expect(tower?.needs).toBe(50);
   });
 
-  it("passes the favourite flag and the backlog count through", () => {
+  it("passes the favourite flag and the done count through", () => {
     const [fav, plain] = layoutSkyline(
       [repo("a", true), repo("b")],
       new Map([["a", 7]]),
@@ -87,9 +88,9 @@ describe("layoutSkyline", () => {
       800,
     );
     expect(fav?.favorite).toBe(true);
-    expect(fav?.backlog).toBe(7);
+    expect(fav?.doneCount).toBe(7);
     expect(plain?.favorite).toBe(false);
-    expect(plain?.backlog).toBe(0);
+    expect(plain?.doneCount).toBe(0);
   });
 });
 
@@ -102,7 +103,7 @@ describe("towerHeight", () => {
       expect(h).toBeGreaterThanOrEqual(previous);
       previous = h;
     }
-    expect(towerHeight(BACKLOG_CAP, 800)).toBe(towerHeight(BACKLOG_CAP + 100, 800));
+    expect(towerHeight(DONE_CAP, 800)).toBe(towerHeight(DONE_CAP + 100, 800));
   });
 
   it("grows on a log curve", () => {
@@ -111,9 +112,9 @@ describe("towerHeight", () => {
   });
 
   it("shrinks the cap on short panes, never below MIN_H", () => {
-    expect(towerHeight(BACKLOG_CAP, 2000)).toBe(120);
-    expect(towerHeight(BACKLOG_CAP, 300)).toBeCloseTo(54);
-    expect(towerHeight(BACKLOG_CAP, 20)).toBe(MIN_H);
+    expect(towerHeight(DONE_CAP, 2000)).toBe(120);
+    expect(towerHeight(DONE_CAP, 300)).toBeCloseTo(54);
+    expect(towerHeight(DONE_CAP, 20)).toBe(MIN_H);
   });
 });
 
@@ -131,6 +132,27 @@ describe("repoActivity", () => {
     expect(activity.get("a")).toEqual({ running: 2, needs: 1 });
     expect(activity.get("b")).toEqual({ running: 0, needs: 1 });
     expect(activity.has("c")).toBe(false);
+  });
+});
+
+describe("repoDoneCounts", () => {
+  it("counts done tasks per repo, archived included, skipping other statuses", () => {
+    const tasks = [
+      makeTask({ repoId: "a", status: "done" }),
+      makeTask({ repoId: "a", status: "done", archivedAt: new Date() }),
+      makeTask({ repoId: "b", status: "done" }),
+      makeTask({ repoId: "a", status: "running" }),
+      makeTask({ repoId: "a", status: "needs-you" }),
+      makeTask({ repoId: "c", status: "failed" }),
+      makeTask({ repoId: "c", status: "queued" }),
+    ];
+    const counts = repoDoneCounts(tasks);
+    expect(counts.get("a")).toBe(2);
+    expect(counts.get("b")).toBe(1);
+    expect(counts.has("c")).toBe(false);
+    const [, , c] = layoutSkyline([repo("a"), repo("b"), repo("c")], counts, idle, 1000, 800);
+    expect(c?.doneCount).toBe(0);
+    expect(c?.height).toBe(MIN_H);
   });
 });
 

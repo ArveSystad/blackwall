@@ -102,11 +102,11 @@ Rules:
   needs-you dots stack above running and queued ones; hover or focus shows a card with the task,
   stage and current work. Above the horizon, the repo skyline (`GridSkyline`, laid out by
   `skyline.ts`) stands one dim, see-through tower per registered repo in the repo list's order,
-  its height a log scale of the open backlog. Lit windows show the repo's running tasks in cyan and
+  its height a log scale of the repo's done tasks (archived included). Lit windows show the repo's running tasks in cyan and
   needs-you tasks in magenta (`--st-needs`; no amber), and a favourite's roof carries a small
   blinking beacon in the favourite star's `--primary`. Each task's main dot sends one faint cyan
   tether up to its tower (sub-agent dots none); hovering a dot or tower brightens both, and a
-  tower's card shows the repo, "N waiting", "M running" and "K need you", and clicking opens its
+  tower's card shows the repo, "N done", "M running" and "K need you", and clicking opens its
   backlog. The towers sit in their own `Repos` nav landmark, separate from `Active agents`; only the
   tower boxes take pointer events, so blank sky still fires shots. A repo whose project is running
   (Run project) gets a small reactor pylon at its tower's foot (`GridReactors`, `reactor.ts`), in

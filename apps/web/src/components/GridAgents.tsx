@@ -334,7 +334,7 @@ function AgentDot({
  *
  * Above the horizon stands the repo skyline (`GridSkyline`, laid out by
  * `skyline.ts`): one see-through tower per repo in `repos` order, as tall as
- * its backlog on a log scale, with lit windows for its running (cyan) and
+ * its done tasks on a log scale, with lit windows for its running (cyan) and
  * needs-you (magenta) tasks and a beacon on a favourite's roof. Each task's
  * main dot sends one faint tether up to its repo's tower; hovering a dot or a
  * tower lights both. The towers sit in their own `Repos` nav, a sibling of
@@ -355,7 +355,7 @@ export function GridAgents({
   agents,
   launch,
   repos,
-  backlogCounts,
+  doneCounts,
   onOpenOutput,
 }: {
   dots: readonly GridDot[];
@@ -364,8 +364,8 @@ export function GridAgents({
   launch: ArchiveLaunches;
   /** The registered repos, in the repo list's order: one tower each. */
   repos: readonly RepoView[];
-  /** Open backlog items per repo id; a repo missing here counts 0. */
-  backlogCounts: ReadonlyMap<string, number>;
+  /** Done tasks (archived included) per repo id; a repo missing here counts 0. */
+  doneCounts: ReadonlyMap<string, number>;
   /** Opens a repo's Run project output; Home owns the window, so it outlives the pylon. */
   onOpenOutput: (repoId: string) => void;
 }) {
@@ -397,8 +397,8 @@ export function GridAgents({
 
   const activity = useMemo(() => repoActivity(tasks.values()), [tasks]);
   const towers = useMemo<Tower[]>(
-    () => (size ? layoutSkyline(repos, backlogCounts, activity, size.width, size.height) : []),
-    [repos, backlogCounts, activity, size],
+    () => (size ? layoutSkyline(repos, doneCounts, activity, size.width, size.height) : []),
+    [repos, doneCounts, activity, size],
   );
   const towersById = useMemo(() => new Map(towers.map((t) => [t.repoId, t])), [towers]);
   // Lets effects outside the grid aim at a repo's tower.

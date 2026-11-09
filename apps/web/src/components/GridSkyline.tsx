@@ -79,7 +79,7 @@ function TowerLink({
       <Link
         to="/repos/$repoId/backlog"
         params={{ repoId: tower.repoId }}
-        aria-label={`${tower.name}: ${tower.backlog} waiting, ${tower.running} running`}
+        aria-label={`${tower.name}: ${tower.doneCount} done, ${tower.running} running`}
         aria-describedby={open ? cardId : undefined}
         style={{
           left: tower.x - hitWidth / 2,
@@ -153,7 +153,7 @@ function TowerLink({
           {/* The pop sits on the unclipped tooltip: clip-path drops the panel's own shadow. */}
           <div className="bw-chamfer flex flex-col gap-1 bg-popover p-3 text-left">
             <span className="truncate font-medium text-foreground-strong">{tower.name}</span>
-            <span className="mono text-meta text-muted-foreground">{tower.backlog} waiting</span>
+            <span className="mono text-meta text-muted-foreground">{tower.doneCount} done</span>
             <span className="text-meta text-cyan">{tower.running} running</span>
             {tower.needs > 0 && (
               <span className="text-meta text-magenta">{tower.needs} need you</span>
@@ -168,7 +168,7 @@ function TowerLink({
 
 /**
  * The registered repos as dim, see-through towers on the grid's horizon (see
- * `skyline.ts`): height from the backlog, cyan windows for running tasks,
+ * `skyline.ts`): height from its done tasks, cyan windows for running tasks,
  * magenta for those that need you, and a blinking beacon on a favourite's
  * roof. Each tower links to its repo's backlog. Render inside the `Repos` nav,
  * which shares `GridAgents`' coordinates.
