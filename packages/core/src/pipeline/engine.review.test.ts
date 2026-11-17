@@ -66,6 +66,14 @@ describe("diff comment findings", () => {
     });
   });
 
+  it("keeps the severity the user chose, high when none was given", () => {
+    const seeded = seedTask({ mode: "review", origin: prOrigin(), branch: "feature/x" });
+    expect(
+      diffCommentFinding(seeded, "run-1", 0, { ...comment, severity: "low" }, "review").severity,
+    ).toBe("low");
+    expect(diffCommentFinding(seeded, "run-1", 0, comment, "review").severity).toBe("high");
+  });
+
   it("cuts a long first line to 80 characters", () => {
     const seeded = seedTask();
     const titled = (body: string) =>

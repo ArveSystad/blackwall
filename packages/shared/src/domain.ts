@@ -2549,7 +2549,8 @@ export type FindingOverrideInput = z.infer<typeof findingOverrideInputSchema>;
 /**
  * The user's comment on one hunk of the branch diff. It becomes a finding on
  * `file`, at the hunk's lines in the new file (null when unknown): force-fixed
- * in a work task, open (to post to the PR) in a review task.
+ * in a work task, open (to post to the PR) in a review task. In a review task
+ * the user picks its severity; it defaults to high when not given.
  */
 export const diffCommentInputSchema = z
   .object({
@@ -2559,6 +2560,8 @@ export const diffCommentInputSchema = z
     /** The hunk as unified-diff text, header included. */
     hunk: z.string().min(1),
     body: z.string().trim().min(1),
+    /** The finding's severity, chosen by the user in a review task. */
+    severity: severitySchema.optional(),
   })
   .refine((c) => c.lineStart == null || c.lineEnd == null || c.lineEnd >= c.lineStart, {
     path: ["lineEnd"],

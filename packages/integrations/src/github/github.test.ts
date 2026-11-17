@@ -18,7 +18,12 @@ import {
   renderPullRequestComments,
 } from "./pull-request.js";
 import { buildReviewPayload, commentableLines } from "./review.js";
-import { COMMENT_SIGNATURE, signComment } from "./signature.js";
+import {
+  COMMENT_SIGNATURE,
+  HUMAN_COMMENT_SIGNATURE,
+  signComment,
+  signHumanComment,
+} from "./signature.js";
 
 const fixturePath = (name: string) => new URL(`./fixtures/${name}`, import.meta.url);
 const fixtureText = (name: string) => readFileSync(fixturePath(name), "utf8");
@@ -1345,47 +1350,48 @@ describe("review payloads", () => {
     });
   });
 
-  it("posts the user's own comments as they wrote them, inline or in the body", () => {
+  it("posts the user's own comments behind their severity, inline or in the body", () => {
     const mine = { stepId: null, reviewerAgentId: null };
-    const payload = buildReviewPayload(
-      [
-        {
-          ...finding({
-            severity: "High",
-            file: "src/invoices/totals.ts",
-            lineStart: 2,
-            lineEnd: 5,
-            title: "Why the rename?",
-            explanation: "  Why the rename?\nThe old name matched the API.  ",
-          }),
-          ...mine,
-        },
-        {
-          ...finding({
-            severity: "High",
-            file: "src/invoices/totals.ts",
-            lineStart: 40,
-            lineEnd: 42,
-            title: "Missed spot",
-            explanation: "This needs the same change.",
-          }),
-          ...mine,
-        },
-        { ...finding({ title: "No location", explanation: "General note." }), ...mine },
-        {
-          ...finding({ file: "src/invoices/totals.ts", lineStart: 4, title: "A reviewer's" }),
-          stepId: "step-1",
-          reviewerAgentId: "agent-1",
-        },
-      ],
-      { diff: DIFF },
-    );
+    const findings = [
+      {
+        ...finding({
+          severity: "medium",
+          file: "src/invoices/totals.ts",
+          lineStart: 2,
+          lineEnd: 5,
+          title: "Why the rename?",
+          explanation: "  Why the rename?\nThe old name matched the API.  ",
+        }),
+        ...mine,
+      },
+      {
+        ...finding({
+          severity: "low",
+          file: "src/invoices/totals.ts",
+          lineStart: 40,
+          lineEnd: 42,
+          title: "Missed spot",
+          explanation: "This needs the same change.",
+        }),
+        ...mine,
+      },
+      {
+        ...finding({ severity: "high", title: "No location", explanation: "General note." }),
+        ...mine,
+      },
+      {
+        ...finding({ file: "src/invoices/totals.ts", lineStart: 4, title: "A reviewer's" }),
+        stepId: "step-1",
+        reviewerAgentId: "agent-1",
+      },
+    ];
+    const payload = buildReviewPayload(findings, { diff: DIFF });
     expect(payload.body).toBe(
       [
         "Findings outside the diff:",
         "",
-        "- (`src/invoices/totals.ts:40-42`): This needs the same change.",
-        "- General note.",
+        "- **[low]** (`src/invoices/totals.ts:40-42`): This needs the same change. — _posted by an actual human being_",
+        "- **[high]**: General note. — _posted by an actual human being_",
       ].join("\n"),
     );
     expect(payload.comments).toEqual([
@@ -1395,7 +1401,7 @@ describe("review payloads", () => {
         side: "RIGHT",
         start_line: 2,
         start_side: "RIGHT",
-        body: "Why the rename?\nThe old name matched the API.",
+        body: "**[medium]** Why the rename?\nThe old name matched the API.",
       },
       {
         path: "src/invoices/totals.ts",
@@ -1404,6 +1410,19 @@ describe("review payloads", () => {
         body: "**[Medium] A reviewer's**\n\nExplanation.",
       },
     ]);
+
+    // Only the user's own inline comments are signed.
+    const signUserComment = vi.fn(signHumanComment);
+    const signed = buildReviewPayload(findings, { diff: DIFF, signUserComment });
+    expect(signUserComment).toHaveBeenCalledTimes(1);
+    expect(signUserComment).toHaveBeenCalledWith(
+      "**[medium]** Why the rename?\nThe old name matched the API.",
+    );
+    expect(signed.comments.map((c) => c.body)).toEqual([
+      `**[medium]** Why the rename?\nThe old name matched the API.\n\n---\n${HUMAN_COMMENT_SIGNATURE}`,
+      "**[Medium] A reviewer's**\n\nExplanation.",
+    ]);
+    expect(signed.body).toBe(payload.body);
   });
 
   it("posts the payload as a review", async () => {
@@ -1438,6 +1457,32 @@ describe("signComment", () => {
 
   it("signs an empty body", () => {
     expect(signComment("  ")).toBe(`---\n${COMMENT_SIGNATURE}`);
+  });
+});
+
+describe("signHumanComment", () => {
+  it("appends the human signature below a rule", () => {
+    expect(signHumanComment("Rename this.")).toBe(
+      `Rename this.\n\n---\n${HUMAN_COMMENT_SIGNATURE}`,
+    );
+    expect(HUMAN_COMMENT_SIGNATURE).toBe("_Posted by an actual human being from blackwall_");
+    expect(HUMAN_COMMENT_SIGNATURE.endsWith(COMMENT_SIGNATURE)).toBe(false);
+  });
+
+  it("trims trailing whitespace first", () => {
+    expect(signHumanComment("Rename this.\n\n  \n")).toBe(
+      `Rename this.\n\n---\n${HUMAN_COMMENT_SIGNATURE}`,
+    );
+  });
+
+  it("does not sign a body twice", () => {
+    const signed = signHumanComment("Rename this.");
+    expect(signHumanComment(signed)).toBe(signed);
+    expect(signHumanComment(`${signed}\n`)).toBe(signed);
+  });
+
+  it("signs an empty body", () => {
+    expect(signHumanComment("  ")).toBe(`---\n${HUMAN_COMMENT_SIGNATURE}`);
   });
 });
 

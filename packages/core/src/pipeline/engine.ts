@@ -1753,8 +1753,9 @@ export function createPipelineEngine({
      * and escalation the comments start one more fix round straight away,
      * which at escalation counts as "revise"; at triage the task stays at its
      * gate and approving it runs the fix round the new blockers call for. In
-     * a review task it is open and the task stays at triage, its comments
-     * offered for posting to the pull request with the reviewers' findings.
+     * a review task it is open, at the severity the user chose, and the task
+     * stays at triage, its comments offered for posting to the pull request
+     * with the reviewers' findings.
      */
     commentOnDiff(taskId: string, input: DiffCommentsInput): DiffCommentsResult {
       const parsed = diffCommentsInputSchema.safeParse(input);

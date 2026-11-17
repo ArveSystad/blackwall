@@ -101,10 +101,11 @@ function isUserComment(finding: PostedFinding): boolean {
 
 /**
  * A finding as markdown: severity and title, explanation, suggested fix and
- * tags. The user's own comment is posted as they wrote it.
+ * tags. The user's own comment is posted as they wrote it behind its
+ * severity; its title is only its first line, so it is not repeated.
  */
 export function renderFindingComment(finding: PostedFinding): string {
-  if (isUserComment(finding)) return finding.explanation.trim();
+  if (isUserComment(finding)) return `**[${finding.severity}]** ${finding.explanation.trim()}`;
   const parts = [`**[${finding.severity}] ${finding.title}**`, finding.explanation.trim()];
   const fix = finding.suggestedFix?.trim();
   if (fix) parts.push(`**Suggested fix:** ${fix}`);
@@ -158,28 +159,38 @@ export interface ReviewPayloadOptions {
   summary?: string;
   /** Defaults to `COMMENT`: the harness approves only when the user opts in, and never blocks. */
   event?: ReviewEvent;
+  /**
+   * Signs the inline comment of a user's own hunk comment, e.g. as written by
+   * a human. Other comments, and the review body, are left to the caller.
+   */
+  signUserComment?: (body: string) => string;
 }
 
 /**
  * Turns the findings the user selected into a PR review: findings that hit
  * a line in the diff become inline comments (multi-line when their range
  * allows), the rest are listed in the review body with their location. The
- * user's own hunk comments go without a severity and title.
+ * user's own hunk comments go with their severity but no title: inline they
+ * are signed with `signUserComment` when given, in the body they carry a
+ * note that a human posted them.
  */
 export function buildReviewPayload(
   findings: readonly PostedFinding[],
-  { diff, commitId, summary, event = "COMMENT" }: ReviewPayloadOptions,
+  { diff, commitId, summary, event = "COMMENT", signUserComment }: ReviewPayloadOptions,
 ): ReviewPayload {
   const lines = commentableLines(diff);
   const comments: ReviewCommentPayload[] = [];
   const general: string[] = [];
   for (const finding of findings) {
     const placed = place(finding, lines);
+    const own = isUserComment(finding);
     if (placed) {
-      comments.push({ ...placed, body: renderFindingComment(finding) });
-    } else if (isUserComment(finding)) {
-      const where = location(finding);
-      general.push(`-${where}${where ? ":" : ""} ${finding.explanation.trim()}`);
+      const body = renderFindingComment(finding);
+      comments.push({ ...placed, body: own && signUserComment ? signUserComment(body) : body });
+    } else if (own) {
+      general.push(
+        `- **[${finding.severity}]**${location(finding)}: ${finding.explanation.trim()} — _posted by an actual human being_`,
+      );
     } else {
       general.push(
         `- **[${finding.severity}] ${finding.title}**${location(finding)}: ${finding.explanation.trim()}`,

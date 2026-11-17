@@ -4,7 +4,9 @@ import {
   type BranchDiff,
   type DiffCommentInput,
   type Finding,
+  SEVERITIES,
   type PullRequestThread,
+  type Severity,
   type Task,
   type TaskDiff,
 } from "@blackwall/shared";
@@ -50,18 +52,44 @@ import { Kbd } from "../ui/kbd";
 import { Textarea } from "../ui/textarea";
 import type { TaskAction } from "./use-task-action";
 
+/** An unsent hunk comment and the severity picked for it (used in review tasks only). */
+export interface DiffDraftComment {
+  body: string;
+  severity: Severity;
+}
+
 /** Unsent hunk comments, keyed by {@link draftKey}. */
-export type DiffDrafts = Record<string, string>;
+export type DiffDrafts = Record<string, DiffDraftComment>;
+
+/** Severity of a review task's hunk comment until the user picks another. */
+export const DEFAULT_COMMENT_SEVERITY: Severity = "high";
 
 const draftKey = (hunk: Pick<DiffHunk, "path" | "index">) => `${hunk.path}#${hunk.index}`;
 
-/** The drafts with text, as comments on their hunks; drafts for hunks gone from the diff are dropped. */
-function draftComments(hunks: readonly DiffHunk[], drafts: DiffDrafts): DiffCommentInput[] {
+/**
+ * The drafts with text, as comments on their hunks; drafts for hunks gone
+ * from the diff are dropped. A review task's comments carry their severity.
+ */
+function draftComments(
+  hunks: readonly DiffHunk[],
+  drafts: DiffDrafts,
+  review: boolean,
+): DiffCommentInput[] {
   return hunks.flatMap((hunk) => {
-    const body = drafts[draftKey(hunk)]?.trim();
-    if (!body) return [];
+    const draft = drafts[draftKey(hunk)];
+    const body = draft?.body.trim();
+    if (!draft || !body) return [];
     const { path: file, lineStart, lineEnd, text } = hunk;
-    return [{ file, lineStart, lineEnd, hunk: text, body }];
+    return [
+      {
+        file,
+        lineStart,
+        lineEnd,
+        hunk: text,
+        body,
+        ...(review ? { severity: draft.severity } : {}),
+      },
+    ];
   });
 }
 
@@ -298,7 +326,9 @@ function HunkStepper({
   const key = draftKey(hunk);
   const paths = [...new Set(hunks.map((h) => h.path))];
   const inFile = hunks.filter((h) => h.path === hunk.path).length;
-  const comments = draftComments(hunks, drafts);
+  const review = task.mode === "review";
+  const comments = draftComments(hunks, drafts, review);
+  const draft = drafts[key] ?? { body: "", severity: DEFAULT_COMMENT_SEVERITY };
   const canSend = canComment && comments.length > 0 && !action.pending;
 
   // Seed the seen ids on the first render, so comments already there show without fading.
@@ -343,7 +373,6 @@ function HunkStepper({
     if (canSend) onSend(comments);
   }
 
-  const review = task.mode === "review";
   const noun = comments.length === 1 ? "comment" : "comments";
   const sendLabel = diffCommentsRunFixRound(task)
     ? `Send ${comments.length} ${noun} and run a fix round`
@@ -400,19 +429,31 @@ function HunkStepper({
           ))}
         </ul>
       )}
-      <label htmlFor={id} className={fieldLabel}>
-        Your comment on this hunk
-      </label>
+      <div className="flex flex-wrap items-center gap-3">
+        <label htmlFor={id} className={fieldLabel}>
+          Your comment on this hunk
+        </label>
+        {review && (
+          <Segmented
+            label="Severity"
+            value={draft.severity}
+            onChange={(severity) => onDraftsChange({ ...drafts, [key]: { ...draft, severity } })}
+            options={SEVERITIES.map((s) => ({ value: s, label: <SeverityChip severity={s} /> }))}
+          />
+        )}
+      </div>
       <Textarea
         id={id}
         rows={3}
-        value={drafts[key] ?? ""}
+        value={draft.body}
         placeholder={
           review
             ? "What should the PR author know about this hunk?"
             : "What should the implementer change here?"
         }
-        onChange={(event) => onDraftsChange({ ...drafts, [key]: event.target.value })}
+        onChange={(event) =>
+          onDraftsChange({ ...drafts, [key]: { ...draft, body: event.target.value } })
+        }
         onKeyDown={(event) => {
           if (event.key === "Enter" && isModKey(event.nativeEvent)) {
             event.preventDefault();
@@ -427,7 +468,7 @@ function HunkStepper({
         {review ? (
           <span className="text-meta text-faint">
             {canComment
-              ? "Comments are added to the findings you post to the pull request from the Finish tab."
+              ? "Comments are posted with their severity, signed as written by a human, from the Finish tab."
               : "Send once the review waits on you at triage."}
           </span>
         ) : (
@@ -503,7 +544,7 @@ export function DiffPanel({
   const hunks = branchDiff ? splitHunks(parseDiff(branchDiff.diff)) : [];
   const canStep = canStepThroughDiff(task) && hunks.length > 0;
   const showStepper = stepping && canStep;
-  const drafted = draftComments(hunks, drafts).length;
+  const drafted = draftComments(hunks, drafts, task.mode === "review").length;
 
   const keys = diffs.map((d) => `${d.round}:${d.reviewed}`);
   const key = selected && keys.includes(selected) ? selected : keys.at(-1)!;

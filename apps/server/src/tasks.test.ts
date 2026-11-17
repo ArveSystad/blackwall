@@ -667,6 +667,31 @@ describe("pipeline task routes", () => {
     // Only the valid request reached the pipeline.
     expect(pipeline.commentOnDiff).toHaveBeenCalledTimes(1);
   });
+
+  it("passes a comment's severity on, rejecting an unknown one", async () => {
+    const task = seedTask();
+    const comment = {
+      file: "src/auth.ts",
+      lineStart: 3,
+      lineEnd: 4,
+      hunk: "@@ -1,2 +3,4 @@\n+const x = 1;",
+      body: "Rename this.",
+      severity: "medium",
+    };
+    const ok = await request(`/api/tasks/${task.id}/comments`, {
+      method: "POST",
+      body: { comments: [comment] },
+    });
+    expect(ok.status).toBe(200);
+    expect(pipeline.commentOnDiff).toHaveBeenCalledWith(task.id, { comments: [comment] });
+
+    const unknown = await request(`/api/tasks/${task.id}/comments`, {
+      method: "POST",
+      body: { comments: [{ ...comment, severity: "blocker" }] },
+    });
+    expect(unknown.status).toBe(400);
+    expect(pipeline.commentOnDiff).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("new tasks", () => {

@@ -132,7 +132,8 @@ export function firstLineTitle(body: string): string {
  * a work task it is force-fixed and explained by the whole comment and the
  * hunk, so the implementer finds the code even when its lines move. In a
  * review task it is open, so it is offered for posting to the pull request,
- * and explained by the comment alone, as it is posted word for word.
+ * and explained by the comment alone, as that is what is posted. Its severity
+ * is the one the user chose, high when none was given.
  */
 export function diffCommentFinding(
   task: Task,
@@ -148,7 +149,7 @@ export function diffCommentFinding(
     runId,
     stepId: null,
     reviewerAgentId: null,
-    severity: "high",
+    severity: comment.severity ?? "high",
     tags: [],
     file: comment.file,
     lineStart: comment.lineStart,

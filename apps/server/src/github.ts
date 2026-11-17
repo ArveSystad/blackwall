@@ -36,6 +36,7 @@ import {
   renderPullRequestComments,
   renderPullRequestStack,
   signComment,
+  signHumanComment,
   type Fetch,
   type GitHubClient,
   type GitHubCredentials,
@@ -343,8 +344,12 @@ export function createGitHubOrigin({ connections, fetch: fetchImpl }: GitHubOrig
      * The review threads (outdated ones too) and conversation on the pull
      * request at `url`, for Fetch comments and fix, each comment with a
      * permalink built from the PR link. Comments blackwall signed are left
-     * out. A missing token throws {@link MissingCredentialError}: the user
-     * asked for this, so the token modal may open.
+     * out. Inline comments the user posted from blackwall end with
+     * `HUMAN_COMMENT_SIGNATURE` instead, so they are kept on purpose: a person
+     * wrote them. The user's comments that fell outside the diff are bullets
+     * in a blackwall-signed review body, so they are dropped with that body.
+     * A missing token throws {@link MissingCredentialError}: the user asked
+     * for this, so the token modal may open.
      */
     async pullRequestFeedback(url: string, signal?: AbortSignal): Promise<PullRequestFeedback> {
       const ref = parsePullRequestUrl(url);
@@ -484,6 +489,7 @@ export function createGitHubOrigin({ connections, fetch: fetchImpl }: GitHubOrig
      * Submits a `COMMENT` review, or `APPROVE` when the user ticked Approve,
      * on the task's pull request: findings on a line of the PR's diff become
      * inline comments, the rest go in the body, which is signed as blackwall's.
+     * The user's own inline comments are signed as written by a human.
      */
     async reviewPullRequest(
       task: Task,
@@ -500,6 +506,7 @@ export function createGitHubOrigin({ connections, fetch: fetchImpl }: GitHubOrig
         diff,
         commitId: pr.head.sha,
         event: approve ? "APPROVE" : "COMMENT",
+        signUserComment: signHumanComment,
       });
       const { url } = await client.createReview(origin, {
         ...payload,

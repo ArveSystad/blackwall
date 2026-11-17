@@ -68,6 +68,7 @@ import {
   mergePullRequestResultSchema,
   searchQuerySchema,
   searchResultsSchema,
+  SEVERITIES,
   settingsSchema,
   stagePermissionProfile,
   taskSchema,
@@ -591,6 +592,16 @@ describe("diff comments", () => {
 
   it("accepts a valid comment and trims its body", () => {
     expect(diffCommentInputSchema.parse(comment)).toEqual({ ...comment, body: "Rename this." });
+  });
+
+  it("takes an optional severity", () => {
+    expect(diffCommentInputSchema.parse(comment).severity).toBeUndefined();
+    for (const severity of SEVERITIES) {
+      expect(diffCommentInputSchema.parse({ ...comment, severity }).severity).toBe(severity);
+    }
+    expect(diffCommentInputSchema.safeParse({ ...comment, severity: "blocker" }).success).toBe(
+      false,
+    );
   });
 
   it("rejects an empty or whitespace-only body", () => {

@@ -1,4 +1,4 @@
-import type { DiffCommentInput, Task } from "@blackwall/shared";
+import { SEVERITIES, type DiffCommentInput, type Severity, type Task } from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Tabs } from "radix-ui";
@@ -9,7 +9,13 @@ import { CheckIcon, WarnIcon } from "../components/icons";
 import { ArtifactsPanel } from "../components/task/ArtifactsPanel";
 import { ChecksPanel } from "../components/task/ChecksPanel";
 import { ContextPanel } from "../components/task/ContextPanel";
-import { DiffPanel, DiffStat, type DiffDrafts } from "../components/task/DiffPanel";
+import {
+  DEFAULT_COMMENT_SEVERITY,
+  DiffPanel,
+  DiffStat,
+  type DiffDraftComment,
+  type DiffDrafts,
+} from "../components/task/DiffPanel";
 import { FindingsPanel } from "../components/task/FindingsPanel";
 import { FinishPanel } from "../components/task/FinishPanel";
 import { GrillPanel } from "../components/task/GrillPanel";
@@ -162,16 +168,31 @@ interface DiffDraft {
   drafts: DiffDrafts;
 }
 
+/** One stored hunk comment; a plain string is the older form, kept at the default severity. */
+function parseDiffDraftComment(raw: unknown): DiffDraftComment | undefined {
+  if (typeof raw === "string") return { body: raw, severity: DEFAULT_COMMENT_SEVERITY };
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const { body, severity } = raw as Record<string, unknown>;
+  if (typeof body !== "string") return undefined;
+  if (!(SEVERITIES as readonly unknown[]).includes(severity)) return undefined;
+  return { body, severity: severity as Severity };
+}
+
 const diffDraftCodec: DraftCodec<DiffDraft> = {
   empty: { head: null, drafts: {} },
-  isEmpty: (v) => Object.values(v.drafts).every((d) => !d.trim()),
+  isEmpty: (v) => Object.values(v.drafts).every((d) => !d.body.trim()),
   parse: (raw) => {
     if (typeof raw !== "object" || raw === null) return undefined;
     const { head, drafts } = raw as Record<string, unknown>;
     if (head !== null && typeof head !== "string") return undefined;
     if (typeof drafts !== "object" || drafts === null) return undefined;
-    if (!Object.values(drafts).every((d) => typeof d === "string")) return undefined;
-    return { head, drafts: drafts as DiffDrafts };
+    const parsed: DiffDrafts = {};
+    for (const [key, value] of Object.entries(drafts)) {
+      const draft = parseDiffDraftComment(value);
+      if (!draft) return undefined;
+      parsed[key] = draft;
+    }
+    return { head, drafts: parsed };
   },
 };
 

@@ -682,6 +682,40 @@ describe("pullRequestFeedback", () => {
     expect(new URL(String(url)).host).toBe("api.acme.ghe.com");
   });
 
+  it("keeps the user's inline comments signed as a human's, but not a signed review body", async () => {
+    const human =
+      "**[medium]** Rename this.\n\n---\n_Posted by an actual human being from blackwall_";
+    const fetchImpl = fakeComments({
+      reviewComments: [
+        {
+          id: 701,
+          path: "src/money.ts",
+          line: 3,
+          side: "RIGHT",
+          body: human,
+          user: { login: "kari" },
+          created_at: "2026-10-01T09:00:00Z",
+          diff_hunk: "@@ -1,3 +1,3 @@",
+        },
+      ],
+      reviews: [
+        {
+          id: 801,
+          state: "COMMENTED",
+          body: "Findings outside the diff:\n\n- **[low]**: Note. — _posted by an actual human being_\n\n---\n_Posted from blackwall_",
+          user: { login: "kari" },
+          submitted_at: "2026-10-04T00:00:00Z",
+        },
+      ],
+    });
+    const github = createGitHubOrigin({ connections: connections([ghe]), fetch: fetchImpl });
+    const feedback = await github.pullRequestFeedback(PR);
+    expect(feedback.threads.map((t) => t.comments)).toEqual([
+      [{ url: `${PR}#discussion_r701`, author: "kari", body: human }],
+    ]);
+    expect(feedback.conversation).toEqual([]);
+  });
+
   it("throws a missing token, so the token modal can ask for one", async () => {
     const list = connections([ghe]);
     list.requireCredential.mockRejectedValueOnce(
@@ -1896,6 +1930,32 @@ describe("GitHub delivery", () => {
     for (const comment of body.comments as { body: string }[]) {
       expect(comment.body).not.toContain("Posted from blackwall");
     }
+  });
+
+  it("signs the user's own inline comments as written by a human", async () => {
+    const { fetchImpl, writes } = recordingGitHub();
+    const github = createGitHubOrigin({ connections: connections([ghe]), fetch: fetchImpl });
+    const mine = { stepId: null, reviewerAgentId: null };
+    await github.reviewPullRequest(
+      prTask("g1"),
+      [
+        { ...finding("Mine", "src/a.ts", 2), severity: "medium", ...mine } as Finding,
+        { ...finding("Mine elsewhere", "src/b.ts", 9), severity: "low", ...mine } as Finding,
+      ],
+      { approve: false },
+    );
+    const body = writes[0]!.body;
+    expect(body.comments).toEqual([
+      expect.objectContaining({
+        path: "src/a.ts",
+        line: 2,
+        body: "**[medium]** Why.\n\n---\n_Posted by an actual human being from blackwall_",
+      }),
+    ]);
+    expect(body.body).toContain(
+      "- **[low]** (`src/b.ts:9`): Why. — _posted by an actual human being_",
+    );
+    expect(body.body).toMatch(/\n---\n_Posted from blackwall_$/);
   });
 
   it("approves the PR with no findings when asked", async () => {
