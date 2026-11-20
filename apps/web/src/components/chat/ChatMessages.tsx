@@ -32,7 +32,9 @@ export function DraftMessage({
   useEffect(() => onGrow(), [shown, onGrow]);
   return (
     <div aria-hidden="true" className="flex min-w-0 flex-col gap-2">
-      <Markdown className="break-words">{shown}</Markdown>
+      <Markdown className="break-words" illustrations onIllustrationResize={onGrow}>
+        {shown}
+      </Markdown>
     </div>
   );
 }
@@ -121,10 +123,18 @@ function AssistantMessage({
     <div className="flex min-w-0 flex-col gap-2">
       {frame !== null && (
         <div aria-hidden="true">
-          <Markdown className="break-words">{frame}</Markdown>
+          <Markdown className="break-words" illustrations onIllustrationResize={onGrow}>
+            {frame}
+          </Markdown>
         </div>
       )}
-      <Markdown className={cn("break-words", frame !== null && "sr-only")}>{message.text}</Markdown>
+      <Markdown
+        className={cn("break-words", frame !== null && "sr-only")}
+        illustrations
+        onIllustrationResize={onGrow}
+      >
+        {message.text}
+      </Markdown>
       {frame === null &&
         message.actions.map((action) => (
           <ActionCard

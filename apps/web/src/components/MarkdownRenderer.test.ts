@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 
 const render = (src: string) => renderToStaticMarkup(createElement(MarkdownRenderer, null, src));
@@ -49,5 +49,63 @@ describe("MarkdownRenderer", () => {
     expect(html).toContain('href="https://example.com"');
     expect(html).toContain('target="_blank"');
     expect(html).toContain('rel="noreferrer"');
+  });
+});
+
+describe("MarkdownRenderer illustrations", () => {
+  const svgFence = "```svg\n<svg viewBox='0 0 1 1'/>\n```";
+  const illustrated = (src: string) =>
+    renderToStaticMarkup(
+      createElement(MarkdownRenderer, {
+        illustrations: true,
+        onIllustrationResize: vi.fn(),
+        children: src,
+      }),
+    );
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function stubParser() {
+    vi.stubGlobal(
+      "DOMParser",
+      class {
+        parseFromString() {
+          return {
+            documentElement: {
+              localName: "svg",
+              namespaceURI: "http://www.w3.org/2000/svg",
+              children: [],
+            },
+            getElementsByTagName: () => [],
+          };
+        }
+      },
+    );
+  }
+
+  it("keeps svg fences as code without the prop", () => {
+    stubParser();
+    expect(render(svgFence)).toContain("<pre");
+  });
+
+  it("falls back to code without a DOMParser", () => {
+    expect(illustrated(svgFence)).toContain("<pre");
+  });
+
+  it("frames a valid svg fence with a Source toggle", () => {
+    stubParser();
+    const html = illustrated(svgFence);
+    expect(html).toContain("<figure");
+    expect(html).toContain("Source");
+    expect(html).not.toContain("<pre");
+    expect(html).not.toContain("<svg");
+    expect(html).toContain('src="data:image/svg+xml;charset=utf-8,%3Csvg');
+  });
+
+  it("keeps other fences as code", () => {
+    stubParser();
+    expect(illustrated("```ts\nconst a = 1;\n```")).toContain("<pre");
   });
 });

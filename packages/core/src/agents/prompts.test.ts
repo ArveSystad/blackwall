@@ -187,6 +187,13 @@ describe("chat prompts", () => {
     }
   });
 
+  it("lets the chat draw svg illustrations in the app's palette", () => {
+    const prompt = chatSystemPrompt();
+    expect(prompt).toContain("```svg");
+    expect(prompt).toContain("viewBox");
+    expect(prompt).toContain("cyan");
+  });
+
   it("lists the chat's reference repos only when it has some", () => {
     expect(chatSystemPrompt()).not.toContain("## Reference repos");
     const prompt = chatSystemPrompt([
