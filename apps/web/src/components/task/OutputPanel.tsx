@@ -1,9 +1,10 @@
-import type { Agent, Step } from "@blackwall/shared";
+import type { Agent, CliEnv, Step } from "@blackwall/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useAgentLibrary, useNow } from "../../hooks";
 import { cn } from "../../lib/utils";
-import { stepEventsQuery } from "../../query";
+import { reposQuery, stepEventsQuery } from "../../query";
+import { cliEnvNames } from "../../settings-forms";
 import { formatUptime } from "../../system-info";
 import {
   AUTO_MODEL_LABEL,
@@ -261,11 +262,14 @@ function Transcript({
   taskId,
   step,
   agent,
+  repo,
   follow,
 }: {
   taskId: string;
   step: Step;
   agent: Agent | undefined;
+  /** The task's repo, whose custom CLI env marks the agent's tile; undefined while loading. */
+  repo: { cliEnv: CliEnv } | undefined;
   follow: boolean;
 }) {
   const events = useQuery(stepEventsQuery(taskId, step.id));
@@ -292,7 +296,9 @@ function Transcript({
       <div className="flex items-center gap-2">
         {agent ? (
           <>
-            {step.cli && <AgentTile cli={step.cli} size="lg" />}
+            {step.cli && (
+              <AgentTile cli={step.cli} size="lg" envNames={cliEnvNames(repo, step.cli)} />
+            )}
             <span className="font-semibold text-foreground-strong">{agent.name}</span>
             <span
               className="mono max-w-40 truncate text-[11px] text-faint"
@@ -366,14 +372,18 @@ function Transcript({
 /** Live agent output: the run's steps on the left, the selected step's transcript on the right. */
 export function OutputPanel({
   taskId,
+  repoId,
   steps,
   loading,
 }: {
   taskId: string;
+  repoId: string;
   steps: readonly Step[];
   loading: boolean;
 }) {
   const agentMap = useAgentLibrary();
+  const repos = useQuery(reposQuery);
+  const repo = repos.data?.find((r) => r.id === repoId);
   const [selected, setSelected] = useState<string | null>(null);
   const [follow, setFollow] = useState(true);
 
@@ -432,6 +442,7 @@ export function OutputPanel({
         taskId={taskId}
         step={step}
         agent={step.agentId ? agentMap.get(step.agentId) : undefined}
+        repo={repo}
         follow={follow}
       />
     </div>

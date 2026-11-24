@@ -8,14 +8,14 @@ import {
   type Step,
   type Task,
 } from "@blackwall/shared";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { deleteFinding, overrideFinding } from "../../api";
 import { useAgentLibrary } from "../../hooks";
 import { isPlainKey, isTypingTarget, useWindowKeydown } from "../../keyboard";
 import { cn } from "../../lib/utils";
-import { queryKeys } from "../../query";
-import { errorMessage } from "../../settings-forms";
+import { queryKeys, reposQuery } from "../../query";
+import { cliEnvNames, errorMessage } from "../../settings-forms";
 import {
   SEVERITY_LABELS,
   canDeleteFinding,
@@ -47,6 +47,8 @@ export function FindingsPanel({
 }) {
   const queryClient = useQueryClient();
   const agentMap = useAgentLibrary();
+  const repos = useQuery(reposQuery);
+  const repo = repos.data?.find((r) => r.id === task.repoId);
   const [severities, setSeverities] = useState<ReadonlySet<Severity>>(new Set());
   const [gatingOnly, setGatingOnly] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -137,22 +139,25 @@ export function FindingsPanel({
     );
   }
 
-  const row = (finding: Finding) => (
-    <FindingRow
-      key={finding.id}
-      finding={finding}
-      reviewer={finding.reviewerAgentId ? agentMap.get(finding.reviewerAgentId) : undefined}
-      cli={
-        steps.find((s) => s.id === finding.stepId)?.cli ??
-        (finding.reviewerAgentId ? agentCliFor(task, finding.reviewerAgentId) : null)
-      }
-      expanded={expanded === finding.id}
-      pending={pending === finding.id}
-      onToggle={() => setExpanded((id) => (id === finding.id ? null : finding.id))}
-      onOverride={overridable ? (status) => void override(finding, status) : undefined}
-      onDelete={canDeleteFinding(task, finding) ? () => void remove(finding) : undefined}
-    />
-  );
+  const row = (finding: Finding) => {
+    const cli =
+      steps.find((s) => s.id === finding.stepId)?.cli ??
+      (finding.reviewerAgentId ? agentCliFor(task, finding.reviewerAgentId) : null);
+    return (
+      <FindingRow
+        key={finding.id}
+        finding={finding}
+        reviewer={finding.reviewerAgentId ? agentMap.get(finding.reviewerAgentId) : undefined}
+        cli={cli}
+        envNames={cli ? cliEnvNames(repo, cli) : []}
+        expanded={expanded === finding.id}
+        pending={pending === finding.id}
+        onToggle={() => setExpanded((id) => (id === finding.id ? null : finding.id))}
+        onOverride={overridable ? (status) => void override(finding, status) : undefined}
+        onDelete={canDeleteFinding(task, finding) ? () => void remove(finding) : undefined}
+      />
+    );
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

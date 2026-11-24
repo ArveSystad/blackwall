@@ -4,6 +4,8 @@ import {
   addTag,
   agentDraft,
   agentsForRole,
+  agentTileLabel,
+  cliEnvNames,
   connectionBaseUrl,
   connectionDraftHost,
   connectionDraftToInput,
@@ -280,5 +282,39 @@ describe("sameEnv", () => {
     expect(sameEnv({ A: "1" }, { A: "2" })).toBe(false);
     expect(sameEnv({ A: "1" }, { A: "1", B: "2" })).toBe(false);
     expect(sameEnv({}, undefined)).toBe(true);
+  });
+});
+
+describe("cliEnvNames", () => {
+  const repo = { cliEnv: { claude: { CLAUDE_CONFIG_DIR: "~/.claude-b", FOO: "secret" } } };
+
+  it("lists the names a repo sets for a CLI, in order", () => {
+    expect(cliEnvNames(repo, "claude")).toEqual(["CLAUDE_CONFIG_DIR", "FOO"]);
+  });
+
+  it("is empty for a CLI without vars, an empty set or an unknown repo", () => {
+    expect(cliEnvNames(repo, "copilot")).toEqual([]);
+    expect(cliEnvNames({ cliEnv: {} }, "claude")).toEqual([]);
+    expect(cliEnvNames({ cliEnv: { claude: {} } }, "claude")).toEqual([]);
+    expect(cliEnvNames(undefined, "claude")).toEqual([]);
+  });
+
+  it("never includes values", () => {
+    const names = cliEnvNames(repo, "claude");
+    expect(names).not.toContain("~/.claude-b");
+    expect(names).not.toContain("secret");
+  });
+});
+
+describe("agentTileLabel", () => {
+  it("is the CLI name without custom vars", () => {
+    expect(agentTileLabel("claude", [])).toBe("Claude Code");
+  });
+
+  it("lists the custom variable names", () => {
+    expect(agentTileLabel("copilot", ["GH_HOST"])).toBe("Copilot CLI · custom env: GH_HOST");
+    expect(agentTileLabel("claude", ["CLAUDE_CONFIG_DIR", "FOO"])).toBe(
+      "Claude Code · custom env: CLAUDE_CONFIG_DIR, FOO",
+    );
   });
 });

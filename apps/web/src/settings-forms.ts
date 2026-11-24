@@ -7,6 +7,7 @@ import {
   MIN_GITHUB_ISSUES_REFRESH_SECONDS,
   PANEL_ROLES,
   ROLE_STAGES,
+  cliEnvFor,
   tagNameSchema,
   type Agent,
   type AgentCli,
@@ -15,6 +16,7 @@ import {
   type AgentModels,
   type AgentPermissionOverrides,
   type AgentRole,
+  type CliEnv,
   type ConnectionInput,
   type ConnectionKind,
   type RoleAgents,
@@ -307,6 +309,20 @@ export function sameEnv(
   const left = Object.entries(a ?? {});
   const right = b ?? {};
   return left.length === Object.keys(right).length && left.every(([k, v]) => right[k] === v);
+}
+
+/**
+ * The names of the variables a repo sets for one CLI, in the order they were
+ * set; none while the repo is unknown. Names only: values never reach a tile.
+ */
+export function cliEnvNames(repo: { cliEnv: CliEnv } | undefined, cli: AgentCli): string[] {
+  return repo ? Object.keys(cliEnvFor(repo, cli) ?? {}) : [];
+}
+
+/** An agent tile's tooltip and accessible name: the CLI, plus any custom variable names. */
+export function agentTileLabel(cli: AgentCli, envNames: readonly string[]): string {
+  const name = CLI_NAMES[cli];
+  return envNames.length === 0 ? name : `${name} · custom env: ${envNames.join(", ")}`;
 }
 
 /** The add-connection form's state. A blank name defaults to the host; the token is optional. */

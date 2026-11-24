@@ -21,6 +21,7 @@ import { isMac } from "../keyboard";
 import { packetPath } from "../data-packets";
 import { cn } from "../lib/utils";
 import { projectRunsQuery, stepEventsQuery } from "../query";
+import { cliEnvNames } from "../settings-forms";
 import { hotRepo, layoutSkyline, repoActivity, type GridHot, type Tower } from "../skyline";
 import { GATE_REASONS, STAGE_LABELS, currentActivity, isStoppedByUser } from "../task-view";
 import { AgentTile } from "./AgentTile";
@@ -58,6 +59,7 @@ function AgentDot({
   dot,
   task,
   agent,
+  envNames,
   x,
   y,
   overlayWidth,
@@ -71,6 +73,8 @@ function AgentDot({
   dot: GridDot;
   task: Task;
   agent: Agent | undefined;
+  /** The variables the task's repo sets for the dot's CLI; names only, for its tile. */
+  envNames: readonly string[];
   x: number;
   y: number;
   overlayWidth: number;
@@ -286,7 +290,7 @@ function AgentDot({
               <>
                 {agent && (
                   <span className="flex items-center gap-2 text-meta">
-                    {dot.cli && <AgentTile cli={dot.cli} />}
+                    {dot.cli && <AgentTile cli={dot.cli} envNames={envNames} />}
                     <span className="text-foreground-strong">{agent.name}</span>
                   </span>
                 )}
@@ -577,6 +581,7 @@ export function GridAgents({
                   dot={dot}
                   task={task}
                   agent={dot.agentId ? agents.get(dot.agentId) : undefined}
+                  envNames={dot.cli ? cliEnvNames(reposById.get(task.repoId), dot.cli) : []}
                   x={spot.x}
                   y={spot.y}
                   overlayWidth={size.width}

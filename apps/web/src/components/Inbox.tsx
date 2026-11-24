@@ -82,7 +82,13 @@ function TaskList({ tasks, filter }: { tasks: Task[]; filter: string }) {
                   task={task}
                   now={now}
                   clis={agentClis(task)}
-                  {...(repo ? { repoName: repo.name, trust: effectiveTrust(repo, task) } : {})}
+                  {...(repo
+                    ? {
+                        repoName: repo.name,
+                        trust: effectiveTrust(repo, task),
+                        cliEnv: repo.cliEnv,
+                      }
+                    : {})}
                   crumble={launch.crumbles.get(task.id)}
                   sweep={sweeps.sweeps.get(task.id)}
                   onSweepEnd={sweeps.end}

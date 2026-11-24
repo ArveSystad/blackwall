@@ -1,6 +1,7 @@
 import {
   agentCliFor,
   type Agent,
+  type CliEnv,
   type GrillQuestion,
   type Step,
   type Task,
@@ -12,8 +13,8 @@ import { useDraft } from "../../drafts";
 import { useAgentLibrary } from "../../hooks";
 import { isModKey, modKeyLabel } from "../../keyboard";
 import { cn } from "../../lib/utils";
-import { queryKeys, stepEventsQuery } from "../../query";
-import { errorMessage } from "../../settings-forms";
+import { queryKeys, reposQuery, stepEventsQuery } from "../../query";
+import { cliEnvNames, errorMessage } from "../../settings-forms";
 import {
   AUTO_MODEL_LABEL,
   effectiveEffort,
@@ -120,6 +121,7 @@ function QuestionCard({
   number,
   asker,
   step,
+  repo,
 }: {
   task: Task;
   question: GrillQuestion;
@@ -127,6 +129,8 @@ function QuestionCard({
   asker: Agent | undefined;
   /** The step that asked, when it is among the loaded steps. */
   step: Step | undefined;
+  /** The task's repo, whose custom CLI env marks the asker's tile; undefined while loading. */
+  repo: { cliEnv: CliEnv } | undefined;
 }) {
   const needsAnswer = question.needsHuman && question.answer === null;
   const canAnswer = needsAnswer && task.status === "needs-you" && task.gate === "questions";
@@ -162,9 +166,9 @@ function QuestionCard({
           <span className="mono text-faint">Q{number}</span>
           <QuestionStatus question={question} />
           <span className="flex-1" />
-          {asker ? (
+          {asker && cli ? (
             <>
-              <AgentTile cli={agentCliFor(task, asker.id)} />
+              <AgentTile cli={cli} envNames={cliEnvNames(repo, cli)} />
               <span className="text-muted-foreground">{asker.name}</span>
               <span
                 className="mono max-w-40 truncate text-[11px] text-faint"
@@ -226,6 +230,8 @@ export function GrillPanel({
   onPlanComment: (comment: PlanComment) => void;
 }) {
   const agentMap = useAgentLibrary();
+  const repos = useQuery(reposQuery);
+  const repo = repos.data?.find((r) => r.id === task.repoId);
   const counts = grillCounts(questions);
 
   return (
@@ -273,6 +279,7 @@ export function GrillPanel({
               number={i + 1}
               asker={question.askedByAgentId ? agentMap.get(question.askedByAgentId) : undefined}
               step={steps.find((s) => s.id === question.stepId)}
+              repo={repo}
             />
           ))
         )}

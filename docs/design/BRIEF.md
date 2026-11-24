@@ -196,7 +196,7 @@ Geist Mono is for code, paths, branches, hashes, issue/PR keys and keyboard hint
   status colour, future ones are `--border-strong`.
 - **StageStepper**: numbered nodes with "✓" when done, joined by connectors. The current node shows
   "fix round N/MAX" beside it.
-- **AgentTile**: a 16px chamfered tile in mono 9px: CC, CP, OC.
+- **AgentTile**: a 16px chamfered tile in mono 9px: CC, CP, OC. A small glowing `*` at its top-right marks a CLI the repo sets custom env vars for; the tooltip lists the variable names.
 - **Icons**: 33 inline line-SVGs in `components/icons.tsx` (WallIcon for the brand; Jira, PR,
   issue and text icons for origins; Lock, Warn, Failed, Paused, Spinner for state; and so on).
 

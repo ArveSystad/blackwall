@@ -323,6 +323,7 @@ function TaskScreen({ task }: { task: Task }) {
         return (
           <OutputPanel
             taskId={task.id}
+            repoId={task.repoId}
             steps={data.steps}
             loading={
               data.runs.isPending || (data.latestRun !== undefined && data.stepsQuery.isPending)

@@ -92,6 +92,7 @@ export function FindingRow({
   finding,
   reviewer,
   cli,
+  envNames,
   expanded,
   pending,
   onToggle,
@@ -102,6 +103,8 @@ export function FindingRow({
   reviewer: Agent | undefined;
   /** The CLI the reviewer ran on; null when unknown. */
   cli: AgentCli | null;
+  /** The variables the task's repo sets for that CLI; names only, for its tile. */
+  envNames?: readonly string[];
   expanded: boolean;
   pending: boolean;
   onToggle: () => void;
@@ -159,7 +162,7 @@ export function FindingRow({
         >
           {reviewer ? (
             <>
-              {cli && <AgentTile cli={cli} />}
+              {cli && <AgentTile cli={cli} {...(envNames ? { envNames } : {})} />}
               <span className="truncate">{reviewer.name}</span>
             </>
           ) : (

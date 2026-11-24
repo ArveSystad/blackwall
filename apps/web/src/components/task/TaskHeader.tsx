@@ -2,6 +2,7 @@ import {
   MAX_FIX_ROUNDS,
   effectiveTrust,
   type Agent,
+  type RepoView,
   type Step,
   type Task,
 } from "@blackwall/shared";
@@ -17,6 +18,7 @@ import {
   taskRunsQuery,
   usageQuery,
 } from "../../query";
+import { cliEnvNames } from "../../settings-forms";
 import { formatUptime } from "../../system-info";
 import { activeTimeMs, wallClockMs } from "../../timing";
 import { TRUST_NAMES, otherTrustLevels } from "../../trust";
@@ -37,7 +39,15 @@ import { useArchive } from "../use-archive-launches";
 import { archive, stop, unarchive } from "./actions";
 import type { TaskAction } from "./use-task-action";
 
-function AgentSummary({ task, agents }: { task: Task; agents: ReadonlyMap<string, Agent> }) {
+function AgentSummary({
+  task,
+  agents,
+  repo,
+}: {
+  task: Task;
+  agents: ReadonlyMap<string, Agent>;
+  repo: RepoView | undefined;
+}) {
   const ids = taskAgentIds(task.agents);
   if (ids.length === 0) return null;
   const tiles = ids.flatMap((id) => {
@@ -52,7 +62,7 @@ function AgentSummary({ task, agents }: { task: Task; agents: ReadonlyMap<string
     <span className="inline-flex items-center gap-1.5">
       <span className="inline-flex items-center gap-0.5">
         {agentClis(task).map((cli) => (
-          <AgentTile key={cli} cli={cli} />
+          <AgentTile key={cli} cli={cli} envNames={cliEnvNames(repo, cli)} />
         ))}
       </span>
       {tiles.length} {tiles.length === 1 ? "agent" : "agents"}
@@ -256,7 +266,7 @@ export function TaskHeader({
           </span>
         )}
         {task.ci && <CiBadge ci={task.ci} />}
-        <AgentSummary task={task} agents={agentMap} />
+        <AgentSummary task={task} agents={agentMap} repo={repo} />
         <UsageChip taskId={task.id} />
         <TimeSpentChip task={task} />
         {trust && <TrustBadge trust={trust} />}

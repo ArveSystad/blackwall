@@ -53,6 +53,7 @@ import { moveRepo, reorderRepoIds } from "../../repo-order";
 import { renameDisabledReason } from "../../repo-rename";
 import {
   CLI_NAMES,
+  cliEnvNames,
   errorMessage,
   formatEnvLines,
   parseCap,
@@ -869,7 +870,7 @@ export function RepoEditor({
                 value: cli,
                 label: (
                   <>
-                    <AgentTile cli={cli} />
+                    <AgentTile cli={cli} envNames={cliEnvNames(repo, cli)} />
                     {CLI_NAMES[cli]}
                   </>
                 ),
@@ -954,7 +955,7 @@ export function RepoEditor({
                   className="min-w-0"
                   label={
                     <span className="inline-flex items-center gap-1.5">
-                      <AgentTile cli={cli} />
+                      <AgentTile cli={cli} envNames={cliEnvNames(repo, cli)} />
                       {CLI_NAMES[cli]}
                     </span>
                   }

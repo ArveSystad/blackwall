@@ -9,6 +9,7 @@ import { useAgentLibrary, useNow } from "../hooks";
 import { originKey, relativeTime } from "../inbox";
 import { cn } from "../lib/utils";
 import { activeAgentsQuery, reposQuery, stepEventsQuery, tasksQuery } from "../query";
+import { cliEnvNames } from "../settings-forms";
 import {
   AUTO_MODEL_LABEL,
   STAGE_LABELS,
@@ -26,12 +27,15 @@ function AgentRow({
   agent,
   task,
   repoName,
+  envNames,
   now,
 }: {
   step: ActiveAgentStep;
   agent: Agent | undefined;
   task: Task | undefined;
   repoName: string | undefined;
+  /** The variables the task's repo sets for the step's CLI; names only, for its tile. */
+  envNames: readonly string[];
   now: Date;
 }) {
   const events = useQuery(stepEventsQuery(step.taskId, step.id));
@@ -47,7 +51,7 @@ function AgentRow({
           aria-hidden="true"
           className="size-1.5 animate-pulse-running rounded-full bg-running"
         />
-        {step.cli && <AgentTile cli={step.cli} />}
+        {step.cli && <AgentTile cli={step.cli} envNames={envNames} />}
         <span className="font-medium text-foreground-strong">{agent?.name ?? "Deleted agent"}</span>
         <span
           className="mono max-w-40 truncate text-label text-muted-foreground"
@@ -105,8 +109,8 @@ export function ActiveAgents() {
     () => new Map((tasks.data ?? []).map((task) => [task.id, task])),
     [tasks.data],
   );
-  const repoNames = useMemo(
-    () => new Map((repos.data ?? []).map((repo) => [repo.id, repo.name])),
+  const repoById = useMemo(
+    () => new Map((repos.data ?? []).map((repo) => [repo.id, repo])),
     [repos.data],
   );
 
@@ -140,13 +144,15 @@ export function ActiveAgents() {
           <ul className="m-0 flex list-none flex-col gap-2 p-0" aria-label="Active agents">
             {active.data.map((step) => {
               const task = taskById.get(step.taskId);
+              const repo = task && repoById.get(task.repoId);
               return (
                 <AgentRow
                   key={step.id}
                   step={step}
                   agent={step.agentId ? library.get(step.agentId) : undefined}
                   task={task}
-                  repoName={task && repoNames.get(task.repoId)}
+                  repoName={repo?.name}
+                  envNames={step.cli ? cliEnvNames(repo, step.cli) : []}
                   now={now}
                 />
               );

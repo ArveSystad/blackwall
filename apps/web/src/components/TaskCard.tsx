@@ -1,9 +1,16 @@
-import { ciNeedsYou, type AgentCli, type AgentTrust, type Task } from "@blackwall/shared";
+import {
+  ciNeedsYou,
+  type AgentCli,
+  type AgentTrust,
+  type CliEnv,
+  type Task,
+} from "@blackwall/shared";
 import { Link } from "@tanstack/react-router";
 import { useState, type CSSProperties } from "react";
 import type { Crumble } from "../crumble";
 import { originKey, relativeTime, statusLabel } from "../inbox";
 import { cn } from "../lib/utils";
+import { cliEnvNames } from "../settings-forms";
 import { canArchive, CI_FAILED_REASON, GATE_REASONS } from "../task-view";
 import { AgentTile } from "./AgentTile";
 import { CiBadge } from "./CiBadge";
@@ -36,6 +43,7 @@ export function TaskCard({
   repoName,
   clis = [],
   trust,
+  cliEnv,
   now,
   crumble,
   sweep,
@@ -50,6 +58,8 @@ export function TaskCard({
   clis?: readonly AgentCli[];
   /** The trust the task's agents run under; nothing shows for a simply Locked repo. */
   trust?: AgentTrust;
+  /** The variables the task's repo sets per CLI; tiles for CLIs with any get a marker. */
+  cliEnv?: CliEnv;
   now: Date;
   /** The row's archive or delete crumble, while it plays or its failure flashes. */
   crumble?: Crumble | undefined;
@@ -167,7 +177,7 @@ export function TaskCard({
           {clis.length > 0 && (
             <span className="inline-flex gap-[3px]">
               {clis.map((cli) => (
-                <AgentTile key={cli} cli={cli} />
+                <AgentTile key={cli} cli={cli} envNames={cliEnvNames(cliEnv && { cliEnv }, cli)} />
               ))}
             </span>
           )}

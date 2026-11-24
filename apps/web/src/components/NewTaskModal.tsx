@@ -6,6 +6,7 @@ import {
   type AgentCli,
   type AgentClis,
   type BacklogItemView,
+  type CliEnv,
   type IssueLookup,
   type OriginKind,
   type PrMode,
@@ -58,6 +59,7 @@ import {
   ROLE_LABELS,
   TRIAGE_OPTIONS,
   agentsForRole,
+  cliEnvNames,
   errorMessage,
   isPanelRole,
   roleIds,
@@ -143,6 +145,7 @@ function AgentsField({
   advanced,
   onToggleAdvanced,
   cliStatus,
+  repo,
 }: {
   agents: readonly Agent[];
   roles: RoleAgents;
@@ -157,6 +160,8 @@ function AgentsField({
   onToggleAdvanced: () => void;
   /** Whether each CLI is installed; undefined while unknown. */
   cliStatus: ReadonlyMap<AgentCli, boolean> | undefined;
+  /** The chosen repo, whose custom CLI env marks the tiles; undefined while none is chosen. */
+  repo: { cliEnv: CliEnv } | undefined;
 }) {
   const byId = new Map(agents.map((agent) => [agent.id, agent]));
   const chosen = taskAgentIds(roles).flatMap((id) => {
@@ -275,7 +280,7 @@ function AgentsField({
           Runs on another CLI:
           {overridden.map((agent) => (
             <span key={agent.id} className="inline-flex items-center gap-1.5">
-              <AgentTile cli={cliFor(agent.id)} />
+              <AgentTile cli={cliFor(agent.id)} envNames={cliEnvNames(repo, cliFor(agent.id))} />
               {agent.name}
             </span>
           ))}
@@ -648,18 +653,14 @@ function NewTaskForm({
     (kind === "github-pr" || kind === "github-issue" ? lookedUpRepo : null) ??
     selectedRepo ??
     (usableRepos.length === 1 ? usableRepos[0]!.id : null);
-  const cli: AgentCli = (repos.data ?? []).find((r) => r.id === repoId)?.defaultCli ?? "claude";
+  const repo = (repos.data ?? []).find((r) => r.id === repoId);
+  const cli: AgentCli = repo?.defaultCli ?? "claude";
   // PR tasks always get a worktree; a voice draft is created by the server as it is.
   const inRepoOffered = kind !== "github-pr" && !voiceDraft;
-  const inRepo =
-    inRepoOffered &&
-    (inRepoChoice ?? (repos.data ?? []).find((r) => r.id === repoId)?.defaultInRepo ?? false);
+  const inRepo = inRepoOffered && (inRepoChoice ?? repo?.defaultInRepo ?? false);
   // Stored choices survive a repo change; only those that still differ are sent.
   const overrides = activeOverrides(agentClis, cli, taskAgentIds(roles));
-  const { ids: referenceIds, override: refOverride } = referenceRepoChoice(
-    (repos.data ?? []).find((r) => r.id === repoId),
-    referencePick,
-  );
+  const { ids: referenceIds, override: refOverride } = referenceRepoChoice(repo, referencePick);
 
   const backlogList = useQuery({ ...backlogQuery(repoId ?? ""), enabled: !!repoId });
   const runner = useQuery({ ...backlogRunnerQuery(repoId ?? ""), enabled: !!repoId && !item });
@@ -1198,6 +1199,7 @@ function NewTaskForm({
               setReferencePick(null);
             }}
             cli={cli}
+            repo={repo}
             agentClis={agentClis}
             onAgentClisChange={setAgentClis}
             advanced={advanced}

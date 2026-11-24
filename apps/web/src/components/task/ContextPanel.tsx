@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { useAgentLibrary } from "../../hooks";
 import { reposQuery } from "../../query";
-import { ROLE_LABELS, TRIAGE_OPTIONS, roleIds } from "../../settings-forms";
+import { ROLE_LABELS, TRIAGE_OPTIONS, cliEnvNames, roleIds } from "../../settings-forms";
 import { AUTO_MODEL_LABEL } from "../../task-view";
 import { AgentTile } from "../AgentTile";
 
@@ -88,7 +88,7 @@ export function ContextPanel({ task }: { task: Task }) {
                       const effort = agent?.efforts[cli];
                       return (
                         <span key={id} className="inline-flex items-center gap-1.5">
-                          {agent && <AgentTile cli={cli} />}
+                          {agent && <AgentTile cli={cli} envNames={cliEnvNames(repo, cli)} />}
                           {agent?.name ?? "Deleted agent"}
                           {agent && (
                             <span className="mono text-[11px] text-faint">
