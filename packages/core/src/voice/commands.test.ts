@@ -162,6 +162,18 @@ describe("voice turns", () => {
     expect(lastVoice()).toEqual(state);
   });
 
+  it("passes the repo's CLI env to its turns, and no env when the repo has none", async () => {
+    r.repos.update(repoId, { cliEnv: { claude: { CLAUDE_CONFIG_DIR: "/second" } } });
+    voice.command(repoId, "Create a task");
+    await idle();
+    expect(adapter.calls[0]!.options.env).toEqual({ CLAUDE_CONFIG_DIR: "/second" });
+
+    r.repos.update(repoId, { cliEnv: {} });
+    voice.command(repoId, "Create another task");
+    await idle();
+    expect("env" in adapter.calls[1]!.options).toBe(false);
+  });
+
   it("puts the transcript, waiting items, runner and draft in the prompt", async () => {
     const waiting = r.backlogItems.insert({
       repoId,

@@ -101,6 +101,13 @@ export interface AgentRunOptions {
    * deltas; OpenCode prints text only once complete and never emits `partial`.
    */
   streamPartial?: boolean;
+  /**
+   * Extra environment variables for this run: the repo's `cliEnv` for the CLI.
+   * Layered over the adapter's base environment (its `env` option, or
+   * `process.env`) and under every variable blackwall itself sets, so it can
+   * never weaken the run's restrictions.
+   */
+  env?: Record<string, string>;
   /** Aborting kills the CLI's whole process tree. */
   signal?: AbortSignal;
 }

@@ -76,6 +76,26 @@ describe("RepoEditor", () => {
     expect(html).toContain("Rename…");
   });
 
+  it("shows each CLI's saved environment variables with a Test button", () => {
+    const repo = makeRepo({
+      cliEnv: { claude: { CLAUDE_CONFIG_DIR: "C:\\Users\\me\\.claude-b" } },
+    });
+    const client = new QueryClient();
+    client.setQueryData(queryKeys.repos, [repo]);
+    client.setQueryData(queryKeys.tasks, []);
+    client.setQueryData(queryKeys.connections, []);
+    const html = renderToStaticMarkup(
+      createElement(
+        QueryClientProvider,
+        { client },
+        createElement(RepoEditor, { repo, onRemoved: () => {}, onStale: () => {} }),
+      ),
+    );
+    expect(html).toContain("Environment variables");
+    expect(html).toContain("CLAUDE_CONFIG_DIR=C:\\Users\\me\\.claude-b");
+    expect(html.match(/>Test<\/button>/g)).toHaveLength(3);
+  });
+
   it("offers to finish a rename that stopped partway after its folder moved", () => {
     const repo = makeRepo({ exists: false, renamePending: "shop" });
     const client = new QueryClient();

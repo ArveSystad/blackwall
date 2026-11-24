@@ -5,6 +5,7 @@ import { opencodeConfig, type OpencodeProject } from "../permissions.js";
 import { opencodeProject } from "../project-config.js";
 import { opencodeSubagentModel } from "../subagents.js";
 import { deferredRun, emittingRun } from "./deferred-run.js";
+import { mergeEnv, omitEnv } from "./env.js";
 import { isObject, num, str, type Json } from "./json.js";
 import { opencodeRateLimitFromText } from "./rate-limit.js";
 import { runAgentProcess, type LineParser } from "./run-process.js";
@@ -330,25 +331,23 @@ export function opencodeEnv(
   },
   base: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...base };
   const subagentModel = opencodeSubagentModel(model);
   if (permissions.trust.level === "unrestricted") {
-    delete env.OPENCODE_DISABLE_PROJECT_CONFIG;
+    const env = omitEnv(base, ["OPENCODE_DISABLE_PROJECT_CONFIG"]);
     const config = opencodeConfig(permissions, { subagentModel });
-    return { ...env, PWD: cwd, OPENCODE_CONFIG_CONTENT: JSON.stringify(config) };
+    return mergeEnv(env, { PWD: cwd, OPENCODE_CONFIG_CONTENT: JSON.stringify(config) });
   }
   if (!configHome) throw new Error("A Locked or Trusted OpenCode run needs its own config home");
-  for (const name of INHERITED_CONFIG_VARS) delete env[name];
+  const env = omitEnv(base, INHERITED_CONFIG_VARS);
   const trusted = permissions.trust.level === "trusted";
   const config = opencodeConfig(permissions, { subagentModel, ...(trusted ? { project } : {}) });
-  return {
-    ...env,
+  return mergeEnv(env, {
     PWD: cwd,
     OPENCODE_CONFIG_CONTENT: JSON.stringify(config),
     OPENCODE_DISABLE_PROJECT_CONFIG: "1",
     ...(trusted ? { OPENCODE_DISABLE_EXTERNAL_SKILLS: "1" } : {}),
     XDG_CONFIG_HOME: configHome,
-  };
+  });
 }
 
 /** Whether a failed `--session` run's output says the session no longer exists. */
@@ -432,11 +431,21 @@ export function createOpencodeAdapter({
 }: OpencodeAdapterOptions = {}): AgentAdapter {
   return {
     cli: "opencode",
-    run({ cwd, prompt, systemPrompt, jsonSchema, resumeSessionId, model, permissions, signal }) {
+    run({
+      cwd,
+      prompt,
+      systemPrompt,
+      jsonSchema,
+      resumeSessionId,
+      model,
+      permissions,
+      env: repoEnv,
+      signal,
+    }) {
       if (permissions.cli !== "opencode") {
         throw new Error(`Permissions for ${permissions.cli} cannot run on OpenCode`);
       }
-      const base = env ?? process.env;
+      const base = repoEnv ? mergeEnv(env ?? process.env, repoEnv) : (env ?? process.env);
       const { level } = permissions.trust;
       return deferredRun("OpenCode", async () => {
         const home =

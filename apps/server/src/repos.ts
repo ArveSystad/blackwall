@@ -1,11 +1,14 @@
 import type { RepoService } from "@blackwall/core";
 import {
+  cliCheckInputSchema,
   reorderReposInputSchema,
   repoCommitInputSchema,
   repoInputSchema,
   repoRenameInputSchema,
   repoScanInputSchema,
   repoUpdateSchema,
+  type CliCheckInput,
+  type CliCheckResult,
   type Repo,
   type RepoCommitResult,
   type RepoFile,
@@ -29,10 +32,13 @@ export function repoRoutes(
   {
     broadcast = () => undefined,
     onDeleted = () => undefined,
+    checkCli,
   }: {
     broadcast?: (event: ServerEvent) => void;
     /** Called after a repo is removed from the registry, e.g. to stop its Run project run. */
     onDeleted?: (id: string) => void;
+    /** Checks an agent CLI with the given environment in `cwd`; the route exists only with it. */
+    checkCli?: (input: CliCheckInput, cwd: string) => Promise<CliCheckResult>;
   } = {},
 ): Hono {
   const routes = new Hono();
@@ -73,6 +79,19 @@ export function repoRoutes(
     onDeleted(id);
     return c.body(null, 204);
   });
+
+  if (checkCli) {
+    /**
+     * Runs the CLI's check commands (and, with `prompt`, one short read-only
+     * request) with the body's environment, which may be unsaved, in the repo's folder.
+     */
+    routes.post("/:id/cli-check", async (c) => {
+      const repo = repos.use(c.req.param("id"));
+      const input = cliCheckInputSchema.safeParse(await readJson(c));
+      if (!input.success) return badRequest(c, input.error.issues);
+      return c.json<CliCheckResult>(await checkCli(input.data, repo.path));
+    });
+  }
 
   /** Re-reads the origin remote and its connection; a missing folder is a `StaleRepo`. */
   routes.post("/:id/refresh", async (c) => c.json<Repo>(await repos.refresh(c.req.param("id"))));

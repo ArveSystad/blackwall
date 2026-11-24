@@ -90,6 +90,12 @@ describe("repo service", () => {
     expect(service.list()).toEqual([{ ...repo, exists: true, renamePending: null }]);
   });
 
+  it("stores the given CLI environment when registering", async () => {
+    const path = gitRepo(["app"]);
+    const repo = await service.add({ path, cliEnv: { claude: { CLAUDE_CONFIG_DIR: "/b" } } });
+    expect(service.get(repo.id).cliEnv).toEqual({ claude: { CLAUDE_CONFIG_DIR: "/b" } });
+  });
+
   it("keeps given check commands, including none", async () => {
     const path = gitRepo(["app"]);
     writeFileSync(join(path, "go.mod"), "");
@@ -244,6 +250,19 @@ describe("repo service", () => {
       defaultCli: "copilot",
     });
     expect(service.get(repo.id).defaultCli).toBe("copilot");
+    expect(repo.cliEnv).toEqual({});
+    expect(
+      service.update(repo.id, { cliEnv: { claude: { CLAUDE_CONFIG_DIR: "/b", X: " y " } } }).cliEnv,
+    ).toEqual({ claude: { CLAUDE_CONFIG_DIR: "/b", X: " y " } });
+    expect(service.update(repo.id, { name: "App" }).cliEnv).toEqual({
+      claude: { CLAUDE_CONFIG_DIR: "/b", X: " y " },
+    });
+    expect(
+      service.update(repo.id, { cliEnv: { opencode: { XDG_DATA_HOME: "/d" } } }).cliEnv,
+    ).toEqual({ opencode: { XDG_DATA_HOME: "/d" } });
+    expect(() => service.update(repo.id, { cliEnv: { claude: { "A-B": "x" } } })).toThrow(
+      InvalidRepoError,
+    );
     expect(service.update(repo.id, { defaultOrigin: "github-pr" })).toMatchObject({
       name: "App",
       defaultOrigin: "github-pr",

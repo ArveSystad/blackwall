@@ -14,6 +14,7 @@ import {
 import { copySeedRepo, copySeedRepoWithOrigin, openTestDatabase } from "@blackwall/core/testing";
 import {
   STALE_REPO_STATUS,
+  cliCheckResultSchema,
   repoRenameResultSchema,
   repoScanResultSchema,
   repoSchema,
@@ -21,6 +22,7 @@ import {
   repoTreeSchema,
   repoViewSchema,
   staleRepoSchema,
+  type CliCheckInput,
   type ServerEvent,
 } from "@blackwall/shared";
 import { Hono } from "hono";
@@ -40,6 +42,8 @@ let root: string;
 let app: ReturnType<typeof createApp>["app"];
 /** Repos whose Run project run the routes stopped. */
 let stopped: string[];
+/** What the stub CLI check was called with. */
+let checks: { input: CliCheckInput; cwd: string }[];
 
 beforeEach(() => {
   opened = openTestDatabase(":memory:");
@@ -52,6 +56,7 @@ beforeEach(() => {
   const connections = createConnectionService({ connections: repositories.connections, tokens });
   const repos = createRepoService({ repos: repositories.repos, connections });
   stopped = [];
+  checks = [];
   app = createApp({
     token: launchToken,
     getPort: () => port,
@@ -63,6 +68,22 @@ beforeEach(() => {
       },
       stop: async (id) => void stopped.push(id),
       output: () => null,
+    },
+    checkCli: async (input, cwd) => {
+      checks.push({ input, cwd });
+      return {
+        cli: input.cli,
+        steps: [
+          {
+            label: "Version",
+            command: `${input.cli} --version`,
+            ok: true,
+            exitCode: 0,
+            output: "1.0.0",
+            durationMs: 5,
+          },
+        ],
+      };
     },
   }).app;
   root = realpathSync(mkdtempSync(join(tmpdir(), "blackwall-repo-routes-")));
@@ -179,6 +200,52 @@ describe("repo routes", () => {
     expect((await request(`/api/repos/${repo.id}`, { method: "DELETE" })).status).toBe(204);
     expect(stopped).toEqual([repo.id]);
     expect((await request(`/api/repos/${repo.id}`)).status).toBe(404);
+  });
+
+  it("saves and returns the repo's CLI environment, refusing bad names", async () => {
+    const add = await request("/api/repos", { method: "POST", body: { path: gitRepo("app") } });
+    const repo = repoSchema.parse(await add.json());
+    expect(repo.cliEnv).toEqual({});
+    const cliEnv = { claude: { CLAUDE_CONFIG_DIR: "/second" } };
+    const patch = await request(`/api/repos/${repo.id}`, { method: "PATCH", body: { cliEnv } });
+    expect(repoSchema.parse(await patch.json()).cliEnv).toEqual(cliEnv);
+    const get = await request(`/api/repos/${repo.id}`);
+    expect(repoSchema.parse(await get.json()).cliEnv).toEqual(cliEnv);
+    const bad = await request(`/api/repos/${repo.id}`, {
+      method: "PATCH",
+      body: { cliEnv: { claude: { "A-B": "x" } } },
+    });
+    expect(bad.status).toBe(400);
+  });
+
+  it("checks a CLI with the body's environment in the repo's folder", async () => {
+    const path = gitRepo("app");
+    const add = await request("/api/repos", { method: "POST", body: { path } });
+    const repo = repoSchema.parse(await add.json());
+    const res = await request(`/api/repos/${repo.id}/cli-check`, {
+      method: "POST",
+      body: { cli: "claude", env: { CLAUDE_CONFIG_DIR: "/second" } },
+    });
+    expect(res.status).toBe(200);
+    expect(cliCheckResultSchema.parse(await res.json()).steps[0]?.output).toBe("1.0.0");
+    expect(checks).toEqual([
+      {
+        input: { cli: "claude", env: { CLAUDE_CONFIG_DIR: "/second" }, prompt: false },
+        cwd: repo.path,
+      },
+    ]);
+
+    const bad = await request(`/api/repos/${repo.id}/cli-check`, {
+      method: "POST",
+      body: { cli: "codex", env: {} },
+    });
+    expect(bad.status).toBe(400);
+    const unknown = await request("/api/repos/nope/cli-check", {
+      method: "POST",
+      body: { cli: "claude", env: {} },
+    });
+    expect(unknown.status).toBe(404);
+    expect(checks).toHaveLength(1);
   });
 
   it("accepts and returns the agent trust level and the project MCP and hook flags", async () => {

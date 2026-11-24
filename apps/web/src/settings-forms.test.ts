@@ -10,14 +10,17 @@ import {
   copyName,
   draftToInput,
   emptyConnectionDraft,
+  formatEnvLines,
   isPresetModel,
   moveItem,
   overrideCount,
   parseCap,
+  parseEnvLines,
   parseLines,
   parseRefreshSeconds,
   roleIds,
   sameDraft,
+  sameEnv,
   sameRoles,
   withRole,
 } from "./settings-forms";
@@ -232,5 +235,41 @@ describe("connection drafts", () => {
     expect(() => connectionDraftToInput({ ...emptyConnectionDraft(), host: "not a host" })).toThrow(
       hostError,
     );
+  });
+});
+
+describe("parseEnvLines", () => {
+  it("reads one NAME=value per line, keeping values as typed", () => {
+    expect(parseEnvLines("A=b=c\r\n\n  B =  spaced \nEMPTY=")).toEqual({
+      env: { A: "b=c", B: "  spaced ", EMPTY: "" },
+      errors: [],
+    });
+  });
+
+  it("reports lines without =, bad names and repeated names", () => {
+    const { errors } = parseEnvLines("bad line\n1A=x\nA-B=x\nPATH=a\nPath=b");
+    expect(errors).toHaveLength(4);
+    expect(errors[0]).toContain("Line 1");
+    expect(errors[1]).toContain("1A");
+    expect(errors[2]).toContain("A-B");
+    expect(errors[3]).toContain("Line 5");
+  });
+});
+
+describe("formatEnvLines", () => {
+  it("round-trips through parseEnvLines", () => {
+    const env = { CLAUDE_CONFIG_DIR: "C:\\Users\\me", X: " y=z " };
+    expect(formatEnvLines(env)).toBe("CLAUDE_CONFIG_DIR=C:\\Users\\me\nX= y=z ");
+    expect(parseEnvLines(formatEnvLines(env)).env).toEqual(env);
+    expect(formatEnvLines(undefined)).toBe("");
+  });
+});
+
+describe("sameEnv", () => {
+  it("ignores order and treats missing as empty", () => {
+    expect(sameEnv({ A: "1", B: "2" }, { B: "2", A: "1" })).toBe(true);
+    expect(sameEnv({ A: "1" }, { A: "2" })).toBe(false);
+    expect(sameEnv({ A: "1" }, { A: "1", B: "2" })).toBe(false);
+    expect(sameEnv({}, undefined)).toBe(true);
   });
 });

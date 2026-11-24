@@ -90,6 +90,7 @@ export function makeRepo(overrides: Partial<RepoView> = {}): RepoView {
     setupCommands: [],
     runCommands: [],
     defaultCli: "claude",
+    cliEnv: {},
     defaultOrigin: "free-text",
     maxBacklogTasks: null,
     defaultBranch: "main",

@@ -658,6 +658,39 @@ describe("createCopilotAdapter", () => {
     });
   });
 
+  it("passes the repo's environment, under the connection's token and host", async () => {
+    const adapter = createCopilotAdapter({
+      command: process.execPath,
+      commandArgs: [fakeCli, "copilot-echo"],
+      auth: { host: "acme.ghe.com", token: "t0k" },
+    });
+    const events = await collect(
+      adapter.run({
+        cwd,
+        prompt: "x",
+        permissions: readOnly,
+        env: { FAKE_CLI_VAR: "repo", COPILOT_GITHUB_TOKEN: "repo-token", copilot_gh_host: "evil" },
+      }),
+    );
+    expect(events).toContainEqual({
+      type: "message",
+      text: JSON.stringify({ token: "t0k", host: "acme.ghe.com", var: "repo" }),
+    });
+  });
+
+  it("passes the repo's environment without a connection", async () => {
+    const events = await collect(
+      fake("copilot-echo").run({
+        cwd,
+        prompt: "x",
+        permissions: readOnly,
+        env: { FAKE_CLI_VAR: "repo" },
+      }),
+    );
+    const report = events.find((e) => e.type === "message" && e.text.includes('"var"'));
+    expect(report?.type === "message" && JSON.parse(report.text)).toMatchObject({ var: "repo" });
+  });
+
   it("returns structured output from the JSON block", async () => {
     const run = fake("replay", fixture("json-block.jsonl")).run({
       cwd,

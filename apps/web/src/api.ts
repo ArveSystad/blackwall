@@ -11,6 +11,7 @@ import {
   backlogItemViewSchema,
   branchDiffSchema,
   chatStateSchema,
+  cliCheckResultSchema,
   cliStatusSchema,
   compactResultSchema,
   connectionTestResultSchema,
@@ -74,6 +75,8 @@ import {
   type Agent,
   type AgentInput,
   type AgentUpdate,
+  type CliCheckInput,
+  type CliCheckResult,
   type BacklogItem,
   type BacklogItemView,
   type BranchDiff,
@@ -589,6 +592,17 @@ export function scanRepos(input: RepoScanInput): Promise<RepoScanResult> {
 
 export function updateRepo(id: string, patch: RepoUpdate): Promise<Repo> {
   return request(at("/api/repos", id), repoSchema, { method: "PATCH", body: patch });
+}
+
+/**
+ * Runs an agent CLI's check commands in the repo's folder with `input.env`
+ * (possibly unsaved); with `prompt`, also one short read-only request.
+ */
+export function checkRepoCli(id: string, input: CliCheckInput): Promise<CliCheckResult> {
+  return request(`${at("/api/repos", id)}/cli-check`, cliCheckResultSchema, {
+    method: "POST",
+    body: input,
+  });
 }
 
 /** Sets the manual order; `ids` must list every repo once. */

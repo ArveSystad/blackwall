@@ -21,6 +21,8 @@ import {
   MAX_FOLLOW_UPS,
   ROLE_STAGES,
   agentCliFor,
+  cliCheckInputSchema,
+  cliEnvFor,
   backlogCapFor,
   ciNeedsYou,
   effectiveTrust,
@@ -171,6 +173,25 @@ describe("ciNeedsYou", () => {
     expect(ciNeedsYou({ status: "done", archivedAt: null, ci: ci("passed") })).toBe(false);
     expect(ciNeedsYou({ status: "done", archivedAt: null, ci: ci("pending") })).toBe(false);
     expect(ciNeedsYou({ status: "done", archivedAt: null, ci: null })).toBe(false);
+  });
+});
+
+describe("cliEnvFor", () => {
+  it("returns the CLI's variables, or undefined when it sets none", () => {
+    const repo = { cliEnv: { claude: { CLAUDE_CONFIG_DIR: "/b" }, copilot: {} } };
+    expect(cliEnvFor(repo, "claude")).toEqual({ CLAUDE_CONFIG_DIR: "/b" });
+    expect(cliEnvFor(repo, "copilot")).toBeUndefined();
+    expect(cliEnvFor(repo, "opencode")).toBeUndefined();
+  });
+});
+
+describe("cliCheckInputSchema", () => {
+  it("does not send the test prompt unless asked", () => {
+    expect(cliCheckInputSchema.parse({ cli: "claude", env: {} })).toEqual({
+      cli: "claude",
+      env: {},
+      prompt: false,
+    });
   });
 });
 
@@ -858,6 +879,22 @@ describe("settings and inputs", () => {
     });
     expect(repoUpdateSchema.parse({ runCommands: [] })).toEqual({ runCommands: [] });
     expect(repoUpdateSchema.safeParse({ runCommands: ["  "] }).success).toBe(false);
+  });
+
+  it("keeps repo environment values as typed and rejects bad names", () => {
+    expect(repoUpdateSchema.parse({ cliEnv: { claude: { A: "  spaced ", B: "" } } })).toEqual({
+      cliEnv: { claude: { A: "  spaced ", B: "" } },
+    });
+    for (const name of ["1A", "A-B", ""]) {
+      expect(repoUpdateSchema.safeParse({ cliEnv: { claude: { [name]: "x" } } }).success).toBe(
+        false,
+      );
+    }
+    expect(repoUpdateSchema.safeParse({ cliEnv: { codex: { A: "x" } } }).success).toBe(false);
+    expect(
+      repoUpdateSchema.safeParse({ cliEnv: { claude: { A: "a" + String.fromCharCode(0) } } })
+        .success,
+    ).toBe(false);
   });
 
   it("accepts a repo's default CLI and rejects unknown ones", () => {

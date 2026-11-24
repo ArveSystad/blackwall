@@ -1,5 +1,6 @@
 import {
   agentCliFor,
+  cliEnvFor,
   memoryBackfillOutputJsonSchema,
   parseMemories,
   ROLE_STAGES,
@@ -235,6 +236,7 @@ export function createMemoryBackfill({
     const summarizer = summarizerFor(repo, task);
     if (!summarizer) return { kind: "failed" };
     const { adapter, cli, model, systemPrompt } = summarizer;
+    const env = cliEnvFor(repo, cli);
     /** Set when the CLI reported its usage limit; matters only if the run then fails. */
     let rateLimited = false;
     let result: AgentResult;
@@ -254,6 +256,7 @@ export function createMemoryBackfill({
         signal,
         ...(model ? { model } : {}),
         ...(systemPrompt ? { systemPrompt } : {}),
+        ...(env ? { env } : {}),
       });
       for await (const event of run) {
         if (event.type === "rate-limit") rateLimited = true;

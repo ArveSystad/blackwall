@@ -1,13 +1,14 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import type {
-  AgentCli,
-  BacklogItem,
-  NewBacklogItemInput,
-  Repo,
-  ServerEvent,
-  Task,
-  VoiceState,
-  VoiceUiAction,
+import {
+  cliEnvFor,
+  type AgentCli,
+  type BacklogItem,
+  type NewBacklogItemInput,
+  type Repo,
+  type ServerEvent,
+  type Task,
+  type VoiceState,
+  type VoiceUiAction,
 } from "@blackwall/shared";
 import type { AgentAdapter } from "../agents/adapters/types.js";
 import { permissionsFor } from "../agents/permissions.js";
@@ -257,6 +258,7 @@ export function createVoiceCommandService({
         memories: memories.relevant(repo.id, [text, focus?.title].filter(Boolean).join(" ")),
       });
       const model = modelFor(cli);
+      const env = cliEnvFor(repo, cli);
       const run = adapter.run({
         cwd: repo.path,
         prompt,
@@ -273,6 +275,7 @@ export function createVoiceCommandService({
         maxTurns: VOICE_MAX_TURNS,
         signal: turnController.signal,
         ...(model ? { model } : {}),
+        ...(env ? { env } : {}),
       });
       for await (const event of run) {
         if (!current()) continue;

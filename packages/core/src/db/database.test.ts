@@ -485,6 +485,32 @@ describe("openDatabase", () => {
     expect(createRepositories(opened.db).repos.get("r1")?.jiraProject).toBeNull();
   });
 
+  it("gives repos registered before per-CLI environments none", () => {
+    const oldMigrations = join(dir, "..", "migrations-0032");
+    cpSync(MIGRATIONS_DIR, oldMigrations, { recursive: true });
+    const journalPath = join(oldMigrations, "meta", "_journal.json");
+    const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
+      entries: { tag: string }[];
+    };
+    journal.entries = journal.entries.slice(
+      0,
+      journal.entries.findIndex((e) => e.tag === "0033_repo_cli_env"),
+    );
+    expect(journal.entries.at(-1)?.tag).toBe("0032_task_worktree_removed");
+    writeFileSync(journalPath, JSON.stringify(journal));
+
+    mkdirSync(dir, { recursive: true });
+    const sqlite = new Database(join(dir, DB_FILENAME));
+    migrate(drizzle(sqlite), { migrationsFolder: oldMigrations });
+    sqlite.exec(
+      `insert into repos (id, path, name, created_at, updated_at) values ('r1', '/code/app', 'app', 0, 0);`,
+    );
+    sqlite.close();
+
+    opened = openDatabase(dir);
+    expect(createRepositories(opened.db).repos.get("r1")?.cliEnv).toEqual({});
+  });
+
   it("creates the memories table with its full-text index kept in sync by triggers", () => {
     opened = openDatabase(dir);
     const sqlite = opened.db.$client;

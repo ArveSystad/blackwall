@@ -14,6 +14,7 @@ import {
 } from "../project-config.js";
 import { claudeSubagents } from "../subagents.js";
 import { deferredRun } from "./deferred-run.js";
+import { mergeEnv } from "./env.js";
 import { isObject, num, str, type Json } from "./json.js";
 import { claudeRateLimitFromEvent, claudeRateLimitFromText } from "./rate-limit.js";
 import { runAgentProcess, type LineParser } from "./run-process.js";
@@ -385,9 +386,10 @@ export function createClaudeAdapter({
 }: ClaudeAdapterOptions = {}): AgentAdapter {
   return {
     cli: "claude",
-    run({ cwd, prompt, signal, ...rest }) {
+    run({ cwd, prompt, signal, env: repoEnv, ...rest }) {
       const guard = guardEnv(rest.permissions);
-      const runEnv = Object.keys(guard).length > 0 ? { ...(env ?? process.env), ...guard } : env;
+      const base = repoEnv ? mergeEnv(env ?? process.env, repoEnv) : env;
+      const runEnv = Object.keys(guard).length > 0 ? mergeEnv(base ?? process.env, guard) : base;
       const start = (project?: ClaudeProject) =>
         runAgentProcess({
           command,

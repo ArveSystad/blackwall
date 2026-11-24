@@ -353,6 +353,28 @@ describe("pipeline engine", () => {
     await h.engine.shutdown();
   });
 
+  it("passes the repo's CLI env to its runs, and no env when the repo has none", async () => {
+    const seeded = seedTask();
+    r.repos.update(seeded.repoId, { cliEnv: { claude: { CLAUDE_CONFIG_DIR: "/second" } } });
+    const h = harness();
+    h.engine.enqueue(seeded.id);
+    await settle(h.engine);
+    r.repos.update(seeded.repoId, { cliEnv: {} });
+    const bare = r.tasks.create({
+      title: "Fix signup",
+      origin: { kind: "free-text" },
+      repoId: seeded.repoId,
+      freeText: "Signup accepts empty passwords",
+      agents: seeded.agents,
+    });
+    h.engine.enqueue(bare.id);
+    await settle(h.engine);
+    const [withEnv, withoutEnv] = h.calls.filter((c) => c.stage === "inform");
+    expect(withEnv!.options.env).toEqual({ CLAUDE_CONFIG_DIR: "/second" });
+    expect("env" in withoutEnv!.options).toBe(false);
+    await h.engine.shutdown();
+  });
+
   it("hands questions the planner cannot answer to the user", async () => {
     const seeded = seedTask();
     let grills = 0;

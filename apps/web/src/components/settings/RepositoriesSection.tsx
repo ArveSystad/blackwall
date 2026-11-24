@@ -7,6 +7,7 @@ import {
   MEMORY_KINDS,
   effectiveTrust,
   type Memory,
+  type AgentCli,
   type MemoryInput,
   type RepoView,
 } from "@blackwall/shared";
@@ -50,7 +51,16 @@ import {
 import { isRunActive } from "../../project-run";
 import { moveRepo, reorderRepoIds } from "../../repo-order";
 import { renameDisabledReason } from "../../repo-rename";
-import { CLI_NAMES, errorMessage, parseCap, parseLines, sameList } from "../../settings-forms";
+import {
+  CLI_NAMES,
+  errorMessage,
+  formatEnvLines,
+  parseCap,
+  parseEnvLines,
+  parseLines,
+  sameEnv,
+  sameList,
+} from "../../settings-forms";
 import { TRUST_NAMES, trustRisk } from "../../trust";
 import { AgentTile } from "../AgentTile";
 import {
@@ -75,6 +85,7 @@ import { Kbd } from "../ui/kbd";
 import { MultiSelectMenu } from "../ui/multi-select-menu";
 import { Textarea } from "../ui/textarea";
 import { Empty, SaveBar, SectionHeader } from "./parts";
+import { CliCheckDialog } from "./CliCheckDialog";
 import { RenameRepoDialog } from "./RenameRepoDialog";
 import { TrustHelpDialog } from "./TrustHelpDialog";
 
@@ -523,6 +534,13 @@ function MemoryVault({ repo }: { repo: RepoView }) {
   );
 }
 
+/** The repo's saved environment variables per CLI, as the editor's textareas hold them. */
+function cliEnvLines(repo: RepoView): Record<AgentCli, string> {
+  return Object.fromEntries(
+    AGENT_CLIS.map((cli) => [cli, formatEnvLines(repo.cliEnv[cli])]),
+  ) as Record<AgentCli, string>;
+}
+
 export function RepoEditor({
   repo,
   onRemoved,
@@ -544,6 +562,8 @@ export function RepoEditor({
   const [checks, setChecks] = useState(repo.checkCommands.join("\n"));
   const [run, setRun] = useState(repo.runCommands.join("\n"));
   const [defaultCli, setDefaultCli] = useState(repo.defaultCli);
+  const [cliEnvText, setCliEnvText] = useState(() => cliEnvLines(repo));
+  const [checkingCli, setCheckingCli] = useState<AgentCli | null>(null);
   const [defaultOrigin, setDefaultOrigin] = useState(repo.defaultOrigin);
   const [defaultBranch, setDefaultBranch] = useState(repo.defaultBranch);
   const [backlogCap, setBacklogCap] = useState(
@@ -574,12 +594,18 @@ export function RepoEditor({
   const jiraProjectValue = jiraProject === "" ? null : jiraProject;
   const jiraProjectInvalid =
     jiraProjectValue !== null && !JIRA_PROJECT_PATTERN.test(jiraProjectValue);
+  const cliEnvParsed = Object.fromEntries(
+    AGENT_CLIS.map((cli) => [cli, parseEnvLines(cliEnvText[cli])]),
+  ) as Record<AgentCli, ReturnType<typeof parseEnvLines>>;
+  const cliEnvInvalid = AGENT_CLIS.some((cli) => cliEnvParsed[cli].errors.length > 0);
   const dirty =
     name.trim() !== repo.name ||
     !sameList(parseLines(setup), repo.setupCommands) ||
     !sameList(parseLines(checks), repo.checkCommands) ||
     !sameList(parseLines(run), repo.runCommands) ||
     defaultCli !== repo.defaultCli ||
+    cliEnvInvalid ||
+    AGENT_CLIS.some((cli) => !sameEnv(cliEnvParsed[cli].env, repo.cliEnv[cli])) ||
     defaultOrigin !== repo.defaultOrigin ||
     defaultBranch.trim() !== repo.defaultBranch ||
     backlogCapInvalid ||
@@ -625,6 +651,10 @@ export function RepoEditor({
       setError("Jira project must be empty or a project key like ABC");
       return;
     }
+    if (cliEnvInvalid) {
+      setError("Fix the environment variables: one NAME=value per line");
+      return;
+    }
     const branchChanged = defaultBranch.trim() !== repo.defaultBranch;
     setSaving(true);
     setError(null);
@@ -635,6 +665,12 @@ export function RepoEditor({
         checkCommands: parseLines(checks),
         runCommands: parseLines(run),
         defaultCli,
+        cliEnv: Object.fromEntries(
+          AGENT_CLIS.flatMap((cli) => {
+            const { env } = cliEnvParsed[cli];
+            return Object.keys(env).length > 0 ? [[cli, env]] : [];
+          }),
+        ),
         defaultOrigin,
         defaultBranch: defaultBranch.trim(),
         maxBacklogTasks: backlogCapValue,
@@ -893,6 +929,62 @@ export function RepoEditor({
           </Field>
         </div>
 
+        <Field
+          label="Environment variables"
+          group
+          hint={
+            <>
+              Set for this repo&apos;s agents on each CLI, e.g.{" "}
+              <span className="mono">{"CLAUDE_CONFIG_DIR=C:\\Users\\me\\.claude-abcd"}</span> to use
+              another Claude account. Use Test to check which account it picks. Stored in plain
+              text; don&apos;t put secrets here.
+            </>
+          }
+        >
+          <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-3">
+            {AGENT_CLIS.map((cli) => {
+              const { errors } = cliEnvParsed[cli];
+              return (
+                <Field
+                  key={cli}
+                  className="min-w-0"
+                  label={
+                    <span className="inline-flex items-center gap-1.5">
+                      <AgentTile cli={cli} />
+                      {CLI_NAMES[cli]}
+                    </span>
+                  }
+                >
+                  <Textarea
+                    className="mono"
+                    rows={3}
+                    spellCheck={false}
+                    placeholder="NAME=value"
+                    aria-invalid={errors.length > 0}
+                    value={cliEnvText[cli]}
+                    onChange={(event) =>
+                      setCliEnvText((text) => ({ ...text, [cli]: event.target.value }))
+                    }
+                  />
+                  {errors.map((message) => (
+                    <ErrorText key={message}>{message}</ErrorText>
+                  ))}
+                  <div>
+                    <Button
+                      size="sm"
+                      disabled={errors.length > 0 || !repo.exists}
+                      title={`Test ${CLI_NAMES[cli]} with these variables`}
+                      onClick={() => setCheckingCli(cli)}
+                    >
+                      Test
+                    </Button>
+                  </div>
+                </Field>
+              );
+            })}
+          </div>
+        </Field>
+
         <label className="flex cursor-pointer items-start gap-2.5">
           <input
             type="checkbox"
@@ -1133,6 +1225,7 @@ export function RepoEditor({
           setChecks(repo.checkCommands.join("\n"));
           setRun(repo.runCommands.join("\n"));
           setDefaultCli(repo.defaultCli);
+          setCliEnvText(cliEnvLines(repo));
           setDefaultOrigin(repo.defaultOrigin);
           setDefaultBranch(repo.defaultBranch);
           setBacklogCap(repo.maxBacklogTasks === null ? "" : String(repo.maxBacklogTasks));
@@ -1150,6 +1243,14 @@ export function RepoEditor({
       />
 
       {showTrustHelp && <TrustHelpDialog onClose={() => setShowTrustHelp(false)} />}
+      {checkingCli && (
+        <CliCheckDialog
+          repoId={repo.id}
+          cli={checkingCli}
+          env={cliEnvParsed[checkingCli].env}
+          onClose={() => setCheckingCli(null)}
+        />
+      )}
       {confirmUnrestricted && (
         <ConfirmDialog
           title={`Run ${repo.name}'s agents Unrestricted?`}

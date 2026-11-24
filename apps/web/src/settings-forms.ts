@@ -1,6 +1,7 @@
 import {
   AGENT_CLIS,
   AGENT_ROLES,
+  ENV_NAME_PATTERN,
   JIRA_EMAIL_META,
   MAX_GITHUB_ISSUES_REFRESH_SECONDS,
   MIN_GITHUB_ISSUES_REFRESH_SECONDS,
@@ -249,6 +250,57 @@ export function moveItem<T>(list: readonly T[], index: number, delta: number): T
 
 export function sameList(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((item, i) => item === b[i]);
+}
+
+/**
+ * Environment variables typed as one `KEY=value` per line. Blank lines are
+ * skipped; each line splits at its first `=`, the name trimmed and the value
+ * kept exactly as typed. Lines without `=`, invalid names and names repeated
+ * (ignoring case, as Windows does) are reported, by line number.
+ */
+export function parseEnvLines(text: string): { env: Record<string, string>; errors: string[] } {
+  const env: Record<string, string> = {};
+  const errors: string[] = [];
+  const seen = new Set<string>();
+  text.split("\n").forEach((raw, index) => {
+    const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
+    if (line.trim() === "") return;
+    const at = `Line ${index + 1}`;
+    const eq = line.indexOf("=");
+    if (eq === -1) {
+      errors.push(`${at}: expected NAME=value`);
+      return;
+    }
+    const name = line.slice(0, eq).trim();
+    if (!ENV_NAME_PATTERN.test(name)) {
+      errors.push(`${at}: "${name}" is not a variable name like MY_VAR`);
+      return;
+    }
+    if (seen.has(name.toUpperCase())) {
+      errors.push(`${at}: ${name} is set twice`);
+      return;
+    }
+    seen.add(name.toUpperCase());
+    env[name] = line.slice(eq + 1);
+  });
+  return { env, errors };
+}
+
+/** Environment variables as `parseEnvLines` reads them back. */
+export function formatEnvLines(env: Readonly<Record<string, string>> | undefined): string {
+  return Object.entries(env ?? {})
+    .map(([name, value]) => `${name}=${value}`)
+    .join("\n");
+}
+
+/** Whether two variable sets are equal, ignoring order. */
+export function sameEnv(
+  a: Readonly<Record<string, string>> | undefined,
+  b: Readonly<Record<string, string>> | undefined,
+): boolean {
+  const left = Object.entries(a ?? {});
+  const right = b ?? {};
+  return left.length === Object.keys(right).length && left.every(([k, v]) => right[k] === v);
 }
 
 /** The add-connection form's state. A blank name defaults to the host; the token is optional. */

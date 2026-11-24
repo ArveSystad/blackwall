@@ -1,0 +1,1 @@
+ALTER TABLE `repos` ADD `cli_env` text DEFAULT '{}' NOT NULL;

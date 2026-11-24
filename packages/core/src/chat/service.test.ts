@@ -258,6 +258,18 @@ describe("chat service", () => {
     expect(two?.resumeSessionId).toBe("fake-1");
   });
 
+  it("passes the repo's CLI env to its chat runs, and no env when the repo has none", async () => {
+    r.repos.update(repoId, { cliEnv: { claude: { CLAUDE_CONFIG_DIR: "/second" } } });
+    chat.send(repoId, "What does this repo do?");
+    await idle();
+    expect(adapter.calls[0]!.options.env).toEqual({ CLAUDE_CONFIG_DIR: "/second" });
+
+    r.repos.update(repoId, { cliEnv: {} });
+    chat.send(repoId, "And the tests?");
+    await idle();
+    expect("env" in adapter.calls[1]!.options).toBe(false);
+  });
+
   it("lets the chat read the repo's reference repos whose folders exist", async () => {
     const lib = r.repos.create({ path: tmpdir(), name: "lib" });
     // "/code/other" does not exist, so it is skipped.

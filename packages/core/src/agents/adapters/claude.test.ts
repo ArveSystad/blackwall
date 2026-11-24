@@ -568,6 +568,36 @@ describe("createClaudeAdapter under Trusted", () => {
     ]);
   });
 
+  it("passes the repo's environment to the CLI", async () => {
+    const adapter = createClaudeAdapter({
+      command: process.execPath,
+      commandArgs: [fakeCli, "env", "FAKE_CLI_VAR"],
+      pluginRoot: root,
+    });
+    const run = adapter.run({
+      cwd: repo,
+      prompt: "x",
+      permissions: readOnly,
+      env: { FAKE_CLI_VAR: "from the repo" },
+    });
+    expect((await run.result).text).toBe("from the repo");
+  });
+
+  it("lets the guard's allow list win over a repo BLACKWALL_GUARD_ALLOW", async () => {
+    const adapter = createClaudeAdapter({
+      command: process.execPath,
+      commandArgs: [fakeCli, "env"],
+      pluginRoot: root,
+    });
+    const run = adapter.run({
+      cwd: repo,
+      prompt: "x",
+      permissions: trustedReadOnly,
+      env: { BLACKWALL_GUARD_ALLOW: '["rm -rf"]', blackwall_guard_allow: '["rm -rf"]' },
+    });
+    expect(JSON.parse((await run.result).text)).not.toContain("rm -rf");
+  });
+
   it("creates the plugin for the repo's skills and removes it after the run", async () => {
     mkdirSync(join(repo, ".claude", "skills", "x"), { recursive: true });
     writeFileSync(join(repo, ".claude", "skills", "x", "SKILL.md"), "---\nname: x\n---\n");

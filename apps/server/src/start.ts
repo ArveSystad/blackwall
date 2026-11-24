@@ -41,6 +41,7 @@ import {
   createWorkspaceRemover,
   createWorkspaceSyncer,
   createWorktreeSetup,
+  checkCli,
   detectClis,
   openDatabase,
   sqliteOf,
@@ -488,6 +489,12 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       voiceCommands,
       voiceDownloads,
       projectRuns,
+      checkCli: (input, cwd) =>
+        checkCli(input.cli, {
+          env: input.env,
+          cwd,
+          ...(input.prompt ? { prompt: adapters[input.cli] } : {}),
+        }),
       shutdown,
     });
     broadcast = send;

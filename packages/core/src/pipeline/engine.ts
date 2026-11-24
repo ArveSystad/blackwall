@@ -1,6 +1,7 @@
 import {
   LOCKED_TRUST,
   agentCliFor,
+  cliEnvFor,
   effectiveTrust,
   effortFlagApplies,
   deliveryConfirmationSchema,
@@ -703,6 +704,8 @@ export function createPipelineEngine({
     // A resumed step stays on its own CLI, since its session belongs to that CLI.
     const cli = earlier?.cli ?? agentCliFor(ctx.task, input.agentId);
     const trust = trustFor(ctx.task.id);
+    const repo = r.repos.get(ctx.task.repoId);
+    const env = repo ? cliEnvFor(repo, cli) : undefined;
     const inv = invocation(
       input.agentId,
       input.asStage ?? stage,
@@ -772,6 +775,7 @@ export function createPipelineEngine({
         ...(resumeSessionId ? { resumeSessionId } : {}),
         ...(input.jsonSchema ? { jsonSchema: input.jsonSchema } : {}),
         ...(input.maxTurns !== undefined ? { maxTurns: input.maxTurns } : {}),
+        ...(env ? { env } : {}),
       });
       for await (const event of agentRun) {
         const stored = r.stepEvents.append(step.id, event.type, event);

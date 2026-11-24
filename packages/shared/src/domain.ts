@@ -591,6 +591,24 @@ export const branchNameSchema = z
     "Not a valid branch name",
   );
 
+/** An environment variable name, as the agent-CLI environment accepts it. */
+export const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Environment variables for one CLI, by name. Values are kept exactly as
+ * typed (empty allowed); only a NUL byte is refused, which no process
+ * environment can carry.
+ */
+export const cliEnvVarsSchema = z.record(
+  z.string().regex(ENV_NAME_PATTERN, "Expected a variable name like MY_VAR"),
+  z.string().refine((v) => !v.includes("\0"), "Values can't contain a NUL character"),
+);
+export type CliEnvVars = z.infer<typeof cliEnvVarsSchema>;
+
+/** Environment variables per agent CLI; a missing CLI sets none. */
+export const cliEnvSchema = z.partialRecord(agentCliSchema, cliEnvVarsSchema);
+export type CliEnv = z.infer<typeof cliEnvSchema>;
+
 export const repoSchema = z.object({
   id,
   /** Absolute path of the local git repo. */
@@ -608,6 +626,12 @@ export const repoSchema = z.object({
   runCommands: z.array(z.string().trim().min(1)),
   /** CLI new tasks in this repo run their agents on. */
   defaultCli: agentCliSchema,
+  /**
+   * Environment variables set for this repo's agents, per CLI (e.g.
+   * `CLAUDE_CONFIG_DIR` to use another account). Blackwall's own variables
+   * still win. Stored in plain text.
+   */
+  cliEnv: cliEnvSchema,
   /** Origin the new-task and backlog forms open on for this repo. */
   defaultOrigin: originKindSchema,
   /** Backlog tasks running at once in this repo; null uses the global setting. */
@@ -716,6 +740,8 @@ export const repoInputSchema = z.object({
   checkCommands: repoSchema.shape.checkCommands.optional(),
   /** Omitted: suggested from the repo's lockfiles. Empty: no setup. */
   setupCommands: repoSchema.shape.setupCommands.optional(),
+  /** Omitted: none. */
+  cliEnv: cliEnvSchema.optional(),
 });
 export type RepoInput = z.input<typeof repoInputSchema>;
 
@@ -731,6 +757,8 @@ export const repoUpdateSchema = z.object({
   setupCommands: repoSchema.shape.setupCommands.optional(),
   runCommands: repoSchema.shape.runCommands.optional(),
   defaultCli: agentCliSchema.optional(),
+  /** Replaces the whole record. */
+  cliEnv: cliEnvSchema.optional(),
   defaultOrigin: originKindSchema.optional(),
   maxBacklogTasks: backlogCapSchema.nullable().optional(),
   defaultBranch: branchNameSchema.optional(),
@@ -1175,6 +1203,43 @@ export function agentCliFor(
 ): AgentCli {
   return task.agentClis[agentId] ?? task.cli;
 }
+
+/** The repo's environment variables for `cli`; undefined when it sets none. */
+export function cliEnvFor(
+  repo: { cliEnv: CliEnv },
+  cli: AgentCli,
+): Record<string, string> | undefined {
+  const env = repo.cliEnv[cli];
+  return env && Object.keys(env).length > 0 ? env : undefined;
+}
+
+/** Body for checking an agent CLI with a repo's (possibly unsaved) environment. */
+export const cliCheckInputSchema = z.object({
+  cli: agentCliSchema,
+  env: cliEnvVarsSchema,
+  /** Also send one short read-only prompt, which uses a little quota. */
+  prompt: z.boolean().default(false),
+});
+export type CliCheckInput = z.infer<typeof cliCheckInputSchema>;
+
+/** One step of a CLI check: a command run, or the test prompt. */
+export const cliCheckStepSchema = z.object({
+  label: z.string(),
+  /** What ran, as a user would type it (e.g. `claude auth status`). */
+  command: z.string(),
+  ok: z.boolean(),
+  exitCode: z.int().nullable(),
+  /** Combined stdout and stderr, ANSI-stripped and capped. */
+  output: z.string(),
+  durationMs: z.int().min(0),
+});
+export type CliCheckStep = z.infer<typeof cliCheckStepSchema>;
+
+export const cliCheckResultSchema = z.object({
+  cli: agentCliSchema,
+  steps: z.array(cliCheckStepSchema),
+});
+export type CliCheckResult = z.infer<typeof cliCheckResultSchema>;
 
 /** The files a speech model of each kind needs, by the recognizer config field they fill. */
 export const VOICE_MODEL_FILES = {

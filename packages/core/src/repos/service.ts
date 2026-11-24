@@ -11,6 +11,7 @@ import {
   repoInputSchema,
   repoScanInputSchema,
   repoUpdateSchema,
+  type CliEnv,
   type Repo,
   type RepoInput,
   type RepoRenameResult,
@@ -286,6 +287,7 @@ export function createRepoService({
       name?: string | undefined;
       checkCommands?: string[] | undefined;
       setupCommands?: string[] | undefined;
+      cliEnv?: CliEnv | undefined;
     } = {},
   ): Promise<Repo> {
     const remoteUrl = await readOriginRemote(path);
@@ -297,6 +299,7 @@ export function createRepoService({
       checkCommands: fields.checkCommands ?? (await suggestCheckCommands(path)),
       setupCommands: fields.setupCommands ?? (await suggestSetupCommands(path)),
       runCommands: await suggestRunCommands(path),
+      ...(fields.cliEnv === undefined ? {} : { cliEnv: fields.cliEnv }),
     });
   }
 
@@ -530,6 +533,7 @@ export function createRepoService({
         setupCommands,
         runCommands,
         defaultCli,
+        cliEnv,
         defaultOrigin,
         maxBacklogTasks,
         defaultBranch,
@@ -549,6 +553,7 @@ export function createRepoService({
         ...(setupCommands === undefined ? {} : { setupCommands }),
         ...(runCommands === undefined ? {} : { runCommands }),
         ...(defaultCli === undefined ? {} : { defaultCli }),
+        ...(cliEnv === undefined ? {} : { cliEnv }),
         ...(defaultOrigin === undefined ? {} : { defaultOrigin }),
         ...(maxBacklogTasks === undefined ? {} : { maxBacklogTasks }),
         ...(defaultBranch === undefined ? {} : { defaultBranch }),

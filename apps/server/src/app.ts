@@ -6,6 +6,8 @@ import {
   APP_NAME,
   WS_PATH,
   parseClientEvent,
+  type CliCheckInput,
+  type CliCheckResult,
   type CliStatus,
   type HealthResponse,
   type ServerEvent,
@@ -94,6 +96,8 @@ export interface AppOptions {
   voiceDownloads?: Pick<VoiceModelDownloads, "state" | "start">;
   /** Run project's processes; omit to leave the run routes out (e.g. in tests). */
   projectRuns?: Pick<ProjectRuns, "list" | "start" | "stop" | "output">;
+  /** Checks an agent CLI with a repo's environment; omit to leave the route out (e.g. in tests). */
+  checkCli?: (input: CliCheckInput, cwd: string) => Promise<CliCheckResult>;
 }
 
 function send(ws: { send(data: string): void }, event: ServerEvent): void {
@@ -131,6 +135,7 @@ export function createApp({
   voiceCommands,
   voiceDownloads,
   projectRuns,
+  checkCli,
 }: AppOptions): CreatedApp {
   const app = new Hono();
   const { upgradeWebSocket, injectWebSocket, wss } = createNodeWebSocket({ app });
@@ -178,6 +183,7 @@ export function createApp({
       repoRoutes(repos, {
         broadcast,
         ...(projectRuns ? { onDeleted: (id: string) => void projectRuns.stop(id) } : {}),
+        ...(checkCli ? { checkCli } : {}),
       }),
     );
   }

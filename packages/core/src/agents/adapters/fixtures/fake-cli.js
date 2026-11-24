@@ -4,16 +4,21 @@
 //                     prints the fixture's lines (possibly none), then exits with <code>
 //   replay-resume <new> <resumed>
 //                     replays <resumed> when the args contain --resume or --session, else <new>
-//   copilot-echo      Copilot JSONL messages: stdin, the auth env vars, the --plugin-dir and
+//   copilot-echo      Copilot JSONL messages: stdin, the auth env vars (and $FAKE_CLI_VAR as
+//                     `var` when set), the --plugin-dir and
 //                     whether its worker agent file exists, then argv (the final text)
 //   opencode-echo     OpenCode JSON events, one step with text parts: stdin, argv, PWD and the
-//                     config env vars, $XDG_CONFIG_HOME/git/config (or null) and whether
+//                     config env vars (each when set), $FAKE_CLI_VAR (when set), $XDG_CONFIG_HOME/git/config
+//                     (or null) and whether
 //                     $XDG_CONFIG_HOME/opencode exists (the final text); no closing line
 //   opencode-locked <marker>
 //                     fails like OpenCode on a locked database (exit 1) unless <marker> exists,
 //                     which it creates; then behaves like opencode-echo
 //   echo              reads stdin and returns it as the result text, with argv as structured output
-//   env               reads stdin and returns BLACKWALL_GUARD_ALLOW (or "none") as the result text
+//   env [NAME]        reads stdin and returns $NAME (default BLACKWALL_GUARD_ALLOW, or "none"
+//                     when unset) as the result text; NAME must look like a variable name
+//   echo-args         prints {"args":[...rest of argv],"var":$FAKE_CLI_VAR} and exits with
+//                     $FAKE_CLI_EXIT (default 0); for the CLI check commands
 //   hang              spawns a sleeping grandchild, reports its pid as the session id, then hangs
 //   fail              writes to stderr and exits with code 3 without a result
 //   limit             writes a rate-limit error to stderr and exits with code 1 without a result
@@ -63,6 +68,8 @@ if (mode === "replay") {
     PWD: process.env.PWD,
     OPENCODE_CONFIG_CONTENT: process.env.OPENCODE_CONFIG_CONTENT,
     OPENCODE_DISABLE_PROJECT_CONFIG: process.env.OPENCODE_DISABLE_PROJECT_CONFIG,
+    OPENCODE_CONFIG: process.env.OPENCODE_CONFIG,
+    FAKE_CLI_VAR: process.env.FAKE_CLI_VAR,
     XDG_CONFIG_HOME: home,
     gitConfig: gitConfig ? readFileSync(join(home, "git", "config"), "utf8") : null,
     opencodeDir: Boolean(home && existsSync(join(home, "opencode"))),
@@ -77,7 +84,11 @@ if (mode === "replay") {
   const args = process.argv.slice(3);
   const id = args[args.findIndex((a) => a === "--session-id" || a === "--resume") + 1];
   print({ type: "session.tools_updated", data: { model: "fake" }, ephemeral: true });
-  const env = { token: process.env.COPILOT_GITHUB_TOKEN, host: process.env.COPILOT_GH_HOST };
+  const env = {
+    token: process.env.COPILOT_GITHUB_TOKEN,
+    host: process.env.COPILOT_GH_HOST,
+    var: process.env.FAKE_CLI_VAR,
+  };
   print({ type: "assistant.message", data: { content: input } });
   print({ type: "assistant.message", data: { content: JSON.stringify(env) } });
   const plugin = args.includes("--plugin-dir") ? args[args.indexOf("--plugin-dir") + 1] : null;
@@ -100,14 +111,21 @@ if (mode === "replay") {
     structured_output: process.argv.slice(3),
     usage: {},
   });
+} else if (mode === "echo-args") {
+  process.stdout.write(
+    `${JSON.stringify({ args: process.argv.slice(3), var: process.env.FAKE_CLI_VAR ?? null })}\n`,
+  );
+  process.exitCode = Number(process.env.FAKE_CLI_EXIT ?? 0);
 } else if (mode === "env") {
   await readStdin();
+  // A variable name, not one of the CLI args that follow the mode.
+  const name = /^[A-Za-z_][A-Za-z0-9_]*$/.test(fixture ?? "") ? fixture : "BLACKWALL_GUARD_ALLOW";
   print({
     type: "result",
     subtype: "success",
     is_error: false,
     session_id: "env",
-    result: process.env.BLACKWALL_GUARD_ALLOW ?? "none",
+    result: process.env[name] ?? "none",
     usage: {},
   });
 } else if (mode === "hang") {

@@ -4,6 +4,7 @@ import {
   CHAT_CLEAR_COMMAND,
   chatReplyJsonSchema,
   chatReplySchema,
+  cliEnvFor,
   type AgentCli,
   type ChatAction,
   type ChatActionProposal,
@@ -323,6 +324,7 @@ export function createChatService({
         .flatMap((m) => (m.role === "error" ? [] : [{ role: m.role, text: m.text }]))
         .slice(-historyLimit);
       const model = modelFor(cli);
+      const env = cliEnvFor(repo, cli);
       // A task's conversation reads the task's own reference repos, like its agents; the repo's reads the repo's.
       const refs = focusTask
         ? referenceReposFrom(repos, focusTask.repoId, focusTask.referenceRepoIds)
@@ -345,6 +347,7 @@ export function createChatService({
           signal: controller.signal,
           ...(model ? { model } : {}),
           ...(resumeSessionId ? { resumeSessionId } : {}),
+          ...(env ? { env } : {}),
         });
         for await (const event of run) {
           if (!current()) continue;

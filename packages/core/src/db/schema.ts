@@ -32,6 +32,7 @@ import {
   type AgentModels,
   type AgentPermissionOverrides,
   type ChatAction,
+  type CliEnv,
   type DeliveryTarget,
   type FollowUp,
   type RoleAgents,
@@ -105,6 +106,11 @@ export const repos = sqliteTable(
       .notNull()
       .default(sql`'[]'`),
     defaultCli: text("default_cli", { enum: AGENT_CLIS }).notNull().default("claude"),
+    /** Environment variables per CLI for this repo's agents; plain text. */
+    cliEnv: text("cli_env", { mode: "json" })
+      .$type<CliEnv>()
+      .notNull()
+      .default(sql`'{}'`),
     defaultOrigin: text("default_origin", { enum: ORIGIN_KINDS }).notNull().default("jira-issue"),
     maxBacklogTasks: integer("max_backlog_tasks"),
     /** Branch new tasks fork from, free-text tasks merge into and PRs target. */

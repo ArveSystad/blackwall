@@ -495,6 +495,8 @@ describe("createOpencodeAdapter", () => {
       PWD?: string;
       OPENCODE_CONFIG_CONTENT?: string;
       OPENCODE_DISABLE_PROJECT_CONFIG?: string;
+      OPENCODE_CONFIG?: string;
+      FAKE_CLI_VAR?: string;
       XDG_CONFIG_HOME?: string;
       gitConfig: string | null;
       opencodeDir: boolean;
@@ -688,6 +690,54 @@ describe("createOpencodeAdapter", () => {
     expect(existsSync(env.XDG_CONFIG_HOME!)).toBe(false);
     expect(existsSync(join(real, "git", "config"))).toBe(true);
     expect(existsSync(join(real, "opencode", "opencode.json"))).toBe(true);
+  });
+
+  it("passes the repo's environment to the CLI", async () => {
+    const run = fake("opencode-echo").run({
+      cwd,
+      prompt: "x",
+      permissions: readOnly,
+      env: { FAKE_CLI_VAR: "repo" },
+    });
+    expect(echoed(await collect(run)).FAKE_CLI_VAR).toBe("repo");
+    await run.result;
+  });
+
+  it("keeps its own config variables over the repo's on a locked run", async () => {
+    const run = fake("opencode-echo").run({
+      cwd,
+      prompt: "x",
+      permissions: readOnly,
+      env: {
+        OPENCODE_CONFIG_CONTENT: '{"permission":{"*":"allow"}}',
+        OPENCODE_CONFIG: "/allow-all.json",
+        PWD: "/elsewhere",
+      },
+    });
+    const env = echoed(await collect(run));
+    await run.result;
+    expect(env.PWD).toBe(cwd);
+    expect(env.OPENCODE_CONFIG_CONTENT).toBe(JSON.stringify(opencodeConfig(readOnly)));
+    expect(env.OPENCODE_DISABLE_PROJECT_CONFIG).toBe("1");
+    expect(env.OPENCODE_CONFIG).toBeUndefined();
+  });
+
+  it("mirrors a repo XDG_CONFIG_HOME without its OpenCode config", async () => {
+    const real = join(root, "repo-config");
+    mkdirSync(join(real, "git"), { recursive: true });
+    mkdirSync(join(real, "opencode"));
+    writeFileSync(join(real, "git", "config"), "[blackwall]\n\tprobe = repo-xdg\n");
+    const run = fake("opencode-echo").run({
+      cwd,
+      prompt: "x",
+      permissions: readOnly,
+      env: { XDG_CONFIG_HOME: real },
+    });
+    const env = echoed(await collect(run));
+    await run.result;
+    expect(env.XDG_CONFIG_HOME).not.toBe(real);
+    expect(env.gitConfig).toContain("probe = repo-xdg");
+    expect(env.opencodeDir).toBe(false);
   });
 
   it("works without a real config home", async () => {

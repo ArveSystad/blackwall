@@ -7,6 +7,7 @@ import { permissionArgs } from "../permissions.js";
 import { projectMcp } from "../project-config.js";
 import { copilotSubagentFile, SUBAGENT_NAME } from "../subagents.js";
 import { deferredRun } from "./deferred-run.js";
+import { mergeEnv } from "./env.js";
 import { isObject, str } from "./json.js";
 import { copilotRateLimitFromText } from "./rate-limit.js";
 import { runAgentProcess, type LineParser } from "./run-process.js";
@@ -276,7 +277,7 @@ export function copilotEnv(
   base: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
   if (!auth) return base;
-  return { ...base, COPILOT_GITHUB_TOKEN: auth.token, COPILOT_GH_HOST: auth.host };
+  return mergeEnv(base, { COPILOT_GITHUB_TOKEN: auth.token, COPILOT_GH_HOST: auth.host });
 }
 
 /** The harness plugin's name; Copilot names its agents `<plugin>:<agent>`. */
@@ -339,7 +340,6 @@ export function createCopilotAdapter({
   auth,
   pluginRoot,
 }: CopilotAdapterOptions = {}): AgentAdapter {
-  const runEnv = env || auth ? copilotEnv(auth, env) : undefined;
   return {
     cli: "copilot",
     run({
@@ -352,8 +352,13 @@ export function createCopilotAdapter({
       effort,
       permissions,
       streamPartial,
+      env: repoEnv,
       signal,
     }) {
+      const runEnv =
+        env || auth || repoEnv
+          ? copilotEnv(auth, repoEnv ? mergeEnv(env ?? process.env, repoEnv) : env)
+          : undefined;
       const sessionId = resumeSessionId ?? randomUUID();
       const start = (pluginDir?: string, mcpConfig?: string) => {
         const spawn = (input: string, resume: boolean) =>

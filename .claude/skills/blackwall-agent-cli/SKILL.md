@@ -203,6 +203,24 @@ far, cumulative (not a delta). It is opt-in because the pipeline engine stores e
   project skills or `CLAUDE.md` under `--restricted`; `--mcp-config` and `--settings` hooks work
   under it.
 
+## Repo environment
+
+- `AgentRunOptions.env` carries the repo's variables for the run's CLI (`repo.cliEnv`, read with
+  `cliEnvFor` in `@blackwall/shared`). The engine, chat, voice commands and memory backfill pass it;
+  adapters stay singletons, so the env travels with each run.
+- Layer order: base env (the adapter's `env` option, or `process.env`), then the repo env, then
+  every blackwall-owned variable (Claude's `BLACKWALL_GUARD_ALLOW`, Copilot's
+  `COPILOT_GITHUB_TOKEN`/`COPILOT_GH_HOST`, OpenCode's config variables and mirrored
+  `XDG_CONFIG_HOME`), so a repo value can never weaken the restrictions. Merge and drop variables
+  only with `mergeEnv`/`omitEnv` in `adapters/env.ts`: Windows names are case-insensitive, and a
+  plain spread can leave `PATH` beside `Path`. A new adapter variable must be applied after the
+  repo layer.
+- The Settings → Repositories Test button runs `checkCli` (`adapters/check.ts`) through
+  `POST /api/repos/:id/cli-check` with the form's unsaved env. `CLI_CHECK_COMMANDS` there is the one
+  place to change when a CLI gains a headless account or status command (`claude doctor` is left
+  out: it needs a terminal; Copilot has no account command). The optional test prompt is read-only
+  and never reports to `quota.ts`. Live: `cli-check.live.test.ts`.
+
 ## Prompts and seeds
 
 - System prompts and output contracts live in `prompts.ts` (`buildSystemPrompt`, `planContract`,

@@ -297,6 +297,20 @@ describe("createMemoryBackfill", () => {
     expect(copilot.calls[0]!.options.systemPrompt).toBeTruthy();
   });
 
+  it("passes the repo's CLI env to the summarizer, and no env when the repo has none", async () => {
+    r.repos.update(repoId, { cliEnv: { claude: { CLAUDE_CONFIG_DIR: "/second" } } });
+    doneTask("First");
+    const { claude, run } = setup();
+    await run();
+    expect(claude.calls[0]!.options.env).toEqual({ CLAUDE_CONFIG_DIR: "/second" });
+
+    r.repos.update(repoId, { cliEnv: {} });
+    doneTask("Second");
+    await run();
+    expect(claude.calls).toHaveLength(2);
+    expect("env" in claude.calls[1]!.options).toBe(false);
+  });
+
   it("falls back to the repo's default CLI, and fails without a usable adapter", async () => {
     const summarizerId = agents.resolveRoles().summarizer!;
     doneTask("Copilot", { agentClis: { [summarizerId]: "copilot" } });

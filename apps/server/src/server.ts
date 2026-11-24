@@ -14,7 +14,13 @@ import type {
   VoiceModelDownloads,
   VoiceService,
 } from "@blackwall/core";
-import { TOKEN_QUERY_PARAM, type CliStatus, type ServerEvent } from "@blackwall/shared";
+import {
+  TOKEN_QUERY_PARAM,
+  type CliCheckInput,
+  type CliCheckResult,
+  type CliStatus,
+  type ServerEvent,
+} from "@blackwall/shared";
 import { createApp } from "./app.js";
 import { generateToken } from "./auth.js";
 import type { BacklogRouteOptions } from "./backlog.js";
@@ -55,6 +61,7 @@ export interface StartOptions {
   voiceCommands?: VoiceCommandRouteService & McpCommandService;
   voiceDownloads?: Pick<VoiceModelDownloads, "state" | "start">;
   projectRuns?: Pick<ProjectRuns, "list" | "start" | "stop" | "output">;
+  checkCli?: (input: CliCheckInput, cwd: string) => Promise<CliCheckResult>;
   shutdown: Shutdown;
 }
 
@@ -92,6 +99,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     ...(options.voiceCommands ? { voiceCommands: options.voiceCommands } : {}),
     ...(options.voiceDownloads ? { voiceDownloads: options.voiceDownloads } : {}),
     ...(options.projectRuns ? { projectRuns: options.projectRuns } : {}),
+    ...(options.checkCli ? { checkCli: options.checkCli } : {}),
     ...(options.dev ? {} : { webDist: WEB_DIST }),
   });
 
