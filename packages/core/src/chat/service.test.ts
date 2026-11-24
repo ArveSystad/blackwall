@@ -258,6 +258,91 @@ describe("chat service", () => {
     expect(two?.resumeSessionId).toBe("fake-1");
   });
 
+  describe("actions on repos", () => {
+    const envAction = {
+      kind: "update-repo-env",
+      repoId: "",
+      cli: "claude",
+      set: [{ name: "FOO", value: "bar" }],
+    };
+    const createAction = { kind: "create-task", title: "Docs", description: "Write docs" };
+
+    beforeEach(() => {
+      r.repos.update(repoId, {
+        remoteUrl: "git@github.com:acme/app.git",
+        cliEnv: { claude: { SECRET_TOKEN: "s3cr3t-value" } },
+      });
+      script = () => ({
+        structured: {
+          reply: "Proposed",
+          actions: [{ ...envAction, repoId: otherRepoId }, createAction],
+        },
+      });
+    });
+
+    it("lists every repo with env names but no values in the repo chat, and keeps its env actions", async () => {
+      chat.send(repoId, "Add FOO=bar to the Claude env of every repo");
+      const state = await idle();
+      const { prompt, systemPrompt } = adapter.calls[0]!.options;
+      expect(prompt).toContain("### Repositories");
+      expect(prompt).toContain(
+        `- \`${repoId}\` app (this repo) · host github.com · default cli claude · env claude: SECRET_TOKEN;`,
+      );
+      expect(prompt).toContain(`- \`${otherRepoId}\` other · host none`);
+      expect(prompt).not.toContain("s3cr3t-value");
+      expect(systemPrompt).not.toContain("s3cr3t-value");
+      expect(systemPrompt).toContain("`update-repo-env`");
+      expect(state.messages.at(-1)!.actions.map((a) => a.kind)).toEqual([
+        "update-repo-env",
+        "create-task",
+      ]);
+    });
+
+    it("gives a task's chat no repos and drops env actions it proposes", async () => {
+      const task = addTask("Fix login", repoId);
+      chat.send(repoId, "Change the env", task.id);
+      const state = await idle(repoId, task.id);
+      const { prompt, systemPrompt } = adapter.calls[0]!.options;
+      expect(prompt).not.toContain("### Repositories");
+      expect(prompt).not.toContain("SECRET_TOKEN");
+      expect(systemPrompt).not.toContain("update-repo-env");
+      expect(state.messages.at(-1)!.actions.map((a) => a.kind)).toEqual(["create-task"]);
+    });
+
+    it("keeps a deleted task's chat a task chat", async () => {
+      const task = addTask("Gone", repoId);
+      let deleted = false;
+      chat.shutdown();
+      chat = createChatService({
+        adapters: { claude: adapter },
+        repos: r.repos,
+        // The task disappears once the turn starts reading the repo's tasks.
+        tasks: {
+          list: () => {
+            deleted = true;
+            return r.tasks.list();
+          },
+          get: (id) => (deleted && id === task.id ? undefined : r.tasks.get(id)),
+        },
+        questions: r.grillQuestions,
+        backlogItems: r.backlogItems,
+        memories: { relevant: () => [] },
+        messages: r.chatMessages,
+        modelFor: () => undefined,
+        publish: () => undefined,
+      });
+      chat.send(repoId, "Change the env", task.id);
+      for (let i = 0; i < 100 && r.chatMessages.list(repoId, task.id).length < 2; i++) await tick();
+      const { prompt, systemPrompt } = adapter.calls[0]!.options;
+      expect(prompt).not.toContain("## Focused task");
+      expect(prompt).not.toContain("### Repositories");
+      expect(systemPrompt).not.toContain("update-repo-env");
+      const reply = r.chatMessages.list(repoId, task.id).at(-1)!;
+      expect(reply.role).toBe("assistant");
+      expect(reply.actions.map((a) => a.kind)).toEqual(["create-task"]);
+    });
+  });
+
   it("passes the repo's CLI env to its chat runs, and no env when the repo has none", async () => {
     r.repos.update(repoId, { cliEnv: { claude: { CLAUDE_CONFIG_DIR: "/second" } } });
     chat.send(repoId, "What does this repo do?");

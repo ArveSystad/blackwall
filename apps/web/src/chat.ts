@@ -4,11 +4,13 @@ import {
   type ChatAction,
   type ChatActionProposal,
   type ChatMessage,
+  type Repo,
   type Task,
 } from "@blackwall/shared";
 import { useSyncExternalStore } from "react";
 import { messageRoute } from "./components/task/actions";
 import { isModKey, isPlainKey, isTypingTarget, useWindowKeydown } from "./keyboard";
+import { CLI_NAMES } from "./settings-forms";
 import { canStop } from "./task-view";
 
 /**
@@ -368,21 +370,32 @@ export function chatActionTask(
   tasks: readonly Task[],
   repoId: string,
 ): Task | undefined {
-  if (action.kind === "create-task") return undefined;
+  if (action.kind === "create-task" || action.kind === "update-repo-env") return undefined;
   return tasks.find((t) => t.id === action.taskId && t.repoId === repoId);
 }
 
 export type ChatActionAvailability =
   { kind: "applied" } | { kind: "available" } | { kind: "unavailable"; reason: string };
 
-/** Whether an action can be applied now, from the live task; checked again by the server. */
+/**
+ * Whether an action can be applied now, from the live task (or, for
+ * `update-repo-env`, the registered `repos`, undefined while loading);
+ * checked again by the server.
+ */
 export function actionAvailability(
   action: ChatAction,
   tasks: readonly Task[],
   repoId: string,
+  repos?: readonly Pick<Repo, "id">[],
 ): ChatActionAvailability {
   if (action.appliedAt !== null) return { kind: "applied" };
   if (action.kind === "create-task") return { kind: "available" };
+  if (action.kind === "update-repo-env") {
+    if (!repos) return { kind: "unavailable", reason: "Loading repositories…" };
+    return repos.some((r) => r.id === action.repoId)
+      ? { kind: "available" }
+      : { kind: "unavailable", reason: "This repository no longer exists" };
+  }
   const task = chatActionTask(action, tasks, repoId);
   if (!task) return { kind: "unavailable", reason: "This task no longer exists" };
   switch (action.kind) {
@@ -420,14 +433,21 @@ export function actionAvailability(
 export interface ChatActionSummary {
   /** What Apply does, e.g. "Request changes · planner". */
   label: string;
-  /** The proposed backlog title, the task's title, or the raw id when the task is gone. */
+  /** The proposed backlog title, the task's or repo's name, or the raw id when it is gone. */
   title: string;
-  /** The description or message, when the action has one. */
+  /** The description, message or variable changes, when the action has them. */
   detail?: string;
 }
 
-/** What an action's card says, naming the live task rather than its id. */
-export function chatActionSummary(action: ChatAction, task: Task | undefined): ChatActionSummary {
+/**
+ * What an action's card says, naming the live task (or, for `update-repo-env`,
+ * the live `repo`) rather than its id.
+ */
+export function chatActionSummary(
+  action: ChatAction,
+  task: Task | undefined,
+  repo?: Pick<Repo, "name">,
+): ChatActionSummary {
   switch (action.kind) {
     case "create-task":
       return { label: "New backlog task", title: action.title, detail: action.description };
@@ -454,6 +474,20 @@ export function chatActionSummary(action: ChatAction, task: Task | undefined): C
         title: task?.title ?? action.taskId,
         detail: action.message,
       };
+    case "update-repo-env": {
+      const byName = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+      const lines = [
+        ...[...(action.set ?? [])]
+          .sort((a, b) => byName(a.name, b.name))
+          .map((v) => `+${v.name}=${v.value}`),
+        ...[...(action.unset ?? [])].sort(byName).map((name) => `-${name}`),
+      ];
+      return {
+        label: `${CLI_NAMES[action.cli]} env · ${repo?.name ?? action.repoId}`,
+        title: repo?.name ?? action.repoId,
+        detail: lines.join("\n"),
+      };
+    }
   }
 }
 

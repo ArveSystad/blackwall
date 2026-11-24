@@ -49,6 +49,14 @@ export function remoteKey(remote: string | null): string | null {
   return `${parsed.host.toLowerCase()}/${parsed.path.toLowerCase()}`;
 }
 
+/**
+ * The remote's host, lower-cased, with `ssh.github.com` read as `github.com`.
+ * Null for local paths, empty and unparseable input.
+ */
+export function remoteHost(remote: string | null): string | null {
+  return parseRemote(remote)?.host.toLowerCase() ?? null;
+}
+
 /** A remote's `owner/repo` on its host. */
 export interface RemoteRepoSlug {
   host: string;

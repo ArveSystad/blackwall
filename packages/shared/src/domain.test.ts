@@ -23,6 +23,8 @@ import {
   agentCliFor,
   cliCheckInputSchema,
   cliEnvFor,
+  mergeCliEnv,
+  repoCliEnvChangeSchema,
   backlogCapFor,
   ciNeedsYou,
   effectiveTrust,
@@ -192,6 +194,60 @@ describe("cliCheckInputSchema", () => {
       env: {},
       prompt: false,
     });
+  });
+});
+
+describe("repoCliEnvChangeSchema", () => {
+  it("accepts an unset-only change and rejects an empty or extra-keyed one", () => {
+    expect(repoCliEnvChangeSchema.parse({ cli: "copilot", unset: ["A"] })).toEqual({
+      cli: "copilot",
+      unset: ["A"],
+    });
+    expect(repoCliEnvChangeSchema.safeParse({ cli: "copilot" }).success).toBe(false);
+    expect(
+      repoCliEnvChangeSchema.safeParse({ cli: "copilot", unset: ["A"], repoId: "r1" }).success,
+    ).toBe(false);
+  });
+});
+
+describe("mergeCliEnv", () => {
+  it("adds and overwrites the set variables", () => {
+    const cliEnv = { claude: { A: "1", B: "2" } };
+    expect(
+      mergeCliEnv(cliEnv, {
+        cli: "claude",
+        set: [
+          { name: "A", value: "9" },
+          { name: "C", value: "3" },
+        ],
+      }),
+    ).toEqual({ claude: { A: "9", B: "2", C: "3" } });
+  });
+
+  it("removes the unset variables", () => {
+    const cliEnv = { claude: { A: "1", B: "2" } };
+    expect(mergeCliEnv(cliEnv, { cli: "claude", unset: ["A"] })).toEqual({
+      claude: { B: "2" },
+    });
+  });
+
+  it("keeps the other CLIs' objects as they were", () => {
+    const cliEnv = { claude: { A: "1" }, copilot: { X: "1" } };
+    const next = mergeCliEnv(cliEnv, { cli: "claude", set: [{ name: "A", value: "2" }] });
+    expect(next.copilot).toBe(cliEnv.copilot);
+  });
+
+  it("drops the CLI when its last variable is unset", () => {
+    const cliEnv = { claude: { A: "1" }, copilot: { X: "1" } };
+    const next = mergeCliEnv(cliEnv, { cli: "claude", unset: ["A"] });
+    expect(next).not.toHaveProperty("claude");
+    expect(next).toEqual({ copilot: { X: "1" } });
+  });
+
+  it("leaves the CLI's variables equal when unsetting a missing name", () => {
+    const cliEnv = { claude: { A: "1" } };
+    const next = mergeCliEnv(cliEnv, { cli: "claude", unset: ["MISSING"] });
+    expect(next.claude).toEqual({ A: "1" });
   });
 });
 
@@ -1780,6 +1836,79 @@ describe("chat schemas", () => {
     const noId = structuredClone(state);
     delete (noId.messages[0]!.actions[0] as { id?: string }).id;
     expect(chatStateSchema.safeParse(noId).success).toBe(false);
+  });
+});
+
+describe("update-repo-env action", () => {
+  const base = { kind: "update-repo-env", repoId: "r1", cli: "claude" };
+  const parses = (action: unknown) => chatActionProposalSchema.safeParse(action).success;
+
+  it("accepts set, unset, and both together", () => {
+    expect(parses({ ...base, set: [{ name: "FOO", value: "1" }] })).toBe(true);
+    expect(parses({ ...base, unset: ["FOO"] })).toBe(true);
+    expect(parses({ ...base, set: [{ name: "FOO", value: "1" }], unset: ["BAR"] })).toBe(true);
+  });
+
+  it("rejects a change with neither set nor unset, or with both empty", () => {
+    expect(parses(base)).toBe(false);
+    expect(parses({ ...base, set: [], unset: [] })).toBe(false);
+  });
+
+  it("rejects bad variable names in set and unset", () => {
+    expect(parses({ ...base, set: [{ name: "1BAD", value: "x" }] })).toBe(false);
+    expect(parses({ ...base, unset: ["1BAD"] })).toBe(false);
+  });
+
+  it("rejects a value containing a NUL character", () => {
+    expect(parses({ ...base, set: [{ name: "FOO", value: "a\0b" }] })).toBe(false);
+  });
+
+  it("rejects a name set twice, or set and unset together", () => {
+    expect(
+      parses({
+        ...base,
+        set: [
+          { name: "FOO", value: "1" },
+          { name: "FOO", value: "2" },
+        ],
+      }),
+    ).toBe(false);
+    expect(parses({ ...base, set: [{ name: "FOO", value: "1" }], unset: ["FOO"] })).toBe(false);
+  });
+
+  it("rejects a missing repoId, an unknown cli, and extra keys", () => {
+    expect(parses({ ...base, repoId: undefined, unset: ["FOO"] })).toBe(false);
+    expect(parses({ ...base, cli: "vim", unset: ["FOO"] })).toBe(false);
+    expect(parses({ ...base, unset: ["FOO"], extra: true })).toBe(false);
+    expect(parses({ ...base, set: [{ name: "FOO", value: "1", extra: true }] })).toBe(false);
+  });
+});
+
+describe("chatReplyJsonSchema", () => {
+  function additionalPropertiesValues(node: unknown, found: unknown[] = []): unknown[] {
+    if (Array.isArray(node)) {
+      for (const item of node) additionalPropertiesValues(item, found);
+    } else if (node && typeof node === "object") {
+      for (const [key, value] of Object.entries(node)) {
+        if (key === "additionalProperties") found.push(value);
+        additionalPropertiesValues(value, found);
+      }
+    }
+    return found;
+  }
+
+  it("includes the update-repo-env action", () => {
+    expect(JSON.stringify(chatReplyJsonSchema())).toContain('"update-repo-env"');
+  });
+
+  it("has no propertyNames, which not every CLI's structured output accepts", () => {
+    expect(JSON.stringify(chatReplyJsonSchema())).not.toContain("propertyNames");
+  });
+
+  it("closes every object with additionalProperties: false", () => {
+    const values = additionalPropertiesValues(chatReplyJsonSchema());
+    expect(values.length).toBeGreaterThan(0);
+    expect(values.every((value) => value === false)).toBe(true);
   });
 });
 

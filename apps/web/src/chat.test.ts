@@ -281,6 +281,38 @@ describe("actionAvailability", () => {
     expect(check(answer(running.id))).toMatchObject({ kind: "unavailable" });
   });
 
+  it("checks an env change against the registered repos, and waits for them to load", () => {
+    const envAction = action({
+      kind: "update-repo-env",
+      repoId: "r1",
+      cli: "claude",
+      set: [{ name: "A", value: "1" }],
+      unset: ["B"],
+    });
+    expect(actionAvailability(envAction, tasks, "r1", [{ id: "r1" }])).toEqual({
+      kind: "available",
+    });
+    expect(actionAvailability(envAction, tasks, "r1", [])).toEqual({
+      kind: "unavailable",
+      reason: "This repository no longer exists",
+    });
+    expect(actionAvailability(envAction, tasks, "r1")).toEqual({
+      kind: "unavailable",
+      reason: "Loading repositories…",
+    });
+    expect(
+      actionAvailability(
+        action(
+          { kind: "update-repo-env", repoId: "r1", cli: "claude", unset: ["B"] },
+          "2026-10-14T10:00:00Z",
+        ),
+        tasks,
+        "r1",
+        [],
+      ),
+    ).toEqual({ kind: "applied" });
+  });
+
   it("resumes with guidance, except a task stopped at a gate", () => {
     const stoppedAtGate = makeTask({ repoId: "r1", status: "interrupted", gate: "plan-approval" });
     const guided = (taskId: string) => action({ kind: "resume-task", taskId, message: "Use v2" });
@@ -332,6 +364,42 @@ describe("chatActionSummary", () => {
     expect(
       chatActionSummary(action({ kind: "stop-task", taskId: "t-gone" }), undefined).title,
     ).toBe("t-gone");
+  });
+
+  it("names the CLI and repo of an env change and lists its variables sorted by name", () => {
+    const envAction = action({
+      kind: "update-repo-env",
+      repoId: "r1",
+      cli: "claude",
+      set: [
+        { name: "A", value: "1" },
+        { name: "C", value: "3" },
+      ],
+      unset: ["B"],
+    });
+    expect(chatActionSummary(envAction, undefined, { name: "blackwall" })).toEqual({
+      label: "Claude Code env · blackwall",
+      title: "blackwall",
+      detail: "+A=1\n+C=3\n-B",
+    });
+    expect(chatActionSummary(envAction, undefined)).toEqual({
+      label: "Claude Code env · r1",
+      title: "r1",
+      detail: "+A=1\n+C=3\n-B",
+    });
+    const unsorted = action({
+      kind: "update-repo-env",
+      repoId: "r1",
+      cli: "copilot",
+      set: [
+        { name: "Z", value: "last" },
+        { name: "M", value: "mid" },
+      ],
+      unset: ["Y", "B"],
+    });
+    expect(chatActionSummary(unsorted, undefined, { name: "app" }).detail).toBe(
+      "+M=mid\n+Z=last\n-B\n-Y",
+    );
   });
 
   it("shows the answer to a question and the guidance of a resume", () => {

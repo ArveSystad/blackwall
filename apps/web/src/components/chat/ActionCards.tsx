@@ -2,7 +2,12 @@ import type { ChatAction, ChatState, Task } from "@blackwall/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
-import { answerQuestion, createBacklogItem, markChatActionApplied } from "../../api";
+import {
+  answerQuestion,
+  createBacklogItem,
+  markChatActionApplied,
+  updateRepoCliEnv,
+} from "../../api";
 import {
   actionAvailability,
   chatActionSummary,
@@ -11,7 +16,7 @@ import {
   type ChatActionSummary,
 } from "../../chat";
 import { cn } from "../../lib/utils";
-import { queryKeys, taskGrillQuery } from "../../query";
+import { queryKeys, reposQuery, taskGrillQuery } from "../../query";
 import { errorMessage } from "../../settings-forms";
 import { GATE_REASONS } from "../../task-view";
 import { CheckIcon } from "../icons";
@@ -44,6 +49,9 @@ export function ActionCard({
   tasks: readonly Task[];
   needs: boolean;
 }) {
+  if (action.kind === "update-repo-env") {
+    return <RepoEnvCard action={action} repoId={repoId} chatTaskId={taskId} />;
+  }
   const task = chatActionTask(action, tasks, repoId);
   const availability = actionAvailability(action, tasks, repoId);
   const summary = chatActionSummary(action, task);
@@ -84,7 +92,7 @@ export function ActionCard({
   );
 }
 
-type TaskChatAction = Exclude<ChatAction, { kind: "create-task" }>;
+type TaskChatAction = Exclude<ChatAction, { kind: "create-task" | "update-repo-env" }>;
 
 function TaskActionCard({
   action,
@@ -260,6 +268,73 @@ function CreateTaskCard({
             </button>
           )}
         </div>
+      }
+      availability={availability}
+      apply={{ variant: "default", pending, error, run }}
+      repoId={repoId}
+      chatTaskId={chatTaskId}
+      actionId={action.id}
+    />
+  );
+}
+
+/** Sets and unsets some of a registered repo's variables for one CLI; the server merges them. */
+function RepoEnvCard({
+  action,
+  repoId,
+  chatTaskId,
+}: {
+  action: Extract<ChatAction, { kind: "update-repo-env" }>;
+  /** The repo whose conversation holds the action, not necessarily the one it changes. */
+  repoId: string;
+  chatTaskId: string | undefined;
+}) {
+  const queryClient = useQueryClient();
+  const repos = useQuery(reposQuery);
+  const target = repos.data?.find((r) => r.id === action.repoId);
+  const availability = actionAvailability(action, [], repoId, repos.data);
+  const summary = chatActionSummary(action, undefined, target);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run(): Promise<boolean> {
+    setPending(true);
+    setError(null);
+    try {
+      await updateRepoCliEnv(action.repoId, {
+        cli: action.cli,
+        ...(action.set ? { set: action.set } : {}),
+        ...(action.unset ? { unset: action.unset } : {}),
+      });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.repos });
+      return true;
+    } catch (cause) {
+      setError(errorMessage(cause));
+      return false;
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <CardShell
+      summary={summary}
+      title={
+        <span
+          className={cn(
+            "min-w-0 font-semibold break-words",
+            target ? "text-foreground-strong" : "mono text-muted-foreground",
+          )}
+        >
+          {summary.title}
+        </span>
+      }
+      detail={
+        summary.detail && (
+          <p className="mono m-0 text-meta break-words whitespace-pre-wrap text-foreground">
+            {summary.detail}
+          </p>
+        )
       }
       availability={availability}
       apply={{ variant: "default", pending, error, run }}

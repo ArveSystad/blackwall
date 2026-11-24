@@ -2,6 +2,7 @@ import type { RepoService } from "@blackwall/core";
 import {
   cliCheckInputSchema,
   reorderReposInputSchema,
+  repoCliEnvChangeSchema,
   repoCommitInputSchema,
   repoInputSchema,
   repoRenameInputSchema,
@@ -78,6 +79,16 @@ export function repoRoutes(
     repos.delete(id);
     onDeleted(id);
     return c.body(null, 204);
+  });
+
+  /**
+   * Sets and unsets some of the repo's variables for one CLI, merged into the
+   * stored ones so other names and CLIs stay as they are (the chat's `update-repo-env`).
+   */
+  routes.post("/:id/cli-env", async (c) => {
+    const input = repoCliEnvChangeSchema.safeParse(await readJson(c));
+    if (!input.success) return badRequest(c, input.error.issues);
+    return c.json<Repo>(repos.patchCliEnv(c.req.param("id"), input.data));
   });
 
   if (checkCli) {

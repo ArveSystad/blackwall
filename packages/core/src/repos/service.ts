@@ -3,7 +3,10 @@ import { realpath, rename as renameFolder, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   DEFAULT_BRANCH,
+  mergeCliEnv,
   remoteRepoSlug,
+  repoCliEnvChangeSchema,
+  type RepoCliEnvChange,
   renamedRemoteUrl,
   renamedRepoPath,
   repoRenameInputSchema,
@@ -566,6 +569,17 @@ export function createRepoService({
         ...(trustProjectMcp === undefined ? {} : { trustProjectMcp }),
         ...(trustProjectHooks === undefined ? {} : { trustProjectHooks }),
       });
+    },
+
+    /**
+     * Sets and unsets some of the repo's variables for one CLI, read from and
+     * merged into what is stored now, so other names and CLIs stay as they are.
+     */
+    patchCliEnv(id: string, change: RepoCliEnvChange): Repo {
+      const repo = existing(id);
+      const parsed = repoCliEnvChangeSchema.safeParse(change);
+      if (!parsed.success) throw invalid(parsed.error);
+      return repos.update(id, { cliEnv: mergeCliEnv(repo.cliEnv, parsed.data) });
     },
 
     /** Sets the manual order; `ids` must list every registered repo exactly once. */

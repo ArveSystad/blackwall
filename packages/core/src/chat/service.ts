@@ -5,6 +5,7 @@ import {
   chatReplyJsonSchema,
   chatReplySchema,
   cliEnvFor,
+  remoteHost,
   type AgentCli,
   type ChatAction,
   type ChatActionProposal,
@@ -21,6 +22,7 @@ import {
   chatSystemPrompt,
   type ChatFocus,
   type ChatStateQuestion,
+  type ChatStateRepo,
 } from "../agents/prompts.js";
 import type { Repositories } from "../db/repositories.js";
 import { TaskNotFoundError, TaskStateError } from "../pipeline/engine.js";
@@ -51,7 +53,8 @@ export class ChatMessageNotFoundError extends Error {
 
 export interface ChatServiceOptions {
   adapters: Partial<Record<AgentCli, AgentAdapter>>;
-  repos: Pick<Repositories["repos"], "get">;
+  /** Registered repos; the repo chat lists them all, with env variable names but no values. */
+  repos: Pick<Repositories["repos"], "get" | "list">;
   tasks: Pick<Repositories["tasks"], "list" | "get">;
   /** Grill questions; the open ones of tasks at the `questions` gate reach the prompt. */
   questions: Pick<Repositories["grillQuestions"], "listByTask">;
@@ -115,6 +118,21 @@ export function activityFor(name: string, input: unknown): string {
     return `${name} · ${short}`;
   }
   return name;
+}
+
+/** A repo as the repo chat's state block lists it: env variable names only, never values. */
+function stateRepo(repo: Repo): ChatStateRepo {
+  const envNames: ChatStateRepo["envNames"] = {};
+  for (const [cli, vars] of Object.entries(repo.cliEnv) as [AgentCli, Record<string, string>][]) {
+    envNames[cli] = Object.keys(vars).sort();
+  }
+  return {
+    id: repo.id,
+    name: repo.name,
+    host: remoteHost(repo.remoteUrl),
+    defaultCli: repo.defaultCli,
+    envNames,
+  };
 }
 
 function message(role: ChatMessage["role"], text: string, actions: ChatAction[] = []): ChatMessage {
@@ -289,6 +307,9 @@ export function createChatService({
       const open = Object.fromEntries(repoTasks.map((t) => [t.id, openQuestions(t)]));
       // A task's conversation focuses that task, archived or not; the repo's has no focus.
       const focusTask = entry.state.taskId === null ? undefined : tasks.get(entry.state.taskId);
+      // Only the repo's own conversation acts on registered repos. Decided by the
+      // conversation, not by `focusTask`: a deleted task's conversation is still a task chat.
+      const repoChat = entry.state.taskId === null;
       // The focused task's worktree, when it is still on disk, so the agent can read it.
       const worktreePath =
         focusTask?.worktreePath && existsSync(focusTask.worktreePath)
@@ -316,6 +337,7 @@ export function createChatService({
         questions: open,
         ...(focus ? { focus } : {}),
         memories: memories.relevant(repo.id, [text, focusTask?.title].filter(Boolean).join(" ")),
+        ...(repoChat ? { repos: repos.list().map(stateRepo), currentRepoId: repo.id } : {}),
         text,
       };
       // The user and assistant messages before the one being answered.
@@ -335,7 +357,7 @@ export function createChatService({
           cwd,
           // A resumed session already holds the conversation.
           prompt: chatStatePrompt(resumeSessionId ? state : { ...state, history }),
-          systemPrompt: chatSystemPrompt(refs),
+          systemPrompt: chatSystemPrompt(refs, { repoActions: repoChat }),
           permissions: permissionsFor(
             cli,
             "read-only",
@@ -408,7 +430,10 @@ export function createChatService({
         ? message(
             "assistant",
             parsed.data.reply,
-            parsed.data.actions.map((a) => ({ ...a, id: randomUUID(), appliedAt: null })),
+            parsed.data.actions
+              // A task's chat is never offered actions on repos; drop any it proposes anyway.
+              .filter((a) => repoChat || a.kind !== "update-repo-env")
+              .map((a) => ({ ...a, id: randomUUID(), appliedAt: null })),
           )
         : message("assistant", result.text);
       dropDraft();

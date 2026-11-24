@@ -151,6 +151,15 @@ describe("chat routes", () => {
       400,
     );
     expect((await post(path)).status).toBe(400);
+    const env = {
+      kind: "update-repo-env",
+      repoId: "r1",
+      cli: "claude",
+      set: [{ name: "FOO", value: "bar" }],
+    };
+    const envRes = await post(path, env);
+    expect(envRes.status).toBe(200);
+    expect(chat.addAction).toHaveBeenLastCalledWith("r1", "m1", env, undefined);
     expect((await post(path, { ...valid, kind: "delete-repo" })).status).toBe(400);
     expect((await post("r1/chat/messages/zz/actions", valid)).status).toBe(404);
     expect((await post("nope/chat/messages/m1/actions", valid)).status).toBe(404);

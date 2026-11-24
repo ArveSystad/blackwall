@@ -219,6 +219,68 @@ describe("repo routes", () => {
     expect(bad.status).toBe(400);
   });
 
+  it("merges a CLI's variable changes and refuses invalid ones", async () => {
+    const add = await request("/api/repos", { method: "POST", body: { path: gitRepo("app") } });
+    const repo = repoSchema.parse(await add.json());
+    await request(`/api/repos/${repo.id}`, {
+      method: "PATCH",
+      body: { cliEnv: { claude: { KEEP: "1", OLD: "x" }, copilot: { C: "2" } } },
+    });
+
+    const patch = await request(`/api/repos/${repo.id}/cli-env`, {
+      method: "POST",
+      body: {
+        cli: "claude",
+        set: [
+          { name: "NEW", value: "3" },
+          { name: "OLD", value: "y" },
+        ],
+        unset: ["KEEP"],
+      },
+    });
+    expect(patch.status).toBe(200);
+    expect(repoSchema.parse(await patch.json()).cliEnv).toEqual({
+      claude: { OLD: "y", NEW: "3" },
+      copilot: { C: "2" },
+    });
+    const get = await request(`/api/repos/${repo.id}`);
+    expect(repoSchema.parse(await get.json()).cliEnv).toEqual({
+      claude: { OLD: "y", NEW: "3" },
+      copilot: { C: "2" },
+    });
+
+    const empty = await request(`/api/repos/${repo.id}/cli-env`, {
+      method: "POST",
+      body: { cli: "claude" },
+    });
+    expect(empty.status).toBe(400);
+    const badName = await request(`/api/repos/${repo.id}/cli-env`, {
+      method: "POST",
+      body: { cli: "claude", set: [{ name: "1X", value: "x" }] },
+    });
+    expect(badName.status).toBe(400);
+    const duplicate = await request(`/api/repos/${repo.id}/cli-env`, {
+      method: "POST",
+      body: {
+        cli: "claude",
+        set: [
+          { name: "A", value: "1" },
+          { name: "A", value: "2" },
+        ],
+      },
+    });
+    expect(duplicate.status).toBe(400);
+    const unknown = await request("/api/repos/nope/cli-env", {
+      method: "POST",
+      body: { cli: "claude", set: [{ name: "A", value: "1" }] },
+    });
+    expect(unknown.status).toBe(404);
+    expect(repoSchema.parse(await (await request(`/api/repos/${repo.id}`)).json()).cliEnv).toEqual({
+      claude: { OLD: "y", NEW: "3" },
+      copilot: { C: "2" },
+    });
+  });
+
   it("checks a CLI with the body's environment in the repo's folder", async () => {
     const path = gitRepo("app");
     const add = await request("/api/repos", { method: "POST", body: { path } });

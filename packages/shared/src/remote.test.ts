@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   githubRepoUrl,
+  remoteHost,
   remoteKey,
   remoteRepoSlug,
   renamedRemoteUrl,
@@ -47,6 +48,20 @@ describe("remoteKey", () => {
     expect(remoteKey("file:///srv/git/app.git")).toBeNull();
     expect(remoteKey("not a remote")).toBeNull();
     expect(remoteKey("https://")).toBeNull();
+  });
+});
+
+describe("remoteHost", () => {
+  it("returns the lower-cased host, with ssh.github.com read as github.com", () => {
+    expect(remoteHost("https://GitHub.com/acme/app.git")).toBe("github.com");
+    expect(remoteHost("git@jbf.ghe.com:acme/app.git")).toBe("jbf.ghe.com");
+    expect(remoteHost("ssh://git@ssh.github.com:443/acme/app.git")).toBe("github.com");
+  });
+
+  it("is null for local paths and missing remotes", () => {
+    expect(remoteHost("C:\\code\\app")).toBeNull();
+    expect(remoteHost("/srv/app")).toBeNull();
+    expect(remoteHost(null)).toBeNull();
   });
 });
 

@@ -128,6 +128,7 @@ import {
   type RepoMemories,
   type ResolveConnectionInput,
   type Repo,
+  type RepoCliEnvChange,
   type RepoInput,
   type RepoRenameResult,
   type RepoScanInput,
@@ -603,6 +604,14 @@ export function checkRepoCli(id: string, input: CliCheckInput): Promise<CliCheck
     method: "POST",
     body: input,
   });
+}
+
+/**
+ * Sets and unsets some of the repo's variables for one CLI; the server merges
+ * them into the stored ones, so other names and CLIs stay as they are.
+ */
+export function updateRepoCliEnv(id: string, change: RepoCliEnvChange): Promise<Repo> {
+  return request(`${at("/api/repos", id)}/cli-env`, repoSchema, { method: "POST", body: change });
 }
 
 /** Sets the manual order; `ids` must list every repo once. */

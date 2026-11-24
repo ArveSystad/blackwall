@@ -174,7 +174,7 @@ describe("missingPlanSections", () => {
 
 describe("chat prompts", () => {
   it("gives the chat the read-only rules and every action kind", () => {
-    const prompt = chatSystemPrompt();
+    const prompt = chatSystemPrompt([], { repoActions: true });
     expect(prompt).toContain("You are read-only.");
     for (const kind of [
       "create-task",
@@ -182,9 +182,45 @@ describe("chat prompts", () => {
       "answer-question",
       "stop-task",
       "resume-task",
+      "update-repo-env",
     ]) {
       expect(prompt).toContain(`\`${kind}\``);
     }
+  });
+
+  it("offers actions on repos only with repoActions, and takes repo ids from the state block", () => {
+    const task = chatSystemPrompt();
+    expect(task).not.toContain("update-repo-env");
+    expect(task).not.toContain("Repositories");
+    expect(task).not.toContain("repo ids");
+
+    const repo = chatSystemPrompt([], { repoActions: true });
+    expect(repo).toContain("its `Repositories` section is the only source of repo ids");
+    expect(repo).toContain("Use only task, question and repo ids from the state block");
+    expect(repo).toContain("never values");
+  });
+
+  it("lists registered repos with env names, marking this repo", () => {
+    const base = { tasks: [], backlog: [], text: "Hi" };
+    expect(chatStatePrompt(base)).not.toContain("### Repositories");
+    const prompt = chatStatePrompt({
+      ...base,
+      currentRepoId: "r1",
+      repos: [
+        {
+          id: "r1",
+          name: "blackwall",
+          host: "github.com",
+          defaultCli: "claude",
+          envNames: { claude: ["BAR", "FOO"], copilot: [] },
+        },
+        { id: "r2", name: "local", host: null, defaultCli: "copilot", envNames: {} },
+      ],
+    });
+    expect(prompt).toContain(
+      "### Repositories\n\n- `r1` blackwall (this repo) · host github.com · default cli claude · env claude: BAR, FOO; copilot: (none); opencode: (none)\n- `r2` local · host none · default cli copilot · env claude: (none); copilot: (none); opencode: (none)",
+    );
+    expect(prompt.indexOf("### Backlog")).toBeLessThan(prompt.indexOf("### Repositories"));
   });
 
   it("lets the chat draw svg illustrations in the app's palette", () => {

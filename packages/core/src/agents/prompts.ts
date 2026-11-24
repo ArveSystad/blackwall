@@ -1,4 +1,5 @@
 import {
+  AGENT_CLIS,
   MAX_TITLE_CHARS,
   SEVERITIES,
   type Agent,
@@ -230,8 +231,13 @@ export function subagentGuide(cli: AgentCli, profile: PermissionProfile): string
 /**
  * The system prompt of the repo chat: the role, the read-only workspace rules
  * and the actions contract. The agent proposes actions; the user applies them.
+ * `repoActions` (the repo chat only, never a task's chat) adds the actions on
+ * registered repos and the rule that repo ids come from the state block.
  */
-export function chatSystemPrompt(referenceRepos: readonly ReferenceRepoPrompt[] = []): string {
+export function chatSystemPrompt(
+  referenceRepos: readonly ReferenceRepoPrompt[] = [],
+  { repoActions = false }: { repoActions?: boolean } = {},
+): string {
   const refs = referenceReposSection(referenceRepos);
   return [
     "You are Blackwall's chat assistant for one repository. Answer questions about its code, its backlog and its tasks.",
@@ -250,7 +256,9 @@ export function chatSystemPrompt(referenceRepos: readonly ReferenceRepoPrompt[] 
     "",
     "## Actions contract",
     "",
-    "Each message starts with a fresh `Blackwall state` block listing the repo's tasks, their open questions and the backlog items. It is the only source of task and question ids.",
+    repoActions
+      ? "Each message starts with a fresh `Blackwall state` block listing the repo's tasks, their open questions, the backlog items and every registered repository. It is the only source of task and question ids, and its `Repositories` section is the only source of repo ids."
+      : "Each message starts with a fresh `Blackwall state` block listing the repo's tasks, their open questions and the backlog items. It is the only source of task and question ids.",
     "Reply with one JSON object: `reply` is your markdown answer, `actions` lists actions you propose. Nothing happens until the user applies one.",
     "",
     `- \`create-task\` \`{ title, description }\`: add a task to the repo's backlog. A title of at most ${MAX_TITLE_CHARS} characters; a description an engineer could plan from.`,
@@ -258,8 +266,13 @@ export function chatSystemPrompt(referenceRepos: readonly ReferenceRepoPrompt[] 
     "- `answer-question` `{ taskId, questionId, answer }`: answer one open question of a task at the `questions` gate. Answering the last one continues the task.",
     "- `stop-task` `{ taskId }`: stop a `queued`, `running` or `needs-you` task.",
     "- `resume-task` `{ taskId, message? }`: resume an `interrupted` or `failed` task. `message` is guidance for the agent steps that failed or stopped. Leave it out for a task stopped at a gate (interrupted with a gate): resume puts it back at its gate, so message it there instead.",
+    ...(repoActions
+      ? [
+          "- `update-repo-env` `{ repoId, cli, set?: [{ name, value }], unset?: [name] }`: change the environment variables one agent CLI runs with in any registered repo. `set` adds or overwrites a variable, `unset` removes one; other variables stay as they are. Propose one action per repo and CLI, with all of that repo's changes for the CLI in it, and never list a name twice. Names must match `[A-Za-z_][A-Za-z0-9_]*` and are case-sensitive. The state block lists only variable names, never values, so use only values the user gave you. Pick repos by the host or name the `Repositories` section lists.",
+        ]
+      : []),
     "",
-    "Use only task and question ids from the state block and never invent tasks. Propose actions only when the user asks for them or they clearly help;",
+    `Use only ${repoActions ? "task, question and repo" : "task and question"} ids from the state block and never invent tasks. Propose actions only when the user asks for them or they clearly help;`,
     "otherwise reply with an empty `actions` list.",
     "",
     "## Focused task",
@@ -290,6 +303,33 @@ export interface ChatFocus {
 
 /** A backlog item as the chat's state block lists it. */
 export type ChatStateBacklogItem = Pick<BacklogItem, "id" | "title" | "status" | "freeText">;
+
+/**
+ * A registered repo as the repo chat's state block lists it: the names of its
+ * CLI environment variables, never their values, which may be secrets.
+ */
+export interface ChatStateRepo {
+  id: string;
+  name: string;
+  /** The origin's host, lower-cased; null without a remote. */
+  host: string | null;
+  defaultCli: AgentCli;
+  /** Variable names per CLI, sorted; a missing CLI sets none. */
+  envNames: Partial<Record<AgentCli, readonly string[]>>;
+}
+
+function repoLine(repo: ChatStateRepo, currentRepoId: string | undefined): string {
+  const env = AGENT_CLIS.map((cli) => {
+    const names = repo.envNames[cli] ?? [];
+    return `${cli}: ${names.length > 0 ? names.join(", ") : "(none)"}`;
+  }).join("; ");
+  return [
+    `- \`${repo.id}\` ${repo.name}${repo.id === currentRepoId ? " (this repo)" : ""}`,
+    `host ${repo.host ?? "none"}`,
+    `default cli ${repo.defaultCli}`,
+    `env ${env}`,
+  ].join(" · ");
+}
 
 /** Longest backlog description excerpt in the chat's state block. */
 const STATE_EXCERPT_CHARS = 200;
@@ -387,8 +427,9 @@ function historyEntry({ role, text }: ChatHistoryEntry): string {
  * unarchived tasks (with the error of failed and interrupted ones, and the
  * open questions per task in `questions`) and backlog items, then the user's
  * text. A `focus` task adds a `Focused task` section with its error, plan and
- * open questions in full. Relevant `memories` about the repo follow the
- * backlog. A turn that starts a new CLI session also gets the
+ * open questions in full. `repos` (the repo chat only) adds a `Repositories`
+ * section after the backlog, marking `currentRepoId` as this repo and listing
+ * env variable names only. Relevant `memories` about the repo follow. A turn that starts a new CLI session also gets the
  * earlier conversation, each message truncated to
  * {@link CHAT_HISTORY_ENTRY_CHARS}.
  */
@@ -400,6 +441,8 @@ export function chatStatePrompt({
   focus,
   history = [],
   memories = [],
+  repos,
+  currentRepoId,
 }: {
   tasks: readonly ChatStateTask[];
   backlog: readonly ChatStateBacklogItem[];
@@ -410,6 +453,10 @@ export function chatStatePrompt({
   history?: readonly ChatHistoryEntry[];
   /** What blackwall remembers about the repo that bears on this message. */
   memories?: readonly PromptMemory[];
+  /** Every registered repo, for the repo chat's actions on repos. */
+  repos?: readonly ChatStateRepo[];
+  /** The repo this chat belongs to, marked in `repos`. */
+  currentRepoId?: string;
 }): string {
   const remembered = memoriesPromptSection(memories);
   const taskLines = tasks.flatMap((t) => [
@@ -444,6 +491,14 @@ export function chatStatePrompt({
     "",
     ...(backlogLines.length > 0 ? backlogLines : ["(none)"]),
     "",
+    ...(repos
+      ? [
+          "### Repositories",
+          "",
+          ...(repos.length > 0 ? repos.map((r) => repoLine(r, currentRepoId)) : ["(none)"]),
+          "",
+        ]
+      : []),
     ...(remembered ? [remembered, ""] : []),
     ...(history.length > 0
       ? ["## Earlier conversation", "", ...history.flatMap((h) => [historyEntry(h), ""])]

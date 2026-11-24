@@ -305,6 +305,38 @@ describe("repo service", () => {
     expect(() => service.delete(repo.id)).toThrow(RepoNotFoundError);
   });
 
+  it("patches one CLI's variables and keeps the others", async () => {
+    const path = gitRepo(["app"]);
+    const repo = await service.add({ path, name: "App" });
+    service.update(repo.id, {
+      cliEnv: { claude: { KEEP: "1", OLD: "x" }, copilot: { C: "2" } },
+    });
+
+    const patched = service.patchCliEnv(repo.id, {
+      cli: "claude",
+      set: [
+        { name: "NEW", value: "3" },
+        { name: "OLD", value: "y" },
+      ],
+      unset: ["KEEP"],
+    });
+    expect(patched.cliEnv).toEqual({ claude: { OLD: "y", NEW: "3" }, copilot: { C: "2" } });
+    expect(patched).toMatchObject({ id: repo.id, path, name: "App" });
+    expect(service.get(repo.id)).toEqual(patched);
+  });
+
+  it("refuses to patch an unknown repo", () => {
+    expect(() =>
+      service.patchCliEnv("missing", { cli: "claude", set: [{ name: "A", value: "1" }] }),
+    ).toThrow(RepoNotFoundError);
+  });
+
+  it("refuses an empty patch", async () => {
+    const repo = await service.add({ path: gitRepo(["app"]) });
+    expect(() => service.patchCliEnv(repo.id, { cli: "claude" })).toThrow(InvalidRepoError);
+    expect(service.get(repo.id).cliEnv).toEqual({});
+  });
+
   it("fills missing remotes from existing folders and skips missing ones", async () => {
     const connection = r.connections.create({
       name: "github.com",

@@ -599,15 +599,72 @@ export const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * typed (empty allowed); only a NUL byte is refused, which no process
  * environment can carry.
  */
-export const cliEnvVarsSchema = z.record(
-  z.string().regex(ENV_NAME_PATTERN, "Expected a variable name like MY_VAR"),
-  z.string().refine((v) => !v.includes("\0"), "Values can't contain a NUL character"),
-);
+const envNameSchema = z.string().regex(ENV_NAME_PATTERN, "Expected a variable name like MY_VAR");
+const envValueSchema = z
+  .string()
+  .refine((v) => !v.includes("\0"), "Values can't contain a NUL character");
+
+export const cliEnvVarsSchema = z.record(envNameSchema, envValueSchema);
 export type CliEnvVars = z.infer<typeof cliEnvVarsSchema>;
 
 /** Environment variables per agent CLI; a missing CLI sets none. */
 export const cliEnvSchema = z.partialRecord(agentCliSchema, cliEnvVarsSchema);
 export type CliEnv = z.infer<typeof cliEnvSchema>;
+
+/** One environment variable as a name and value, for shapes that avoid records. */
+export const cliEnvVarSchema = z.object({ name: envNameSchema, value: envValueSchema }).strict();
+export type CliEnvVar = z.infer<typeof cliEnvVarSchema>;
+
+/**
+ * The fields of a change to one CLI's variables: `set` adds or overwrites,
+ * `unset` removes. Arrays rather than records, so the chat's structured
+ * output schema stays within what every CLI accepts.
+ */
+const repoCliEnvChangeFields = {
+  cli: agentCliSchema,
+  set: z.array(cliEnvVarSchema).optional(),
+  unset: z.array(envNameSchema).optional(),
+};
+
+/** Refuses an empty change, a name listed twice, and a name both set and unset. */
+function refineCliEnvChange(
+  change: { set?: readonly CliEnvVar[] | undefined; unset?: readonly string[] | undefined },
+  ctx: z.RefinementCtx,
+): void {
+  const set = change.set ?? [];
+  const unset = change.unset ?? [];
+  if (set.length === 0 && unset.length === 0) {
+    ctx.addIssue({ code: "custom", message: "Set or unset at least one variable" });
+    return;
+  }
+  const setNames = new Set<string>();
+  for (const { name } of set) {
+    if (setNames.has(name)) {
+      ctx.addIssue({ code: "custom", path: ["set"], message: `${name} is set twice` });
+    }
+    setNames.add(name);
+  }
+  const unsetNames = new Set<string>();
+  for (const name of unset) {
+    if (unsetNames.has(name)) {
+      ctx.addIssue({ code: "custom", path: ["unset"], message: `${name} is unset twice` });
+    } else if (setNames.has(name)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["unset"],
+        message: `${name} is both set and unset`,
+      });
+    }
+    unsetNames.add(name);
+  }
+}
+
+/** Body for changing some of a repo's variables for one CLI; other names stay as they are. */
+export const repoCliEnvChangeSchema = z
+  .object(repoCliEnvChangeFields)
+  .strict()
+  .superRefine(refineCliEnvChange);
+export type RepoCliEnvChange = z.infer<typeof repoCliEnvChangeSchema>;
 
 export const repoSchema = z.object({
   id,
@@ -1211,6 +1268,24 @@ export function cliEnvFor(
 ): Record<string, string> | undefined {
   const env = repo.cliEnv[cli];
   return env && Object.keys(env).length > 0 ? env : undefined;
+}
+
+/**
+ * `cliEnv` with `change` applied to its CLI only: the `unset` names removed,
+ * then each `set` variable assigned. A CLI left without variables is dropped;
+ * the other CLIs keep their objects.
+ */
+export function mergeCliEnv(
+  cliEnv: CliEnv,
+  change: Pick<RepoCliEnvChange, "cli" | "set" | "unset">,
+): CliEnv {
+  const vars: Record<string, string> = { ...cliEnv[change.cli] };
+  for (const name of change.unset ?? []) delete vars[name];
+  for (const { name, value } of change.set ?? []) vars[name] = value;
+  const next: CliEnv = { ...cliEnv };
+  if (Object.keys(vars).length > 0) next[change.cli] = vars;
+  else delete next[change.cli];
+  return next;
 }
 
 /** Body for checking an agent CLI with a repo's (possibly unsaved) environment. */
@@ -2823,8 +2898,10 @@ export type MemoryBackfillStatus = z.infer<typeof memoryBackfillStatusSchema>;
  * it. `create-task` adds a free-text backlog item; `message-task` answers a
  * task waiting at a gate; `answer-question` answers one of a task's open grill
  * questions; `stop-task` and `resume-task` stop or resume a task, the latter
- * with optional guidance for the steps that failed or stopped. A plain union on `kind`, so its JSON Schema is an `anyOf`, which every CLI's
- * structured output accepts.
+ * with optional guidance for the steps that failed or stopped;
+ * `update-repo-env` sets or unsets some of any registered repo's variables
+ * for one CLI (offered only in the repo chat). A plain union on `kind`, so its
+ * JSON Schema is an `anyOf`, which every CLI's structured output accepts.
  */
 export const chatActionProposalSchema = z.union([
   z
@@ -2857,6 +2934,10 @@ export const chatActionProposalSchema = z.union([
       message: z.string().trim().min(1).optional(),
     })
     .strict(),
+  z
+    .object({ kind: z.literal("update-repo-env"), repoId: id, ...repoCliEnvChangeFields })
+    .strict()
+    .superRefine(refineCliEnvChange),
 ]);
 export type ChatActionProposal = z.infer<typeof chatActionProposalSchema>;
 export type ChatActionKind = ChatActionProposal["kind"];
