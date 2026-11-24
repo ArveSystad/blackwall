@@ -255,8 +255,9 @@ export function sameList(a: readonly string[], b: readonly string[]): boolean {
 /**
  * Environment variables typed as one `KEY=value` per line. Blank lines are
  * skipped; each line splits at its first `=`, the name trimmed and the value
- * kept exactly as typed. Lines without `=`, invalid names and names repeated
- * (ignoring case, as Windows does) are reported, by line number.
+ * kept exactly as typed. Lines without `=`, invalid names, names repeated
+ * (ignoring case, as Windows does) and values wrapped in matching quotes
+ * (which would reach the CLI as part of the value) are reported, by line number.
  */
 export function parseEnvLines(text: string): { env: Record<string, string>; errors: string[] } {
   const env: Record<string, string> = {};
@@ -280,8 +281,13 @@ export function parseEnvLines(text: string): { env: Record<string, string>; erro
       errors.push(`${at}: ${name} is set twice`);
       return;
     }
+    const value = line.slice(eq + 1);
+    if (value.length >= 2 && (value[0] === '"' || value[0] === "'") && value.endsWith(value[0])) {
+      errors.push(`${at}: remove the quotes; values are used as typed`);
+      return;
+    }
     seen.add(name.toUpperCase());
-    env[name] = line.slice(eq + 1);
+    env[name] = value;
   });
   return { env, errors };
 }

@@ -583,6 +583,22 @@ describe("createClaudeAdapter under Trusted", () => {
     expect((await run.result).text).toBe("from the repo");
   });
 
+  it("expands the repo's environment against the base environment", async () => {
+    const adapter = createClaudeAdapter({
+      command: process.execPath,
+      commandArgs: [fakeCli, "env", "FAKE_CLI_VAR"],
+      pluginRoot: root,
+      env: { ...process.env, BW_BASE: "/base" },
+    });
+    const run = adapter.run({
+      cwd: repo,
+      prompt: "x",
+      permissions: readOnly,
+      env: { FAKE_CLI_VAR: "${BW_BASE}/x" },
+    });
+    expect((await run.result).text).toBe("/base/x");
+  });
+
   it("lets the guard's allow list win over a repo BLACKWALL_GUARD_ALLOW", async () => {
     const adapter = createClaudeAdapter({
       command: process.execPath,

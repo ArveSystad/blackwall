@@ -103,7 +103,8 @@ export interface AgentRunOptions {
   streamPartial?: boolean;
   /**
    * Extra environment variables for this run: the repo's `cliEnv` for the CLI.
-   * Layered over the adapter's base environment (its `env` option, or
+   * Values are expanded (`~`, `$VAR`, `${VAR}`, `%VAR%` on win32) against the
+   * base environment by `withRepoEnv`, then layered over the adapter's base environment (its `env` option, or
    * `process.env`) and under every variable blackwall itself sets, so it can
    * never weaken the run's restrictions.
    */

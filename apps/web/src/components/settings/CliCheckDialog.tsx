@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { checkRepoCli } from "../../api";
 import { CLI_NAMES, errorMessage } from "../../settings-forms";
+import { WarnIcon } from "../icons";
 import { StatusBadge } from "../StatusBadge";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "../ui/dialog";
@@ -19,7 +20,8 @@ function seconds(ms: number): string {
 
 /**
  * Runs a CLI's check commands in the repo's folder with the environment as
- * typed (saved or not) and shows each step's output; Send test prompt also
+ * typed (saved or not, expanded on the server) and shows what the variables
+ * expanded to and each step's output; Send test prompt also
  * runs one short read-only request on that account.
  */
 export function CliCheckDialog({
@@ -70,7 +72,7 @@ export function CliCheckDialog({
                     <span className="mono text-foreground-strong">{name}</span>
                   </span>
                 ))}{" "}
-                as typed, saved or not.
+                saved or not, expanded from blackwall&apos;s environment.
               </>
             ) : (
               "no extra variables."
@@ -84,6 +86,37 @@ export function CliCheckDialog({
             </p>
           )}
           {check.state === "error" && <ErrorText>{check.detail}</ErrorText>}
+          {check.state === "ok" && check.result.env.length > 0 && (
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <ul className="m-0 flex list-none flex-col gap-1 p-0" aria-label="Expanded variables">
+                {check.result.env.map((v) => (
+                  <li key={v.name} className="mono min-w-0 text-meta break-all text-foreground">
+                    <span className="text-foreground-strong">{v.name}</span> ={" "}
+                    {v.value === null ? (
+                      <span className="text-muted-foreground">hidden</span>
+                    ) : (
+                      v.value
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {check.result.env.flatMap((v) =>
+                v.unknown.map((name) => (
+                  <p
+                    key={`${v.name}:${name}`}
+                    className="m-0 flex gap-2 text-meta text-sev-medium"
+                    role="note"
+                  >
+                    <WarnIcon className="mt-0.5" />
+                    <span>
+                      <span className="mono">${name}</span> is not set in blackwall&apos;s
+                      environment; it expands to empty.
+                    </span>
+                  </p>
+                )),
+              )}
+            </div>
+          )}
           {check.state === "ok" && (
             <ul className="m-0 flex list-none flex-col gap-3 p-0" aria-label="Check steps">
               {check.result.steps.map((step) => (

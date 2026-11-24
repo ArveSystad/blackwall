@@ -5,7 +5,7 @@ import { opencodeConfig, type OpencodeProject } from "../permissions.js";
 import { opencodeProject } from "../project-config.js";
 import { opencodeSubagentModel } from "../subagents.js";
 import { deferredRun, emittingRun } from "./deferred-run.js";
-import { mergeEnv, omitEnv } from "./env.js";
+import { mergeEnv, omitEnv, withRepoEnv } from "./env.js";
 import { isObject, num, str, type Json } from "./json.js";
 import { opencodeRateLimitFromText } from "./rate-limit.js";
 import { runAgentProcess, type LineParser } from "./run-process.js";
@@ -445,7 +445,7 @@ export function createOpencodeAdapter({
       if (permissions.cli !== "opencode") {
         throw new Error(`Permissions for ${permissions.cli} cannot run on OpenCode`);
       }
-      const base = repoEnv ? mergeEnv(env ?? process.env, repoEnv) : (env ?? process.env);
+      const base = repoEnv ? withRepoEnv(env ?? process.env, repoEnv) : (env ?? process.env);
       const { level } = permissions.trust;
       return deferredRun("OpenCode", async () => {
         const home =

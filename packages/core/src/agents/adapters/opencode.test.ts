@@ -703,6 +703,17 @@ describe("createOpencodeAdapter", () => {
     await run.result;
   });
 
+  it("expands the repo's environment against the base environment", async () => {
+    const run = fake("opencode-echo", [], { ...process.env, BW_BASE: "/base" }).run({
+      cwd,
+      prompt: "x",
+      permissions: readOnly,
+      env: { FAKE_CLI_VAR: "${BW_BASE}/x" },
+    });
+    expect(echoed(await collect(run)).FAKE_CLI_VAR).toBe("/base/x");
+    await run.result;
+  });
+
   it("keeps its own config variables over the repo's on a locked run", async () => {
     const run = fake("opencode-echo").run({
       cwd,

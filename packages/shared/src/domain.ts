@@ -1235,8 +1235,22 @@ export const cliCheckStepSchema = z.object({
 });
 export type CliCheckStep = z.infer<typeof cliCheckStepSchema>;
 
+/**
+ * A repo variable whose value changed when expanded, or that referred to an
+ * unset variable. `value` is null when it may hold a secret.
+ */
+export const cliCheckEnvVarSchema = z.object({
+  name: z.string(),
+  value: z.string().nullable(),
+  /** Referenced variables that are not set in blackwall's environment. */
+  unknown: z.array(z.string()),
+});
+export type CliCheckEnvVar = z.infer<typeof cliCheckEnvVarSchema>;
+
 export const cliCheckResultSchema = z.object({
   cli: agentCliSchema,
+  /** The repo's variables as expanded, where that differs from what was typed. */
+  env: z.array(cliCheckEnvVarSchema),
   steps: z.array(cliCheckStepSchema),
 });
 export type CliCheckResult = z.infer<typeof cliCheckResultSchema>;

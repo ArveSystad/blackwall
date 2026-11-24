@@ -935,9 +935,13 @@ export function RepoEditor({
           hint={
             <>
               Set for this repo&apos;s agents on each CLI, e.g.{" "}
-              <span className="mono">{"CLAUDE_CONFIG_DIR=C:\\Users\\me\\.claude-abcd"}</span> to use
-              another Claude account. Use Test to check which account it picks. Stored in plain
-              text; don&apos;t put secrets here.
+              <span className="mono">{"CLAUDE_CONFIG_DIR=~/.claude-abcd"}</span> to use another
+              Claude account. Use Test to check which account it picks. Stored in plain text;
+              don&apos;t put secrets here.
+              <br />
+              Values support <span className="mono">~</span>, <span className="mono">$VAR</span>,{" "}
+              <span className="mono">{"${VAR}"}</span> (and <span className="mono">%VAR%</span> on
+              Windows), expanded from blackwall&apos;s own environment.
             </>
           }
         >

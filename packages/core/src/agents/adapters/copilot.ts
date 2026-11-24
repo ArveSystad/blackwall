@@ -7,7 +7,7 @@ import { permissionArgs } from "../permissions.js";
 import { projectMcp } from "../project-config.js";
 import { copilotSubagentFile, SUBAGENT_NAME } from "../subagents.js";
 import { deferredRun } from "./deferred-run.js";
-import { mergeEnv } from "./env.js";
+import { mergeEnv, withRepoEnv } from "./env.js";
 import { isObject, str } from "./json.js";
 import { copilotRateLimitFromText } from "./rate-limit.js";
 import { runAgentProcess, type LineParser } from "./run-process.js";
@@ -357,7 +357,7 @@ export function createCopilotAdapter({
     }) {
       const runEnv =
         env || auth || repoEnv
-          ? copilotEnv(auth, repoEnv ? mergeEnv(env ?? process.env, repoEnv) : env)
+          ? copilotEnv(auth, repoEnv ? withRepoEnv(env ?? process.env, repoEnv) : env)
           : undefined;
       const sessionId = resumeSessionId ?? randomUUID();
       const start = (pluginDir?: string, mcpConfig?: string) => {

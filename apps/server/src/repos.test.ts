@@ -73,6 +73,7 @@ beforeEach(() => {
       checks.push({ input, cwd });
       return {
         cli: input.cli,
+        env: [],
         steps: [
           {
             label: "Version",

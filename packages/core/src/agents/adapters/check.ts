@@ -1,6 +1,6 @@
-import type { AgentCli, CliCheckResult, CliCheckStep } from "@blackwall/shared";
+import type { AgentCli, CliCheckEnvVar, CliCheckResult, CliCheckStep } from "@blackwall/shared";
 import { permissionsFor } from "../permissions.js";
-import { mergeEnv } from "./env.js";
+import { expandEnv, withRepoEnv } from "./env.js";
 import { killTree, spawnTree } from "./process.js";
 import { AgentRunError, type AgentAdapter } from "./types.js";
 
@@ -32,6 +32,30 @@ const PROMPT_TIMEOUT_MS = 120_000;
 export const CLI_CHECK_OUTPUT_LIMIT = 16 * 1024;
 const STDERR_TAIL = 2_000;
 
+/**
+ * Variable names whose values are never shown: a check result reaches the
+ * browser. Also covers blackwall's own `BLACKWALL_TOKEN_*` variables.
+ */
+const SECRET_NAME = /TOKEN|KEY|SECRET|PASSWORD/i;
+
+/**
+ * The repo variables whose expanded value differs from what was typed, or
+ * that refer to an unset variable; hidden when the name or any referenced
+ * name looks secret.
+ */
+function envReport(repoEnv: Record<string, string>): CliCheckEnvVar[] {
+  const expanded = expandEnv(repoEnv, process.env);
+  const report: CliCheckEnvVar[] = [];
+  for (const [name, raw] of Object.entries(repoEnv)) {
+    const value = expanded.env[name] ?? "";
+    const unknown = expanded.unknown[name] ?? [];
+    if (value === raw && unknown.length === 0) continue;
+    const secret = [name, ...(expanded.referenced[name] ?? [])].some((n) => SECRET_NAME.test(n));
+    report.push({ name, value: secret ? null : value, unknown });
+  }
+  return report;
+}
+
 const ANSI =
   // eslint-disable-next-line no-control-regex
   /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[@-Z\\-_]/g;
@@ -45,7 +69,10 @@ export function cleanCheckOutput(text: string): string {
 }
 
 export interface CheckCliOptions {
-  /** The repo's variables for the CLI, layered over `process.env`. */
+  /**
+   * The repo's variables for the CLI, expanded against `process.env` and
+   * layered over it.
+   */
   env?: Record<string, string>;
   /** Where the commands and the test prompt run: the repo's folder. */
   cwd?: string;
@@ -167,7 +194,7 @@ export async function checkCli(
     timeoutMs = COMMAND_TIMEOUT_MS,
     promptTimeoutMs = PROMPT_TIMEOUT_MS,
   } = options;
-  const env = repoEnv ? mergeEnv(process.env, repoEnv) : process.env;
+  const env = repoEnv ? withRepoEnv(process.env, repoEnv) : process.env;
   const steps: CliCheckStep[] = [];
   let started = true;
   for (const [index, { label, args }] of CLI_CHECK_COMMANDS[cli].entries()) {
@@ -205,5 +232,5 @@ export async function checkCli(
           },
     );
   }
-  return { cli, steps };
+  return { cli, env: envReport(repoEnv ?? {}), steps };
 }

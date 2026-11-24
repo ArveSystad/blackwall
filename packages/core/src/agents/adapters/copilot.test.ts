@@ -691,6 +691,24 @@ describe("createCopilotAdapter", () => {
     expect(report?.type === "message" && JSON.parse(report.text)).toMatchObject({ var: "repo" });
   });
 
+  it("expands the repo's environment against the base environment", async () => {
+    const adapter = createCopilotAdapter({
+      command: process.execPath,
+      commandArgs: [fakeCli, "copilot-echo"],
+      env: { ...process.env, BW_BASE: "/base" },
+    });
+    const events = await collect(
+      adapter.run({
+        cwd,
+        prompt: "x",
+        permissions: readOnly,
+        env: { FAKE_CLI_VAR: "${BW_BASE}/x" },
+      }),
+    );
+    const report = events.find((e) => e.type === "message" && e.text.includes('"var"'));
+    expect(report?.type === "message" && JSON.parse(report.text)).toMatchObject({ var: "/base/x" });
+  });
+
   it("returns structured output from the JSON block", async () => {
     const run = fake("replay", fixture("json-block.jsonl")).run({
       cwd,

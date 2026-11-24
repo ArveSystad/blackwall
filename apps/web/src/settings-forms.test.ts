@@ -254,6 +254,15 @@ describe("parseEnvLines", () => {
     expect(errors[2]).toContain("A-B");
     expect(errors[3]).toContain("Line 5");
   });
+
+  it("rejects values wrapped in matching quotes", () => {
+    const { env, errors } = parseEnvLines(`A="x"\nB='y'\nC="x'\nD="\nE=a"b"`);
+    expect(errors).toEqual([
+      "Line 1: remove the quotes; values are used as typed",
+      "Line 2: remove the quotes; values are used as typed",
+    ]);
+    expect(env).toEqual({ C: `"x'`, D: '"', E: 'a"b"' });
+  });
 });
 
 describe("formatEnvLines", () => {

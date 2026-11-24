@@ -1,4 +1,5 @@
 import { AGENT_CLIS } from "@blackwall/shared";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -104,6 +105,45 @@ describe("checkCli", () => {
       maxTurns: 1,
     });
     expect(call!.permissions.profile).toBe("read-only");
+  });
+
+  it("expands the repo's env for the commands", async () => {
+    const result = await checkCli("copilot", {
+      command: process.execPath,
+      commandArgs: [fakeCli, "echo-args"],
+      env: { FAKE_CLI_VAR: "$$lit" },
+    });
+    expect(JSON.parse(result.steps[0]!.output)).toMatchObject({ var: "$lit" });
+    expect(result.env).toEqual([{ name: "FAKE_CLI_VAR", value: "$lit", unknown: [] }]);
+  });
+
+  it("reports expanded values and unknown variables, hiding secret names", async () => {
+    const result = await checkCli("copilot", {
+      command: process.execPath,
+      commandArgs: [fakeCli, "echo-args"],
+      env: { CLAUDE_CONFIG_DIR: "~/c", API_TOKEN: "$NOPE_X", PLAIN: "as typed" },
+    });
+    expect(result.env).toEqual([
+      { name: "CLAUDE_CONFIG_DIR", value: `${homedir()}/c`, unknown: [] },
+      { name: "API_TOKEN", value: null, unknown: ["NOPE_X"] },
+    ]);
+  });
+
+  it("hides a value that pulls in a secret-looking variable", async () => {
+    const previous = process.env.BW_TEST_TOKEN;
+    process.env.BW_TEST_TOKEN = "s3cret";
+    try {
+      const result = await checkCli("copilot", {
+        command: process.execPath,
+        commandArgs: [fakeCli, "echo-args"],
+        env: { GH_CONFIG: "$BW_TEST_TOKEN" },
+      });
+      expect(result.env).toEqual([{ name: "GH_CONFIG", value: null, unknown: [] }]);
+      expect(JSON.stringify(result)).not.toContain("s3cret");
+    } finally {
+      if (previous === undefined) delete process.env.BW_TEST_TOKEN;
+      else process.env.BW_TEST_TOKEN = previous;
+    }
   });
 
   it("fails the test prompt with the CLI's error", async () => {
