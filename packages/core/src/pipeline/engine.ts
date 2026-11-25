@@ -33,7 +33,7 @@ import {
   type StepStatus,
   type Task,
 } from "@blackwall/shared";
-import type { AgentInvocation } from "../agents/service.js";
+import { resolveClis, type AgentInvocation } from "../agents/service.js";
 import { AgentRunError, type AgentAdapter, type AgentResult } from "../agents/adapters/types.js";
 import type { QuotaTracker } from "../agents/quota.js";
 import type { Repositories } from "../db/repositories.js";
@@ -72,6 +72,7 @@ import {
   type PullRequestFeedback,
 } from "./pr-feedback.js";
 import { createScheduler } from "./scheduler.js";
+import { childTasks, subtaskReport } from "./subtasks.js";
 import {
   SETUP_SKIPPED_EVENT,
   runSetupStep,
@@ -129,7 +130,10 @@ export type NewTaskValues = Pick<
   | "referenceRepoIds"
   | "triageMode"
   | "inRepo"
->;
+> & {
+  /** The task this one was split from; null (the default) for a task that is not a subtask. */
+  parentTaskId?: string | null;
+};
 
 /** Prompt sent when a step resumes its interrupted CLI session. */
 export const RESUME_PROMPT =
@@ -546,6 +550,8 @@ export function createPipelineEngine({
   function saveTask(id: string, patch: TaskPatch): Task {
     const task = r.tasks.update(id, patch);
     publish({ type: "task.upserted", payload: { task } });
+    // A subtask finishing may finish the task it was split from.
+    if (patch.status === "done" && task.parentTaskId !== null) settleParent(task.parentTaskId);
     return task;
   }
 
@@ -594,7 +600,12 @@ export function createPipelineEngine({
   }
 
   function position(task: Task, round: number): PipelinePosition {
-    return { kind: pipelineKind(task.mode), triageMode: task.triageMode, round };
+    return {
+      kind: pipelineKind(task.mode),
+      triageMode: task.triageMode,
+      round,
+      subtasks: task.subtasks.length,
+    };
   }
 
   /** Findings that gate the loop now, the user's overrides included. */
@@ -1277,6 +1288,100 @@ export function createPipelineEngine({
   }
 
   /**
+   * Runs {@link autopilot} on a task outside the current call (say, a parent
+   * reaching its finish gate while a subtask's delivery saves it), tracked
+   * like the autopilot after a drive.
+   */
+  function pilotLater(taskId: string): void {
+    const piloted = Promise.resolve()
+      .then(() => autopilot(taskId))
+      .catch((error: unknown) =>
+        log(`Task ${taskId}: autonomous mode failed: ${errorMessage(error)}`),
+      );
+    autopilots.add(piloted);
+    void piloted.finally(() => autopilots.delete(piloted));
+  }
+
+  /**
+   * Splits a task at plan approval: one free-text task per subtask whose repo
+   * is registered and on disk, created together with the parent moving to
+   * `waiting`, then queued. Refused when no subtask's repo is available.
+   */
+  function spawnSubtasks(parent: Task): Task {
+    const targets = parent.subtasks.flatMap((subtask) => {
+      const repo = r.repos.get(subtask.repoId);
+      return repo && pathExists(repo.path) ? [{ subtask, repo }] : [];
+    });
+    if (targets.length === 0) {
+      throw new TaskStateError(
+        "None of the subtasks' repos is available; request changes to the plan",
+      );
+    }
+    const { waiting, children } = r.transaction(() => {
+      const children = targets.map(({ subtask, repo }) => {
+        const cli = repo.defaultCli;
+        return r.tasks.create({
+          title: subtask.title,
+          origin: { kind: "free-text" },
+          mode: null,
+          repoId: repo.id,
+          freeText: subtask.description,
+          agents: parent.agents,
+          cli,
+          agentClis: resolveClis(parent.agents, parent.agentClis, cli),
+          referenceRepoIds: [...new Set([parent.repoId, ...parent.referenceRepoIds])].filter(
+            (id) => id !== repo.id,
+          ),
+          triageMode: parent.triageMode,
+          inRepo: false,
+          parentTaskId: parent.id,
+          status: "queued",
+        });
+      });
+      const waiting = r.tasks.update(parent.id, { status: "waiting", gate: null, error: null });
+      return { waiting, children };
+    });
+    publish({ type: "task.upserted", payload: { task: waiting } });
+    for (const child of children) {
+      publish({ type: "task.upserted", payload: { task: child } });
+      enqueueTask(child);
+    }
+    return waiting;
+  }
+
+  /**
+   * Moves a `waiting` parent on once its subtasks allow it. With every
+   * remaining subtask done, a GitHub or Jira issue's parent goes to its
+   * finish gate with a comment listing the subtasks' pull requests, and any
+   * other parent is done (no delivery, no follow-ups). With no subtasks left
+   * it goes back to plan approval. Anything else leaves it waiting.
+   */
+  function settleParent(parentId: string): void {
+    const parent = r.tasks.get(parentId);
+    if (!parent || parent.status !== "waiting") return;
+    const children = childTasks(r, parentId);
+    if (children.length === 0) {
+      saveTask(parentId, { status: "needs-you", gate: "plan-approval", error: null });
+      pilotLater(parentId);
+      return;
+    }
+    if (!children.every((child) => child.status === "done")) return;
+    if (parent.origin.kind === "github-issue" || parent.origin.kind === "jira-issue") {
+      saveTask(parentId, {
+        status: "needs-you",
+        gate: "finish",
+        error: null,
+        shortSummary: subtaskReport(r, children, openedPullRequestUrl),
+      });
+      pilotLater(parentId);
+      return;
+    }
+    const run = latestRun(parentId);
+    if (run && run.finishedAt === null) saveRun(run.id, "succeeded", new Date());
+    saveTask(parentId, { status: "done", gate: null, error: null });
+  }
+
+  /**
    * Posts the plan-approval comment the user confirmed on a GitHub issue
    * task's issue and logs it on the step the task waited on (the latest
    * Plan review step), without starting a new step or visit. Resolves with
@@ -1389,6 +1494,7 @@ export function createPipelineEngine({
       if (targets.includes("push-branch")) void ci?.watch(taskId);
       return done;
     }
+    if (next.kind === "split") return spawnSubtasks(task);
     if (next.kind !== "stage") throw new Error(`Unexpected transition ${next.kind}`);
     return queueStage(taskId, next, message);
   }
@@ -2191,8 +2297,11 @@ export function createPipelineEngine({
           await removeWorkspace(settled, options);
         }
       }
+      // Its subtasks carry on as standalone tasks.
+      for (const child of childTasks(r, taskId)) saveTask(child.id, { parentTaskId: null });
       r.tasks.delete(taskId);
       publish({ type: "task.removed", payload: { taskId } });
+      if (settled.parentTaskId !== null) settleParent(settled.parentTaskId);
     },
 
     /**
@@ -2226,6 +2335,10 @@ export function createPipelineEngine({
         ) {
           queueCleanup(task);
         }
+      }
+      // A subtask may have finished or gone while the server was down.
+      for (const task of r.tasks.list()) {
+        if (task.status === "waiting") settleParent(task.id);
       }
       pump();
     },

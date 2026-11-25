@@ -18,6 +18,7 @@ import {
   type RepoConflict,
   type RepoDecision,
   type RoleAgents,
+  type Subtask,
   type TaskOrigin,
 } from "@blackwall/shared";
 import Database from "better-sqlite3";
@@ -518,6 +519,14 @@ export function mapFollowUps(followUps: FollowUp[], repoMap: IdMap): FollowUp[] 
   );
 }
 
+/** Subtasks with their repos mapped to this machine; those whose repo was not imported are dropped. */
+export function mapSubtasks(subtasks: Subtask[], repoMap: IdMap): Subtask[] {
+  return subtasks.flatMap((s) => {
+    const repoId = repoMap.get(s.repoId);
+    return repoId === undefined ? [] : [{ ...s, repoId }];
+  });
+}
+
 /**
  * Merges the rows of `srcPath` (at the same migration level) into the live
  * database in one transaction, so services reading through the repositories
@@ -656,6 +665,8 @@ function mergeAttached(sqlite: Sqlite, decisions: DataImportDecisions): MergeRes
   const mappedRepo = (id: unknown) => repoMap.get(id as string);
 
   const insertTask = inserter("tasks");
+  /** Imported subtasks and their parents, linked once every task is in (a child may come first). */
+  const parentLinks: [string, unknown][] = [];
   for (const row of rows("tasks")) {
     const repoId = mappedRepo(row.repo_id);
     if (exists("tasks", row.id) || repoId === undefined) {
@@ -671,10 +682,18 @@ function mergeAttached(sqlite: Sqlite, decisions: DataImportDecisions): MergeRes
       agent_clis: JSON.stringify(mapAgentClis(parse(row.agent_clis), agentMap)),
       reference_repo_ids: JSON.stringify(mapRepoIds(parse(row.reference_repo_ids), repoMap)),
       follow_ups: JSON.stringify(mapFollowUps(parse(row.follow_ups), repoMap)),
+      parent_task_id: null,
+      subtasks: JSON.stringify(mapSubtasks(parse(row.subtasks), repoMap)),
       // No delivery runs here, as at startup.
       delivering: 0,
       ...(interrupted ? { status: "interrupted", error: IMPORT_INTERRUPTED_ERROR } : {}),
     });
+    if (row.parent_task_id !== null) parentLinks.push([row.id as string, row.parent_task_id]);
+  }
+  const setParent = sqlite.prepare("UPDATE main.tasks SET parent_task_id = ? WHERE id = ?");
+  for (const [id, parentId] of parentLinks) {
+    const parent = presentOrNull("tasks", parentId);
+    if (parent !== null) setParent.run(parent, id);
   }
 
   const insertBacklog = inserter("backlog_items");

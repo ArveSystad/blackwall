@@ -92,8 +92,12 @@ export interface MessageRoute {
  * mid-step, so there is nowhere to send it while the task runs. A Review PR
  * task takes one only at triage, where it sends the reviewers back over the PR.
  */
-export function messageRoute(task: Pick<Task, "status" | "gate" | "mode">): MessageRoute | null {
+export function messageRoute(
+  task: Pick<Task, "status" | "gate" | "mode"> & Partial<Pick<Task, "subtasks">>,
+): MessageRoute | null {
   if (task.status !== "needs-you") return null;
+  // A task split into subtasks has no fix round of its own at finish.
+  if (task.gate === "finish" && (task.subtasks?.length ?? 0) > 0) return null;
   if (task.mode === "review") {
     if (task.gate !== "triage") return null;
     return {

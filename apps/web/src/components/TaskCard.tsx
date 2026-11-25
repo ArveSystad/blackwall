@@ -11,11 +11,12 @@ import type { Crumble } from "../crumble";
 import { originKey, relativeTime, statusLabel } from "../inbox";
 import { cn } from "../lib/utils";
 import { cliEnvNames } from "../settings-forms";
+import type { SubtaskProgress } from "../subtasks";
 import { canArchive, CI_FAILED_REASON, GATE_REASONS } from "../task-view";
 import { AgentTile } from "./AgentTile";
 import { CiBadge } from "./CiBadge";
 import { DecryptGlyphs } from "./DecryptText";
-import { ArchiveIcon, TrashIcon, WarnIcon } from "./icons";
+import { ArchiveIcon, LinkIcon, TrashIcon, WarnIcon } from "./icons";
 import { ORIGIN_ICONS } from "./origins";
 import { StagePips } from "./StagePips";
 import { StatusBadge } from "./StatusBadge";
@@ -36,7 +37,8 @@ import { useDecrypt, useEncrypt } from "./use-decrypt";
  * A deleted row crumbles the same way, in red (`.bw-crumble-delete`).
  * A card whose task just changed status sweeps the new status colour once (`.bw-status-sweep`).
  * A card whose task just appeared slides in from the left (`animate-arrive`)
- * while its title decrypts.
+ * while its title decrypts. A subtask's card is inset behind a guide line and
+ * names its parent task; a parent's card counts its done subtasks.
  */
 export function TaskCard({
   task,
@@ -51,6 +53,8 @@ export function TaskCard({
   arriving = false,
   onArriveEnd,
   onArchive,
+  parentTitle,
+  subtasks,
 }: {
   task: Task;
   repoName?: string;
@@ -73,6 +77,10 @@ export function TaskCard({
   onArriveEnd?: (taskId: string) => void;
   /** Archives the task; the archive button shows only with it. */
   onArchive?: () => void;
+  /** A subtask's parent title; null when the parent is gone. Leave out for other tasks. */
+  parentTitle?: string | null | undefined;
+  /** How many of a parent's subtasks are done; leave out for other tasks. */
+  subtasks?: SubtaskProgress | undefined;
 }) {
   const OriginIcon = ORIGIN_ICONS[task.origin.kind];
   const ciFailed = ciNeedsYou(task);
@@ -82,10 +90,12 @@ export function TaskCard({
   const crumbleFrame = useEncrypt(task.title, crumbling, crumble?.delayMs ?? 0);
   // Gated on the frame, not on `arriving`, so the decrypt outlasts the slide.
   const arriveFrame = useDecrypt(task.title, arriving ? task.id : null);
+  const isSubtask = task.parentTaskId !== null;
   return (
     <div
       className={cn(
         "group relative isolate",
+        isSubtask && "ml-4",
         crumbling && "bw-crumble",
         crumbling && crumble.kind === "delete" && "bw-crumble-delete",
         // The utility would override .bw-crumble's animation.
@@ -102,6 +112,12 @@ export function TaskCard({
         }
       }}
     >
+      {isSubtask && (
+        <span
+          aria-hidden="true"
+          className="absolute top-0 bottom-0 -left-2 w-px bg-border-strong"
+        />
+      )}
       {/* The wash is translucent, so the open needs-you card glows from a halo sibling. */}
       {needsYou && (
         <span
@@ -167,12 +183,25 @@ export function TaskCard({
             {CI_FAILED_REASON}
           </span>
         )}
+        {isSubtask && (
+          <span className="mono flex min-w-0 items-center gap-1.5 text-label text-faint">
+            <LinkIcon size="sm" />
+            <span className="truncate">
+              {parentTitle ? `subtask of ${parentTitle}` : "subtask"}
+            </span>
+          </span>
+        )}
         {trust && <TrustBadge trust={trust} className="self-start" />}
         <span className="mt-px flex items-center gap-2">
           {repoName && (
             <span className="mono max-w-24 truncate text-label text-faint">{repoName}</span>
           )}
           <StagePips task={task} />
+          {subtasks && (
+            <span className="mono text-label text-faint">
+              Subtasks {subtasks.done}/{subtasks.total}
+            </span>
+          )}
           <span className="flex-1" />
           {clis.length > 0 && (
             <span className="inline-flex gap-[3px]">

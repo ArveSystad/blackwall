@@ -20,6 +20,7 @@ export const TRIAGE_MODES = ["intervene", "pause"] as const;
 export const TASK_STATUSES = [
   "queued",
   "running",
+  "waiting",
   "needs-you",
   "interrupted",
   "failed",
@@ -387,6 +388,42 @@ export function planListsFollowUps(plan: string | null): boolean {
     if (inSection && /^\s*(?:[-*+]|\d+[.)])\s+\S/.test(line)) return true;
   }
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// Subtasks
+// ---------------------------------------------------------------------------
+
+/** Most subtasks one plan may split into. */
+export const MAX_SUBTASKS = 10;
+
+/**
+ * One repo's part of a plan split across repos: started as its own task in
+ * that repo when the user approves the plan.
+ */
+export const subtaskSchema = z.object({
+  /** Registered repo id: the task's own repo or one of its reference repos. */
+  repoId: z.string().trim().min(1),
+  title: name.max(MAX_TITLE_CHARS),
+  /** That repo's part of the plan, with the contracts the parts share; the subtask's details. */
+  description: z.string().trim().min(1),
+});
+export type Subtask = z.infer<typeof subtaskSchema>;
+
+/** A subtask as the planner sends it; no length caps, so the CLI never rejects the reply for one. */
+export const subtaskWireSchema = z.object({
+  repoId: z.string(),
+  title: z.string(),
+  description: z.string(),
+});
+
+/** The planner's answer when it turns a plan's `### Subtasks` section into data. */
+export const subtasksOutputSchema = z.object({ subtasks: z.array(subtaskWireSchema) }).strict();
+export type SubtasksOutput = z.infer<typeof subtasksOutputSchema>;
+
+/** JSON Schema of the planner's subtasks answer. */
+export function subtasksOutputJsonSchema(): Record<string, unknown> {
+  return z.toJSONSchema(subtasksOutputSchema);
 }
 
 // ---------------------------------------------------------------------------
@@ -1697,6 +1734,16 @@ export const taskSchema = z
     squashMessage: z.string().nullable(),
     /** Follow-up tasks the summarizer proposed; offered at finish as `create-tasks`. */
     followUps: z.array(followUpSchema),
+    /**
+     * The task this one was split from at plan approval; null for a task that
+     * is not a subtask, or whose parent was deleted.
+     */
+    parentTaskId: id.nullable(),
+    /**
+     * The subtasks the planner split the plan into, one per repo; empty when
+     * the plan is not split. Approving the plan starts them and the task waits.
+     */
+    subtasks: z.array(subtaskSchema),
     /** Set when the user archives a done task; hidden from the Inbox and the backlog view's lists. */
     archivedAt: timestamp.nullable(),
     /** CI on the commit the task last pushed to a GitHub/GHE remote; null when not watched. */

@@ -239,6 +239,13 @@
       "when": 1795446004391,
       "tag": "0033_repo_cli_env",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1795596906907,
+      "tag": "0034_task_subtasks",
+      "breakpoints": true
     }
   ]
 }

@@ -577,6 +577,36 @@ describe("mergeDatabase: union", () => {
     expect(merged).toBe(first!.id);
   });
 
+  it("keeps a subtask's link to a parent exported after it, and the parent's subtasks", async () => {
+    const source = open("source");
+    const { repo } = await seed(source.r);
+    const child = source.r.tasks.create({
+      title: "Change app",
+      origin: { kind: "free-text" },
+      repoId: repo.id,
+    });
+    const subtasks = [
+      { repoId: repo.id, title: "Change app", description: "Do it" },
+      { repoId: "not-exported", title: "Change lib", description: "Do it too" },
+    ];
+    const parent = source.r.tasks.create({
+      title: "Cross-repo",
+      origin: { kind: "free-text" },
+      repoId: repo.id,
+      status: "waiting",
+      subtasks,
+    });
+    source.r.tasks.update(child.id, { parentTaskId: parent.id });
+
+    const target = open("target");
+    mergeInto(target, source);
+    expect(target.r.tasks.get(child.id)?.parentTaskId).toBe(parent.id);
+    expect(target.r.tasks.get(parent.id)).toMatchObject({
+      status: "waiting",
+      subtasks: [subtasks[0]],
+    });
+  });
+
   it("covers every table but settings", () => {
     const fresh = open("fresh");
     const tables = Object.keys(dump(fresh.sqlite)).sort();

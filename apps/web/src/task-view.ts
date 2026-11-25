@@ -130,6 +130,8 @@ export function defaultTab(task: Task): TaskTab {
     return task.stage ? "output" : "context";
   }
   if (task.status === "done") return "finish";
+  // Waiting on its subtasks: the Plan tab lists them.
+  if (task.status === "waiting") return "plan";
   return "context";
 }
 
@@ -248,12 +250,13 @@ export function openQuestionCount(questions: readonly GrillQuestion[]): number {
 /**
  * Whether the user can comment on the diff's hunks: a work task waiting on
  * them at finish, triage or escalation, or a review task waiting at triage,
- * and not delivering.
+ * and not delivering. Never a task split into subtasks: it has no code of its own.
  */
 export function canCommentOnDiff(
-  task: Pick<Task, "status" | "mode" | "gate" | "delivering">,
+  task: Pick<Task, "status" | "mode" | "gate" | "delivering"> & Partial<Pick<Task, "subtasks">>,
 ): boolean {
   if (task.status !== "needs-you" || task.delivering) return false;
+  if ((task.subtasks?.length ?? 0) > 0) return false;
   if (task.mode === "review") return task.gate === "triage";
   return task.gate === "finish" || task.gate === "triage" || task.gate === "escalation";
 }
@@ -265,7 +268,7 @@ export function canCommentOnDiff(
  * comment.
  */
 export function canStepThroughDiff(
-  task: Pick<Task, "status" | "mode" | "gate" | "delivering">,
+  task: Pick<Task, "status" | "mode" | "gate" | "delivering"> & Partial<Pick<Task, "subtasks">>,
 ): boolean {
   return task.mode === "review" || canCommentOnDiff(task);
 }

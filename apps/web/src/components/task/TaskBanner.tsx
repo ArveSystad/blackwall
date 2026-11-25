@@ -1,10 +1,11 @@
 import { ciNeedsYou, IMPORT_INTERRUPTED_ERROR, type Task } from "@blackwall/shared";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { focusTaskChat } from "../../chat";
 import { cn } from "../../lib/utils";
-import { queryKeys } from "../../query";
+import { queryKeys, tasksQuery } from "../../query";
+import { subtaskProgress } from "../../subtasks";
 import { canArchive, ciBanner, gateBanner, isStoppedByUser, type TaskTab } from "../../task-view";
-import { FailedIcon, PausedIcon, StopIcon } from "../icons";
+import { FailedIcon, LinkIcon, PausedIcon, StopIcon } from "../icons";
 import { NeedsBanner } from "../NeedsBanner";
 import { Button } from "../ui/button";
 import { ErrorText } from "../ui/field";
@@ -60,7 +61,7 @@ function NeedsActions({
             disabled={action.pending}
             onClick={() => void approvePlan(action, task, planComment)}
           >
-            Approve plan
+            {task.subtasks.length > 0 ? "Approve & start subtasks" : "Approve plan"}
             <Kbd onFill>A</Kbd>
           </Button>
         </>
@@ -121,10 +122,38 @@ function NeedsActions({
   }
 }
 
+/** A task split into subtasks, waiting on them: how many are done, and that it moves on by itself. */
+function WaitingBanner({ task, onTab }: { task: Task; onTab: (tab: TaskTab) => void }) {
+  const tasks = useQuery(tasksQuery);
+  const progress = subtaskProgress(tasks.data ?? [], task.id) ?? { done: 0, total: 0 };
+  return (
+    <div className="px-5 pt-3">
+      <div
+        role="status"
+        className="bw-chamfer flex flex-wrap items-center gap-3.5 bg-sidebar px-4 py-3.5 [--bw-chamfer-line:var(--border-strong)]"
+      >
+        <LinkIcon size="lg" className="text-muted-foreground" />
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <span className="font-semibold text-foreground-strong">
+            Waiting on {progress.total} {progress.total === 1 ? "subtask" : "subtasks"},{" "}
+            {progress.done} done
+          </span>
+          <span className="text-[12.5px]">
+            Each subtask runs in its own repo. This task moves on once they are all done.
+          </span>
+        </div>
+        <Button variant="ghost" onClick={() => onTab("plan")}>
+          Show subtasks
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Needs-you banner (a gate, or failed CI on a done task with Fix CI), or the
- * interrupted / failed card with Resume (and Archive once it delivered).
- * Nothing for other states.
+ * interrupted / failed card with Resume (and Archive once it delivered), or
+ * the waiting card of a task split into subtasks. Nothing for other states.
  */
 export function TaskBanner({
   task,
@@ -281,6 +310,8 @@ export function TaskBanner({
       </div>
     );
   }
+
+  if (task.status === "waiting") return <WaitingBanner task={task} onTab={onTab} />;
 
   return error ? <div className="px-5 pt-3">{error}</div> : null;
 }

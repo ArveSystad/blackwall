@@ -21,7 +21,14 @@ export const BACKLOG_TICK_MS = 30_000;
 export const PROMOTION_RETRY_MS = 5 * 60_000;
 
 /** Task statuses that end a task's turn and may free capacity. */
-const SETTLED: readonly TaskStatus[] = ["done", "failed", "needs-you", "interrupted"];
+const SETTLED: readonly TaskStatus[] = [
+  "done",
+  "failed",
+  "needs-you",
+  "interrupted",
+  // A task waiting on its subtasks left its slot.
+  "waiting",
+];
 
 export interface BacklogRunnerSettings {
   general(): Pick<

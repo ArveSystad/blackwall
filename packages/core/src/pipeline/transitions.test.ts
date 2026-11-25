@@ -119,6 +119,21 @@ describe("afterGate", () => {
     expect(() => afterGate("questions", "revise", work)).toThrow(InvalidGateResponseError);
   });
 
+  it("splits a plan with subtasks at approval instead of implementing it", () => {
+    const split = { ...work, subtasks: 2 };
+    expect(afterGate("plan-approval", "approve", split)).toEqual({ kind: "split" });
+    expect(afterGate("plan-approval", "approve", { ...work, subtasks: 0 })).toMatchObject({
+      stage: "implement",
+    });
+    expect(afterGate("plan-approval", "revise", split)).toMatchObject({ stage: "inform" });
+  });
+
+  it("refuses a fix round at the finish of a task split into subtasks", () => {
+    const split = { ...work, subtasks: 2 };
+    expect(afterGate("finish", "approve", split)).toEqual({ kind: "deliver" });
+    expect(() => afterGate("finish", "revise", split)).toThrow(/no fix round of its own/);
+  });
+
   it("accepts or extends the loop after an escalation", () => {
     const capped = { ...work, round: MAX_FIX_ROUNDS };
     expect(afterGate("escalation", "approve", capped)).toMatchObject({ stage: "summarize" });

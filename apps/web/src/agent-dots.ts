@@ -78,7 +78,8 @@ export function gridDots(tasks: readonly Task[], active: readonly ActiveAgentSte
       subagent: null,
     };
     if (task.status !== "running") {
-      dots.push({ ...base, state: task.status });
+      // A task waiting on its subtasks shows like a queued one: faint and static.
+      dots.push({ ...base, state: task.status === "waiting" ? "queued" : task.status });
       continue;
     }
     const steps = active.filter((s) => s.taskId === task.id).sort(byCreated);

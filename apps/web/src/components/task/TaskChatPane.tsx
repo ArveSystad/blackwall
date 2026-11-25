@@ -17,6 +17,8 @@ import { Kbd } from "../ui/kbd";
 const STATUS_LINE: Record<TaskStatus, string> = {
   queued: "[--bw-chamfer-line:var(--border-strong)]",
   running: "[--bw-chamfer-line:color-mix(in_oklab,var(--st-running)_40%,transparent)]",
+  // Waiting on its subtasks: muted like queued.
+  waiting: "[--bw-chamfer-line:var(--border-strong)]",
   "needs-you": "[--bw-chamfer-line:color-mix(in_oklab,var(--st-needs)_40%,transparent)]",
   interrupted: "[--bw-chamfer-line:color-mix(in_oklab,var(--st-interrupted)_40%,transparent)]",
   failed: "[--bw-chamfer-line:color-mix(in_oklab,var(--st-failed)_40%,transparent)]",

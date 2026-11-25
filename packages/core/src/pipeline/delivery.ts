@@ -319,6 +319,9 @@ export function conflictResolutionPrompt(
  * squash, whose message the summarizer rewrites (and the task saves) when the
  * repo's commit-msg hook rejects it. A task delivered before (a Fix CI round) is not offered `open-pr`
  * again, and squashes only the commits after the pushed `origin/<branch>`.
+ * A task split into subtasks has no code of its own: it offers only its
+ * issue or Jira comment (the subtasks' pull requests), no squash and no
+ * follow-ups, which belong to the subtasks.
  */
 export function createDeliverer({
   git,
@@ -562,6 +565,13 @@ export function createDeliverer({
   ): Promise<DeliveryPlan> {
     const review = pipelineKind(task.mode) === "review";
     let offered = await actions(task, completed);
+    if (!review && task.subtasks.length > 0) {
+      return {
+        actions: offered.filter((a) => !CODE_ACTIONS.includes(a.kind)),
+        squash: null,
+        completed: completed.filter((c): c is DeliveryTarget => c !== "squash"),
+      };
+    }
     const codeStarted = CODE_ACTIONS.some((a) => completed.includes(a));
     if (!review && task.origin.kind !== "github-pr" && !codeStarted && !(await hasCommits(task))) {
       offered = offered.filter((a) => !CODE_ACTIONS.includes(a.kind));

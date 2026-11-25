@@ -116,6 +116,8 @@ describe("openDatabase", () => {
       stage: null,
       followUps: [],
       baseBranch: null,
+      parentTaskId: null,
+      subtasks: [],
     });
     expect(r.runs.listByTask("t1")).toHaveLength(1);
   });

@@ -14,6 +14,7 @@ import {
   parseFollowUpsReport,
   parseMemories,
   shortSummarySchema,
+  subtasksOutputJsonSchema,
   summaryCoreSchema,
   summaryOutputJsonSchema,
   SEVERITIES,
@@ -38,6 +39,14 @@ import { runCheckCommand, type CheckOutcome, type CheckRunner } from "./checks.j
 import { blockingFindings, planMerges } from "./findings.js";
 import { followUpsPromptSection } from "./follow-ups.js";
 import { installSecurePlaybook } from "./playbook.js";
+import {
+  canSplit,
+  hasSubtasksHeading,
+  parentTaskSection,
+  parseSubtasks,
+  subtasksExtractionPrompt,
+  subtasksPromptSection,
+} from "./subtasks.js";
 import type { RunAgentInput, StageContext, StageHandlers } from "./engine.js";
 import type { PipelineKind, StageResults } from "./transitions.js";
 
@@ -250,6 +259,10 @@ async function planReview(ctx: StageContext): Promise<StageResults["plan-review"
   const earlier = questionsByVisit(questions, steps).filter((q) => q.visit < visit);
   const open = () => openHumanQuestions(repositories.grillQuestions.listByTask(task.id));
   const remembered = memoriesFor(ctx);
+  const parent = parentTaskSection(repositories, task);
+  const keepSubtasks = canSplit(task, repositories.repos.list())
+    ? "Keep the `### Subtasks` section in step with the revised plan."
+    : "";
 
   // Earlier plan-review visits since Inform last wrote the plan; grill rounds are those the reviewers ran in.
   const sinceInform = steps
@@ -274,14 +287,19 @@ async function planReview(ctx: StageContext): Promise<StageResults["plan-review"
         section("Questions and answers", lastRound.map(describeQuestion).join("\n")),
         remembered,
         "The user has answered the reviewers' open questions. Revise the plan so it follows every answer above, and reply with the full revised plan in markdown.",
+        keepSubtasks,
       ),
     });
     ctx.updateTask({ plan: result.text });
-    return { openQuestions: open(), satisfied: rounds >= MAX_GRILL_ROUNDS };
+    return withSubtasks(
+      ctx,
+      { openQuestions: open(), satisfied: rounds >= MAX_GRILL_ROUNDS },
+      { plannerRan: true },
+    );
   }
 
   if (reviewers.length === 0 || rounds >= MAX_GRILL_ROUNDS) {
-    return { openQuestions: open(), satisfied: true };
+    return withSubtasks(ctx, { openQuestions: open(), satisfied: true }, { plannerRan: false });
   }
 
   const results = await runPanel(
@@ -291,6 +309,7 @@ async function planReview(ctx: StageContext): Promise<StageResults["plan-review"
       prompt: prompt(
         `# Task\n\n${describeOrigin(task)}`,
         section("Details", task.freeText),
+        parent,
         section("Plan", task.plan),
         section("Already answered", history.map(describeQuestion).join("\n")),
         remembered,
@@ -332,7 +351,9 @@ async function planReview(ctx: StageContext): Promise<StageResults["plan-review"
   const round = repositories.grillQuestions
     .listByTask(task.id)
     .filter((q) => q.stepId !== null && stepIds.has(q.stepId));
-  if (round.length === 0) return { openQuestions: open(), satisfied: true };
+  if (round.length === 0) {
+    return withSubtasks(ctx, { openQuestions: open(), satisfied: true }, { plannerRan: false });
+  }
 
   const numbered = round
     .map((q, i) => `${i + 1}. ${q.question}${q.needsHuman ? " (for the user)" : ""}`)
@@ -355,6 +376,7 @@ async function planReview(ctx: StageContext): Promise<StageResults["plan-review"
               "Answer null when only the user can decide; do not guess product or scope decisions.",
             ]),
         "Then revise the plan with your answers.",
+        ...(keepSubtasks ? [keepSubtasks] : []),
         'Reply with a JSON object `{ "answers": [{ "question": 1, "answer": "…" }], "plan": "<the full revised plan in markdown>" }`.',
       ].join("\n"),
     ),
@@ -379,6 +401,40 @@ async function planReview(ctx: StageContext): Promise<StageResults["plan-review"
   });
   ctx.updateTask({ plan: parsed.data.plan });
   return { openQuestions: open(), satisfied: false };
+}
+
+/**
+ * Stores the subtasks of a plan that is ready for approval. When the task can
+ * be split and the plan has a `### Subtasks` heading, the planner turns that
+ * section into data in one more step: fresh when it already ran in this visit,
+ * otherwise a resumed visit reuses the stored answer. Every satisfied review
+ * writes the field, so a revised plan replaces stale proposals.
+ */
+async function withSubtasks(
+  ctx: StageContext,
+  result: StageResults["plan-review"],
+  { plannerRan }: { plannerRan: boolean },
+): Promise<StageResults["plan-review"]> {
+  if (!result.satisfied || result.openQuestions > 0) return result;
+  const { task } = ctx;
+  const repos = ctx.repositories.repos.list();
+  if (!canSplit(task, repos) || !hasSubtasksHeading(task.plan)) {
+    ctx.updateTask({ subtasks: [] });
+    return result;
+  }
+  const reply = await ctx.runAgent({
+    agentId: single(task, "planner"),
+    prompt: prompt(
+      `# Task\n\n${describeOrigin(task)}`,
+      section("Plan", task.plan),
+      subtasksPromptSection(repos, task),
+      subtasksExtractionPrompt(),
+    ),
+    jsonSchema: subtasksOutputJsonSchema(),
+    fresh: plannerRan,
+  });
+  ctx.updateTask({ subtasks: parseSubtasks(reply.structured, { task, repos }).subtasks });
+  return result;
 }
 
 /** Step event a Checks (or setup) harness step logs when a check command starts. */
@@ -1407,12 +1463,19 @@ export function createDefaultStages({
           section("Current plan", task.plan),
           memoriesFor(ctx),
           section("Requested changes to the plan", ctx.instructions),
+          parentTaskSection(ctx.repositories, task),
           followUpsPromptSection(ctx.repositories.repos.list(), task),
+          subtasksPromptSection(ctx.repositories.repos.list(), task),
           [
             "Read the repository and write a concrete implementation plan in markdown.",
             "Follow-up tasks are a valid deliverable. When the task asks for analysis or a task breakdown, the plan may call for no code changes; it then lists the tasks to create (title, target repo id, description), following the rules above.",
             "List every proposed follow-up task as a list item under a `### Follow-up tasks` heading, so the summary carries each one over.",
-          ].join("\n"),
+            canSplit(task, ctx.repositories.repos.list())
+              ? "When the work spans several of the repos listed under Subtasks, split it into subtasks as described there."
+              : "",
+          ]
+            .filter(Boolean)
+            .join("\n"),
         ),
       });
       ctx.updateTask({ plan: result.text });

@@ -74,7 +74,9 @@ export function inRepoHolder({
     other.id !== exclude &&
     other.inRepo &&
     other.repoId === repoId &&
-    other.status !== "done";
+    other.status !== "done" &&
+    // A task waiting on its subtasks never touches its folder again.
+    other.status !== "waiting";
   const all = tasks.list();
   const claimed = claims.holder(repoId);
   if (claimed !== undefined && claimed !== exclude) {

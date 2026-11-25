@@ -5,6 +5,7 @@ import { cn } from "../lib/utils";
 const CURRENT: Record<Task["status"], string> = {
   queued: "bg-muted-foreground",
   running: "bg-running text-running shadow-glow-pip",
+  waiting: "bg-muted-foreground",
   "needs-you": "bg-needs text-needs shadow-glow-pip",
   interrupted: "bg-interrupted text-interrupted shadow-glow-pip",
   failed: "bg-failed text-failed shadow-glow-pip",

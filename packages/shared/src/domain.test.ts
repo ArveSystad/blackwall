@@ -124,6 +124,8 @@ const task = {
   shortSummary: null,
   squashMessage: null,
   followUps: [],
+  parentTaskId: null,
+  subtasks: [],
   archivedAt: null,
   ci: null,
   createdAt: now,

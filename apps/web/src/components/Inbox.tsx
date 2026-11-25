@@ -9,6 +9,7 @@ import { isPlainKey, isTypingTarget, useWindowKeydown } from "../keyboard";
 import { cn } from "../lib/utils";
 import { useLiveStatus } from "../live-status";
 import { activeAgentsQuery, reposQuery, tasksQuery } from "../query";
+import { nestSubtasks, parentOf, subtaskProgress } from "../subtasks";
 import { agentClis } from "../task-view";
 import { EmptyState } from "./EmptyState";
 import { PlusIcon, SearchIcon } from "./icons";
@@ -65,7 +66,7 @@ function TaskList({ tasks, filter }: { tasks: Task[]; filter: string }) {
   return (
     <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2">
       {GROUPS.map(({ key, label, tone }) => {
-        const list = groups[key];
+        const list = nestSubtasks(groups[key]);
         if (list.length === 0) return null;
         return (
           <section key={key} aria-label={label} className="flex flex-col gap-0.5">
@@ -98,6 +99,10 @@ function TaskList({ tasks, filter }: { tasks: Task[]; filter: string }) {
                     launch.clearError();
                     launch.archiveAll([task]);
                   }}
+                  parentTitle={
+                    task.parentTaskId === null ? undefined : (parentOf(tasks, task)?.title ?? null)
+                  }
+                  subtasks={subtaskProgress(tasks, task.id)}
                 />
               );
             })}

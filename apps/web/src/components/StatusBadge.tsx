@@ -5,6 +5,8 @@ import { cn } from "../lib/utils";
 const TONES: Record<TaskStatus, { badge: string; dot: string }> = {
   queued: { badge: "text-muted-foreground bg-muted-foreground/12", dot: "bg-muted-foreground" },
   running: { badge: "text-running bg-running/12", dot: "bg-running animate-pulse-running" },
+  // Waiting on its subtasks: no agent of its own runs, so it reads like queued.
+  waiting: { badge: "text-muted-foreground bg-muted-foreground/12", dot: "bg-muted-foreground" },
   "needs-you": {
     badge: "text-needs bg-needs/12 bw-chamfer-needs",
     dot: "bg-needs animate-blink-needs",

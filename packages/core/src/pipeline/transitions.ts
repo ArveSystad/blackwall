@@ -41,7 +41,9 @@ export type Transition =
   /** Wait for the user at `gate`; the task leaves its slot. */
   | { kind: "gate"; gate: Gate }
   /** Run the delivery actions, then the task is done. */
-  | { kind: "deliver" };
+  | { kind: "deliver" }
+  /** Start the plan's subtasks in their repos; the task waits for them. */
+  | { kind: "split" };
 
 /** Where the task is when a transition is computed. */
 export interface PipelinePosition {
@@ -51,6 +53,8 @@ export interface PipelinePosition {
   round: number;
   /** Findings that gate the loop right now (see `blockingFindings`); read by the triage gate. */
   blocking?: number;
+  /** Subtasks the plan splits into (see `Task.subtasks`); read by plan approval and finish. */
+  subtasks?: number;
 }
 
 /** Thrown when a gate response does not fit the gate or pipeline. */
@@ -71,7 +75,9 @@ export const FIRST_STAGE: Stage = "inform";
  * to Implement while blocking findings remain (at most {@link MAX_FIX_ROUNDS}
  * fix rounds, then escalate) → Summarize → [finish]. Review PR: Inform → Code
  * review → Aggregate → [triage] → post, or back to Code review with the
- * user's instruction.
+ * user's instruction. A plan split into subtasks leaves the pipeline at
+ * [plan approval]: the subtasks start and the task waits for them, then
+ * finishes (through [finish] when it has an issue to comment on).
  */
 export function afterStage<S extends Stage>(
   stage: S,
@@ -130,7 +136,7 @@ export function afterStage<S extends Stage>(
 export function afterGate(
   gate: Gate,
   decision: GateDecision,
-  { kind, round, blocking }: PipelinePosition,
+  { kind, round, blocking, subtasks = 0 }: PipelinePosition,
 ): Transition {
   const go = (next: Stage, nextRound = round): Transition => ({
     kind: "stage",
@@ -152,7 +158,8 @@ export function afterGate(
       }
       return go("plan-review");
     case "plan-approval":
-      return decision === "approve" ? go("implement", 0) : go("inform");
+      if (decision !== "approve") return go("inform");
+      return subtasks > 0 ? { kind: "split" } : go("implement", 0);
     case "triage":
       if (decision !== "approve") {
         throw new InvalidGateResponseError("Triage the findings, then approve the fix round");
@@ -163,6 +170,11 @@ export function afterGate(
       // Approve: accept the code as is. Revise: one more fix round.
       return decision === "approve" ? go("summarize") : go("implement", round + 1);
     case "finish":
+      if (decision !== "approve" && subtasks > 0) {
+        throw new InvalidGateResponseError(
+          "A task split into subtasks has no fix round of its own",
+        );
+      }
       return decision === "approve" ? { kind: "deliver" } : go("implement", round + 1);
   }
 }

@@ -31,6 +31,7 @@ export function uiStageIndex(task: Pick<Task, "stage" | "status">): number {
 export const STATUS_LABELS: Record<TaskStatus, string> = {
   queued: "Queued",
   running: "Running",
+  waiting: "Waiting",
   "needs-you": "Needs you",
   interrupted: "Interrupted",
   failed: "Failed",
@@ -70,7 +71,7 @@ export function isNeedsYou(task: Pick<Task, "status" | "archivedAt" | "ci">): bo
 export interface InboxGroups {
   /** Waiting at a gate, or done with failed CI. */
   needsYou: Task[];
-  /** Running and queued. */
+  /** Running, queued, and waiting on their subtasks. */
   running: Task[];
   /** Interrupted, failed and done, without archived tasks. */
   recent: Task[];
@@ -86,7 +87,9 @@ export function groupTasks(tasks: readonly Task[]): InboxGroups {
     .toSorted((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
   return {
     needsYou: sorted.filter(isNeedsYou),
-    running: sorted.filter((t) => t.status === "running" || t.status === "queued"),
+    running: sorted.filter(
+      (t) => t.status === "running" || t.status === "queued" || t.status === "waiting",
+    ),
     recent: sorted.filter(
       (t) =>
         (t.status === "interrupted" || t.status === "failed" || t.status === "done") &&

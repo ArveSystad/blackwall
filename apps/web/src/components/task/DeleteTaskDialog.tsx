@@ -1,9 +1,10 @@
 import type { BacklogItemView, Task } from "@blackwall/shared";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { deleteTask } from "../../api";
 import { clearTaskDrafts } from "../../drafts";
 import { forgetTask } from "../../live";
-import { queryKeys } from "../../query";
+import { queryKeys, tasksQuery } from "../../query";
+import { deleteSubtasksNote } from "../../subtasks";
 import { deleteTaskCopy } from "../../task-view";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { useArchive } from "../use-archive-launches";
@@ -12,7 +13,8 @@ import { useArchive } from "../use-archive-launches";
  * Confirms deleting a task and says what goes with it. On success the task
  * leaves the cache at once (the `task.removed` event does the same for every
  * other tab), and an open task view returns to the inbox, while the task's
- * inbox and Backlog rows crumble out red.
+ * inbox and Backlog rows crumble out red. Deleting a split task, or the last
+ * subtask of a waiting one, also says what happens to the others.
  */
 export function DeleteTaskDialog({ task, onClose }: { task: Task; onClose: () => void }) {
   const queryClient = useQueryClient();
@@ -20,6 +22,8 @@ export function DeleteTaskDialog({ task, onClose }: { task: Task; onClose: () =>
   const copy = deleteTaskCopy(task);
   const branch = task.branch && copy.includes(task.branch) ? task.branch : null;
   const [before, after] = branch ? copy.split(branch, 2) : [copy, ""];
+  const tasks = useQuery(tasksQuery);
+  const note = deleteSubtasksNote(tasks.data ?? [], task);
 
   return (
     <ConfirmDialog
@@ -40,6 +44,7 @@ export function DeleteTaskDialog({ task, onClose }: { task: Task; onClose: () =>
       {before}
       {branch && <span className="mono text-foreground">{branch}</span>}
       {after}
+      {note && ` ${note}`}
     </ConfirmDialog>
   );
 }

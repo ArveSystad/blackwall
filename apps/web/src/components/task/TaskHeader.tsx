@@ -16,8 +16,10 @@ import {
   reposQuery,
   runStepsQuery,
   taskRunsQuery,
+  tasksQuery,
   usageQuery,
 } from "../../query";
+import { parentOf } from "../../subtasks";
 import { cliEnvNames } from "../../settings-forms";
 import { formatUptime } from "../../system-info";
 import { activeTimeMs, wallClockMs } from "../../timing";
@@ -27,7 +29,7 @@ import { agentClis, canArchive, canStop, originUrl, taskAgentIds } from "../../t
 import { AgentTile } from "../AgentTile";
 import { CiBadge } from "../CiBadge";
 import { DecryptText } from "../DecryptText";
-import { BacklogIcon, BranchIcon, ChevronRightIcon, StopIcon, TrashIcon } from "../icons";
+import { BacklogIcon, BranchIcon, ChevronRightIcon, LinkIcon, StopIcon, TrashIcon } from "../icons";
 import { ORIGIN_ICONS, PR_MODE_LABELS } from "../origins";
 import { StageStepper } from "../StageStepper";
 import { StatusBadge } from "../StatusBadge";
@@ -121,7 +123,8 @@ function startedLabel(date: Date): string {
 }
 
 /**
- * Task header: origin, title with a breadcrumb back to the repo's backlog,
+ * Task header: origin, a link to the parent task for a subtask, title with a breadcrumb back
+ * to the repo's backlog,
  * branch, agents, the tokens and cost used so far, the time spent once done (with the clock
  * paused while the task waited on you), the agents' trust (with a note when steps of
  * the latest run ran at another level), and the stage stepper with the review round, plus Stop
@@ -150,6 +153,8 @@ export function TaskHeader({
   const connections = useQuery(connectionsQuery);
   const agentMap = useAgentLibrary();
   const repo = repos.data?.find((r) => r.id === task.repoId);
+  const tasks = useQuery(tasksQuery);
+  const parent = parentOf(tasks.data ?? [], task);
   const url = originUrl(task, connections.data ?? []);
   const OriginIcon = ORIGIN_ICONS[task.origin.kind];
   const kindLabel =
@@ -193,6 +198,19 @@ export function TaskHeader({
         <time className="text-muted-foreground" dateTime={task.createdAt.toISOString()}>
           {startedLabel(task.createdAt)}
         </time>
+        {parent && (
+          <>
+            <span className="text-faint">·</span>
+            <Link
+              to="/tasks/$taskId"
+              params={{ taskId: parent.id }}
+              className="inline-flex min-w-0 items-center gap-1 text-muted-foreground no-underline hover:text-foreground hover:underline focus-visible:shadow-ring focus-visible:outline-none"
+            >
+              <LinkIcon size="sm" className="shrink-0" />
+              <span className="max-w-64 truncate">Subtask of {parent.title}</span>
+            </Link>
+          </>
+        )}
         <span className="flex-1" />
         {canStop(task) && (
           <Button

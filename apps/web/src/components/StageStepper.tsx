@@ -7,6 +7,7 @@ import { useStageAdvance } from "./use-stage-advance";
 const CURRENT: Record<Task["status"], string> = {
   queued: "border-cyan text-cyan bg-cyan/14 shadow-glow-cyan",
   running: "border-running text-running bg-running/14 shadow-glow-cyan",
+  waiting: "border-border-strong text-muted-foreground bg-muted-foreground/12",
   "needs-you": "border-needs text-needs bg-needs/14 shadow-glow-needs",
   interrupted: "border-interrupted text-interrupted bg-interrupted/14",
   failed: "border-failed text-failed bg-failed/14",

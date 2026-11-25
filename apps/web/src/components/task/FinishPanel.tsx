@@ -17,6 +17,7 @@ import { deleteFinding, refreshPullRequest } from "../../api";
 import { isModKey, isTypingTarget, modKeyLabel, useWindowKeydown } from "../../keyboard";
 import { queryKeys, taskDeliveryQuery } from "../../query";
 import { errorMessage } from "../../settings-forms";
+import { isSplitParent } from "../../subtasks";
 import { ranUnrestricted } from "../../trust";
 import {
   canDeleteFinding,
@@ -42,6 +43,7 @@ import { Button } from "../ui/button";
 import { ErrorText } from "../ui/field";
 import { Kbd } from "../ui/kbd";
 import { answerGate, fixCi, fixPrComments, reReview } from "./actions";
+import { StartedSubtasks } from "./SubtaskList";
 import type { TaskData } from "./use-task-data";
 import type { TaskAction } from "./use-task-action";
 
@@ -86,18 +88,28 @@ function Summary({ task, data }: { task: Task; data: TaskData }) {
           </span>
         )}
       </div>
-      <div className="flex flex-col gap-2">
-        <span className="label text-muted-foreground">Summary</span>
-        {task.summary ? (
-          <Markdown className="max-w-[680px]">{task.summary}</Markdown>
-        ) : (
-          <p className="m-0 text-muted-foreground">
-            {task.mode === "review"
-              ? "Review PR tasks post their findings; there is no summary."
-              : "Summary pending. The summarizer writes it before finish."}
+      {isSplitParent(task) ? (
+        <div className="flex max-w-[680px] flex-col gap-2">
+          <span className="label text-muted-foreground">Subtasks</span>
+          <StartedSubtasks task={task} />
+          <p className="m-0 text-meta text-muted-foreground">
+            Each subtask has its own summary and delivery.
           </p>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <span className="label text-muted-foreground">Summary</span>
+          {task.summary ? (
+            <Markdown className="max-w-[680px]">{task.summary}</Markdown>
+          ) : (
+            <p className="m-0 text-muted-foreground">
+              {task.mode === "review"
+                ? "Review PR tasks post their findings; there is no summary."
+                : "Summary pending. The summarizer writes it before finish."}
+            </p>
+          )}
+        </div>
+      )}
       {task.status === "done" && (
         <div className="flex flex-col gap-2">
           <span className="label text-muted-foreground">Delivered</span>
@@ -378,6 +390,8 @@ export function Outbound({
     .filter((k) => k !== "create-tasks" || followUps.size > 0);
   const reviewing = isReviewTriage(task);
   const busy = finishBusy(task, action.pending);
+  // A split task has no code of its own: no squash and no fix round.
+  const split = isSplitParent(task);
 
   function confirm() {
     if (busy) return;
@@ -424,6 +438,12 @@ export function Outbound({
   return (
     <>
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto px-3.5 py-3">
+        {split && plan.actions.length > 0 && (
+          <p className="m-0 px-1 text-muted-foreground">
+            Posts the subtasks&apos; pull requests to the issue. Approving finishes this task.
+            Untick the comment to finish without posting.
+          </p>
+        )}
         {plan.actions.length === 0 && (
           <p className="m-0 px-1 text-muted-foreground">
             Wall secure. Nothing leaves. Confirming marks it done.
@@ -436,7 +456,7 @@ export function Outbound({
             was dropped.
           </p>
         )}
-        {plan.squash && (
+        {plan.squash && !split && (
           <OutboundAction
             optional
             title={`Squash ${plan.squash.commits} commits into one`}
@@ -531,16 +551,20 @@ export function Outbound({
         </Button>
         {!reviewing && (
           <div className="flex flex-wrap justify-between gap-2">
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={busy}
-              onClick={() =>
-                void answerGate(action, task, { decision: "revise" }, "Back to code review")
-              }
-            >
-              One more fix round
-            </Button>
+            {split ? (
+              <span />
+            ) : (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy}
+                onClick={() =>
+                  void answerGate(action, task, { decision: "revise" }, "Back to code review")
+                }
+              >
+                One more fix round
+              </Button>
+            )}
             {chosen.length > 0 && (
               <Button
                 size="sm"

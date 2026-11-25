@@ -326,10 +326,17 @@ export async function startBlackwall(config: BlackwallConfig): Promise<RunningBl
       prBranchOwned: github.prBranchOwned,
       worktreeGuard: git,
       setup: createWorktreeSetup({ git }),
-      // Autonomous mode covers the repo's backlog tasks only, read live at each gate.
-      autonomous: (task) =>
-        settings.repoBacklogRunner(task.repoId).autonomous &&
-        repositories.backlogItems.list(task.repoId).some((item) => item.taskId === task.id),
+      // Autonomous mode covers the repo's backlog tasks only, read live at each gate, and
+      // the subtasks of an autonomous task in repos that are autonomous too.
+      autonomous: function autonomous(task): boolean {
+        if (!settings.repoBacklogRunner(task.repoId).autonomous) return false;
+        if (repositories.backlogItems.list(task.repoId).some((item) => item.taskId === task.id)) {
+          return true;
+        }
+        const parent =
+          task.parentTaskId === null ? undefined : repositories.tasks.get(task.parentTaskId);
+        return parent !== undefined && autonomous(parent);
+      },
       renaming: renameLocks,
     });
     // Runs before the database closes: kills the agent CLIs and marks their steps interrupted.

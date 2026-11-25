@@ -68,6 +68,14 @@ describe("groupTasks", () => {
     expect(needsYouCount([ciFailed])).toBe(1);
   });
 
+  it("puts a task waiting on its subtasks with the running ones", () => {
+    const waiting = makeTask({ status: "waiting" });
+    const groups = groupTasks([waiting]);
+    expect(groups.running).toEqual([waiting]);
+    expect(groups.needsYou).toEqual([]);
+    expect(groups.recent).toEqual([]);
+  });
+
   it("keeps archived and passing-CI done tasks out of needs-you", () => {
     const archived = makeTask({
       status: "done",

@@ -98,10 +98,17 @@ export const highFinding: ReviewFinding = {
  * reviewers (`plan-review`), the planner's answers (`plan-answers`) and the
  * planner folding the user's answers into the plan (`plan-fold`); Checks runs
  * the summarizer's commit message (`commit`) and its rewrites after a
- * commit-msg hook rejected one (`commit-rewrite`).
+ * commit-msg hook rejected one (`commit-rewrite`). The planner turning a
+ * plan's `### Subtasks` section into data is `subtasks`.
  */
 export type Call =
-  Stage | "plan-answers" | "plan-fold" | "commit" | "commit-rewrite" | "resolve-conflicts";
+  | Stage
+  | "plan-answers"
+  | "plan-fold"
+  | "commit"
+  | "commit-rewrite"
+  | "resolve-conflicts"
+  | "subtasks";
 
 export function stageOf(options: AgentRunOptions): Call {
   if (options.prompt === RESUME_PROMPT) return "implement";
@@ -114,6 +121,9 @@ export function stageOf(options: AgentRunOptions): Call {
   if (options.prompt.includes("Reviewers' questions")) return "plan-answers";
   if (options.prompt.includes("The user has answered")) return "plan-fold";
   if (options.prompt.includes("Summarize the changes")) return "summarize";
+  if (options.prompt.includes("Return the items under the plan's `### Subtasks` heading")) {
+    return "subtasks";
+  }
   if (options.jsonSchema) return "code-review";
   if (options.prompt.includes("write a concrete implementation plan")) return "inform";
   return "implement";

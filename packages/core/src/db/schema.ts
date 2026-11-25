@@ -37,6 +37,7 @@ import {
   type FollowUp,
   type RoleAgents,
   type Stage,
+  type Subtask,
   type TaskCi,
   type TaskOrigin,
 } from "@blackwall/shared";
@@ -239,6 +240,15 @@ export const tasks = sqliteTable(
       .$type<FollowUp[]>()
       .notNull()
       .default(sql`'[]'`),
+    /** The task this one was split from at plan approval; null when it is not a subtask. */
+    parentTaskId: text("parent_task_id").references((): AnySQLiteColumn => tasks.id, {
+      onDelete: "set null",
+    }),
+    /** The subtasks the planner split the plan into; started when the plan is approved. */
+    subtasks: text("subtasks", { mode: "json" })
+      .$type<Subtask[]>()
+      .notNull()
+      .default(sql`'[]'`),
     /** When the user archived the done task; null while it is listed. */
     archivedAt: timestamp("archived_at"),
     /** CI on the commit the task last pushed; null when it was never watched. */
@@ -248,7 +258,11 @@ export const tasks = sqliteTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index("tasks_repo_idx").on(t.repoId), index("tasks_branch_idx").on(t.repoId, t.branch)],
+  (t) => [
+    index("tasks_repo_idx").on(t.repoId),
+    index("tasks_branch_idx").on(t.repoId, t.branch),
+    index("tasks_parent_idx").on(t.parentTaskId),
+  ],
 );
 
 /** Per-repo backlog: work parked until it is promoted to a task. */

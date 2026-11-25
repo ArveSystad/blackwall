@@ -318,6 +318,13 @@ describe("diff comments", () => {
     }
   });
 
+  it("does not offer comments on a task split into subtasks", () => {
+    const subtasks = [{ repoId: "r2", title: "Change api", description: "Do it" }];
+    expect(canCommentOnDiff(makeTask({ status: "needs-you", gate: "finish", subtasks }))).toBe(
+      false,
+    );
+  });
+
   it("does not offer comments at the grill-type gates", () => {
     for (const gate of ["questions", "plan-approval"] as const) {
       expect(canCommentOnDiff(makeTask({ status: "needs-you", gate }))).toBe(false);

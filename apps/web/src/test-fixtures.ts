@@ -41,6 +41,8 @@ export function makeTask(overrides: Partial<Task> = {}): Task {
     shortSummary: null,
     squashMessage: null,
     followUps: [],
+    parentTaskId: null,
+    subtasks: [],
     archivedAt: null,
     ci: null,
     createdAt: "2026-10-08T10:00:00.000Z",

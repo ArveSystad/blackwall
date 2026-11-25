@@ -950,6 +950,57 @@ describe("GitHub issue tasks", () => {
   });
 });
 
+describe("tasks split into subtasks", () => {
+  const subtasks = [
+    { repoId: "web", title: "Add the endpoint", description: "Serve it." },
+    { repoId: "api", title: "Call the endpoint", description: "Use it." },
+  ];
+  const report =
+    "Solved with these pull requests:\n\n- api: Add it — https://github.com/acme/api/pull/3";
+  const followUps = [{ title: "Later", description: "Do it later", repoId: null }];
+
+  it.each([
+    [
+      "Jira",
+      {
+        branch: "feature/abc-1-fix-login",
+        origin: { kind: "jira-issue" as const, key: "ABC-1", connectionId: null },
+      },
+      {
+        kind: "jira-comment",
+        key: "ABC-1",
+        url: "https://acme.atlassian.net/browse/ABC-1",
+        body: report,
+      },
+    ],
+    [
+      "GitHub issue",
+      {
+        branch: "feature/7-fix-login",
+        origin: {
+          kind: "github-issue" as const,
+          url: "https://github.com/acme/app/issues/7",
+          owner: "acme",
+          repo: "app",
+          number: 7,
+          connectionId: null,
+        },
+      },
+      { kind: "issue-comment", url: "https://github.com/acme/app/issues/7", body: report },
+    ],
+  ])(
+    "offers a %s parent only its comment, with the subtasks' report",
+    async (_, patch, comment) => {
+      const { task } = await seed(
+        { ...patch, subtasks, followUps, shortSummary: report },
+        { remoteUrl: "https://github.com/acme/app.git" },
+      );
+      const { deliverer: d } = deliverer();
+      expect(await d.plan(task, [])).toEqual({ actions: [comment], squash: null, completed: [] });
+    },
+  );
+});
+
 describe("pull request tasks", () => {
   const pr = {
     kind: "github-pr" as const,

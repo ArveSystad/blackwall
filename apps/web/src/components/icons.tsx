@@ -228,3 +228,8 @@ export const CodeIcon = icon(<path d="M5.5 4.5 2 8l3.5 3.5M10.5 4.5 14 8l-3.5 3.
 export const FileIcon = icon(<path d="M4 2h5l3 3v9H4zM9 2v3h3" />);
 
 export const FolderIcon = icon(<path d="M2 4.5V13h12V6H7.5L6 4.5z" />);
+
+/** Two chain links: a subtask's tie to its parent task. */
+export const LinkIcon = icon(
+  <path d="M6.5 9.5 9.5 6.5M7 4.5l1-1a2.5 2.5 0 0 1 3.5 3.5l-1 1M9 11.5l-1 1A2.5 2.5 0 0 1 4.5 9l1-1" />,
+);
